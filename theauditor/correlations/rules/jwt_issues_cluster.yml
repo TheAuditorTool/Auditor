@@ -1,0 +1,10 @@
+name: "JWT Issues Factual Cluster"
+description: "Multiple tools detected patterns consistent with insecure JWT implementation."
+confidence: 0.90
+co_occurring_facts:
+  - tool: "patterns"
+    pattern: "jwt"
+  - tool: "security"
+    pattern: "HS256"
+  - tool: "lint"
+    pattern: "jwt"

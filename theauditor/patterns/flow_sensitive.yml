@@ -1,0 +1,116 @@
+# Flow-sensitive patterns for ordering bugs, deadlocks, and resource management
+patterns:
+  # Lock ordering and deadlock patterns
+  - name: "nested-locks"
+    description: "Nested lock acquisitions - potential deadlock risk"
+    regex: "(lock|Lock|mutex|Mutex)\\.(acquire|lock).*\\n.*?(lock|Lock|mutex|Mutex)\\.(acquire|lock)"
+    languages: ["python", "java", "c#", "c++", "go"]
+    severity: "critical"
+    
+  - name: "lock-order-ab-ba"
+    description: "Locks acquired in different orders - classic AB-BA deadlock"
+    regex: "(lockA|mutexA|lock1).*?(lockB|mutexB|lock2).*?\\|.*?(lockB|mutexB|lock2).*?(lockA|mutexA|lock1)"
+    languages: ["*"]
+    severity: "critical"
+    
+  - name: "lock-no-timeout"
+    description: "Lock acquisition without timeout - infinite wait risk"
+    regex: "\\.(acquire|lock|Lock)\\(\\s*\\)"
+    languages: ["python", "java", "c#"]
+    severity: "high"
+    
+  # Resource lifecycle patterns
+  - name: "file-no-close-finally"
+    description: "File opened without close in finally/defer/using block"
+    regex: "(?<!with\\s)open\\([^)]+\\)(?!.*?(finally|defer|using).*?close)"
+    languages: ["python", "java", "go", "c#"]
+    severity: "high"
+    
+  - name: "connection-no-close"
+    description: "Database/network connection without explicit close"
+    regex: "(connect|Connect|createConnection|getConnection)\\([^)]*\\)(?!.*?(close|disconnect|release))"
+    languages: ["*"]
+    severity: "high"
+    
+  - name: "transaction-no-end"
+    description: "Transaction begin without commit/rollback"
+    regex: "(begin|beginTransaction|startTransaction)\\((?!.*?(commit|rollback|end))"
+    languages: ["*"]
+    severity: "high"
+    
+  # Async/concurrent patterns
+  - name: "promise-no-catch"
+    description: "Promise chain without error handling"
+    regex: "\\.then\\([^)]*\\)(?!\\.catch)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "goroutine-no-sync"
+    description: "Goroutine launched without synchronization"
+    regex: "go\\s+(?:func|\\w+)\\((?!.*?(WaitGroup|chan|sync\\.))"
+    languages: ["go"]
+    severity: "high"
+    
+  - name: "thread-no-join"
+    description: "Thread started but never joined"
+    regex: "(Thread|thread)\\.(start|Start)\\((?!.*?(join|Join|wait))"
+    languages: ["python", "java", "c#"]
+    severity: "high"
+    
+  # Channel and queue patterns
+  - name: "channel-no-close"
+    description: "Channel created but never closed"
+    regex: "make\\(chan\\s+(?!.*?close\\()"
+    languages: ["go"]
+    severity: "medium"
+    
+  - name: "blocking-channel-in-select"
+    description: "Blocking channel operation inside select without default"
+    regex: "select\\s*\\{[^}]*<-[^}]*(?!default:)"
+    languages: ["go"]
+    severity: "medium"
+    
+  # Initialization order patterns
+  - name: "field-use-before-init"
+    description: "Class field used in constructor before initialization"
+    regex: "constructor\\([^)]*\\)\\s*\\{[^}]*this\\.(\\w+)[^=]*=[^}]*this\\.\\1\\s*="
+    languages: ["javascript", "typescript", "java"]
+    severity: "high"
+    
+  - name: "singleton-race"
+    description: "Singleton pattern without proper synchronization"
+    regex: "if\\s*\\(!?\\s*instance\\)\\s*\\{[^}]*instance\\s*=(?!.*synchronized|lock|mutex)"
+    languages: ["*"]
+    severity: "critical"
+    
+  # Critical section patterns
+  - name: "shared-write-no-sync"
+    description: "Write to shared/static variable without synchronization"
+    regex: "(static|shared|global|class)\\s+\\w+\\s*=(?!.*(synchronized|lock|mutex|atomic))"
+    languages: ["*"]
+    severity: "high"
+    
+  - name: "double-checked-lock-broken"
+    description: "Double-checked locking without volatile/memory barrier"
+    regex: "if\\s*\\([^)]*==\\s*null\\)\\s*\\{[^}]*synchronized[^}]*if\\s*\\([^)]*==\\s*null\\)(?!.*volatile)"
+    languages: ["java", "c#"]
+    severity: "critical"
+    
+  # Additional resource cleanup patterns from implement_as_patternYML.py
+  - name: "socket-no-close"
+    description: "Socket opened without proper cleanup"
+    regex: "(?:socket|Socket|createSocket|new\\s+Socket)\\([^)]*\\)(?!.*?(close|end|destroy|disconnect))"
+    languages: ["*"]
+    severity: "high"
+    
+  - name: "stream-no-close"
+    description: "Stream created without cleanup in finally/using/defer"
+    regex: "(?:createReadStream|createWriteStream|pipe|pipeline)\\([^)]*\\)(?!.*?(finally|defer|using|close|end|destroy))"
+    languages: ["javascript", "typescript", "java", "python"]
+    severity: "high"
+    
+  - name: "worker-no-terminate"
+    description: "Worker thread/process created but never terminated"
+    regex: "(?:Worker|new\\s+Worker|cluster\\.fork|child_process\\.(?:spawn|fork|exec))\\([^)]*\\)(?!.*?(terminate|kill|disconnect|close))"
+    languages: ["javascript", "typescript", "python"]
+    severity: "medium"

@@ -1,0 +1,10 @@
+name: "Deadlock Factual Cluster"
+description: "Multiple tools detected patterns consistent with a potential deadlock."
+confidence: 0.85
+co_occurring_facts:
+  - tool: "graph"
+    pattern: "mutex"
+  - tool: "patterns"
+    pattern: "lock"
+  - tool: "taint_analyzer"
+    pattern: "circular"

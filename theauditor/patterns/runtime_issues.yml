@@ -1,0 +1,62 @@
+# Runtime issue patterns that indicate potential race conditions, deadlocks, and concurrency issues
+patterns:
+  - name: "check-then-act"
+    description: "Time-of-check-time-of-use (TOCTOU) race condition pattern"
+    regex: "if.*\\b(exists?|has|contains|includes)\\b.*then.*\\b(create|add|insert|write)\\b"
+    languages: ["*"]
+    severity: "critical"
+    
+  - name: "shared-state-no-lock"
+    description: "Shared mutable state without proper locking"
+    regex: "(global|static|class|shared|@@)\\s*\\w+\\s*=(?!.*\\b(lock|mutex|synchronized|Lock|Mutex|sync)\\b)"
+    languages: ["python", "java", "c#", "go", "ruby", "javascript"]
+    severity: "high"
+    
+  - name: "async-without-await"
+    description: "Async function call without await - potential race condition"
+    regex: "(?<!await\\s)\\b\\w+Async\\(|(?<!await\\s)\\basync\\s+\\w+\\(.*\\)(?!\\s*\\.then)"
+    languages: ["javascript", "typescript", "python", "c#"]
+    severity: "high"
+    
+  - name: "parallel-writes-no-sync"
+    description: "Parallel write operations without synchronization"
+    regex: "(Promise\\.all|asyncio\\.gather|parallel|concurrent).*\\b(save|update|insert|write|delete|remove)\\b"
+    languages: ["javascript", "typescript", "python"]
+    severity: "critical"
+    
+  - name: "double-checked-locking"
+    description: "Double-checked locking anti-pattern (often incorrect)"
+    regex: "if\\s*\\(!.*\\)\\s*\\{[^}]*lock[^}]*if\\s*\\(!.*\\)"
+    languages: ["java", "c++", "c#"]
+    severity: "high"
+    
+  - name: "sleep-in-loop"
+    description: "Sleep/delay in loop - potential performance issue or race condition"
+    regex: "(while|for).*\\{[^}]*(sleep|delay|setTimeout|wait)\\b"
+    languages: ["*"]
+    severity: "medium"
+    
+  - name: "retry-without-backoff"
+    description: "Retry logic without exponential backoff"
+    regex: "(retry|attempt|tries)(?!.*\\b(backoff|exponential|delay.*\\*|sleep.*\\*)).*\\b(while|for)\\b"
+    languages: ["*"]
+    severity: "medium"
+    
+  - name: "unsafe-random-concurrency"
+    description: "Using non-thread-safe random in concurrent context"
+    regex: "(thread|Thread|async|parallel|concurrent).*\\b(random|Random|rand)\\b(?!.*ThreadLocal|thread_local)"
+    languages: ["java", "python", "c++", "go"]
+    severity: "medium"
+    
+  # Additional concurrency patterns from implement_as_patternYML.py
+  - name: "unprotected-global-increment"
+    description: "Global/shared counter increment without synchronization"
+    regex: "(?i)(?:global|shared|static|class|@@)\\s*\\w+\\s*(?:\\+\\+|\\-\\-|\\+=|\\-=)(?!.*\\b(?:lock|Lock|mutex|Mutex|synchronized|atomic|Atomic|Interlocked)\\b)"
+    languages: ["*"]
+    severity: "critical"
+    
+  - name: "shared-collection-mutation"
+    description: "Shared collection (dict/map/list) modified without synchronization"
+    regex: "(?i)(?:shared|global|static|class)\\s*(?:dict|map|list|array|collection|hash|HashMap|ArrayList)\\s*\\[.*\\]\\s*="
+    languages: ["python", "java", "javascript", "go", "ruby"]
+    severity: "high"

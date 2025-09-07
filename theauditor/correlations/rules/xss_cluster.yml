@@ -1,0 +1,10 @@
+name: "XSS Factual Cluster"
+description: "Multiple tools detected patterns consistent with a Cross-Site Scripting (XSS) vulnerability."
+confidence: 0.90
+co_occurring_facts:
+  - tool: "taint_analyzer"
+    pattern: "xss"
+  - tool: "patterns"
+    pattern: "(innerHTML|dangerouslySetInnerHTML)"
+  - tool: "lint"
+    pattern: "xss"

@@ -1,0 +1,10 @@
+name: "Race Condition Factual Cluster"
+description: "Multiple tools detected patterns consistent with a potential race condition."
+confidence: 0.75
+co_occurring_facts:
+  - tool: "graph"
+    pattern: "concurrent"
+  - tool: "patterns"
+    pattern: "async"
+  - tool: "taint_analyzer"
+    pattern: "shared_state"

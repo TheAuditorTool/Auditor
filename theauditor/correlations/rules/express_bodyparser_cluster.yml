@@ -1,0 +1,10 @@
+name: "Express Body-Parser Factual Cluster"
+description: "Multiple tools detected patterns consistent with insecure body-parser configuration in Express."
+confidence: 0.75
+co_occurring_facts:
+  - tool: "framework_detector"
+    pattern: "express"
+  - tool: "patterns"
+    pattern: "body-parser"
+  - tool: "security"
+    pattern: "no_limit"

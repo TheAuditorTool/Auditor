@@ -1,0 +1,323 @@
+"""AST parser using Tree-sitter for multi-language support.
+
+This module provides true structural code analysis using Tree-sitter,
+enabling high-fidelity pattern detection that understands code semantics
+rather than just text matching.
+"""
+
+import ast
+import hashlib
+import json
+import os
+import re
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Optional, List, Dict, Union
+
+from theauditor.js_semantic_parser import get_semantic_ast, get_semantic_ast_batch
+from theauditor.ast_patterns import ASTPatternMixin
+from theauditor.ast_extractors import ASTExtractorMixin
+
+
+@dataclass
+class ASTMatch:
+    """Represents an AST pattern match."""
+
+    node_type: str
+    start_line: int
+    end_line: int
+    start_col: int
+    snippet: str
+    metadata: Dict[str, Any] = None
+
+
+class ASTParser(ASTPatternMixin, ASTExtractorMixin):
+    """Multi-language AST parser using Tree-sitter for structural analysis."""
+
+    def __init__(self):
+        """Initialize parser with Tree-sitter language support."""
+        self.has_tree_sitter = False
+        self.parsers = {}
+        self.languages = {}
+        self.project_type = None  # Cache project type detection
+        
+        # Try to import tree-sitter and language bindings
+        try:
+            import tree_sitter
+            self.tree_sitter = tree_sitter
+            self.has_tree_sitter = True
+            self._init_tree_sitter_parsers()
+        except ImportError:
+            print("Warning: Tree-sitter not available. Install with: pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-typescript")
+
+    def _init_tree_sitter_parsers(self):
+        """Initialize Tree-sitter language parsers with proper bindings."""
+        if not self.has_tree_sitter:
+            return
+        
+        # Use tree-sitter-language-pack for all languages
+        try:
+            from tree_sitter_language_pack import get_language, get_parser
+            
+            # Python parser
+            try:
+                python_lang = get_language("python")
+                python_parser = get_parser("python")
+                self.parsers["python"] = python_parser
+                self.languages["python"] = python_lang
+            except Exception as e:
+                # Python has built-in fallback, so we can continue with a warning
+                print(f"Warning: Failed to initialize Python parser: {e}")
+                print("         AST analysis for Python will use built-in parser as fallback.")
+            
+            # JavaScript parser (CRITICAL - must fail fast)
+            try:
+                js_lang = get_language("javascript")
+                js_parser = get_parser("javascript")
+                self.parsers["javascript"] = js_parser
+                self.languages["javascript"] = js_lang
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load tree-sitter grammar for JavaScript: {e}\n"
+                    "This is often due to missing build tools or corrupted installation.\n"
+                    "Please try: pip install --force-reinstall tree-sitter-language-pack\n"
+                    "Or install with AST support: pip install -e '.[ast]'"
+                )
+            
+            # TypeScript parser (CRITICAL - must fail fast)
+            try:
+                ts_lang = get_language("typescript")
+                ts_parser = get_parser("typescript")
+                self.parsers["typescript"] = ts_parser
+                self.languages["typescript"] = ts_lang
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load tree-sitter grammar for TypeScript: {e}\n"
+                    "This is often due to missing build tools or corrupted installation.\n"
+                    "Please try: pip install --force-reinstall tree-sitter-language-pack\n"
+                    "Or install with AST support: pip install -e '.[ast]'"
+                )
+                
+        except ImportError as e:
+            # If tree-sitter is installed but language pack is not, this is a critical error
+            # The user clearly intends to use tree-sitter, so we should fail loudly
+            print(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
+            print("This means tree-sitter AST analysis cannot work properly.")
+            print("Please install with: pip install tree-sitter-language-pack")
+            print("Or install TheAuditor with full AST support: pip install -e '.[ast]'")
+            # Set flags to indicate no language support
+            self.has_tree_sitter = False
+            # Don't raise - allow fallback to regex-based parsing
+
+    def _detect_project_type(self) -> str:
+        """Detect the primary project type based on manifest files.
+        
+        Returns:
+            'polyglot' if multiple language manifest files exist
+            'javascript' if only package.json exists
+            'python' if only Python manifest files exist
+            'go' if only go.mod exists
+            'unknown' otherwise
+        """
+        if self.project_type is not None:
+            return self.project_type
+        
+        # Check all manifest files first
+        has_js = Path("package.json").exists()
+        has_python = (Path("requirements.txt").exists() or 
+                      Path("pyproject.toml").exists() or 
+                      Path("setup.py").exists())
+        has_go = Path("go.mod").exists()
+        
+        # Determine project type based on combinations
+        if has_js and has_python:
+            self.project_type = "polyglot"  # NEW: Properly handle mixed projects
+        elif has_js and has_go:
+            self.project_type = "polyglot"
+        elif has_python and has_go:
+            self.project_type = "polyglot"
+        elif has_js:
+            self.project_type = "javascript"
+        elif has_python:
+            self.project_type = "python"
+        elif has_go:
+            self.project_type = "go"
+        else:
+            self.project_type = "unknown"
+        
+        return self.project_type
+
+    def parse_file(self, file_path: Path, language: str = None, root_path: str = None) -> Any:
+        """Parse a file into an AST.
+
+        Args:
+            file_path: Path to the source file.
+            language: Programming language (auto-detected if None).
+            root_path: Absolute path to project root (for sandbox resolution).
+
+        Returns:
+            AST tree object or None if parsing fails.
+        """
+        if language is None:
+            language = self._detect_language(file_path)
+
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            
+            # Compute content hash for caching
+            content_hash = hashlib.md5(content).hexdigest()
+
+            # For JavaScript/TypeScript, try semantic parser first
+            # CRITICAL FIX: Include None and polyglot project types
+            # When project_type is None (not detected yet) or polyglot, still try semantic parsing
+            project_type = self._detect_project_type()
+            if language in ["javascript", "typescript"] and project_type in ["javascript", "polyglot", None, "unknown"]:
+                try:
+                    # Attempt to use the TypeScript Compiler API for semantic analysis
+                    # Normalize path for cross-platform compatibility
+                    normalized_path = str(file_path).replace("\\", "/")
+                    semantic_result = get_semantic_ast(normalized_path, project_root=root_path)
+                    
+                    if semantic_result.get("success"):
+                        # Return the semantic AST with full type information
+                        return {
+                            "type": "semantic_ast",
+                            "tree": semantic_result,
+                            "language": language,
+                            "content": content.decode("utf-8", errors="ignore"),
+                            "has_types": semantic_result.get("hasTypes", False),
+                            "diagnostics": semantic_result.get("diagnostics", []),
+                            "symbols": semantic_result.get("symbols", [])
+                        }
+                    else:
+                        # Log but continue to Tree-sitter/regex fallback
+                        error_msg = semantic_result.get('error', 'Unknown error')
+                        print(f"Warning: Semantic parser failed for {file_path}: {error_msg}")
+                        print(f"         Falling back to Tree-sitter/regex parser.")
+                        # Continue to fallback options below
+                        
+                except Exception as e:
+                    # Log but continue to Tree-sitter/regex fallback
+                    print(f"Warning: Exception in semantic parser for {file_path}: {e}")
+                    print(f"         Falling back to Tree-sitter/regex parser.")
+                    # Continue to fallback options below
+
+            # Use Tree-sitter if available
+            if self.has_tree_sitter and language in self.parsers:
+                try:
+                    # Use cached parser
+                    tree = self._parse_treesitter_cached(content_hash, content, language)
+                    return {"type": "tree_sitter", "tree": tree, "language": language, "content": content}
+                except Exception as e:
+                    print(f"Warning: Tree-sitter parsing failed for {file_path}: {e}")
+                    print(f"         Falling back to alternative parser if available.")
+                    # Continue to fallback options below
+
+            # Fallback to built-in parsers for Python
+            if language == "python":
+                decoded = content.decode("utf-8", errors="ignore")
+                python_ast = self._parse_python_cached(content_hash, decoded)
+                if python_ast:
+                    return {"type": "python_ast", "tree": python_ast, "language": language, "content": decoded}
+
+            # Return minimal structure to signal regex fallback for JS/TS
+            if language in ["javascript", "typescript"]:
+                print(f"Warning: AST parsing unavailable for {file_path}. Using regex fallback.")
+                decoded = content.decode("utf-8", errors="ignore")
+                return {"type": "regex_fallback", "tree": None, "language": language, "content": decoded}
+
+            # Return None for unsupported languages
+            return None
+
+        except Exception as e:
+            print(f"Warning: Failed to parse {file_path}: {e}")
+            return None
+
+    def _detect_language(self, file_path: Path) -> str:
+        """Detect language from file extension."""
+        ext_map = {
+            ".py": "python",
+            ".js": "javascript",
+            ".jsx": "javascript",
+            ".ts": "typescript",
+            ".tsx": "typescript",
+            ".mjs": "javascript",
+            ".cjs": "javascript",
+            ".vue": "javascript",  # Vue SFCs contain JavaScript/TypeScript
+        }
+        return ext_map.get(file_path.suffix.lower(), "")  # Empty not unknown
+
+    def _parse_python_builtin(self, content: str) -> Optional[ast.AST]:
+        """Parse Python code using built-in ast module."""
+        try:
+            return ast.parse(content)
+        except SyntaxError:
+            return None
+    
+    @lru_cache(maxsize=500)
+    def _parse_python_cached(self, content_hash: str, content: str) -> Optional[ast.AST]:
+        """Parse Python code with caching based on content hash.
+        
+        Args:
+            content_hash: MD5 hash of the file content
+            content: The actual file content
+            
+        Returns:
+            Parsed AST or None if parsing fails
+        """
+        return self._parse_python_builtin(content)
+    
+    @lru_cache(maxsize=500)
+    def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
+        """Parse code using Tree-sitter with caching based on content hash.
+        
+        Args:
+            content_hash: MD5 hash of the file content
+            content: The actual file content as bytes
+            language: The programming language
+            
+        Returns:
+            Parsed Tree-sitter tree
+        """
+        parser = self.parsers[language]
+        return parser.parse(content)
+    
+    
+    def supports_language(self, language: str) -> bool:
+        """Check if a language is supported for AST parsing.
+
+        Args:
+            language: Programming language name.
+
+        Returns:
+            True if AST parsing is supported.
+        """
+        # Python is always supported via built-in ast module
+        if language == "python":
+            return True
+
+        # JavaScript and TypeScript are always supported via fallback
+        if language in ["javascript", "typescript"]:
+            return True
+
+        # Check Tree-sitter support for other languages
+        if self.has_tree_sitter and language in self.parsers:
+            return True
+
+        return False
+
+    def get_supported_languages(self) -> List[str]:
+        """Get list of supported languages.
+
+        Returns:
+            List of language names.
+        """
+        # Always supported via built-in or fallback
+        languages = ["python", "javascript", "typescript"]
+
+        if self.has_tree_sitter:
+            languages.extend(self.parsers.keys())
+
+        return sorted(set(languages))

@@ -1,0 +1,10 @@
+name: "Weak Authentication Factual Cluster"
+description: "Multiple tools detected patterns consistent with weak or deprecated authentication mechanisms."
+confidence: 0.85
+co_occurring_facts:
+  - tool: "patterns"
+    pattern: "(md5|sha1)"
+  - tool: "security"
+    pattern: "password"
+  - tool: "lint"
+    pattern: "deprecated"

@@ -1,0 +1,10 @@
+name: "API Key Exposure Factual Cluster"
+description: "Multiple tools detected patterns consistent with a hardcoded or exposed API key."
+confidence: 0.95
+co_occurring_facts:
+  - tool: "patterns"
+    pattern: "api_key"
+  - tool: "ast"
+    pattern: "hardcoded"
+  - tool: "git"
+    pattern: "committed"

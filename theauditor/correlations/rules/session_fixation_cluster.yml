@@ -1,0 +1,10 @@
+name: "Session Fixation Factual Cluster"
+description: "Multiple tools detected patterns consistent with a Session Fixation vulnerability."
+confidence: 0.75
+co_occurring_facts:
+  - tool: "patterns"
+    pattern: "session"
+  - tool: "taint_analyzer"
+    pattern: "user_controlled"
+  - tool: "framework_detector"
+    pattern: "session"

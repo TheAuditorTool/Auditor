@@ -1,0 +1,55 @@
+# Angular-specific security patterns
+patterns:
+  - name: "angular-bypass-security-trust"
+    description: "Use of bypassSecurityTrust functions - disables Angular's built-in sanitization and exposes to XSS attacks"
+    regex: "bypassSecurityTrust(?:Html|Script|Style|Url|ResourceUrl)\\s*\\("
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "angular-template-injection"
+    description: "Dynamic template compilation with user input - Server-Side Template Injection (SSTI) vulnerability"
+    regex: "(?:ComponentFactoryResolver|ViewContainerRef|TemplateRef).*(?:user|input|data|params|query|body)"
+    languages: ["javascript", "typescript"]
+    severity: "critical"
+    
+  - name: "angular-insecure-elementref"
+    description: "Direct DOM manipulation via ElementRef.nativeElement - bypasses Angular's sanitization"
+    regex: "(?:ElementRef|this\\.el|elementRef)\\.nativeElement\\.(?:innerHTML|outerHTML)\\s*="
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "angular-eval-expression"
+    description: "Using eval in Angular components - code injection vulnerability"
+    regex: "(?:@Component|@Injectable|ngOnInit|ngAfterViewInit)[^}]*eval\\s*\\("
+    languages: ["javascript", "typescript"]
+    severity: "critical"
+    
+  - name: "angular-exposed-api-keys"
+    description: "Exposed API keys in Angular environment or components"
+    regex: "(?:environment\\.|const|let|var)\\s*(?:apiKey|apiToken|apiSecret|clientSecret)\\s*[:=]\\s*['\"`](?!\\$\\{)[^'\"`]{10,}['\"`]"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "angular-unsafe-target-blank"
+    description: "External link without rel='noopener' - reverse tabnabbing vulnerability"
+    regex: "target\\s*=\\s*['\"`]_blank['\"`](?!.*rel\\s*=\\s*['\"`](?:noopener|noreferrer))"
+    languages: ["javascript", "typescript"]
+    severity: "medium"
+    
+  - name: "angular-missing-csrf"
+    description: "HTTP requests without CSRF token in Angular services"
+    regex: "(?:HttpClient|http)\\.(?:post|put|delete|patch)\\([^)]*\\)(?!.*(?:X-CSRF-Token|X-XSRF-TOKEN))"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "angular-unvalidated-redirect"
+    description: "Unvalidated redirect using Router.navigate with user input"
+    regex: "(?:router|this\\.router)\\.navigate\\(\\[[^\\]]*(?:user|input|data|params|query|returnUrl)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "angular-hardcoded-credentials"
+    description: "Hardcoded credentials in Angular components or services"
+    regex: "(?:password|secret|apiKey|token)\\s*[:=]\\s*['\"`](?!\\$\\{|\\{\\{)[^'\"`]{8,}['\"`]"
+    languages: ["javascript", "typescript"]
+    severity: "critical"

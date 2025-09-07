@@ -1,0 +1,91 @@
+# Next.js-specific security patterns
+patterns:
+  - name: "nextjs-api-route-secret-exposure"
+    description: "Server-side environment variables exposed in API route response - can expose sensitive secrets to client"
+    regex: "(?:res\\.(?:json|send)|NextResponse\\.json)\\s*\\([^)]*process\\.env"
+    languages: ["javascript", "typescript"]
+    severity: "critical"
+    
+  - name: "nextjs-open-redirect"
+    description: "Unvalidated user input in router.push/replace - creates open redirect vulnerability"
+    regex: "router\\.(?:push|replace)\\s*\\([^)]*(?:query|params|searchParams)\\."
+    languages: ["javascript", "typescript"]
+    severity: "medium"
+    
+  - name: "nextjs-getinitialprops-data-exposure"
+    description: "getInitialProps can expose server-side data to client if entire fetched object returned as props"
+    regex: "getInitialProps[^}]*return\\s+(?:\\{[^}]*(?:fetch|axios)[^}]*\\}|data|response)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-ssr-injection"
+    description: "Server-side rendering with user input - potential for SSR injection attacks"
+    regex: "getServerSideProps[^}]*(?:req\\.query|req\\.body|params)(?![^}]*(?:sanitize|escape|validate))"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-public-env-exposure"
+    description: "Sensitive data in NEXT_PUBLIC_ variables - exposed to client bundle"
+    regex: "NEXT_PUBLIC_[A-Z_]*(?:SECRET|PRIVATE|KEY|TOKEN|PASSWORD)[A-Z_]*\\s*[:=]"
+    languages: ["javascript", "typescript"]
+    severity: "critical"
+    
+  - name: "nextjs-dangerouslyallowbrowser"
+    description: "Using dangerouslyAllowBrowser in server components - security risk"
+    regex: "dangerouslyAllowBrowser\\s*:\\s*true"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-api-csrf-missing"
+    description: "API route handling POST/PUT/DELETE without CSRF protection"
+    regex: "(?:pages|app)/api/.*export\\s+(?:default\\s+)?(?:async\\s+)?function\\s+handler[^}]*req\\.method\\s*===?\\s*['\"`](?:POST|PUT|DELETE)['\"`](?![^}]*csrf)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-unsafe-redirect-permanent"
+    description: "Permanent redirect with user input - SEO poisoning and phishing risk"
+    regex: "redirect\\s*\\([^)]*permanent\\s*:\\s*true[^)]*(?:query|params|searchParams)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-image-loader-ssrf"
+    description: "Custom image loader with user input - potential SSRF vulnerability"
+    regex: "loader\\s*[:=][^}]*\\([^)]*src[^)]*\\)[^}]*(?:\\$\\{|\\+).*(?:query|params|searchParams)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-eval-edge-runtime"
+    description: "Using eval in Edge Runtime - code injection vulnerability"
+    regex: "runtime\\s*[:=]\\s*['\"`]edge['\"`][^}]*eval\\s*\\("
+    languages: ["javascript", "typescript"]
+    severity: "critical"
+    
+  - name: "nextjs-rewrites-injection"
+    description: "Dynamic rewrites with user input - request smuggling risk"
+    regex: "rewrites\\s*\\([^}]*(?:query|params|headers)(?![^}]*validate)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-middleware-bypass"
+    description: "Middleware without proper path matching - security bypass risk"
+    regex: "middleware\\.(?:ts|js).*export\\s+(?:async\\s+)?function\\s+middleware(?![^}]*matcher)"
+    languages: ["javascript", "typescript"]
+    severity: "medium"
+    
+  - name: "nextjs-static-export-secrets"
+    description: "Secrets in statically exported pages - exposed in HTML"
+    regex: "output\\s*:\\s*['\"`]export['\"`][^}]*(?:apiKey|secret|token|password)"
+    languages: ["javascript", "typescript"]
+    severity: "critical"
+    
+  - name: "nextjs-server-actions-validation"
+    description: "Server Actions without input validation - injection risk"
+    regex: "['\"`]use server['\"`][^}]*(?:formData\\.get|searchParams\\.get)(?![^}]*(?:zod|yup|joi|validate))"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "nextjs-cache-poisoning"
+    description: "ISR/SSG with user input in cache key - cache poisoning vulnerability"
+    regex: "(?:getStaticProps|getStaticPaths)[^}]*params(?![^}]*validate)[^}]*revalidate"
+    languages: ["javascript", "typescript"]
+    severity: "high"

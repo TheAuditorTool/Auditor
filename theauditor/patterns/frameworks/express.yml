@@ -1,0 +1,46 @@
+# Express.js-specific patterns
+patterns:
+  - name: "express-missing-error-handler"
+    description: "Express route without error handling"
+    regex: "app\\.(get|post|put|delete)\\([^)]*\\([^)]*res[^)]*\\)\\s*=>?\\s*\\{(?!.*try.*catch)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "express-sync-in-async"
+    description: "Synchronous operation blocking event loop"
+    regex: "app\\.(get|post|put|delete).*\\{[^}]*(fs\\.readFileSync|fs\\.writeFileSync)"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "express-missing-helmet-comprehensive"
+    description: "Express app without Helmet security middleware - missing critical security headers"
+    regex: "(?:const|let|var)\\s+(\\w+)\\s*=\\s*express\\(\\)(?:(?!.*helmet).)*?\\1\\.listen\\("
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "express-xss-direct-send"
+    description: "Potential XSS - req.body/query/params directly in res.send() without sanitization"
+    regex: "res\\.(send|write|json|render)\\s*\\([^)]*\\b(req\\.(body|query|params|cookies|headers)\\.[\\w\\.]+)[^)]*\\)(?!.*(?:escape|sanitize|encode|DOMPurify))"
+    languages: ["javascript", "typescript"]
+    severity: "critical"
+    
+  - name: "express-missing-rate-limit-comprehensive"
+    description: "API endpoint without rate limiting - vulnerable to DoS/brute force"
+    regex: "app\\.(get|post|put|delete|patch)\\s*\\(['\"`]/api/[^)]+\\)(?:(?!rateLimit|RateLimit|express-rate-limit).)*?app\\.listen"
+    languages: ["javascript", "typescript"]
+    severity: "high"
+    
+  - name: "express-body-parser-limit"
+    description: "Body parser without size limit"
+    regex: "bodyParser\\.(json|urlencoded)\\((?!.*limit)"
+    languages: ["javascript", "typescript"]
+    severity: "low"
+    
+  - name: "express-direct-db-query"
+    description: "Database query directly in route handler"
+    regex: "app\\.(get|post|put|delete).*?\\{[^}]*(query|find|insert|update|delete)\\("
+    languages: ["javascript", "typescript"]
+    severity: "medium"
+    ast_pattern:
+      node_type: "arrow_function"
+      contains: ["query", "find"]
