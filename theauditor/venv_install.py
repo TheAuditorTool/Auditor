@@ -22,14 +22,14 @@ NODE_VERSION = "v20.11.1"  # LTS version, update quarterly with checksums
 NODE_BASE_URL = "https://nodejs.org/dist"
 
 # Hardcoded SHA-256 checksums for Node.js v20.11.1
-# Source: https://nodejs.org/dist/v20.11.1/SHASUMS256.txt
+# Source: https://nodejs.org/download/release/v20.11.1/SHASUMS256.txt
 # These are immutable - the checksum for a specific version never changes
 NODE_CHECKSUMS = {
     "node-v20.11.1-win-x64.zip": "bc032628d77d206ffa7f133518a6225a9c5d6d9210ead30d67e294ff37044bda",
-    "node-v20.11.1-linux-x64.tar.xz": "e3db4b6d80d5a8aa9a6a6521da7b9e7ab0209e16a3f24aea4eb466f239efa073",
-    "node-v20.11.1-linux-arm64.tar.xz": "b6b998947595c9550d6171bc3a8e6e8a94e90ae94472fa506b6a6c1e54a45166",
-    "node-v20.11.1-darwin-x64.tar.gz": "e0065c61f340e85106a99c4b54746c5cee09d59b08c5712f67f99e92aa44995d",
-    "node-v20.11.1-darwin-arm64.tar.gz": "4607d35e6639d0e1df7e58e723281ccf6050571d45c55bafb3a956ab45fbb41e"
+    "node-v20.11.1-linux-x64.tar.xz": "d8dab549b09672b03356aa2257699f3de3b58c96e74eb26a8b495fbdc9cf6fbe",
+    "node-v20.11.1-linux-arm64.tar.xz": "c957f29eb4e341903520caf362534f0acd1db7be79c502ae8e283994eed07fe1",
+    "node-v20.11.1-darwin-x64.tar.gz": "c52e7fb0709dbe63a4cbe08ac8af3479188692937a7bd8e776e0eedfa33bb848",
+    "node-v20.11.1-darwin-arm64.tar.gz": "e0065c61f340e85106a99c4b54746c5cee09d59b08c5712f67f99e92aa44995d"
 }
 
 
