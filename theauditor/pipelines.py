@@ -431,14 +431,14 @@ def run_full_pipeline(
             track_b_commands.append((phase_name, cmd))
         elif "graph build" in cmd_str:
             track_c_commands.append((phase_name, cmd))
+        elif "graph analyze" in cmd_str:
+            track_c_commands.append((phase_name, cmd))
         elif "graph viz" in cmd_str:
             track_c_commands.append((phase_name, cmd))
         elif "taint" in cmd_str:
             track_c_commands.append((phase_name, cmd))
         
         # Stage 4: Final aggregation (must run last)
-        elif "graph analyze" in cmd_str:
-            final_commands.append((phase_name, cmd))
         elif "fce" in cmd_str:
             final_commands.append((phase_name, cmd))
         elif "report" in cmd_str:
