@@ -96,6 +96,27 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
             if count > 0:
                 click.echo(f"  [OK] {file_type}: {count} dependency entries updated")
         
+        # Show what was actually upgraded
+        click.echo(f"\n[CHANGES] Packages upgraded:")
+        upgraded_packages = [
+            (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
+            for k, v in latest_info.items()
+            if v.get("is_outdated", False) and v.get("latest") is not None
+        ]
+        
+        # Sort by package name for consistent output
+        upgraded_packages.sort(key=lambda x: x[0].lower())
+        
+        # Show first 20 upgrades with details
+        for name, old_ver, new_ver, delta in upgraded_packages[:20]:
+            delta_marker = " [MAJOR]" if delta == "major" else ""
+            # Use arrow character that works on Windows
+            arrow = "->" if IS_WINDOWS else "→"
+            click.echo(f"  - {name}: {old_ver} {arrow} {new_ver}{delta_marker}")
+        
+        if len(upgraded_packages) > 20:
+            click.echo(f"  ... and {len(upgraded_packages) - 20} more packages")
+        
         # Show summary that matches the "Outdated: 10/29" format
         if total_updated > unique_upgraded:
             click.echo(f"\n  Summary: {unique_upgraded} unique packages updated across {total_updated} occurrences")

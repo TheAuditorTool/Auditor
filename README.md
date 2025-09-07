@@ -1,10 +1,3 @@
-Personal note from me:
-Its taken me over a week just to get the courage to upload this. Ive never coded a single line of this, I cant stress that enough... Yes, I build architecture, infrastructure all the things that made the code and components come out this way but uggh… the potential shame and humiliation is real lol... So don't be a dick and poop on my parade... Ive done my best... Take it or leave it...
-
-Its become a complex advanced monster system that is honestly clean af but hard to get an overview anymore.
-It isnt unlikely to find oddities such as finished components that was never wired up or exposed in the pipeline...
-Im doing by best here, im only one person with one brain lol.... :P
-
 ### The Search for Ground Truth in an Age of AI
 
 My background is in systems architecture/infrastructure, not professional software development. I have only been "coding/developing" for little over 3 months. This gives me a unique perspective: I can see the forest, but I'm blind to the individual trees of the code. After immersing myself for 500+ hours in AI-assisted development, I concluded that the entire ecosystem is built on a fundamentally flawed premise: it lacks a source of **ground truth**.
