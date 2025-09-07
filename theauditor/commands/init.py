@@ -20,79 +20,19 @@ def init(offline, skip_docs, skip_deps):
     click.echo("  4. Fetch documentation")
     click.echo("\n" + "="*60 + "\n")
     
-    # Call the refactored initialization logic
+    # Call the refactored initialization logic with progress callback
     result = initialize_project(
         offline=offline,
         skip_docs=skip_docs,
-        skip_deps=skip_deps
+        skip_deps=skip_deps,
+        progress_callback=click.echo
     )
     
     stats = result["stats"]
     has_failures = result["has_failures"]
     next_steps = result["next_steps"]
     
-    # Display step-by-step results
-    click.echo("[INDEX] Step 1/5: Indexing repository...")
-    if stats.get("index", {}).get("success"):
-        click.echo(f"  [OK] Indexed {stats['index']['text_files']} text files")
-    else:
-        click.echo(f"  [FAIL] Failed: {stats['index'].get('error', 'Unknown error')}", err=True)
-    
-    click.echo("\n[TARGET] Step 2/5: Creating workset...")
-    if stats.get("workset", {}).get("success"):
-        click.echo(f"  [OK] Workset created with {stats['workset']['files']} files")
-    elif stats.get("workset", {}).get("files") == 0:
-        click.echo("  [WARN]  No files found to create workset")
-    else:
-        click.echo(f"  [FAIL] Failed: {stats['workset'].get('error', 'Unknown error')}", err=True)
-    
-    if not skip_deps and not offline:
-        click.echo("\n[PACKAGE] Step 3/4: Checking dependencies...")
-        if stats.get("deps", {}).get("success"):
-            if stats["deps"]["total"] > 0:
-                click.echo(f"  [OK] Found {stats['deps']['total']} dependencies ({stats['deps']['outdated']} outdated)")
-            else:
-                click.echo("  [OK] No dependency files found")
-        else:
-            click.echo(f"  [FAIL] Failed: {stats['deps'].get('error', 'Unknown error')}", err=True)
-    else:
-        click.echo("\n[PACKAGE] Step 3/4: Skipping dependency check (offline/skipped)")
-    
-    if not skip_docs and not offline:
-        click.echo("\n[DOCS] Step 4/4: Fetching documentation...")
-        if stats.get("docs", {}).get("success"):
-            fetched = stats['docs'].get('fetched', 0)
-            cached = stats['docs'].get('cached', 0)
-            if fetched > 0 and cached > 0:
-                click.echo(f"  [OK] Fetched {fetched} new docs, using {cached} cached docs")
-            elif fetched > 0:
-                click.echo(f"  [OK] Fetched {fetched} docs")
-            elif cached > 0:
-                click.echo(f"  [OK] Using {cached} cached docs (already up-to-date)")
-            else:
-                click.echo("  [WARN] No docs fetched or cached")
-            
-            # Report any errors from the stats
-            if stats['docs'].get('errors'):
-                errors = stats['docs']['errors']
-                rate_limited = [e for e in errors if "rate limited" in e.lower()]
-                other_errors = [e for e in errors if "rate limited" not in e.lower()]
-                
-                if rate_limited:
-                    click.echo(f"  [WARN]  {len(rate_limited)} packages rate-limited (will retry with delay)")
-                if other_errors and len(other_errors) <= 3:
-                    for err in other_errors[:3]:
-                        click.echo(f"  [WARN]  {err}")
-                elif other_errors:
-                    click.echo(f"  [WARN]  {len(other_errors)} packages failed to fetch")
-            
-            click.echo(f"  [OK] Created {stats['docs']['capsules']} doc capsules")
-        elif stats["docs"].get("error") == "Interrupted by user":
-            click.echo("\n  [WARN]  Documentation fetch interrupted (Ctrl+C)")
-        else:
-            click.echo(f"  [FAIL] Failed: {stats['docs'].get('error', 'Unknown error')}", err=True)
-    else:
-        click.echo("\n[DOCS] Step 4/4: Skipping documentation (offline/skipped)")
+    # Results have already been displayed via progress callback
     
     # Summary
     click.echo("\n" + "="*60)

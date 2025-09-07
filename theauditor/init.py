@@ -8,7 +8,8 @@ from theauditor.security import sanitize_config_path, SecurityError
 def initialize_project(
     offline: bool = False,
     skip_docs: bool = False,
-    skip_deps: bool = False
+    skip_deps: bool = False,
+    progress_callback: Any = None
 ) -> Dict[str, Any]:
     """
     Initialize TheAuditor for first-time use by running all setup steps.
@@ -43,6 +44,8 @@ def initialize_project(
     stats = {}
     
     # 1. Index
+    if progress_callback:
+        progress_callback("[1/4] Indexing repository...")
     try:
         # Sanitize paths from config before use
         manifest_path = str(sanitize_config_path(config["paths"]["manifest"], "paths", "manifest", "."))
@@ -65,18 +68,26 @@ def initialize_project(
             "text_files": index_stats.get("text_files", 0),
             "success": True
         }
+        if progress_callback:
+            progress_callback(f"  ✓ Indexed {stats['index']['text_files']} text files")
     except SecurityError as e:
         stats["index"] = {"success": False, "error": f"Security violation: {str(e)}"}
     except Exception as e:
         stats["index"] = {"success": False, "error": str(e)}
+        if progress_callback:
+            progress_callback(f"  ✗ Failed: {str(e)[:60]}")
     
     # 2. Workset
+    if progress_callback:
+        progress_callback("\n[2/4] Creating workset...")
     try:
         # Skip if indexing failed or found no files
         if not stats.get("index", {}).get("success"):
             raise Exception("Skipping - indexing failed")
         if stats.get("index", {}).get("text_files", 0) == 0:
             stats["workset"] = {"success": False, "files": 0}
+            if progress_callback:
+                progress_callback("  ⚠ No files found")
         else:
             # Sanitize paths from config before use
             db_path = str(sanitize_config_path(config["paths"]["db"], "paths", "db", "."))
@@ -97,13 +108,19 @@ def initialize_project(
                 "coverage": result.get("coverage", 0),
                 "success": True
             }
+            if progress_callback:
+                progress_callback(f"  ✓ Created workset with {stats['workset']['files']} files")
     except SecurityError as e:
         stats["workset"] = {"success": False, "error": f"Security violation: {str(e)}"}
     except Exception as e:
         stats["workset"] = {"success": False, "error": str(e)}
+        if progress_callback:
+            progress_callback(f"  ✗ Failed: {str(e)[:60]}")
     
     # 3. Dependencies
     if not skip_deps and not offline:
+        if progress_callback:
+            progress_callback("\n[3/4] Checking dependencies...")
         try:
             deps_list = parse_dependencies(root_path=".")
             
@@ -115,22 +132,32 @@ def initialize_project(
                     "outdated": outdated,
                     "success": True
                 }
+                if progress_callback:
+                    progress_callback(f"  ✓ Found {len(deps_list)} dependencies ({outdated} outdated)")
             else:
                 stats["deps"] = {"total": 0, "success": True}
+                if progress_callback:
+                    progress_callback("  ✓ No dependency files found")
         except Exception as e:
             stats["deps"] = {"success": False, "error": str(e)}
+            if progress_callback:
+                progress_callback(f"  ✗ Failed: {str(e)[:60]}")
     else:
         stats["deps"] = {"skipped": True}
     
     # 4. Documentation
     if not skip_docs and not offline:
+        if progress_callback:
+            progress_callback("\n[4/4] Fetching documentation...")
         try:
             deps_list = parse_dependencies(root_path=".")
             
             if deps_list:
-                # Limit to first 50 deps for init command to avoid hanging
-                if len(deps_list) > 50:
-                    deps_list = deps_list[:50]
+                # Limit to first 250 deps for init command to avoid excessive runtime
+                if len(deps_list) > 250:
+                    deps_list = deps_list[:250]
+                    if progress_callback:
+                        progress_callback("  ℹ Limiting to first 250 packages for speed...")
                 
                 # Fetch with progress indicator
                 fetch_result = fetch_docs(deps_list)
@@ -147,12 +174,20 @@ def initialize_project(
                     "success": True,
                     "errors": errors
                 }
+                if progress_callback:
+                    progress_callback(f"  ✓ Fetched {fetched} docs, created {stats['docs']['capsules']} capsules")
             else:
                 stats["docs"] = {"success": True, "fetched": 0, "capsules": 0}
+                if progress_callback:
+                    progress_callback("  ✓ No dependencies to document")
         except KeyboardInterrupt:
             stats["docs"] = {"success": False, "error": "Interrupted by user"}
+            if progress_callback:
+                progress_callback("\n  ⚠ Interrupted by user (Ctrl+C)")
         except Exception as e:
             stats["docs"] = {"success": False, "error": str(e)}
+            if progress_callback:
+                progress_callback(f"  ✗ Failed: {str(e)[:60]}")
     else:
         stats["docs"] = {"skipped": True}
     
