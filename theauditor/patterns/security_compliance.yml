@@ -1,0 +1,122 @@
+# Security Compliance Patterns
+# General software security principles and data law compliance (OWASP, GDPR, etc.)
+
+patterns:
+  - name: "pii-logging-leak"
+    description: "Logging of Personally Identifiable Information without masking"
+    severity: "high"
+    confidence: 0.75
+    # Detects logging statements that may expose PII fields
+    # Looks for common PII keywords in logger/console calls (case-insensitive)
+    regex: '(?i)(?:logger|log|console)\.\w+\s*\([^)]*\b(?:password|passwd|pwd|ssn|social[_]?security|passport|license[_]?number|credit[_]?card|card[_]?number|cvv|pin|api[_]?key|secret|token|auth|bearer|private[_]?key|email|phone|mobile|address|dob|date[_]?of[_]?birth|maiden[_]?name|account[_]?number|routing[_]?number|tax[_]?id|drivers[_]?license|patient[_]?id|medical[_]?record)\b[^)]*\)'
+    languages: ["javascript", "typescript", "python", "java", "go", "ruby"]
+    files: ["*.js", "*.ts", "*.py", "*.java", "*.go", "*.rb", "*.jsx", "*.tsx"]
+    examples:
+      - "logger.info(`User login: ${user.email} with password: ${password}`)"
+      - "console.log('SSN:', customer.ssn)"
+      - "log.debug('Credit card:', payment.card_number)"
+    counter_examples:
+      - "logger.info(`User login: ${user.id}`)"
+      - "console.log('User authenticated successfully')"
+      - "logger.error('Invalid password attempt for user:', userId)"
+
+  - name: "missing-input-validation"
+    description: "Request body data used without validation"
+    severity: "high"
+    confidence: 0.70
+    # Detects direct use of req.body fields without validation
+    # Looks for req.body properties being passed directly to functions
+    regex: '(?i)(?:req|request)\.body(?:\.\w+|\[[''"`]\w+[''"`]\])?(?:(?!validate|sanitize|clean|check|verify|schema|joi|yup|zod|express-validator)[\s\S]){0,50}?(?:create|update|save|insert|findOneAndUpdate|exec|query|where)'
+    languages: ["javascript", "typescript"]
+    files: ["*.js", "*.ts", "*.jsx", "*.tsx"]
+    examples:
+      - "User.create(req.body)"
+      - "await Product.update(req.body.data, { where: { id } })"
+      - "db.query(sql, req.body.params)"
+    counter_examples:
+      - "const validated = await schema.validate(req.body); User.create(validated)"
+      - "const { error, value } = joi.validate(req.body); if (!error) User.create(value)"
+
+  - name: "insecure-jwt-creation"
+    description: "JWT created with weak algorithm or missing expiration"
+    severity: "critical"
+    confidence: 0.85
+    # Detects JWT sign operations with insecure configurations
+    # Looks for alg: 'none' or missing exp/expiresIn
+    regex: '(?i)jwt\.sign\s*\([^)]*(?:(?:algorithm|alg)\s*:\s*[''"`](?:none|HS256)[''"`]|(?!expiresIn|exp)[\s\S])*?\)'
+    languages: ["javascript", "typescript"]
+    files: ["*.js", "*.ts", "*.jsx", "*.tsx"]
+    examples:
+      - "jwt.sign(payload, secret, { algorithm: 'none' })"
+      - "jwt.sign({ userId }, secret) // missing expiration"
+      - "jwt.sign(data, key, { alg: 'HS256' }) // weak for production"
+    counter_examples:
+      - "jwt.sign(payload, secret, { algorithm: 'RS256', expiresIn: '1h' })"
+      - "jwt.sign(data, key, { expiresIn: '15m' })"
+
+  - name: "hardcoded-api-endpoint"
+    description: "Hardcoded production API endpoint (should use environment variables)"
+    severity: "medium"
+    confidence: 0.65
+    # Detects hardcoded URLs that look like production endpoints
+    regex: '[''"`]https?://(?:api|backend|prod|production|app)\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:/[^''"`]*)?[''"`]'
+    languages: ["*"]
+    files: ["*.js", "*.ts", "*.py", "*.java", "*.go", "*.jsx", "*.tsx"]
+    examples:
+      - "'https://api.mycompany.com/v1/users'"
+      - '"https://production.example.com/api"'
+      - "`https://backend.service.io/graphql`"
+    counter_examples:
+      - "process.env.API_URL"
+      - "config.apiEndpoint"
+      - "'http://localhost:3000/api'"
+
+  - name: "unsafe-deserialization"
+    description: "Unsafe deserialization of user-controlled data"
+    severity: "critical"
+    confidence: 0.80
+    # Detects unsafe deserialization patterns that could lead to RCE
+    regex: '(?i)(?:JSON\.parse|eval|Function|deserialize|pickle\.loads|yaml\.load|unserialize)\s*\([^)]*(?:req|request|params|query|body|user|input|data)[^)]*\)'
+    languages: ["javascript", "typescript", "python", "php", "ruby"]
+    files: ["*.js", "*.ts", "*.py", "*.php", "*.rb", "*.jsx", "*.tsx"]
+    examples:
+      - "eval(req.body.code)"
+      - "JSON.parse(req.query.data)"
+      - "pickle.loads(user_input)"
+      - "yaml.load(request.data)"
+    counter_examples:
+      - "JSON.parse(sanitizedData)"
+      - "yaml.safe_load(content)"
+      - "JSON.parse(fs.readFileSync('config.json'))"
+
+  - name: "missing-csrf-protection"
+    description: "State-changing route without CSRF protection"
+    severity: "high"
+    confidence: 0.65
+    # Detects POST/PUT/DELETE routes without CSRF middleware
+    regex: '(?i)(?:app|router)\.(post|put|patch|delete)\s*\([^)]*(?:(?!csrf|csurf|csrfProtection|verifyCsrf)[\s\S])*?\)'
+    languages: ["javascript", "typescript"]
+    files: ["*.js", "*.ts", "*.jsx", "*.tsx"]
+    examples:
+      - "app.post('/api/transfer', handleTransfer)"
+      - "router.delete('/users/:id', deleteUser)"
+    counter_examples:
+      - "app.post('/api/transfer', csrfProtection, handleTransfer)"
+      - "router.delete('/users/:id', [csrf, auth], deleteUser)"
+
+  - name: "weak-password-requirements"
+    description: "Password validation with weak requirements"
+    severity: "medium"
+    confidence: 0.70
+    # Detects password validation that's too weak
+    regex: '(?i)password.*(?:length|min|minLength|minimum)[\s:]*[<>=]*\s*[1-7]\b'
+    languages: ["*"]
+    files: ["*.js", "*.ts", "*.py", "*.java", "*.rb", "*.jsx", "*.tsx", "*.yml", "*.yaml"]
+    examples:
+      - "password.length >= 6"
+      - "minLength: 4"
+      - "password_min_length = 7"
+    counter_examples:
+      - "password.length >= 12"
+      - "minLength: 10"
+      - "password_min_length = 8"

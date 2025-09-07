@@ -1,0 +1,10 @@
+name: "Memory Leak Factual Cluster"
+description: "Multiple tools detected patterns consistent with a potential memory leak."
+confidence: 0.70
+co_occurring_facts:
+  - tool: "patterns"
+    pattern: "setInterval"
+  - tool: "graph"
+    pattern: "no_cleanup"
+  - tool: "lint"
+    pattern: "memory"

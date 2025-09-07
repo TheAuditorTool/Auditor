@@ -1,0 +1,67 @@
+# Django-specific security patterns
+patterns:
+  - name: "django-mark-safe-xss"
+    description: "Use of mark_safe on user-controlled input - tells Django not to escape a string, potentially leading to XSS"
+    regex: "mark_safe\\s*\\("
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "django-raw-sql-injection-risk"
+    description: "Use of .raw() or .extra() on QuerySet - can lead to SQL injection if user input is not properly parameterized"
+    regex: "\\.(?:raw|extra)\\s*\\("
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "django-csrf-exempt-decorator"
+    description: "Use of @csrf_exempt decorator - disables CSRF protection for a view and should be used with extreme caution"
+    regex: "@csrf_exempt"
+    languages: ["python"]
+    severity: "medium"
+    
+  - name: "django-debug-true-production"
+    description: "DEBUG=True in settings - exposes sensitive information in production"
+    regex: "DEBUG\\s*=\\s*True"
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "django-allowed-hosts-wildcard"
+    description: "ALLOWED_HOSTS with wildcard - accepts requests from any host, enabling host header injection"
+    regex: "ALLOWED_HOSTS\\s*=\\s*\\[[^\\]]*['\"]\\*['\"]"
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "django-secret-key-exposed"
+    description: "Hardcoded SECRET_KEY in settings - compromises session security"
+    regex: "SECRET_KEY\\s*=\\s*['\"][^'\"]+['\"]"
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "django-unsafe-redirect"
+    description: "Unvalidated redirect using request parameters - open redirect vulnerability"
+    regex: "(?:redirect|HttpResponseRedirect)\\s*\\(\\s*request\\.(?:GET|POST|META)\\."
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "django-eval-template-tag"
+    description: "Use of eval in custom template tags - code injection vulnerability"
+    regex: "(?:@register\\.(?:simple_tag|filter|tag)|def\\s+\\w+\\s*\\([^)]*\\)).*eval\\s*\\("
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "django-unsafe-file-upload"
+    description: "File upload without validation - potential for malicious file upload"
+    regex: "request\\.FILES\\[[^\\]]+\\](?!.*(?:validate|clean|check))"
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "django-orm-filter-injection"
+    description: "Dynamic ORM filter construction with user input - potential for ORM injection"
+    regex: "\\.filter\\s*\\(\\s*\\*\\*(?:request\\.(?:GET|POST)|user_input|data)"
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "django-unsafe-deserialization"
+    description: "Use of pickle or eval for deserialization - remote code execution risk"
+    regex: "(?:pickle\\.loads|eval)\\s*\\(.*request\\."
+    languages: ["python"]
+    severity: "critical"

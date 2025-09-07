@@ -1,0 +1,10 @@
+name: "Source Map Exposure Factual Cluster"
+description: "Multiple tools detected patterns consistent with exposed source maps in a production environment."
+confidence: 0.95
+co_occurring_facts:
+  - tool: "build"
+    pattern: "sourcemap"
+  - tool: "deployment"
+    pattern: "production"
+  - tool: "patterns"
+    pattern: "\\.map"

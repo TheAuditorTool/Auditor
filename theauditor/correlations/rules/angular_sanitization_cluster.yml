@@ -1,0 +1,10 @@
+name: "Angular Sanitization Bypass Factual Cluster"
+description: "Multiple tools detected patterns consistent with XSS via sanitization bypass in Angular."
+confidence: 0.95
+co_occurring_facts:
+  - tool: "framework_detector"
+    pattern: "angular"
+  - tool: "patterns"
+    pattern: "bypassSecurity"
+  - tool: "taint_analyzer"
+    pattern: "trust"

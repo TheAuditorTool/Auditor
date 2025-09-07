@@ -1,0 +1,17 @@
+{
+  "name": "theauditor-tools",
+  "version": "0.90.0",
+  "private": true,
+  "description": "Sandboxed tools for TheAuditor static analysis",
+  "devDependencies": {
+    "eslint": "9.34.0",
+    "@eslint/js": "9.34.0",
+    "globals": "^16.3.0",
+    "prettier": "3.6.2",
+    "@typescript-eslint/parser": "8.41.0",
+    "@typescript-eslint/eslint-plugin": "8.41.0",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "typescript": "5.9.2"
+  }
+}

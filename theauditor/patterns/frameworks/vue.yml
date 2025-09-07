@@ -1,0 +1,55 @@
+# Vue.js-specific security patterns
+patterns:
+  - name: "vue-v-html"
+    description: "Use of v-html directive - primary XSS vector in Vue"
+    regex: "v-html\\s*(?:=|:)"
+    languages: ["javascript", "typescript", "vue"]
+    severity: "high"
+    
+  - name: "vue-v-bind-innerHTML"
+    description: "Binding to innerHTML property - XSS vulnerability"
+    regex: "v-bind\\s*:\\s*innerHTML|:innerHTML\\s*="
+    languages: ["javascript", "typescript", "vue"]
+    severity: "high"
+    
+  - name: "vue-eval-template"
+    description: "Using eval in Vue template or component"
+    regex: "(?:template|methods|computed)\\s*:[^}]*eval\\s*\\("
+    languages: ["javascript", "typescript", "vue"]
+    severity: "critical"
+    
+  - name: "vue-exposed-api-keys"
+    description: "Exposed API keys in Vue components"
+    regex: "(?:const|let|var|data\\s*\\(\\)[^}]*return[^}]*)\\s+(?:VUE_APP_|VITE_)[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|API)[A-Z_]*\\s*[:=]\\s*['\"`](?:pk_|sk_|api_|key_|token_|secret_)[^'\"`]+"
+    languages: ["javascript", "typescript", "vue"]
+    severity: "high"
+    
+  - name: "vue-unescaped-interpolation"
+    description: "Triple mustache (unescaped) interpolation - XSS risk"
+    regex: "\\{\\{\\{[^}]+\\}\\}\\}"
+    languages: ["javascript", "typescript", "vue"]
+    severity: "high"
+    
+  - name: "vue-dynamic-component-injection"
+    description: "Dynamic component with user-controlled input"
+    regex: "<component\\s+:is\\s*=\\s*['\"`]?(?:user|input|data|params|query)"
+    languages: ["javascript", "typescript", "vue"]
+    severity: "high"
+    
+  - name: "vue-unsafe-target-blank"
+    description: "External link without rel='noopener' in Vue template"
+    regex: "target\\s*=\\s*['\"`]_blank['\"`](?!.*rel\\s*=\\s*['\"`](?:noopener|noreferrer))"
+    languages: ["javascript", "typescript", "vue"]
+    severity: "medium"
+    
+  - name: "vue-direct-dom-manipulation"
+    description: "Direct DOM manipulation bypassing Vue's reactivity"
+    regex: "(?:this\\.\\$refs\\.[^.]+\\.|document\\.(?:getElementById|querySelector)[^)]*\\)\\.?)innerHTML\\s*="
+    languages: ["javascript", "typescript", "vue"]
+    severity: "high"
+    
+  - name: "vue-missing-prop-validation"
+    description: "Props without type or validation"
+    regex: "props\\s*:\\s*\\[[^\\]]*['\"`]\\w+['\"`][^\\]]*\\]"
+    languages: ["javascript", "typescript", "vue"]
+    severity: "low"

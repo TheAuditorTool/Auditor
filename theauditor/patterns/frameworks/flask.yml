@@ -1,0 +1,73 @@
+# Flask-specific security patterns
+patterns:
+  - name: "flask-ssti-render-template-string"
+    description: "Use of render_template_string - can lead to Server-Side Template Injection if template string is from user input"
+    regex: "render_template_string\\s*\\("
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "flask-markup-xss"
+    description: "Use of Markup() - can lead to XSS if the wrapped content originates from user input"
+    regex: "Markup\\s*\\("
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "flask-debug-mode-enabled"
+    description: "Flask app.run(debug=True) - must never be used in production, exposes interactive debugger"
+    regex: "app\\.run\\s*\\([^)]*debug\\s*=\\s*True"
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "flask-secret-key-exposed"
+    description: "Hardcoded SECRET_KEY in Flask config - compromises session security"
+    regex: "(?:app\\.secret_key|SECRET_KEY)\\s*=\\s*['\"][^'\"]+['\"]"
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "flask-unsafe-file-upload"
+    description: "File upload without validation - potential for malicious file upload and path traversal"
+    regex: "request\\.files\\[[^\\]]+\\]\\.save\\s*\\("
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "flask-sql-injection-risk"
+    description: "String formatting in SQL queries - SQL injection vulnerability"
+    regex: "(?:execute|executemany)\\s*\\([^)]*(?:%|format|f['\"])"
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "flask-unsafe-redirect"
+    description: "Unvalidated redirect using request parameters - open redirect vulnerability"
+    regex: "redirect\\s*\\(\\s*request\\.(?:args|values|form)\\.get"
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "flask-eval-usage"
+    description: "Use of eval with user input - code injection vulnerability"
+    regex: "eval\\s*\\(.*request\\."
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "flask-cors-wildcard"
+    description: "CORS with wildcard origin - allows any domain to access resources"
+    regex: "(?:CORS|Access-Control-Allow-Origin).*['\"]\\*['\"]"
+    languages: ["python"]
+    severity: "high"
+    
+  - name: "flask-unsafe-deserialization"
+    description: "Pickle deserialization of user input - remote code execution risk"
+    regex: "pickle\\.loads\\s*\\(.*request\\."
+    languages: ["python"]
+    severity: "critical"
+    
+  - name: "flask-jsonify-html"
+    description: "Returning HTML in JSON responses - potential for XSS if rendered client-side"
+    regex: "jsonify\\s*\\([^)]*<[^>]+>"
+    languages: ["python"]
+    severity: "medium"
+    
+  - name: "flask-werkzeug-debugger"
+    description: "Werkzeug debugger PIN exposed or disabled - allows arbitrary code execution"
+    regex: "(?:WERKZEUG_DEBUG_PIN|use_debugger\\s*=\\s*True)"
+    languages: ["python"]
+    severity: "critical"

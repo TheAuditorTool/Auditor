@@ -1,0 +1,277 @@
+# Refactoring Detection Correlation Rules
+# These rules detect common refactoring issues and inconsistencies
+
+rules:
+  # ============================================================================
+  # DATA MODEL REFACTORING PATTERNS
+  # ============================================================================
+  
+  - name: "FIELD_MOVED_BETWEEN_MODELS"
+    description: "Field moved from one model to another but old references remain"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "removeColumn.*('products'|\"products\")"
+      - tool: "grep"
+        pattern: "product\\.(unit_price|retail_price|wholesale_price|sku|inventory_type)"
+    confidence: 0.95
+
+  - name: "PRODUCT_VARIANT_REFACTOR"
+    description: "Product fields moved to ProductVariant but frontend still uses old structure"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "ProductVariant.*retail_price.*Sequelize"
+      - tool: "grep"
+        pattern: "product\\.unit_price|product\\.retail_price"
+    confidence: 0.92
+
+  - name: "SKU_FIELD_MIGRATION"
+    description: "SKU moved from Product to ProductVariant"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "ProductVariant.*sku.*unique.*true"
+      - tool: "grep"
+        pattern: "product\\.sku|WHERE.*products\\.sku"
+    confidence: 0.94
+
+  # ============================================================================
+  # FOREIGN KEY REFACTORING
+  # ============================================================================
+  
+  - name: "ORDER_ITEMS_WRONG_FK"
+    description: "Order items using product_id instead of product_variant_id"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "order_items.*product_variant_id.*fkey"
+      - tool: "grep"
+        pattern: "order_items.*product_id(?!_variant)"
+    confidence: 0.96
+
+  - name: "TRANSFER_ITEMS_WRONG_FK"
+    description: "Transfer items referencing wrong product foreign key"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "transfer_items.*product_variant_id"
+      - tool: "grep"
+        pattern: "transfer.*product_id(?!_variant)"
+    confidence: 0.93
+
+  - name: "INVENTORY_FK_MISMATCH"
+    description: "Inventory table has both product_id and product_variant_id"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "inventory.*product_variant_id.*NULL"
+      - tool: "grep"
+        pattern: "inventory.*product_id.*NOT NULL"
+    confidence: 0.88
+
+  # ============================================================================
+  # API CONTRACT CHANGES
+  # ============================================================================
+  
+  - name: "API_ENDPOINT_REMOVED"
+    description: "Frontend calling API endpoints that no longer exist"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "/api/products/.*/price|/api/products/.*/sku"
+      - tool: "grep"
+        pattern: "router\\.(get|post).*'/variants'"
+    confidence: 0.90
+
+  - name: "API_RESPONSE_STRUCTURE_CHANGED"
+    description: "API response structure changed but frontend expects old format"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "res\\.json.*variants.*product"
+      - tool: "grep"
+        pattern: "response\\.data\\.product\\.price"
+    confidence: 0.87
+
+  - name: "GRAPHQL_SCHEMA_MISMATCH"
+    description: "GraphQL schema doesn't match model structure"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "type Product.*price.*Float"
+      - tool: "grep"
+        pattern: "Product\\.init.*!.*price"
+    confidence: 0.85
+
+  # ============================================================================
+  # FRONTEND-BACKEND MISMATCHES
+  # ============================================================================
+  
+  - name: "TYPESCRIPT_INTERFACE_OUTDATED"
+    description: "TypeScript interfaces don't match backend models"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "interface.*Product.*unit_price.*number"
+      - tool: "grep"
+        pattern: "Product\\.init.*!.*unit_price"
+    confidence: 0.96
+
+  - name: "FRONTEND_NESTED_STRUCTURE"
+    description: "Frontend expects nested relationships that backend doesn't provide"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "product_variant\\.product\\.(name|brand)"
+      - tool: "grep"
+        pattern: "ProductVariant.*belongsTo.*Product"
+    confidence: 0.91
+
+  - name: "CART_WRONG_ID_FIELD"
+    description: "Shopping cart using product_id instead of product_variant_id"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "OrderItem.*product_variant_id.*required"
+      - tool: "grep"
+        pattern: "addToCart.*product_id|cart.*product_id"
+    confidence: 0.93
+
+  # ============================================================================
+  # MIGRATION PATTERNS
+  # ============================================================================
+  
+  - name: "INCOMPLETE_MIGRATION"
+    description: "Database migration incomplete - old column references remain"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "removeColumn|dropColumn"
+      - tool: "grep"
+        pattern: "SELECT.*FROM.*WHERE.*{removed_column}"
+    confidence: 0.89
+
+  - name: "MIGRATION_DATA_LOSS"
+    description: "Migration drops column without data migration"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "removeColumn.*CASCADE|dropColumn.*CASCADE"
+      - tool: "grep"
+        pattern: "!.*UPDATE.*SET.*before.*removeColumn"
+    confidence: 0.86
+
+  - name: "ENUM_TYPE_CHANGED"
+    description: "ENUM values changed but code still uses old values"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "DROP TYPE.*enum_products"
+      - tool: "grep"
+        pattern: "inventory_type.*=.*'both'|inventory_type.*weight|unit|both"
+    confidence: 0.84
+
+  # ============================================================================
+  # AUTHORIZATION CHANGES
+  # ============================================================================
+  
+  - name: "MISSING_AUTH_MIDDLEWARE"
+    description: "New routes missing authentication/authorization"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "router\\.(post|put|delete).*variant"
+      - tool: "grep"
+        pattern: "!.*requireAdmin.*productVariant\\.routes"
+    confidence: 0.92
+
+  - name: "PERMISSION_MODEL_CHANGED"
+    description: "Permission model changed but checks not updated"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "role.*admin|worker"
+      - tool: "grep"
+        pattern: "req\\.user\\.permissions|can\\("
+    confidence: 0.80
+
+  # ============================================================================
+  # VALIDATION CHANGES
+  # ============================================================================
+  
+  - name: "VALIDATION_SCHEMA_OUTDATED"
+    description: "Joi/Yup validation schema doesn't match model"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "Joi\\.object.*product.*unit_price"
+      - tool: "grep"
+        pattern: "!.*Product.*unit_price"
+    confidence: 0.88
+
+  - name: "REQUIRED_FIELD_MISMATCH"
+    description: "Required fields in validation don't match database constraints"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "allowNull.*false.*sku"
+      - tool: "grep"
+        pattern: "sku.*Joi\\..*optional\\(\\)"
+    confidence: 0.85
+
+  # ============================================================================
+  # SERVICE LAYER ISSUES
+  # ============================================================================
+  
+  - name: "SERVICE_METHOD_SIGNATURE_CHANGED"
+    description: "Service method signature changed but callers not updated"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "async.*create.*product.*variant"
+      - tool: "grep"
+        pattern: "productService\\.create\\(.*price"
+    confidence: 0.87
+
+  - name: "REPOSITORY_PATTERN_MISMATCH"
+    description: "Repository methods don't match new model structure"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "findOne.*where.*sku"
+      - tool: "grep"
+        pattern: "ProductVariant.*sku"
+    confidence: 0.83
+
+  # ============================================================================
+  # TESTING ISSUES
+  # ============================================================================
+  
+  - name: "TEST_FIXTURES_OUTDATED"
+    description: "Test fixtures using old model structure"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "test.*product.*unit_price"
+      - tool: "grep"
+        pattern: "ProductVariant.*retail_price"
+    confidence: 0.82
+
+  - name: "MOCK_DATA_MISMATCH"
+    description: "Mock data doesn't match actual model structure"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "mock.*product.*price"
+      - tool: "grep"
+        pattern: "!.*Product.*price"
+    confidence: 0.79
+
+  # ============================================================================
+  # COMMON REFACTORING ANTI-PATTERNS
+  # ============================================================================
+  
+  - name: "EXTRACT_VARIANT_PATTERN"
+    description: "Classic Extract Variant refactoring with incomplete updates"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "createTable.*variants"
+      - tool: "grep"
+        pattern: "product\\.(price|sku|inventory)"
+    confidence: 0.94
+
+  - name: "NORMALIZE_HIERARCHY"
+    description: "Hierarchy normalization with missing relationship updates"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "belongsTo.*hasMany.*through"
+      - tool: "grep"
+        pattern: "JOIN.*old_table"
+    confidence: 0.86
+
+  - name: "SPLIT_TABLE_INCOMPLETE"
+    description: "Table split into multiple tables but queries not updated"
+    co_occurring_facts:
+      - tool: "grep"
+        pattern: "createTable.*_details|_metadata"
+      - tool: "grep"
+        pattern: "SELECT.*FROM.*{original_table}.*WHERE"
+    confidence: 0.88

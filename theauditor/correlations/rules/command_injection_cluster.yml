@@ -1,0 +1,10 @@
+name: "Command Injection Factual Cluster"
+description: "Multiple tools detected patterns consistent with a Command Injection vulnerability."
+confidence: 0.95
+co_occurring_facts:
+  - tool: "taint_analyzer"
+    pattern: "command"
+  - tool: "patterns"
+    pattern: "(exec|subprocess|shell)"
+  - tool: "lint"
+    pattern: "subprocess"
