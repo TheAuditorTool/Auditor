@@ -550,9 +550,10 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
         except Exception as e:
             print(f"    ⚠ Could not update versions: {e}")
         
-        # Install linters group from pyproject.toml
+        # Install linters AND ast tools from pyproject.toml
+        # AST tools (tree-sitter) are CRITICAL for proper pattern detection
         try:
-            print("  Installing linters from pyproject.toml...", flush=True)
+            print("  Installing linters and AST tools from pyproject.toml...", flush=True)
             stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                 str(target_dir), "pip_linters"
             )
@@ -561,7 +562,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                  open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
                 
                 result = subprocess.run(
-                    [str(python_exe), "-m", "pip", "install", "-e", f"{theauditor_root}[linters]"],
+                    [str(python_exe), "-m", "pip", "install", "-e", f"{theauditor_root}[linters,ast]"],
                     stdout=stdout_fp,
                     stderr=stderr_fp,
                     text=True,
@@ -582,9 +583,11 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             
             if result.returncode == 0:
                 check_mark = "[OK]" if IS_WINDOWS else "✓"
-                print(f"    {check_mark} Python linters installed (ruff, mypy, black, bandit, pylint)")
+                print(f"    {check_mark} Python tools installed:")
+                print(f"        - Linters: ruff, mypy, black, bandit, pylint")
+                print(f"        - AST analysis: tree-sitter (Python/JS/TS), sqlparse, dockerfile-parse")
             else:
-                print(f"    ⚠ Some linters failed: {result.stderr[:200]}")
+                print(f"    ⚠ Some tools failed to install: {result.stderr[:200]}")
         except Exception as e:
             print(f"    ⚠ Error installing linters: {e}")
         
