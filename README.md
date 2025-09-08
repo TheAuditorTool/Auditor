@@ -17,23 +17,41 @@ Unlike traditional SAST tools, TheAuditor is designed specifically for AI-assist
 
 ## Quick Start
 
+### Step 1: Install TheAuditor (One-Time Setup)
 ```bash
-# Install TheAuditor
+# Clone TheAuditor to your tools directory (NOT your project!)
+cd ~/tools  # or wherever you keep development tools
+git clone https://github.com/TheAuditorTool/Auditor.git
+cd TheAuditor
+
+# Install using your SYSTEM Python (no venv needed!)
 pip install -e .
 
-# MANDATORY: Setup TheAuditor environment (required for all functionality)
-# This installs .auditor_venv to the project you want to analyze
+# Verify installation
+aud --version
+```
+
+### Step 2: Analyze Your Project
+```bash
+# Navigate to YOUR PROJECT directory (not TheAuditor!)
+cd ~/my-project-to-audit
+
+# Setup sandbox environment for THIS project
 aud setup-claude --target .
 
-# Initialize your project
-aud init
-
-# Run comprehensive analysis
-aud full
+# Run analysis
+aud init   # First time only
+aud full   # Complete security audit
 
 # Check results
 ls .pf/readthis/
 ```
+
+**Important Directory Structure:**
+- `~/tools/TheAuditor/` - Where TheAuditor tool lives
+- `~/my-project/` - Your project being analyzed
+- `~/my-project/.auditor_venv/` - Sandbox created BY TheAuditor
+- `~/my-project/.pf/` - Analysis results
 
 That's it! TheAuditor will analyze your codebase and generate AI-ready reports in `.pf/readthis/`.
 
@@ -258,6 +276,43 @@ The fundamental paradox: A tool that finds security vulnerabilities must write t
 - Consider running TheAuditor in a controlled environment if performance is critical
 
 We believe in complete transparency about these limitations. This interaction with antivirus software is not a flaw in TheAuditor - it's proof that both your AV and our scanner are doing exactly what they're designed to do: identify and handle potentially dangerous code patterns.
+
+## Common Issues & Troubleshooting
+
+### "No such file or directory: .pf/manifest.json"
+- **Cause**: Running `aud init` on a fresh project
+- **Fix**: Update TheAuditor and reinstall:
+  ```bash
+  cd ~/tools/TheAuditor
+  git pull
+  pip install -e .
+  ```
+
+### "Tree-sitter not available" warning
+- **Cause**: Missing AST analysis tools
+- **Fix**: Reinstall the sandbox in your project:
+  ```bash
+  cd ~/my-project
+  rm -rf .auditor_venv
+  aud setup-claude --target .
+  ```
+
+### Installation timeout errors
+- **Cause**: Slow compilation of C extensions
+- **Fix**: Update TheAuditor or manually install:
+  ```bash
+  cd ~/my-project
+  .auditor_venv/bin/pip install tree-sitter tree-sitter-language-pack
+  ```
+
+### Nested virtual environments
+- **Issue**: Created your own venv before installing
+- **Fix**: Exit all venvs and use system Python:
+  ```bash
+  deactivate  # Exit any active venv
+  cd ~/tools/TheAuditor
+  pip install -e .  # Use system pip
+  ```
 
 ---
 
