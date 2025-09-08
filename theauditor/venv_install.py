@@ -529,7 +529,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                         stdout=stdout_fp,
                         stderr=stderr_fp,
                         text=True,
-                        timeout=120
+                        timeout=300  # Increased to 5 minutes for checking many dependencies
                     )
                 
                 with open(stdout_path, 'r', encoding='utf-8') as f:
@@ -566,7 +566,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                     stdout=stdout_fp,
                     stderr=stderr_fp,
                     text=True,
-                    timeout=120
+                    timeout=300  # Increased to 5 minutes for slower systems and compilation
                 )
             
             with open(stdout_path, 'r', encoding='utf-8') as f:
