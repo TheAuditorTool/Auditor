@@ -16,27 +16,54 @@ Before installing **TheAuditor**, ensure you have:
 
 ## Installation & Setup
 
-### Step 1: Install TheAuditor
+### Understanding the Architecture
+
+TheAuditor uses a **dual-environment** design:
+1. **TheAuditor Installation** - The tool itself (installed once, used everywhere)
+2. **Project Sandbox** - Created per-project for isolated analysis
+
+### Step 1: Install TheAuditor Tool
+
+**IMPORTANT**: Do NOT create a virtual environment. Use your system Python.
 
 ```bash
+# Choose a permanent location for TheAuditor (NOT inside your projects)
+cd ~/tools  # or C:\tools on Windows, or wherever you keep dev tools
+
 # Clone the repository
 git clone https://github.com/TheAuditorTool/Auditor.git
-cd theauditor
+cd TheAuditor
 
-# Install TheAuditor
+# Install TheAuditor to your system
 pip install -e .
+
+# Verify the installation worked
+aud --version
 
 # Optional: Install with ML capabilities
 # pip install -e ".[ml]"
 
 # For development with all optional dependencies:
-# pip install -e ".[all]" // "Insights module package".
+# pip install -e ".[all]"  # Includes Insights module
 ```
 
-### Step 2: Sandboxed Toolchain Setup (MANDATORY)
+**Common Mistakes to Avoid:**
+- ❌ Don't create a venv before installing TheAuditor
+- ❌ Don't install TheAuditor inside your project directory
+- ❌ Don't run `pip install` from your project directory
+- ✅ Install TheAuditor ONCE in a tools directory
+- ✅ Use TheAuditor to analyze MANY projects
+
+### Step 2: Setup Project for Analysis (MANDATORY)
+
+**Navigate to YOUR PROJECT directory first:**
 
 ```bash
-aud setup-claude --target .  // Inside project directory.
+# Go to the project you want to analyze (NOT TheAuditor directory!)
+cd ~/my-project-to-audit
+
+# Create the sandboxed environment for THIS project
+aud setup-claude --target .
 ```
 
 This command:
