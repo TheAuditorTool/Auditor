@@ -266,6 +266,8 @@ def build_index(
 
     # Write manifest
     try:
+        # Ensure parent directory exists before writing
+        Path(manifest_path).parent.mkdir(parents=True, exist_ok=True)
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(files, f, indent=2, sort_keys=True)
     except Exception as e:
@@ -273,6 +275,9 @@ def build_index(
 
     # Create and populate database
     try:
+        # Ensure parent directory exists for database
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        
         # Check if database already exists
         db_exists = Path(db_path).exists()
         
