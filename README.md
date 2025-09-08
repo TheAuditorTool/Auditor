@@ -55,6 +55,12 @@ ls .pf/readthis/
 
 That's it! TheAuditor will analyze your codebase and generate AI-ready reports in `.pf/readthis/`.
 
+## How It Works With ANY AI Assistant
+
+<img src="https://github.com/user-attachments/assets/6abdf102-621c-4ebf-8ad6-c2912364bed5" width="600" alt="TheAuditor working in Claude Code" />
+
+**Universal Integration**: Just tell your AI assistant to run `aud full` and read the results from `.pf/readthis/`. No SDK, no integration, no setup - it just works with Claude, Cursor, Windsurf, Copilot, or any future AI tool that can run commands and read files.
+
 ## The Solution: TheAuditor
 
 TheAuditor is the antidote. It was built to stop "vibe coding" your way into security and quality assurance nightmares. Its mission is to provide an incorruptible source of **ground truth** for both the developer and their AI assistant.
@@ -142,6 +148,36 @@ This architectural flaw is amplified by two dangerous behaviours inherent to AI 
 
 - **Security Theater**: AI assistants are optimized to "make it work," which often means introducing rampant security anti-patterns like hardcoded credentials, disabled authentication, and the pervasive use of `as any` in TypeScript. This creates a dangerous illusion of progress.
 - **Context Blindness**: With aggressive context compaction, an AI never sees the full picture. It works with fleeting snapshots of code, forcing it to make assumptions instead of decisions based on facts.
+
+## The 14-Phase Analysis Pipeline
+
+TheAuditor runs a comprehensive audit through 14 distinct phases organized in 4 stages:
+
+**STAGE 1: Foundation (Sequential)**
+1. **Index Repository** - Build complete code inventory and SQLite database
+2. **Detect Frameworks** - Identify Django, Flask, React, Vue, etc.
+
+**STAGE 2: Parallel Analysis (3 concurrent tracks)**
+
+*Track A - Network Operations:*
+3. **Check Dependencies** - Analyze package versions and known vulnerabilities
+4. **Fetch Documentation** - Extract docstrings and comments
+5. **Summarize Documentation** - Create AI-readable documentation chunks
+
+*Track B - Code Analysis:*
+6. **Create Workset** - Identify all source files for analysis
+7. **Run Linting** - Execute Ruff, MyPy, ESLint as configured
+8. **Detect Patterns** - Apply 100+ security pattern rules
+
+*Track C - Graph & Flow:*
+9. **Build Graph** - Create dependency graph structure
+10. **Analyze Graph** - Find cycles, measure complexity
+11. **Visualize Graph** - Generate multiple graph views
+12. **Taint Analysis** - Track data flow from sources to sinks
+
+**STAGE 3: Aggregation (Sequential)**
+13. **Factual Correlation Engine** - Cross-reference findings across all tools
+14. **Generate Report** - Produce final AI-consumable chunks in `.pf/readthis/`
 
 ## Key Features
 
