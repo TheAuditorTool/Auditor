@@ -67,8 +67,30 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
         if debug:
             print(f"Debug: Security error checking pyproject.toml: {e}")
     
-    # Parse requirements files
+    # Parse requirements files (including in subdirectories for monorepos)
+    # Check root first
     req_files = list(root.glob("requirements*.txt"))
+    # Also check common Python monorepo patterns
+    req_files.extend(root.glob("*/requirements*.txt"))  # backend/requirements.txt
+    req_files.extend(root.glob("services/*/requirements*.txt"))  # services/api/requirements.txt
+    req_files.extend(root.glob("apps/*/requirements*.txt"))  # apps/web/requirements.txt
+    
+    # Also check for pyproject.toml in subdirectories (Python monorepos)
+    pyproject_files = list(root.glob("*/pyproject.toml"))  # backend/pyproject.toml
+    pyproject_files.extend(root.glob("services/*/pyproject.toml"))
+    pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
+    
+    # Process all pyproject.toml files found
+    for pyproject_file in pyproject_files:
+        try:
+            safe_pyproject = sanitize_path(str(pyproject_file), root_path)
+            if debug:
+                print(f"Debug: Found {safe_pyproject}")
+            deps.extend(_parse_pyproject_toml(safe_pyproject))
+        except SecurityError as e:
+            if debug:
+                print(f"Debug: Security error with {pyproject_file}: {e}")
+    
     if debug and req_files:
         print(f"Debug: Found requirements files: {req_files}")
     for req_file in req_files:
@@ -300,6 +322,13 @@ def _parse_pyproject_toml(path: Path) -> List[Dict[str, Any]]:
             print(f"Warning: Cannot parse {path} - tomllib not available")
             return deps
     
+    # Calculate source path (relative if in subdirectory)
+    try:
+        source_path = path.relative_to(Path.cwd())
+        source = str(source_path).replace("\\", "/")
+    except ValueError:
+        source = "pyproject.toml"
+    
     try:
         with open(path, "rb") as f:
             data = tomllib.load(f)
@@ -314,7 +343,7 @@ def _parse_pyproject_toml(path: Path) -> List[Dict[str, Any]]:
                     "version": version or "latest",
                     "manager": "py",
                     "files": [],
-                    "source": "pyproject.toml"
+                    "source": source
                 })
         
         # Also check optional dependencies
@@ -328,7 +357,7 @@ def _parse_pyproject_toml(path: Path) -> List[Dict[str, Any]]:
                         "version": version or "latest",
                         "manager": "py",
                         "files": [],
-                        "source": "pyproject.toml"
+                        "source": source
                     })
     except Exception as e:
         print(f"Warning: Could not parse {path}: {e}")
@@ -340,6 +369,13 @@ def _parse_requirements_txt(path: Path) -> List[Dict[str, Any]]:
     """Parse dependencies from requirements.txt."""
     deps = []
     try:
+        # Calculate source path (relative if in subdirectory)
+        try:
+            source_path = path.relative_to(Path.cwd())
+            source = str(source_path).replace("\\", "/")
+        except ValueError:
+            source = path.name
+        
         with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -361,7 +397,7 @@ def _parse_requirements_txt(path: Path) -> List[Dict[str, Any]]:
                         "version": version or "latest",
                         "manager": "py",
                         "files": [],
-                        "source": path.name
+                        "source": source
                     })
     except Exception as e:
         print(f"Warning: Could not parse {path}: {e}")
@@ -874,6 +910,39 @@ def write_deps_latest_json(
         raise SecurityError(f"Invalid output path: {e}")
 
 
+def _create_versioned_backup(path: Path) -> Path:
+    """
+    Create a versioned backup that won't overwrite existing backups.
+    
+    Creates backups like:
+    - package.json.bak (first backup)
+    - package.json.bak.1 (second backup)
+    - package.json.bak.2 (third backup)
+    
+    Returns the path to the created backup.
+    """
+    import shutil
+    
+    base_backup = path.with_suffix(path.suffix + ".bak")
+    
+    # If no backup exists, use the base name
+    if not base_backup.exists():
+        shutil.copy2(path, base_backup)
+        return base_backup
+    
+    # Find the next available backup number
+    counter = 1
+    while True:
+        versioned_backup = Path(f"{base_backup}.{counter}")
+        if not versioned_backup.exists():
+            shutil.copy2(path, versioned_backup)
+            return versioned_backup
+        counter += 1
+        # Safety limit to prevent infinite loops
+        if counter > 100:
+            raise RuntimeError(f"Too many backup files for {path}")
+
+
 def upgrade_all_deps(
     root_path: str,
     latest_info: Dict[str, Dict[str, Any]],
@@ -895,31 +964,82 @@ def upgrade_all_deps(
         "pyproject.toml": 0
     }
     
-    # Group deps by source file
+    # Group deps by source file (including workspace path for monorepos)
     deps_by_source = {}
     for dep in deps_list:
-        source = dep.get("source", "")
-        if source not in deps_by_source:
-            deps_by_source[source] = []
-        deps_by_source[source].append(dep)
+        # For npm deps in workspaces, use workspace_package field if available
+        if dep.get("manager") == "npm" and "workspace_package" in dep:
+            source_key = dep["workspace_package"]
+        else:
+            source_key = dep.get("source", "")
+        
+        if source_key not in deps_by_source:
+            deps_by_source[source_key] = []
+        deps_by_source[source_key].append(dep)
     
-    # Upgrade requirements*.txt files
-    for req_file in root.glob("requirements*.txt"):
-        if req_file.name in deps_by_source:
+    # Upgrade requirements*.txt files (including in subdirectories)
+    all_req_files = list(root.glob("requirements*.txt"))
+    all_req_files.extend(root.glob("*/requirements*.txt"))
+    all_req_files.extend(root.glob("services/*/requirements*.txt"))
+    all_req_files.extend(root.glob("apps/*/requirements*.txt"))
+    
+    for req_file in all_req_files:
+        # Use relative path as key for deps_by_source
+        try:
+            rel_path = req_file.relative_to(root)
+            source_key = str(rel_path).replace("\\", "/")
+        except ValueError:
+            source_key = req_file.name
+        
+        if source_key in deps_by_source:
+            count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[source_key])
+            upgraded["requirements.txt"] += count
+        elif req_file.name in deps_by_source:
+            # Fallback to just filename for backward compatibility
             count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[req_file.name])
             upgraded["requirements.txt"] += count
     
-    # Upgrade package.json
-    package_json = root / "package.json"
-    if package_json.exists() and "package.json" in deps_by_source:
-        count = _upgrade_package_json(package_json, latest_info, deps_by_source["package.json"])
-        upgraded["package.json"] = count
+    # Upgrade all package.json files (root and workspaces)
+    for source_key, source_deps in deps_by_source.items():
+        # Skip non-npm dependencies
+        if not source_deps or source_deps[0].get("manager") != "npm":
+            continue
+            
+        # Determine the actual file path
+        if source_key == "package.json":
+            # Root package.json
+            package_path = root / "package.json"
+        elif source_key.endswith("package.json"):
+            # Workspace package.json (e.g., "backend/package.json")
+            package_path = root / source_key
+        else:
+            continue
+            
+        if package_path.exists():
+            count = _upgrade_package_json(package_path, latest_info, source_deps)
+            upgraded["package.json"] += count
     
-    # Upgrade pyproject.toml
-    pyproject = root / "pyproject.toml"
-    if pyproject.exists() and "pyproject.toml" in deps_by_source:
-        count = _upgrade_pyproject_toml(pyproject, latest_info, deps_by_source["pyproject.toml"])
-        upgraded["pyproject.toml"] = count
+    # Upgrade all pyproject.toml files (root and subdirectories)
+    all_pyproject_files = [root / "pyproject.toml"] if (root / "pyproject.toml").exists() else []
+    all_pyproject_files.extend(root.glob("*/pyproject.toml"))
+    all_pyproject_files.extend(root.glob("services/*/pyproject.toml"))
+    all_pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
+    
+    for pyproject_file in all_pyproject_files:
+        # Use relative path as key
+        try:
+            rel_path = pyproject_file.relative_to(root)
+            source_key = str(rel_path).replace("\\", "/")
+        except ValueError:
+            source_key = "pyproject.toml"
+        
+        if source_key in deps_by_source:
+            count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source[source_key])
+            upgraded["pyproject.toml"] += count
+        elif "pyproject.toml" in deps_by_source and pyproject_file == root / "pyproject.toml":
+            # Backward compatibility for root pyproject.toml
+            count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source["pyproject.toml"])
+            upgraded["pyproject.toml"] += count
     
     return upgraded
 
@@ -936,9 +1056,8 @@ def _upgrade_requirements_txt(
     except SecurityError:
         return 0  # Skip files outside project root
     
-    # Create backup
-    backup_path = safe_path.with_suffix(safe_path.suffix + ".bak")
-    shutil.copy2(safe_path, backup_path)
+    # Create versioned backup
+    backup_path = _create_versioned_backup(safe_path)
     
     # Read current file
     with open(safe_path, "r", encoding="utf-8") as f:
@@ -995,9 +1114,8 @@ def _upgrade_package_json(
     except SecurityError:
         return 0  # Skip files outside project root
     
-    # Create backup
-    backup_path = safe_path.with_suffix(safe_path.suffix + ".bak")
-    shutil.copy2(safe_path, backup_path)
+    # Create versioned backup
+    backup_path = _create_versioned_backup(safe_path)
     
     # Read current file
     with open(safe_path, "r", encoding="utf-8") as f:
@@ -1044,9 +1162,8 @@ def _upgrade_pyproject_toml(
     except SecurityError:
         return 0  # Skip files outside project root
     
-    # Create backup
-    backup_path = safe_path.with_suffix(safe_path.suffix + ".bak")
-    shutil.copy2(safe_path, backup_path)
+    # Create versioned backup
+    backup_path = _create_versioned_backup(safe_path)
     
     # Read entire file as string for regex replacement
     with open(safe_path, "r", encoding="utf-8") as f:
