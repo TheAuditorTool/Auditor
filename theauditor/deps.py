@@ -56,6 +56,42 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
         if debug:
             print(f"Debug: Security error checking package.json: {e}")
     
+    # Check for package.json in common monorepo patterns (even without workspaces field)
+    # This handles cases where monorepos don't use npm/yarn/pnpm workspaces
+    npm_patterns = [
+        "*/package.json",           # backend/package.json, frontend/package.json
+        "packages/*/package.json",   # packages/core/package.json
+        "apps/*/package.json",       # apps/web/package.json
+        "services/*/package.json",   # services/api/package.json
+    ]
+    
+    package_files = []
+    for pattern in npm_patterns:
+        package_files.extend(root.glob(pattern))
+    
+    # Process all discovered package.json files
+    for pkg_file in package_files:
+        try:
+            safe_pkg = sanitize_path(str(pkg_file), root_path)
+            if debug:
+                print(f"Debug: Found {safe_pkg}")
+            # Parse this package.json directly without workspace detection
+            pkg_deps = _parse_standalone_package_json(safe_pkg)
+            # Set the workspace_package field to reflect the actual path
+            try:
+                rel_path = safe_pkg.relative_to(Path(root_path).resolve())
+                workspace_path = str(rel_path).replace("\\", "/")
+            except ValueError:
+                workspace_path = str(safe_pkg)
+            
+            for dep in pkg_deps:
+                dep["workspace_package"] = workspace_path
+            
+            deps.extend(pkg_deps)
+        except SecurityError as e:
+            if debug:
+                print(f"Debug: Security error with {pkg_file}: {e}")
+    
     # Parse Python dependencies
     try:
         pyproject = sanitize_path("pyproject.toml", root_path)
@@ -128,6 +164,38 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
     
     if debug:
         print(f"Debug: Total dependencies found: {len(deps)}")
+    
+    return deps
+
+
+def _parse_standalone_package_json(path: Path) -> List[Dict[str, Any]]:
+    """Parse dependencies from a single package.json file without workspace detection."""
+    deps = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        
+        # Combine dependencies and devDependencies
+        all_deps = {}
+        if "dependencies" in data:
+            all_deps.update(data["dependencies"])
+        if "devDependencies" in data:
+            all_deps.update(data["devDependencies"])
+        
+        for name, version_spec in all_deps.items():
+            # Clean version spec (remove ^, ~, >=, etc.)
+            version = _clean_version(version_spec)
+            deps.append({
+                "name": name,
+                "version": version,
+                "manager": "npm",
+                "files": [],  # Will be populated by workset scan
+                "source": "package.json",
+                "workspace_package": "package.json"  # Will be overridden by caller
+            })
+    except (json.JSONDecodeError, KeyError) as e:
+        # Log but don't fail - package.json might be malformed
+        print(f"Warning: Could not parse {path}: {e}")
     
     return deps
 
