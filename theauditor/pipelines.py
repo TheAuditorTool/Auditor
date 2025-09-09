@@ -34,10 +34,10 @@ COMMAND_TIMEOUTS = {
     "docs": 300,                # 5 minutes - Network I/O for fetching docs
     "workset": 300,             # 5 minutes - File system traversal
     "lint": 900,                # 15 minutes - ESLint/ruff on large codebases
-    "detect-patterns": 7200,    # 2 hours - 100+ security patterns on all files
+    "detect-patterns": 36000,   # 10 hours - 100+ security patterns on enterprise codebases (140K+ symbols)
     "graph": 600,               # 10 minutes - Building dependency graphs
-    "taint-analyze": 7200,      # 2 hours - Data flow analysis is expensive
-    "taint": 7200,              # 2 hours - Alias for taint-analyze
+    "taint-analyze": 36000,     # 10 hours - Data flow analysis on enterprise codebases (140K+ symbols)
+    "taint": 36000,             # 10 hours - Alias for taint-analyze
     "fce": 1800,                # 30 minutes - Correlation analysis
     "report": 600,              # 10 minutes - Report generation
     "summary": 300,             # 5 minutes - Quick summary generation
@@ -756,7 +756,36 @@ def run_full_pipeline(
             # Process futures as they complete, but also check status periodically
             pending_futures = list(futures)
             while pending_futures:
-                # Check for completed futures (with short timeout)
+                # Check for completed futures immediately (0 timeout) to avoid delays
+                # Only wait with timeout if nothing is done yet
+                done, still_pending = wait(pending_futures, timeout=0)
+                
+                if done:
+                    # Process completed futures immediately
+                    for future in done:
+                        try:
+                            result = future.result()
+                            parallel_results.append(result)
+                            if result["success"]:
+                                log_output(f"[OK] {result['name']} completed in {result['elapsed']:.1f}s")
+                            else:
+                                log_output(f"[FAILED] {result['name']} failed", is_error=True)
+                                failed_phases += 1
+                        except KeyboardInterrupt:
+                            log_output(f"[INTERRUPTED] Pipeline stopped by user", is_error=True)
+                            # Cancel remaining futures
+                            for f in still_pending:
+                                f.cancel()
+                            raise  # Re-raise to exit
+                        except Exception as e:
+                            log_output(f"[ERROR] Parallel track failed with exception: {e}", is_error=True)
+                            failed_phases += 1
+                    
+                    # Update pending list
+                    pending_futures = list(still_pending)
+                    continue  # Check again immediately for more completed futures
+                
+                # No futures completed, wait a bit and show status
                 done, pending_futures = wait(pending_futures, timeout=status_check_interval)
                 
                 # Read and display status if enough time has passed
@@ -795,7 +824,7 @@ def run_full_pipeline(
                             for status_line in status_summary:
                                 log_output(status_line)
                 
-                # Process completed futures
+                # Process any futures that completed during the wait
                 for future in done:
                     try:
                         result = future.result()
