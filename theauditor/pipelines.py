@@ -363,7 +363,7 @@ def run_full_pipeline(
         ("index", []),
         ("detect-frameworks", []),
         ("deps", ["--check-latest"]),
-        ("docs", ["fetch"]),
+        ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
         ("docs", ["summarize"]),
         ("workset", ["--all"]),
         ("lint", ["--workset"]),
