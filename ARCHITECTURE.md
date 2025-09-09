@@ -87,7 +87,7 @@ Key features:
 - **Parallel JavaScript processing** when semantic parser available
 
 ### Pipeline System (`theauditor/pipelines.py`)
-Orchestrates **14-phase** analysis pipeline in **parallel stages**:
+Orchestrates comprehensive analysis pipeline in **parallel stages**:
 
 **Stage 1 - Foundation (Sequential):**
 1. Repository indexing - Build manifest and symbol database

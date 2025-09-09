@@ -25,7 +25,7 @@ mypy theauditor --strict           # Type checking
 
 # Running TheAuditor
 aud init                     # Initialize project
-aud full                     # Complete analysis (14 phases)
+aud full                     # Complete analysis (multiple phases)
 aud full --offline           # Skip network operations (deps, docs)
 aud index --exclude-self     # When analyzing TheAuditor itself
 
@@ -150,7 +150,7 @@ The indexer has been refactored from a monolithic 2000+ line file into a modular
 The package uses a dynamic extractor registry for automatic language detection and processing.
 
 #### Pipeline System (`theauditor/pipelines.py`)
-- Orchestrates **14-phase** analysis pipeline in **parallel stages**:
+- Orchestrates comprehensive analysis pipeline in **parallel stages**:
   - **Stage 1**: Foundation (index with batched DB operations, framework detection)
   - **Stage 2**: 3 concurrent tracks (Network I/O, Code Analysis, Graph Build)
   - **Stage 3**: Final aggregation (graph analysis, taint, FCE, report)
@@ -324,7 +324,7 @@ if chunk_info.get('truncated', False):
 ## Critical Working Knowledge
 
 ### Pipeline Execution Order
-The `aud full` command runs 14 phases in 3 stages:
+The `aud full` command runs multiple analysis phases in 3 stages:
 1. **Sequential**: index → framework_detect
 2. **Parallel**: (deps, docs) || (workset, lint, patterns) || (graph_build)
 3. **Sequential**: graph_analyze → taint → fce → report
