@@ -25,6 +25,51 @@ except ImportError:
 # Windows compatibility
 IS_WINDOWS = platform.system() == "Windows"
 
+# Command-specific timeout configuration (in seconds)
+# Based on empirical testing and user reports of 10-60 minute analysis times
+COMMAND_TIMEOUTS = {
+    "index": 600,               # 10 minutes - AST parsing can be slow on large codebases
+    "detect-frameworks": 300,   # 5 minutes - Quick scan of config files
+    "deps": 300,                # 5 minutes - Network I/O but usually fast
+    "docs": 300,                # 5 minutes - Network I/O for fetching docs
+    "workset": 300,             # 5 minutes - File system traversal
+    "lint": 900,                # 15 minutes - ESLint/ruff on large codebases
+    "detect-patterns": 7200,    # 2 hours - 100+ security patterns on all files
+    "graph": 600,               # 10 minutes - Building dependency graphs
+    "taint-analyze": 7200,      # 2 hours - Data flow analysis is expensive
+    "taint": 7200,              # 2 hours - Alias for taint-analyze
+    "fce": 1800,                # 30 minutes - Correlation analysis
+    "report": 600,              # 10 minutes - Report generation
+    "summary": 300,             # 5 minutes - Quick summary generation
+}
+
+# Allow environment variable override for all timeouts
+DEFAULT_TIMEOUT = int(os.environ.get('THEAUDITOR_TIMEOUT_SECONDS', '1800'))  # Default 30 minutes
+
+def get_command_timeout(cmd: List[str]) -> int:
+    """
+    Determine appropriate timeout for a command based on its name.
+    
+    Args:
+        cmd: Command array to execute
+        
+    Returns:
+        Timeout in seconds
+    """
+    # Extract command name from the command array
+    # Format: [python, -m, theauditor.cli, COMMAND_NAME, ...]
+    cmd_str = " ".join(cmd)
+    
+    # Check for specific command patterns
+    for cmd_name, timeout in COMMAND_TIMEOUTS.items():
+        if cmd_name in cmd_str:
+            # Check for environment variable override for specific command
+            env_key = f'THEAUDITOR_TIMEOUT_{cmd_name.upper().replace("-", "_")}_SECONDS'
+            return int(os.environ.get(env_key, timeout))
+    
+    # Default timeout if command not recognized
+    return DEFAULT_TIMEOUT
+
 # Global stop event for interrupt handling
 stop_event = threading.Event()
 
@@ -176,13 +221,16 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
             with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
                  open(stderr_file, 'w+', encoding='utf-8') as err_fp:
                 
+                # Determine appropriate timeout for this command
+                cmd_timeout = get_command_timeout(cmd)
+                
                 result = run_subprocess_with_interrupt(
                     cmd,
                     stdout_fp=out_fp,
                     stderr_fp=err_fp,
                     cwd=root,
                     shell=IS_WINDOWS,  # Windows compatibility fix
-                    timeout=300  # 5 minutes per command in parallel tracks
+                    timeout=cmd_timeout  # Adaptive timeout based on command type
                 )
             
             # Read outputs
@@ -556,13 +604,16 @@ def run_full_pipeline(
             with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
                  open(stderr_file, 'w+', encoding='utf-8') as err_fp:
                 
+                # Determine appropriate timeout for this command
+                cmd_timeout = get_command_timeout(cmd)
+                
                 result = run_subprocess_with_interrupt(
                     cmd,
                     stdout_fp=out_fp,
                     stderr_fp=err_fp,
                     cwd=root,
                     shell=IS_WINDOWS,  # Windows compatibility fix
-                    timeout=300  # 5 minutes per command in parallel tracks
+                    timeout=cmd_timeout  # Adaptive timeout based on command type
                 )
             
             # Read outputs
@@ -802,13 +853,16 @@ def run_full_pipeline(
                 with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
                      open(stderr_file, 'w+', encoding='utf-8') as err_fp:
                     
+                    # Determine appropriate timeout for this command
+                    cmd_timeout = get_command_timeout(cmd)
+                    
                     result = run_subprocess_with_interrupt(
                         cmd,
                         stdout_fp=out_fp,
                         stderr_fp=err_fp,
                         cwd=root,
                         shell=IS_WINDOWS,  # Windows compatibility fix
-                        timeout=600  # 10 minutes for final aggregation
+                        timeout=cmd_timeout  # Adaptive timeout based on command type
                     )
                 
                 # Read outputs
