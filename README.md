@@ -149,15 +149,15 @@ This architectural flaw is amplified by two dangerous behaviours inherent to AI 
 - **Security Theater**: AI assistants are optimized to "make it work," which often means introducing rampant security anti-patterns like hardcoded credentials, disabled authentication, and the pervasive use of `as any` in TypeScript. This creates a dangerous illusion of progress.
 - **Context Blindness**: With aggressive context compaction, an AI never sees the full picture. It works with fleeting snapshots of code, forcing it to make assumptions instead of decisions based on facts.
 
-## The 14-Phase Analysis Pipeline
+## The Comprehensive Analysis Pipeline
 
-TheAuditor runs a comprehensive audit through 14 distinct phases organized in 4 stages:
+TheAuditor runs a comprehensive audit through multiple analysis phases organized in parallel stages:
 
 **STAGE 1: Foundation (Sequential)**
 1. **Index Repository** - Build complete code inventory and SQLite database
 2. **Detect Frameworks** - Identify Django, Flask, React, Vue, etc.
 
-**STAGE 2: Parallel Analysis (3 concurrent tracks)**
+**STAGE 2: Concurrent Analysis (3 parallel tracks)**
 
 *Track A - Network Operations:*
 3. **Check Dependencies** - Analyze package versions and known vulnerabilities
@@ -175,9 +175,10 @@ TheAuditor runs a comprehensive audit through 14 distinct phases organized in 4 
 11. **Visualize Graph** - Generate multiple graph views
 12. **Taint Analysis** - Track data flow from sources to sinks
 
-**STAGE 3: Aggregation (Sequential)**
+**STAGE 3: Final Aggregation (Sequential)**
 13. **Factual Correlation Engine** - Cross-reference findings across all tools
 14. **Generate Report** - Produce final AI-consumable chunks in `.pf/readthis/`
+15. **Summary Generation** - Create executive summary of findings
 
 ## Key Features
 

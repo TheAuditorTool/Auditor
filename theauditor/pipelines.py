@@ -4,11 +4,13 @@ import json
 import os
 import platform
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed, wait
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, List, Tuple
@@ -22,6 +24,79 @@ except ImportError:
 
 # Windows compatibility
 IS_WINDOWS = platform.system() == "Windows"
+
+# Global stop event for interrupt handling
+stop_event = threading.Event()
+
+def signal_handler(signum, frame):
+    """Handle Ctrl+C by setting stop event."""
+    print("\n[INFO] Interrupt received, stopping pipeline gracefully...", file=sys.stderr)
+    stop_event.set()
+
+# Register signal handler
+signal.signal(signal.SIGINT, signal_handler)
+if not IS_WINDOWS:
+    signal.signal(signal.SIGTERM, signal_handler)
+
+def run_subprocess_with_interrupt(cmd, stdout_fp, stderr_fp, cwd, shell=False, timeout=300):
+    """
+    Run subprocess with interrupt checking every 100ms.
+    
+    Args:
+        cmd: Command to execute
+        stdout_fp: File handle for stdout
+        stderr_fp: File handle for stderr
+        cwd: Working directory
+        shell: Whether to use shell execution
+        timeout: Maximum time to wait (seconds)
+    
+    Returns:
+        subprocess.CompletedProcess-like object with returncode, stdout, stderr
+    """
+    process = subprocess.Popen(
+        cmd,
+        stdout=stdout_fp,
+        stderr=stderr_fp,
+        text=True,
+        cwd=cwd,
+        shell=shell
+    )
+    
+    # Poll process every 100ms to check for completion or interruption
+    start_time = time.time()
+    while process.poll() is None:
+        if stop_event.is_set():
+            # User interrupted - terminate subprocess
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise KeyboardInterrupt("Pipeline interrupted by user")
+        
+        # Check timeout
+        if time.time() - start_time > timeout:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        
+        # Sleep briefly to avoid busy-waiting
+        time.sleep(0.1)
+    
+    # Create result object similar to subprocess.run
+    class Result:
+        def __init__(self, returncode):
+            self.returncode = returncode
+            self.stdout = None
+            self.stderr = None
+    
+    result = Result(process.returncode)
+    return result
 
 
 def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_name: str) -> dict:
@@ -101,13 +176,13 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
             with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
                  open(stderr_file, 'w+', encoding='utf-8') as err_fp:
                 
-                result = subprocess.run(
+                result = run_subprocess_with_interrupt(
                     cmd,
-                    stdout=out_fp,
-                    stderr=err_fp,
-                    text=True,
+                    stdout_fp=out_fp,
+                    stderr_fp=err_fp,
                     cwd=root,
-                    shell=IS_WINDOWS  # Windows compatibility fix
+                    shell=IS_WINDOWS,  # Windows compatibility fix
+                    timeout=300  # 5 minutes per command in parallel tracks
                 )
             
             # Read outputs
@@ -157,6 +232,12 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
                     chain_errors.append(f"Error in {description}: {stderr}")
                 break  # Stop chain on failure
                 
+        except KeyboardInterrupt:
+            # User interrupted - clean up and exit
+            failed = True
+            write_status(f"INTERRUPTED: {description}", completed_count, len(commands))
+            chain_output.append(f"[INTERRUPTED] Pipeline stopped by user")
+            raise  # Re-raise to propagate up
         except Exception as e:
             failed = True
             write_status(f"ERROR: {description}", completed_count, len(commands))
@@ -475,13 +556,13 @@ def run_full_pipeline(
             with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
                  open(stderr_file, 'w+', encoding='utf-8') as err_fp:
                 
-                result = subprocess.run(
+                result = run_subprocess_with_interrupt(
                     cmd,
-                    stdout=out_fp,
-                    stderr=err_fp,
-                    text=True,
+                    stdout_fp=out_fp,
+                    stderr_fp=err_fp,
                     cwd=root,
-                    shell=IS_WINDOWS  # Windows compatibility fix
+                    shell=IS_WINDOWS,  # Windows compatibility fix
+                    timeout=300  # 5 minutes per command in parallel tracks
                 )
             
             # Read outputs
@@ -590,9 +671,9 @@ def run_full_pipeline(
         log_output("  Track B: Code Analysis (workset, lint, patterns)")
         log_output("  Track C: Graph & Taint Analysis")
         
-        # Execute parallel tracks using ProcessPoolExecutor
+        # Execute parallel tracks using ThreadPoolExecutor (Windows-safe)
         parallel_results = []
-        with ProcessPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             futures = []
             
             # Submit Track A if it has commands
@@ -673,6 +754,12 @@ def run_full_pipeline(
                         else:
                             log_output(f"[FAILED] {result['name']} failed", is_error=True)
                             failed_phases += 1
+                    except KeyboardInterrupt:
+                        log_output(f"[INTERRUPTED] Pipeline stopped by user", is_error=True)
+                        # Cancel remaining futures
+                        for f in pending_futures:
+                            f.cancel()
+                        raise  # Re-raise to exit
                     except Exception as e:
                         log_output(f"[ERROR] Parallel track failed with exception: {e}", is_error=True)
                         failed_phases += 1
@@ -715,13 +802,13 @@ def run_full_pipeline(
                 with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
                      open(stderr_file, 'w+', encoding='utf-8') as err_fp:
                     
-                    result = subprocess.run(
+                    result = run_subprocess_with_interrupt(
                         cmd,
-                        stdout=out_fp,
-                        stderr=err_fp,
-                        text=True,
+                        stdout_fp=out_fp,
+                        stderr_fp=err_fp,
                         cwd=root,
-                        shell=IS_WINDOWS  # Windows compatibility fix
+                        shell=IS_WINDOWS,  # Windows compatibility fix
+                        timeout=600  # 10 minutes for final aggregation
                     )
                 
                 # Read outputs

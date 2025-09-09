@@ -13,7 +13,7 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
 def full(root, quiet, exclude_self, offline):
-    """Run complete audit pipeline in exact order specified in teamsop.md."""
+    """Run complete audit pipeline with multiple analysis phases organized in parallel stages."""
     from theauditor.pipelines import run_full_pipeline
     
     # Define log callback for console output

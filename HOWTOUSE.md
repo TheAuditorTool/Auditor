@@ -120,7 +120,7 @@ Setting up JavaScript/TypeScript tools in sandboxed environment...
 On a medium 20k LOC node/react/vite stack, expect the analysis to take around 30 minutes.
 Progress bars for tracks B/C may display inconsistently on PowerShell.
 
-Run a comprehensive audit with all **14 analysis phases**:
+Run a comprehensive audit with multiple analysis phases organized in parallel stages:
 
 ```bash
 aud full
@@ -152,12 +152,13 @@ This executes in **parallel stages** for optimal performance:
 11. **Taint analysis** - Track data flow
 12. **Factual correlation engine** - Correlate findings across tools with 29 advanced rules
 13. **Report generation** - Produce final output
+14. **Summary generation** - Create executive summary
 
 **Output**: Complete results in **`.pf/readthis/`** directory
 
 ### Offline Mode
 
-When working on the same codebase repeatedly or when network access is limited, use offline mode to skip dependency checking and documentation phases:
+When working on the same codebase repeatedly or when network access is limited, use offline mode to skip network operations (dependency checking and documentation fetching):
 
 ```bash
 # Run full audit without network operations
@@ -1069,10 +1070,7 @@ For large repositories:
 # Limit analysis scope
 aud workset --paths "src/critical/**/*.py"
 
-# Skip documentation phases
-aud full --skip-docs
-
-# Run specific phases only
+# Run specific commands only
 aud index && aud lint && aud detect-patterns
 
 # Adjust chunking for larger context windows
