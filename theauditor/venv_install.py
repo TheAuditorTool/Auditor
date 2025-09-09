@@ -3,6 +3,7 @@
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import venv
@@ -79,10 +80,23 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
     """
     venv_path = target_dir / ".auditor_venv"
     
+    # Check if venv exists AND is functional (has python executable)
     if venv_path.exists() and not force:
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
-        print(f"{check_mark} Venv already exists: {venv_path}")
-        return venv_path
+        python_exe, _ = get_venv_paths(venv_path)
+        if python_exe.exists():
+            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            print(f"{check_mark} Venv already exists: {venv_path}")
+            return venv_path
+        else:
+            # Venv is broken (exists but no python.exe) - recreate it
+            print(f"[WARN] Venv exists but is broken (missing {python_exe})")
+            print(f"[INFO] Removing broken venv and recreating...")
+            try:
+                shutil.rmtree(venv_path)
+            except Exception as e:
+                print(f"[ERROR] Failed to remove broken venv: {e}")
+                print(f"[TIP] Manually delete {venv_path} and retry")
+                raise RuntimeError(f"Cannot remove broken venv: {e}")
     
     print(f"Creating venv at {venv_path}...", flush=True)
     
@@ -120,7 +134,11 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
     python_exe, aud_exe = get_venv_paths(venv_path)
     
     if not python_exe.exists():
-        raise RuntimeError(f"Venv Python not found: {python_exe}")
+        raise RuntimeError(
+            f"Venv Python not found: {python_exe}\n"
+            f"The venv appears to be broken. Try running with --sync flag to recreate it:\n"
+            f"  aud setup-claude --target . --sync"
+        )
     
     # Check if already installed
     try:
@@ -351,7 +369,6 @@ def download_portable_node(sandbox_dir: Path) -> Path:
     import hashlib
     import zipfile
     import tarfile
-    import shutil
     
     node_runtime_dir = sandbox_dir / "node-runtime"
     
@@ -500,8 +517,13 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
     if not target_dir.exists():
         raise ValueError(f"Target directory does not exist: {target_dir}")
     
-    # Create venv
-    venv_path = create_venv(target_dir, force)
+    try:
+        # Create venv (will auto-fix broken venvs)
+        venv_path = create_venv(target_dir, force)
+    except RuntimeError as e:
+        # If venv creation fails completely, return failure
+        print(f"[ERROR] Failed to create venv: {e}")
+        return target_dir / ".auditor_venv", False
     
     # Install TheAuditor
     success = install_theauditor_editable(venv_path)
