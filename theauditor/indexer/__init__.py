@@ -140,9 +140,17 @@ class IndexerOrchestrator:
         self.db_manager.commit()
         
         # Report results with database location
-        print(f"[Indexer] Indexed {self.counts['files']} files, "
-              f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
-              f"{self.counts['routes']} routes")
+        base_msg = (f"[Indexer] Indexed {self.counts['files']} files, "
+                   f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
+                   f"{self.counts['routes']} routes")
+        
+        # Add config counts if present
+        if self.counts.get('compose', 0) > 0:
+            base_msg += f", {self.counts['compose']} compose services"
+        if self.counts.get('nginx', 0) > 0:
+            base_msg += f", {self.counts['nginx']} nginx blocks"
+        
+        print(base_msg)
         print(f"[Indexer] Database updated: {self.db_manager.db_path}")
         
         return self.counts, stats
@@ -362,6 +370,50 @@ class IndexerOrchestrator:
                     file_path, ret['line'], ret['function_name'],
                     ret['return_expr'], ret['return_vars']
                 )
+        
+        # Store configuration data from parsers
+        if 'config_data' in extracted:
+            # Store Docker Compose services
+            if 'docker_compose' in extracted['config_data']:
+                compose_data = extracted['config_data']['docker_compose']
+                if 'services' in compose_data and compose_data['services']:
+                    for service in compose_data['services']:
+                        self.db_manager.add_compose_service(
+                            file_path,
+                            service.get('name', 'unknown'),
+                            service.get('image'),
+                            service.get('ports', []),
+                            service.get('volumes', []),
+                            service.get('environment', {}),
+                            service.get('is_privileged', False),
+                            service.get('network_mode', 'bridge')
+                        )
+                        # Track count if not already tracked
+                        if 'compose' not in self.counts:
+                            self.counts['compose'] = 0
+                        self.counts['compose'] += 1
+            
+            # Store Nginx configuration blocks
+            if 'nginx' in extracted['config_data']:
+                nginx_data = extracted['config_data']['nginx']
+                if 'blocks' in nginx_data and nginx_data['blocks']:
+                    for block in nginx_data['blocks']:
+                        self.db_manager.add_nginx_config(
+                            file_path,
+                            block.get('block_type', 'unknown'),
+                            block.get('block_context', ''),
+                            block.get('directives', {}),
+                            block.get('level', 0)
+                        )
+                        # Track count if not already tracked
+                        if 'nginx' not in self.counts:
+                            self.counts['nginx'] = 0
+                        self.counts['nginx'] += 1
+            
+            # Store Webpack configuration (future implementation)
+            # if 'webpack' in extracted['config_data']:
+            #     webpack_data = extracted['config_data']['webpack']
+            #     # TODO: Add webpack-specific storage when database table is created
 
 
 # Import backward compatibility functions from the compat module
