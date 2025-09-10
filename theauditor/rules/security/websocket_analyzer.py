@@ -9,6 +9,54 @@ import re
 from typing import List, Dict, Any, Optional, Set
 
 
+def register_taint_patterns(taint_registry):
+    """Register WebSocket-specific patterns with the taint system.
+    
+    This function is called by the orchestrator before taint analysis runs,
+    allowing the taint analyzer to track data flow to WebSocket operations.
+    
+    Args:
+        taint_registry: TaintRegistry instance to register patterns with
+    """
+    # WebSocket broadcast/emit operations - these are sinks where data flows out
+    WEBSOCKET_SINKS = [
+        # JavaScript/TypeScript WebSocket operations
+        "ws.send",
+        "ws.broadcast",
+        "ws.emit",
+        "socket.send",
+        "socket.emit",
+        "socket.broadcast",
+        "io.emit",
+        "io.send",
+        "io.broadcast",
+        "clients.forEach",  # Often used for broadcasting
+        "wss.clients.forEach",
+        "connection.send",
+        "connection.write",
+        
+        # Python WebSocket operations
+        "websocket.send",
+        "websocket.send_text",
+        "websocket.send_bytes",
+        "websocket.send_json",
+        "broadcast",  # Generic broadcast function
+        "emit",  # Socket.IO style emit
+        "send_all",  # Custom broadcast functions
+        "publish",
+        
+        # Message handling (could be sinks if they forward data)
+        "on_message",
+        "onmessage",
+        "recv",
+        "receive",
+    ]
+    
+    for pattern in WEBSOCKET_SINKS:
+        # Register as sink - where tainted data shouldn't flow without validation
+        taint_registry.register_sink(pattern, "websocket", "any")
+
+
 def find_websocket_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find WebSocket security issues in Python or JavaScript/TypeScript code.
     
@@ -35,21 +83,21 @@ def find_websocket_issues(tree: Any, file_path: str = None, taint_checker=None) 
         if tree_type == "python_ast":
             actual_tree = tree.get("tree")
             if actual_tree:
-                return _analyze_python_websocket(actual_tree, file_path)
+                return _analyze_python_websocket(actual_tree, file_path, taint_checker)
         elif tree_type == "eslint_ast":
-            return _analyze_javascript_websocket(tree, file_path)
+            return _analyze_javascript_websocket(tree, file_path, taint_checker)
         elif tree_type == "tree_sitter":
-            return _analyze_tree_sitter_websocket(tree, file_path)
+            return _analyze_tree_sitter_websocket(tree, file_path, taint_checker)
     elif isinstance(tree, ast.AST):
         # Direct Python AST
-        return _analyze_python_websocket(tree, file_path)
+        return _analyze_python_websocket(tree, file_path, taint_checker)
     
     return findings
 
 
-def _analyze_python_websocket(tree: ast.AST, file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_python_websocket(tree: ast.AST, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze Python AST for WebSocket security issues."""
-    analyzer = PythonWebSocketAnalyzer(file_path)
+    analyzer = PythonWebSocketAnalyzer(file_path, taint_checker)
     analyzer.visit(tree)
     return analyzer.findings
 
@@ -57,8 +105,9 @@ def _analyze_python_websocket(tree: ast.AST, file_path: str = None) -> List[Dict
 class PythonWebSocketAnalyzer(ast.NodeVisitor):
     """AST visitor for detecting WebSocket issues in Python."""
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.findings = []
         self.has_auth_check = False
         self.has_validation = False
@@ -187,7 +236,21 @@ class PythonWebSocketAnalyzer(ast.NodeVisitor):
         return self.has_validation
     
     def _contains_sensitive_data(self, node: ast.Call) -> bool:
-        """Check if call arguments contain sensitive data."""
+        """Check if call arguments contain sensitive data or tainted data."""
+        # First check with taint_checker if available
+        if self.taint_checker:
+            for arg in node.args:
+                # Check if argument is a tainted variable
+                if isinstance(arg, ast.Name):
+                    if self.taint_checker(arg.id, node.lineno):
+                        return True  # Variable is tainted from untrusted source
+                elif isinstance(arg, ast.Attribute):
+                    # Check attribute access like user.data
+                    if hasattr(arg.value, 'id'):
+                        if self.taint_checker(arg.value.id, node.lineno):
+                            return True
+        
+        # Fallback to keyword-based detection
         sensitive_keywords = ['password', 'secret', 'token', 'key', 'auth', 'session', 
                             'email', 'ssn', 'credit', 'private', 'personal']
         
@@ -214,7 +277,7 @@ class PythonWebSocketAnalyzer(ast.NodeVisitor):
         return ''
 
 
-def _analyze_javascript_websocket(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_javascript_websocket(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze JavaScript/TypeScript ESLint AST for WebSocket security issues."""
     findings = []
     
@@ -322,7 +385,7 @@ def _analyze_javascript_websocket(tree_wrapper: Dict[str, Any], file_path: str =
             call_text = _extract_call_text(callee, content)
             if any(broadcast in call_text.lower() for broadcast in ['broadcast', 'emit', 'send', 'clients.foreach']):
                 # Pattern 4: websocket-broadcast-sensitive-data
-                if _contains_sensitive_data_js(node, content):
+                if _contains_sensitive_data_js(node, content, taint_checker):
                     loc = node.get("loc", {}).get("start", {})
                     findings.append({
                         'line': loc.get("line", 0),
@@ -398,8 +461,28 @@ def _contains_rate_limit(node: Dict[str, Any], content: str) -> bool:
     return any(rate in node_text for rate in rate_keywords)
 
 
-def _contains_sensitive_data_js(node: Dict[str, Any], content: str) -> bool:
-    """Check if call contains sensitive data."""
+def _contains_sensitive_data_js(node: Dict[str, Any], content: str, taint_checker=None) -> bool:
+    """Check if call contains sensitive data or tainted data."""
+    # First check with taint_checker if available
+    if taint_checker:
+        # Check arguments for tainted variables
+        args = node.get("arguments", [])
+        for arg in args:
+            if arg.get("type") == "Identifier":
+                var_name = arg.get("name")
+                line = arg.get("loc", {}).get("start", {}).get("line", 0)
+                if taint_checker(var_name, line):
+                    return True  # Variable is tainted from untrusted source
+            elif arg.get("type") == "MemberExpression":
+                # Check for things like req.body
+                obj = arg.get("object", {})
+                if obj.get("type") == "Identifier":
+                    var_name = obj.get("name")
+                    line = obj.get("loc", {}).get("start", {}).get("line", 0)
+                    if taint_checker(var_name, line):
+                        return True
+    
+    # Fallback to keyword-based detection
     sensitive_keywords = ['password', 'secret', 'token', 'key', 'auth', 'session',
                          'email', 'ssn', 'credit', 'private', 'personal', 'confidential']
     
@@ -447,7 +530,7 @@ def _extract_node_text(node: Dict[str, Any], content: str) -> str:
     return ""
 
 
-def _analyze_tree_sitter_websocket(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_tree_sitter_websocket(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze tree-sitter AST (simplified implementation)."""
     # Would need tree-sitter specific implementation
     # For now, return empty list

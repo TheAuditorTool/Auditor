@@ -63,9 +63,10 @@ ERROR_RESPONSE_PATTERNS = {
 class PythonPIIAnalyzer(ast.NodeVisitor):
     """Analyzes Python AST for PII exposure patterns."""
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.issues = []
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.pii_variables = set()
         self.in_try_block = False
         self.current_function = None
@@ -156,6 +157,10 @@ class PythonPIIAnalyzer(ast.NodeVisitor):
         for arg in node.args:
             pii_fields = self._find_pii_in_node(arg)
             if pii_fields:
+                # Check if any PII field is also tainted
+                has_tainted_pii = any(':TAINTED' in field for field in pii_fields)
+                clean_fields = [f.replace(':TAINTED', '') for f in pii_fields]
+                
                 self.issues.append({
                     'type': issue_type,
                     'file': self.file_path,
@@ -163,8 +168,9 @@ class PythonPIIAnalyzer(ast.NodeVisitor):
                     'column': node.col_offset,
                     'function': self.current_function or '<module>',
                     'code': func_name,
-                    'pii_fields': list(pii_fields),
-                    'severity': 'high'
+                    'pii_fields': clean_fields,
+                    'severity': 'critical' if has_tainted_pii else 'high',
+                    'tainted': has_tainted_pii
                 })
                 
     def _find_pii_in_node(self, node: Any) -> Set[str]:
@@ -172,10 +178,15 @@ class PythonPIIAnalyzer(ast.NodeVisitor):
         pii_found = set()
         
         if isinstance(node, ast.Name):
-            if node.id in self.pii_variables:
+            # Check if this variable is both PII and tainted
+            is_pii = node.id in self.pii_variables or any(pii in node.id.lower() for pii in PII_FIELD_PATTERNS)
+            
+            if is_pii:
                 pii_found.add(node.id)
-            elif any(pii in node.id.lower() for pii in PII_FIELD_PATTERNS):
-                pii_found.add(node.id)
+                # Mark as especially dangerous if also tainted
+                if self.taint_checker and hasattr(node, 'lineno'):
+                    if self.taint_checker(node.id, node.lineno):
+                        pii_found.add(f"{node.id}:TAINTED")
                 
         elif isinstance(node, ast.Attribute):
             attr_name = node.attr.lower()
@@ -242,13 +253,13 @@ class PythonPIIAnalyzer(ast.NodeVisitor):
                             })
 
 
-def analyze_javascript_pii(tree: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def analyze_javascript_pii(tree: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze JavaScript/TypeScript ESLint AST for PII exposure."""
     issues = []
     file_path = file_path or "unknown"
     pii_variables = set()
     
-    def find_pii_fields(node: Dict[str, Any]) -> Set[str]:
+    def find_pii_fields(node: Dict[str, Any], line_num: int = 0) -> Set[str]:
         """Find PII fields in a node."""
         pii_found = set()
         
@@ -256,6 +267,10 @@ def analyze_javascript_pii(tree: Dict[str, Any], file_path: str = None) -> List[
             name = node.get('name', '').lower()
             if any(pii in name for pii in PII_FIELD_PATTERNS):
                 pii_found.add(node.get('name'))
+                # Check if also tainted
+                if taint_checker and line_num > 0:
+                    if taint_checker(node.get('name'), line_num):
+                        pii_found.add(f"{node.get('name')}:TAINTED")
                 
         elif node.get('type') == 'MemberExpression':
             prop = node.get('property', {})
@@ -273,7 +288,7 @@ def analyze_javascript_pii(tree: Dict[str, Any], file_path: str = None) -> List[
                         
         elif node.get('type') == 'TemplateLiteral':
             for expr in node.get('expressions', []):
-                pii_found.update(find_pii_fields(expr))
+                pii_found.update(find_pii_fields(expr, line_num))
                 
         return pii_found
     
@@ -341,35 +356,45 @@ def analyze_javascript_pii(tree: Dict[str, Any], file_path: str = None) -> List[
             # Check logging
             log_func = is_logging_call(node)
             if log_func:
+                line_num = node.get('loc', {}).get('start', {}).get('line', 0)
                 for arg in node.get('arguments', []):
-                    pii_fields = find_pii_fields(arg)
+                    pii_fields = find_pii_fields(arg, line_num)
                     if pii_fields:
+                        has_tainted_pii = any(':TAINTED' in field for field in pii_fields)
+                        clean_fields = [f.replace(':TAINTED', '') for f in pii_fields]
+                        
                         issues.append({
                             'type': 'PII logged',
                             'file': file_path,
-                            'line': node.get('loc', {}).get('start', {}).get('line'),
+                            'line': line_num,
                             'column': node.get('loc', {}).get('start', {}).get('column'),
                             'function': current_func or '<module>',
                             'code': log_func,
-                            'pii_fields': list(pii_fields),
-                            'severity': 'high'
+                            'pii_fields': clean_fields,
+                            'severity': 'critical' if has_tainted_pii else 'high',
+                            'tainted': has_tainted_pii
                         })
                         
             # Check error responses
             resp_func = is_error_response(node)
             if resp_func:
+                line_num = node.get('loc', {}).get('start', {}).get('line', 0)
                 for arg in node.get('arguments', []):
-                    pii_fields = find_pii_fields(arg)
+                    pii_fields = find_pii_fields(arg, line_num)
                     if pii_fields:
+                        has_tainted_pii = any(':TAINTED' in field for field in pii_fields)
+                        clean_fields = [f.replace(':TAINTED', '') for f in pii_fields]
+                        
                         issues.append({
                             'type': 'PII in error response',
                             'file': file_path,
-                            'line': node.get('loc', {}).get('start', {}).get('line'),
+                            'line': line_num,
                             'column': node.get('loc', {}).get('start', {}).get('column'),
                             'function': current_func or '<module>',
                             'code': resp_func,
-                            'pii_fields': list(pii_fields),
-                            'severity': 'high'
+                            'pii_fields': clean_fields,
+                            'severity': 'critical' if has_tainted_pii else 'high',
+                            'tainted': has_tainted_pii
                         })
                         
             # Check URL construction
@@ -377,18 +402,23 @@ def analyze_javascript_pii(tree: Dict[str, Any], file_path: str = None) -> List[
             if callee.get('type') == 'Identifier':
                 func_name = callee.get('name')
                 if func_name in {'encodeURIComponent', 'encodeURI'}:
+                    line_num = node.get('loc', {}).get('start', {}).get('line', 0)
                     for arg in node.get('arguments', []):
-                        pii_fields = find_pii_fields(arg)
+                        pii_fields = find_pii_fields(arg, line_num)
                         if pii_fields:
+                            has_tainted_pii = any(':TAINTED' in field for field in pii_fields)
+                            clean_fields = [f.replace(':TAINTED', '') for f in pii_fields]
+                            
                             issues.append({
                                 'type': 'PII in URL parameters',
                                 'file': file_path,
-                                'line': node.get('loc', {}).get('start', {}).get('line'),
+                                'line': line_num,
                                 'column': node.get('loc', {}).get('start', {}).get('column'),
                                 'function': current_func or '<module>',
                                 'code': func_name,
-                                'pii_fields': list(pii_fields),
-                                'severity': 'medium'
+                                'pii_fields': clean_fields,
+                                'severity': 'high' if has_tainted_pii else 'medium',
+                                'tainted': has_tainted_pii
                             })
                             
         # Check catch blocks for PII exposure
@@ -416,6 +446,60 @@ def analyze_javascript_pii(tree: Dict[str, Any], file_path: str = None) -> List[
     return issues
 
 
+def register_taint_patterns(taint_registry):
+    """Register PII-related patterns with the taint analysis registry.
+    
+    Args:
+        taint_registry: TaintRegistry instance from theauditor.taint.registry
+    """
+    # Register PII fields as sources (they originate sensitive data)
+    PII_SOURCES = [
+        "ssn", "social_security", "email", "phone", "password", 
+        "credit_card", "dob", "address", "passport", "bank_account",
+        "tax_id", "ip_address", "username", "first_name", "last_name",
+        "salary", "medical_record", "biometric"
+    ]
+    
+    for pattern in PII_SOURCES:
+        taint_registry.register_source(pattern, "pii", "any")
+    
+    # Register logging functions as sinks (PII shouldn't be logged)
+    LOGGING_SINKS = [
+        "print", "logger.debug", "logger.info", "logger.warning", "logger.error",
+        "logging.debug", "logging.info", "logging.warning", "logging.error",
+        "log.debug", "log.info", "log.warning", "log.error",
+        "console.log", "console.debug", "console.info", "console.warn", "console.error",
+        "console.trace", "console.dir", "console.table",
+        "winston.debug", "winston.info", "winston.warn", "winston.error",
+        "bunyan.debug", "bunyan.info", "bunyan.warn", "bunyan.error",
+        "pino.debug", "pino.info", "pino.warn", "pino.error"
+    ]
+    
+    for pattern in LOGGING_SINKS:
+        taint_registry.register_sink(pattern, "logging", "any")
+    
+    # Register error response functions as sinks
+    ERROR_RESPONSE_SINKS = [
+        "Response", "HttpResponse", "JsonResponse", "render",
+        "make_response", "jsonify", "send_error", "abort",
+        "res.send", "res.json", "res.status", "res.render",
+        "response.send", "response.json", "response.status",
+        "ctx.body", "ctx.response", "reply.send", "reply.code"
+    ]
+    
+    for pattern in ERROR_RESPONSE_SINKS:
+        taint_registry.register_sink(pattern, "error_response", "any")
+    
+    # Register URL construction functions as sinks
+    URL_SINKS = [
+        "urlencode", "urllib.parse.urlencode", "build_url", "make_url",
+        "encodeURIComponent", "encodeURI"
+    ]
+    
+    for pattern in URL_SINKS:
+        taint_registry.register_sink(pattern, "url_parameter", "any")
+
+
 def find_pii_exposure(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find PII exposure patterns in Python or JavaScript/TypeScript code.
     
@@ -437,14 +521,14 @@ def find_pii_exposure(tree: Any, file_path: str = None, taint_checker=None) -> L
     try:
         # Check if it's a Python AST
         if hasattr(tree, '_fields'):
-            analyzer = PythonPIIAnalyzer(file_path)
+            analyzer = PythonPIIAnalyzer(file_path, taint_checker)
             analyzer.visit(tree)
             return analyzer.issues
             
         # Check if it's JavaScript/TypeScript ESLint AST
         elif isinstance(tree, dict) and 'type' in tree:
             if tree.get('type') == 'Program':
-                return analyze_javascript_pii(tree, file_path)
+                return analyze_javascript_pii(tree, file_path, taint_checker)
                 
         # Tree-sitter format
         elif hasattr(tree, 'root_node'):

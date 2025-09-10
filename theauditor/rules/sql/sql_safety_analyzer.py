@@ -9,6 +9,56 @@ import re
 from typing import List, Dict, Any, Optional, Set, Tuple
 
 
+def register_taint_patterns(taint_registry):
+    """Register SQL-related patterns with the taint analysis registry.
+    
+    Args:
+        taint_registry: TaintRegistry instance from theauditor.taint.registry
+    """
+    # Register SQL execution functions as sinks
+    SQL_EXECUTION_SINKS = [
+        "execute", "executemany", "query", "exec", "execSQL",
+        "db.query", "db.execute", "db.exec", "db.run",
+        "cursor.execute", "cursor.executemany",
+        "connection.execute", "connection.query",
+        "sequelize.query", "knex.raw", "pool.query",
+        "client.query", "client.execute"
+    ]
+    
+    for pattern in SQL_EXECUTION_SINKS:
+        taint_registry.register_sink(pattern, "sql", "any")
+    
+    # Register transaction operations as sinks
+    TRANSACTION_SINKS = [
+        "begin", "start_transaction", "begin_transaction", "beginTransaction",
+        "commit", "rollback", "savepoint", "release_savepoint",
+        "SET AUTOCOMMIT", "START TRANSACTION", "BEGIN", "COMMIT", "ROLLBACK"
+    ]
+    
+    for pattern in TRANSACTION_SINKS:
+        taint_registry.register_sink(pattern, "transaction", "any")
+    
+    # Register dangerous SQL operations as sinks
+    DANGEROUS_SQL_SINKS = [
+        "DROP TABLE", "DROP DATABASE", "TRUNCATE", "ALTER TABLE",
+        "CREATE USER", "GRANT", "REVOKE", "SET ROLE",
+        "UPDATE", "DELETE", "INSERT INTO"
+    ]
+    
+    for pattern in DANGEROUS_SQL_SINKS:
+        taint_registry.register_sink(pattern, "dangerous_sql", "any")
+    
+    # Register ORM-specific dangerous operations
+    ORM_SINKS = [
+        "destroy", "destroyAll", "truncate", "drop",
+        "Model.destroy", "Model.update", "Model.delete",
+        "deleteMany", "updateMany", "bulkWrite", "bulkDelete"
+    ]
+    
+    for pattern in ORM_SINKS:
+        taint_registry.register_sink(pattern, "orm_dangerous", "any")
+
+
 def find_sql_safety_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find SQL safety issues in Python or JavaScript/TypeScript code.
     
@@ -39,22 +89,22 @@ def find_sql_safety_issues(tree: Any, file_path: str = None, taint_checker=None)
         if tree_type == "python_ast":
             actual_tree = tree.get("tree")
             if actual_tree:
-                return _analyze_python_sql(actual_tree, file_path)
+                return _analyze_python_sql(actual_tree, file_path, taint_checker)
         elif tree_type == "eslint_ast":
-            return _analyze_javascript_sql(tree, file_path)
+            return _analyze_javascript_sql(tree, file_path, taint_checker)
         elif tree_type == "tree_sitter":
             # Simplified for tree-sitter
-            return _analyze_tree_sitter_sql(tree, file_path)
+            return _analyze_tree_sitter_sql(tree, file_path, taint_checker)
     elif isinstance(tree, ast.AST):
         # Direct Python AST
-        return _analyze_python_sql(tree, file_path)
+        return _analyze_python_sql(tree, file_path, taint_checker)
     
     return findings
 
 
-def _analyze_python_sql(tree: ast.AST, file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_python_sql(tree: ast.AST, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze Python AST for SQL safety issues."""
-    analyzer = PythonSQLAnalyzer(file_path)
+    analyzer = PythonSQLAnalyzer(file_path, taint_checker)
     analyzer.visit(tree)
     return analyzer.findings
 
@@ -62,8 +112,9 @@ def _analyze_python_sql(tree: ast.AST, file_path: str = None) -> List[Dict[str, 
 class PythonSQLAnalyzer(ast.NodeVisitor):
     """AST visitor for detecting SQL safety issues in Python."""
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.findings = []
         self.in_transaction = False
         self.transaction_depth = 0
@@ -97,10 +148,19 @@ class PythonSQLAnalyzer(ast.NodeVisitor):
         
         # Check for SQL execution
         if any(exec_func in call_name.lower() for exec_func in ['execute', 'query', 'exec']):
+            # Check if any arguments are tainted
+            has_tainted_input = False
+            if self.taint_checker:
+                for arg in node.args:
+                    if isinstance(arg, ast.Name):
+                        if self.taint_checker(arg.id, node.lineno):
+                            has_tainted_input = True
+                            break
+            
             # Extract SQL string
             sql_string = self._extract_sql_string(node)
             if sql_string:
-                self._analyze_sql_string(sql_string, node.lineno, node.col_offset)
+                self._analyze_sql_string(sql_string, node.lineno, node.col_offset, has_tainted_input)
         
         self.generic_visit(node)
     
@@ -153,17 +213,17 @@ class PythonSQLAnalyzer(ast.NodeVisitor):
         if isinstance(node.value, str):
             sql_upper = node.value.upper()
             if any(kw in sql_upper for kw in ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP']):
-                self._analyze_sql_string(node.value, node.lineno, node.col_offset)
+                self._analyze_sql_string(node.value, node.lineno, node.col_offset, False)
         self.generic_visit(node)
     
     def visit_Str(self, node: ast.Str):  # For Python < 3.8
         """Collect SQL strings for analysis."""
         sql_upper = node.s.upper()
         if any(kw in sql_upper for kw in ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP']):
-            self._analyze_sql_string(node.s, node.lineno, node.col_offset)
+            self._analyze_sql_string(node.s, node.lineno, node.col_offset, False)
         self.generic_visit(node)
     
-    def _analyze_sql_string(self, sql: str, line: int, column: int):
+    def _analyze_sql_string(self, sql: str, line: int, column: int, has_tainted_input: bool = False):
         """Analyze a SQL string for safety issues."""
         sql_upper = sql.upper()
         
@@ -188,9 +248,10 @@ class PythonSQLAnalyzer(ast.NodeVisitor):
                     'column': column,
                     'type': 'missing_where_clause_update',
                     'severity': 'CRITICAL',
-                    'confidence': 0.95,
-                    'message': 'UPDATE without WHERE clause will affect ALL rows',
-                    'hint': 'Add WHERE clause to target specific rows'
+                    'confidence': 0.98 if has_tainted_input else 0.95,
+                    'message': f'UPDATE without WHERE clause will affect ALL rows{" (with tainted data!)" if has_tainted_input else ""}',
+                    'hint': 'Add WHERE clause to target specific rows',
+                    'tainted': has_tainted_input
                 })
         
         # Pattern 7: missing-where-clause-delete
@@ -201,9 +262,10 @@ class PythonSQLAnalyzer(ast.NodeVisitor):
                     'column': column,
                     'type': 'missing_where_clause_delete',
                     'severity': 'CRITICAL',
-                    'confidence': 0.95,
-                    'message': 'DELETE without WHERE clause will delete ALL rows',
-                    'hint': 'Add WHERE clause to target specific rows'
+                    'confidence': 0.98 if has_tainted_input else 0.95,
+                    'message': f'DELETE without WHERE clause will delete ALL rows{" (with tainted data!)" if has_tainted_input else ""}',
+                    'hint': 'Add WHERE clause to target specific rows',
+                    'tainted': has_tainted_input
                 })
         
         # Pattern 8: select-star-query
@@ -269,7 +331,7 @@ class PythonSQLAnalyzer(ast.NodeVisitor):
         return False
 
 
-def _analyze_javascript_sql(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_javascript_sql(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze JavaScript/TypeScript ESLint AST for SQL safety issues."""
     findings = []
     
@@ -320,10 +382,22 @@ def _analyze_javascript_sql(tree_wrapper: Dict[str, Any], file_path: str = None)
             
             # Check for SQL execution (sequelize.query, db.query, etc.)
             if any(exec_func in call_text.lower() for exec_func in ['.query', '.execute', '.exec', '.raw']):
+                # Check if any arguments are tainted
+                has_tainted_input = False
+                if taint_checker:
+                    loc = node.get("loc", {}).get("start", {})
+                    line_num = loc.get("line", 0)
+                    if line_num > 0:
+                        for arg in node.get("arguments", []):
+                            if arg.get("type") == "Identifier":
+                                if taint_checker(arg.get("name"), line_num):
+                                    has_tainted_input = True
+                                    break
+                
                 # Extract SQL string from arguments
                 sql_string = _extract_sql_from_call(node, content)
                 if sql_string:
-                    _analyze_sql_string_js(sql_string, node, findings)
+                    _analyze_sql_string_js(sql_string, node, findings, has_tainted_input)
         
         # Check try/catch blocks for transaction rollback
         if node_type == "TryStatement":
@@ -375,7 +449,7 @@ def _analyze_javascript_sql(tree_wrapper: Dict[str, Any], file_path: str = None)
             if sql_string:
                 sql_upper = sql_string.upper()
                 if any(kw in sql_upper for kw in ['SELECT', 'INSERT', 'UPDATE', 'DELETE']):
-                    _analyze_sql_string_js(sql_string, node, findings)
+                    _analyze_sql_string_js(sql_string, node, findings, False)
         
         # Recursively traverse
         for key, value in node.items():
@@ -396,7 +470,7 @@ def _analyze_javascript_sql(tree_wrapper: Dict[str, Any], file_path: str = None)
     return findings
 
 
-def _analyze_sql_string_js(sql: str, node: Dict[str, Any], findings: List[Dict[str, Any]]):
+def _analyze_sql_string_js(sql: str, node: Dict[str, Any], findings: List[Dict[str, Any]], has_tainted_input: bool = False):
     """Analyze SQL string for safety issues in JavaScript context."""
     sql_upper = sql.upper()
     loc = node.get("loc", {}).get("start", {})
@@ -422,9 +496,10 @@ def _analyze_sql_string_js(sql: str, node: Dict[str, Any], findings: List[Dict[s
                 'column': loc.get("column", 0),
                 'type': 'missing_where_clause_update',
                 'severity': 'CRITICAL',
-                'confidence': 0.95,
-                'message': 'UPDATE without WHERE clause will affect ALL rows',
-                'hint': 'Add WHERE clause to target specific rows'
+                'confidence': 0.98 if has_tainted_input else 0.95,
+                'message': f'UPDATE without WHERE clause will affect ALL rows{" (with tainted data!)" if has_tainted_input else ""}',
+                'hint': 'Add WHERE clause to target specific rows',
+                'tainted': has_tainted_input
             })
     
     # Pattern 7: missing-where-clause-delete
@@ -435,9 +510,10 @@ def _analyze_sql_string_js(sql: str, node: Dict[str, Any], findings: List[Dict[s
                 'column': loc.get("column", 0),
                 'type': 'missing_where_clause_delete',
                 'severity': 'CRITICAL',
-                'confidence': 0.95,
-                'message': 'DELETE without WHERE clause will delete ALL rows',
-                'hint': 'Add WHERE clause to target specific rows'
+                'confidence': 0.98 if has_tainted_input else 0.95,
+                'message': f'DELETE without WHERE clause will delete ALL rows{" (with tainted data!)" if has_tainted_input else ""}',
+                'hint': 'Add WHERE clause to target specific rows',
+                'tainted': has_tainted_input
             })
     
     # Pattern 8: select-star-query
@@ -538,7 +614,7 @@ def _contains_pattern(node: Dict[str, Any], patterns: List[str]) -> bool:
     return False
 
 
-def _analyze_tree_sitter_sql(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_tree_sitter_sql(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze tree-sitter AST (simplified implementation)."""
     # Would need tree-sitter specific implementation
     # For now, return empty list

@@ -8,6 +8,57 @@ import ast
 from typing import List, Dict, Any, Set, Optional
 
 
+def register_taint_patterns(taint_registry):
+    """Register concurrency-related patterns with the taint analysis registry.
+    
+    Args:
+        taint_registry: TaintRegistry instance from theauditor.taint.registry
+    """
+    # Register shared state sources (can lead to race conditions)
+    SHARED_STATE_SOURCES = [
+        "global", "self.", "cls.",
+        "threading.local", "asyncio.Queue", "multiprocessing.Queue",
+        "shared_memory", "mmap", "memoryview"
+    ]
+    
+    for pattern in SHARED_STATE_SOURCES:
+        taint_registry.register_source(pattern, "shared_state", "python")
+    
+    # Register synchronization primitives as sinks
+    SYNC_SINKS = [
+        "Lock", "RLock", "Semaphore", "BoundedSemaphore", "Event", "Condition",
+        "threading.Lock", "threading.RLock", "threading.Semaphore",
+        "asyncio.Lock", "asyncio.Semaphore", "asyncio.Event", "asyncio.Condition",
+        "multiprocessing.Lock", "multiprocessing.RLock", "multiprocessing.Semaphore",
+        "acquire", "release", "wait", "notify", "notify_all"
+    ]
+    
+    for pattern in SYNC_SINKS:
+        taint_registry.register_sink(pattern, "synchronization", "python")
+    
+    # Register async/await operations as sinks
+    ASYNC_SINKS = [
+        "asyncio.gather", "asyncio.create_task", "asyncio.ensure_future",
+        "asyncio.run", "asyncio.run_coroutine_threadsafe",
+        "await", "async with", "async for",
+        "aiohttp.request", "aiofiles.open"
+    ]
+    
+    for pattern in ASYNC_SINKS:
+        taint_registry.register_sink(pattern, "async_operation", "python")
+    
+    # Register thread/process operations as sinks
+    THREAD_SINKS = [
+        "Thread", "threading.Thread", "Process", "multiprocessing.Process",
+        "ThreadPoolExecutor", "ProcessPoolExecutor",
+        "start", "join", "terminate", "kill",
+        "fork", "spawn", "forkserver"
+    ]
+    
+    for pattern in THREAD_SINKS:
+        taint_registry.register_sink(pattern, "thread_process", "python")
+
+
 def find_async_concurrency_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find async and concurrency issues in Python code.
     
@@ -43,12 +94,12 @@ def find_async_concurrency_issues(tree: Any, file_path: str = None, taint_checke
         if tree.get("type") == "python_ast":
             actual_tree = tree.get("tree")
             if actual_tree:
-                analyzer = PythonConcurrencyAnalyzer(file_path)
+                analyzer = PythonConcurrencyAnalyzer(file_path, taint_checker)
                 analyzer.visit(actual_tree)
                 return analyzer.findings
     elif isinstance(tree, ast.AST):
         # Direct Python AST
-        analyzer = PythonConcurrencyAnalyzer(file_path)
+        analyzer = PythonConcurrencyAnalyzer(file_path, taint_checker)
         analyzer.visit(tree)
         return analyzer.findings
     
@@ -58,8 +109,9 @@ def find_async_concurrency_issues(tree: Any, file_path: str = None, taint_checke
 class PythonConcurrencyAnalyzer(ast.NodeVisitor):
     """AST visitor for detecting concurrency issues in Python."""
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.findings = []
         
         # Track state for analysis
@@ -236,6 +288,11 @@ class PythonConcurrencyAnalyzer(ast.NodeVisitor):
             if var_name in self.global_vars or var_name in self.class_vars:
                 # Check if we're in a context with threading/asyncio
                 if self.has_threading_import or self.has_asyncio_import:
+                    # Check if the variable is tainted (even more dangerous)
+                    is_tainted = False
+                    if self.taint_checker:
+                        is_tainted = self.taint_checker(var_name, node.lineno)
+                    
                     # Check if there's lock protection nearby
                     if not self._has_lock_protection(node):
                         self.findings.append({
@@ -244,10 +301,11 @@ class PythonConcurrencyAnalyzer(ast.NodeVisitor):
                             'type': 'unprotected_global_increment',
                             'variable': var_name,
                             'operation': type(node.op).__name__,
-                            'severity': 'HIGH',
-                            'confidence': 0.85,
-                            'message': f'Global/shared variable "{var_name}" modified without synchronization',
-                            'hint': 'Use threading.Lock() or asyncio.Lock() to protect concurrent modifications'
+                            'severity': 'CRITICAL' if is_tainted else 'HIGH',
+                            'confidence': 0.95 if is_tainted else 0.85,
+                            'message': f'Global/shared variable "{var_name}" modified without synchronization{" (tainted!)" if is_tainted else ""}',
+                            'hint': 'Use threading.Lock() or asyncio.Lock() to protect concurrent modifications',
+                            'tainted': is_tainted
                         })
         
         self.generic_visit(node)
@@ -260,16 +318,22 @@ class PythonConcurrencyAnalyzer(ast.NodeVisitor):
                 
                 # Pattern 2: shared-state-no-lock
                 if var_name in self.global_vars or var_name in self.class_vars:
+                    # Check if tainted
+                    is_tainted = False
+                    if self.taint_checker:
+                        is_tainted = self.taint_checker(var_name, node.lineno)
+                    
                     if not self._has_lock_protection(node):
                         self.findings.append({
                             'line': node.lineno,
                             'column': node.col_offset,
                             'type': 'shared_state_no_lock',
                             'variable': var_name,
-                            'severity': 'HIGH',
-                            'confidence': 0.75,
-                            'message': f'Shared state "{var_name}" modified without lock',
-                            'hint': 'Use locks when modifying shared state in concurrent code'
+                            'severity': 'CRITICAL' if is_tainted else 'HIGH',
+                            'confidence': 0.90 if is_tainted else 0.75,
+                            'message': f'Shared state "{var_name}" modified without lock{" (tainted!)" if is_tainted else ""}',
+                            'hint': 'Use locks when modifying shared state in concurrent code',
+                            'tainted': is_tainted
                         })
             
             # Pattern 8: shared-collection-mutation
