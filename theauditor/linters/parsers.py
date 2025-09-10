@@ -69,7 +69,7 @@ def parse_eslint_output(output: str, workset_files: set[str]) -> tuple[list[dict
                     "file": file_str,
                     "line": int(message.get("line") or 0),
                     "column": int(message.get("column") or 0),
-                    "rule": message.get("ruleId", ""),  # Empty not "unknown"
+                    "rule": message.get("ruleId") or "",  # Handle null ruleId
                     "message": message.get("message", ""),
                     "severity": standard_severity,  # Use standardized severity
                     "category": "lint",
@@ -491,7 +491,7 @@ def parse_bandit_output(output: str, workset_files: set[str]) -> list[dict[str, 
                     "file": matched_file,  # Use the matched relative path from workset
                     "line": int(result.get("line_number") or 0),
                     "column": int(result.get("col_offset") or 0),
-                    "rule": result.get("test_id", ""),
+                    "rule": result.get("test_id") or "",  # Handle null test_id
                     "message": result.get("issue_text", ""),
                     "severity": severity_map.get(result.get("issue_severity", "MEDIUM"), "warning"),
                     "category": "security",
