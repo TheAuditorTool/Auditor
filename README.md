@@ -235,6 +235,36 @@ aud graph viz --view layers --format svg
 aud graph viz --view impact --impact-target "src/auth.py"
 ```
 
+### Control Flow Graph Analysis
+
+TheAuditor analyzes function-level control flow to identify code quality issues:
+
+- **Cyclomatic Complexity**: Measures number of independent paths through functions
+- **Dead Code Detection**: Finds unreachable code blocks that can be removed
+- **Nesting Analysis**: Identifies deeply nested control structures
+- **Visual CFG Generation**: Creates Graphviz visualizations of function control flow
+- **Path Analysis**: Enumerates all possible execution paths through functions
+
+```bash
+# Analyze all functions for high complexity
+aud cfg analyze --complexity-threshold 10
+
+# Find dead code in specific file
+aud cfg analyze --file src/auth.py --find-dead-code
+
+# Visualize function control flow
+aud cfg viz --file src/payment.py --function process_payment
+
+# Generate SVG with statements shown
+aud cfg viz --file src/api.py --function handle_request --format svg --show-statements
+```
+
+Use cases:
+- Identify functions that need refactoring (high complexity)
+- Find and remove dead code
+- Visualize complex logic for better understanding
+- Future: Enable flow-sensitive taint analysis for higher accuracy
+
 ### Insights Analysis (Optional)
 
 Separate from the core Truth Courier modules, TheAuditor offers optional Insights for technical scoring:

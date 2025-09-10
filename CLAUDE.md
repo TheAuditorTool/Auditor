@@ -35,6 +35,8 @@ aud detect-patterns          # Run security pattern detection
 aud taint-analyze            # Perform taint flow analysis
 aud graph build              # Build dependency graph
 aud graph analyze            # Analyze graph structure
+aud cfg analyze              # Analyze control flow complexity
+aud cfg viz --file <f> --function <fn>  # Visualize function control flow
 aud fce                      # Run Factual Correlation Engine
 aud report                   # Generate final report
 aud workset                  # Create working set of critical files
@@ -195,6 +197,14 @@ Features:
 - Analyze graph health with `aud graph analyze`
 - Visualize with GraphViz output (optional)
 - Detect circular dependencies and architectural issues
+
+#### Control Flow Analysis (`theauditor/commands/cfg.py`)
+- Analyze function complexity with `aud cfg analyze`
+- Visualize control flow with `aud cfg viz`
+- Find dead code blocks (unreachable code)
+- Calculate cyclomatic complexity metrics
+- Stored in database tables: cfg_blocks, cfg_edges, cfg_block_statements
+- Future: Flow-sensitive taint analysis using CFG paths
 
 #### Output Structure
 ```

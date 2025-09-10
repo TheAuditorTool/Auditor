@@ -46,7 +46,8 @@ class JavaScriptExtractor(BaseExtractor):
             'assignments': [],
             'function_calls': [],
             'returns': [],
-            'orm_queries': []
+            'orm_queries': [],
+            'cfg': []  # Control flow graph data
         }
         
         # Extract imports using regex patterns
@@ -169,6 +170,9 @@ class JavaScriptExtractor(BaseExtractor):
             
             # Extract ORM queries
             result['orm_queries'] = self._extract_orm_queries(tree, content)
+            
+            # Extract control flow graph data
+            result['cfg'] = self._extract_control_flow(tree, file_info['path'])
         
         # Extract SQL queries embedded in JavaScript code
         result['sql_queries'] = self.extract_sql_queries(content)
@@ -343,3 +347,220 @@ class JavaScriptExtractor(BaseExtractor):
         elif method in TYPEORM_QB_METHODS:
             return 'typeorm_qb'
         return 'unknown'
+    
+    def _extract_control_flow(self, tree: Dict[str, Any], file_path: str) -> List[Dict[str, Any]]:
+        """Extract control flow graph from JavaScript/TypeScript AST.
+        
+        Args:
+            tree: Parsed AST tree
+            file_path: Path to the file
+            
+        Returns:
+            List of CFG data for each function
+        """
+        cfg_data = []
+        
+        # Check if we have a valid tree
+        if not tree or not tree.get('success'):
+            return cfg_data
+        
+        # Get semantic data if available
+        semantic_data = tree.get('semantic', {})
+        if not semantic_data:
+            return cfg_data
+        
+        # Process each function found
+        functions = semantic_data.get('functions', [])
+        for func in functions:
+            function_cfg = self._build_function_cfg_js(func, file_path)
+            if function_cfg:
+                cfg_data.append(function_cfg)
+        
+        # Process methods in classes
+        classes = semantic_data.get('classes', [])
+        for cls in classes:
+            for method in cls.get('methods', []):
+                method_cfg = self._build_function_cfg_js(method, file_path)
+                if method_cfg:
+                    cfg_data.append(method_cfg)
+        
+        return cfg_data
+    
+    def _build_function_cfg_js(self, func_data: Dict[str, Any], file_path: str) -> Dict[str, Any]:
+        """Build control flow graph for a single JavaScript/TypeScript function.
+        
+        Args:
+            func_data: Function data from semantic analysis
+            file_path: Path to the file
+            
+        Returns:
+            CFG data dictionary
+        """
+        if not func_data.get('name'):
+            return None
+            
+        blocks = []
+        edges = []
+        block_id_counter = [0]
+        
+        def get_next_block_id():
+            block_id_counter[0] += 1
+            return block_id_counter[0]
+        
+        # Entry block
+        entry_block_id = get_next_block_id()
+        start_line = func_data.get('line', 1)
+        end_line = func_data.get('endLine', start_line)
+        
+        blocks.append({
+            'id': entry_block_id,
+            'type': 'entry',
+            'start_line': start_line,
+            'end_line': start_line,
+            'statements': []
+        })
+        
+        # Analyze function body for control flow structures
+        # This is simplified - a full implementation would parse the body
+        current_block_id = entry_block_id
+        
+        # Look for control flow keywords in the function body
+        body = func_data.get('body', '')
+        if body:
+            # Detect if statements
+            if_count = body.count('if (') + body.count('if(')
+            for _ in range(if_count):
+                # Create condition block
+                condition_id = get_next_block_id()
+                blocks.append({
+                    'id': condition_id,
+                    'type': 'condition',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'condition': 'if_condition',
+                    'statements': [{'type': 'if', 'line': start_line}]
+                })
+                edges.append({'source': current_block_id, 'target': condition_id, 'type': 'normal'})
+                
+                # Then and else branches
+                then_id = get_next_block_id()
+                blocks.append({
+                    'id': then_id,
+                    'type': 'basic',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'statements': []
+                })
+                edges.append({'source': condition_id, 'target': then_id, 'type': 'true'})
+                
+                # Merge block
+                merge_id = get_next_block_id()
+                blocks.append({
+                    'id': merge_id,
+                    'type': 'merge',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'statements': []
+                })
+                edges.append({'source': condition_id, 'target': merge_id, 'type': 'false'})
+                edges.append({'source': then_id, 'target': merge_id, 'type': 'normal'})
+                
+                current_block_id = merge_id
+            
+            # Detect loops
+            loop_count = body.count('for (') + body.count('for(') + body.count('while (') + body.count('while(')
+            for _ in range(loop_count):
+                # Loop condition block
+                loop_id = get_next_block_id()
+                blocks.append({
+                    'id': loop_id,
+                    'type': 'loop_condition',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'condition': 'loop_condition',
+                    'statements': [{'type': 'loop', 'line': start_line}]
+                })
+                edges.append({'source': current_block_id, 'target': loop_id, 'type': 'normal'})
+                
+                # Loop body
+                body_id = get_next_block_id()
+                blocks.append({
+                    'id': body_id,
+                    'type': 'loop_body',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'statements': []
+                })
+                edges.append({'source': loop_id, 'target': body_id, 'type': 'true'})
+                edges.append({'source': body_id, 'target': loop_id, 'type': 'back_edge'})
+                
+                # Exit block
+                exit_id = get_next_block_id()
+                blocks.append({
+                    'id': exit_id,
+                    'type': 'merge',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'statements': []
+                })
+                edges.append({'source': loop_id, 'target': exit_id, 'type': 'false'})
+                
+                current_block_id = exit_id
+            
+            # Detect try-catch blocks
+            try_count = body.count('try {') + body.count('try{')
+            for _ in range(try_count):
+                # Try block
+                try_id = get_next_block_id()
+                blocks.append({
+                    'id': try_id,
+                    'type': 'try',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'statements': [{'type': 'try', 'line': start_line}]
+                })
+                edges.append({'source': current_block_id, 'target': try_id, 'type': 'normal'})
+                
+                # Catch block
+                catch_id = get_next_block_id()
+                blocks.append({
+                    'id': catch_id,
+                    'type': 'except',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'statements': [{'type': 'catch', 'line': start_line}]
+                })
+                edges.append({'source': try_id, 'target': catch_id, 'type': 'exception'})
+                
+                # Merge after try-catch
+                merge_id = get_next_block_id()
+                blocks.append({
+                    'id': merge_id,
+                    'type': 'merge',
+                    'start_line': start_line,
+                    'end_line': start_line,
+                    'statements': []
+                })
+                edges.append({'source': try_id, 'target': merge_id, 'type': 'normal'})
+                edges.append({'source': catch_id, 'target': merge_id, 'type': 'normal'})
+                
+                current_block_id = merge_id
+        
+        # Exit block
+        if current_block_id:
+            exit_block_id = get_next_block_id()
+            blocks.append({
+                'id': exit_block_id,
+                'type': 'exit',
+                'start_line': end_line,
+                'end_line': end_line,
+                'statements': []
+            })
+            edges.append({'source': current_block_id, 'target': exit_block_id, 'type': 'normal'})
+        
+        return {
+            'function_name': func_data['name'],
+            'file': file_path,
+            'blocks': blocks,
+            'edges': edges
+        }

@@ -86,6 +86,14 @@ class VerboseGroup(click.Group):
             formatter.write_text("aud graph analyze           # Find cycles and architectural issues")
             formatter.write_paragraph()
             
+            formatter.write_text("aud cfg analyze             # Analyze control flow complexity")
+            formatter.write_text("  --complexity-threshold 15 # Set complexity threshold")
+            formatter.write_text("  --find-dead-code          # Find unreachable code")
+            formatter.write_text("aud cfg viz                 # Visualize function control flow")
+            formatter.write_text("  --file src/auth.py        # File containing function")
+            formatter.write_text("  --function validate       # Function to visualize")
+            formatter.write_paragraph()
+            
             formatter.write_text("aud impact                  # Analyze change impact radius")
             formatter.write_text("  --file src/auth.py        # Specify file to analyze")
             formatter.write_text("  --line 42                 # Specific line number")
@@ -151,6 +159,7 @@ from theauditor.commands.deps import deps
 from theauditor.commands.report import report
 from theauditor.commands.summary import summary
 from theauditor.commands.graph import graph
+from theauditor.commands.cfg import cfg
 from theauditor.commands.full import full
 from theauditor.commands.fce import fce
 from theauditor.commands.impact import impact
@@ -227,6 +236,7 @@ cli.add_command(structure)
 
 # Register command groups
 cli.add_command(graph)
+cli.add_command(cfg)
 
 # All commands have been migrated to separate modules
 

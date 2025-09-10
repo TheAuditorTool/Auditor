@@ -49,6 +49,9 @@ class DatabaseManager:
         self.prisma_batch = []
         self.compose_batch = []
         self.nginx_batch = []
+        self.cfg_blocks_batch = []
+        self.cfg_edges_batch = []
+        self.cfg_statements_batch = []
 
     def begin_transaction(self):
         """Start a new transaction."""
@@ -288,6 +291,50 @@ class DatabaseManager:
         """
         )
 
+        # Control Flow Graph tables
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cfg_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file TEXT NOT NULL,
+                function_name TEXT NOT NULL,
+                block_type TEXT NOT NULL,
+                start_line INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                condition_expr TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cfg_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file TEXT NOT NULL,
+                function_name TEXT NOT NULL,
+                source_block_id INTEGER NOT NULL,
+                target_block_id INTEGER NOT NULL,
+                edge_type TEXT NOT NULL,
+                FOREIGN KEY(file) REFERENCES files(path),
+                FOREIGN KEY(source_block_id) REFERENCES cfg_blocks(id),
+                FOREIGN KEY(target_block_id) REFERENCES cfg_blocks(id)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cfg_block_statements (
+                block_id INTEGER NOT NULL,
+                statement_type TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                statement_text TEXT,
+                FOREIGN KEY(block_id) REFERENCES cfg_blocks(id)
+            )
+        """
+        )
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoints_file ON api_endpoints(file)")
@@ -315,6 +362,15 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_callee ON function_call_args(callee_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_file ON function_returns(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_function ON function_returns(function_name)")
+        
+        # Indexes for CFG tables
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_file ON cfg_blocks(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_edges_file ON cfg_edges(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_edges_function ON cfg_edges(function_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_edges_source ON cfg_edges(source_block_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_edges_target ON cfg_edges(target_block_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_statements_block ON cfg_block_statements(block_id)")
 
         self.conn.commit()
 
@@ -338,6 +394,9 @@ class DatabaseManager:
             cursor.execute("DELETE FROM assignments")
             cursor.execute("DELETE FROM function_call_args")
             cursor.execute("DELETE FROM function_returns")
+            cursor.execute("DELETE FROM cfg_blocks")
+            cursor.execute("DELETE FROM cfg_edges")
+            cursor.execute("DELETE FROM cfg_block_statements")
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
@@ -440,6 +499,30 @@ class DatabaseManager:
         if not any(b[:3] == batch_key for b in self.nginx_batch):
             self.nginx_batch.append((file_path, block_type, block_context,
                                    directives_json, level))
+
+    def add_cfg_block(self, file_path: str, function_name: str, block_type: str,
+                     start_line: int, end_line: int, condition_expr: Optional[str] = None) -> int:
+        """Add a CFG block to the batch and return its temporary ID.
+        
+        Note: Since we use AUTOINCREMENT, we need to handle IDs carefully.
+        This returns a temporary ID that will be replaced during flush.
+        """
+        # Generate temporary ID (negative to distinguish from real IDs)
+        temp_id = -(len(self.cfg_blocks_batch) + 1)
+        self.cfg_blocks_batch.append((file_path, function_name, block_type,
+                                     start_line, end_line, condition_expr, temp_id))
+        return temp_id
+
+    def add_cfg_edge(self, file_path: str, function_name: str, source_block_id: int,
+                    target_block_id: int, edge_type: str):
+        """Add a CFG edge to the batch."""
+        self.cfg_edges_batch.append((file_path, function_name, source_block_id,
+                                    target_block_id, edge_type))
+
+    def add_cfg_statement(self, block_id: int, statement_type: str, line: int,
+                         statement_text: Optional[str] = None):
+        """Add a CFG block statement to the batch."""
+        self.cfg_statements_batch.append((block_id, statement_type, line, statement_text))
 
     def flush_batch(self, batch_idx: Optional[int] = None):
         """Execute all pending batch inserts."""
@@ -564,6 +647,74 @@ class DatabaseManager:
                     self.config_files_batch
                 )
                 self.config_files_batch = []
+            
+            # Handle CFG blocks with ID mapping (blocks must be inserted before edges/statements)
+            if self.cfg_blocks_batch:
+                # Map temporary IDs to real IDs
+                id_mapping = {}
+                
+                for batch_item in self.cfg_blocks_batch:
+                    # Extract temp_id from the batch item (last element)
+                    file_path, function_name, block_type, start_line, end_line, condition_expr, temp_id = batch_item
+                    
+                    cursor.execute(
+                        """INSERT INTO cfg_blocks (file, function_name, block_type, start_line, end_line, condition_expr) 
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (file_path, function_name, block_type, start_line, end_line, condition_expr)
+                    )
+                    # Map the temporary ID to the real ID
+                    real_id = cursor.lastrowid
+                    id_mapping[temp_id] = real_id
+                
+                self.cfg_blocks_batch = []
+                
+                # Update edges with real IDs
+                if self.cfg_edges_batch:
+                    updated_edges = []
+                    for file_path, function_name, source_id, target_id, edge_type in self.cfg_edges_batch:
+                        # Map temporary IDs to real IDs
+                        real_source = id_mapping.get(source_id, source_id) if source_id < 0 else source_id
+                        real_target = id_mapping.get(target_id, target_id) if target_id < 0 else target_id
+                        updated_edges.append((file_path, function_name, real_source, real_target, edge_type))
+                    
+                    cursor.executemany(
+                        """INSERT INTO cfg_edges (file, function_name, source_block_id, target_block_id, edge_type) 
+                           VALUES (?, ?, ?, ?, ?)""",
+                        updated_edges
+                    )
+                    self.cfg_edges_batch = []
+                
+                # Update statements with real IDs
+                if self.cfg_statements_batch:
+                    updated_statements = []
+                    for block_id, statement_type, line, statement_text in self.cfg_statements_batch:
+                        # Map temporary ID to real ID
+                        real_block_id = id_mapping.get(block_id, block_id) if block_id < 0 else block_id
+                        updated_statements.append((real_block_id, statement_type, line, statement_text))
+                    
+                    cursor.executemany(
+                        """INSERT INTO cfg_block_statements (block_id, statement_type, line, statement_text) 
+                           VALUES (?, ?, ?, ?)""",
+                        updated_statements
+                    )
+                    self.cfg_statements_batch = []
+            
+            # Handle edges and statements without blocks (shouldn't happen, but be safe)
+            elif self.cfg_edges_batch:
+                cursor.executemany(
+                    """INSERT INTO cfg_edges (file, function_name, source_block_id, target_block_id, edge_type) 
+                       VALUES (?, ?, ?, ?, ?)""",
+                    self.cfg_edges_batch
+                )
+                self.cfg_edges_batch = []
+            
+            elif self.cfg_statements_batch:
+                cursor.executemany(
+                    """INSERT INTO cfg_block_statements (block_id, statement_type, line, statement_text) 
+                       VALUES (?, ?, ?, ?)""",
+                    self.cfg_statements_batch
+                )
+                self.cfg_statements_batch = []
                 
         except sqlite3.Error as e:
             if batch_idx is not None:
@@ -596,11 +747,14 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.docker_images_batch = []
     manager.docker_issues_batch = []
     manager.assignments_batch = []
-    manager.function_calls_batch = []
-    manager.returns_batch = []
+    manager.function_call_args_batch = []
+    manager.function_returns_batch = []
     manager.prisma_batch = []
     manager.compose_batch = []
     manager.nginx_batch = []
+    manager.cfg_blocks_batch = []
+    manager.cfg_edges_batch = []
+    manager.cfg_statements_batch = []
     
     # Create the schema using the existing connection
     manager.create_schema()
