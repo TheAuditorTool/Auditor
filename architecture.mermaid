@@ -1,0 +1,67 @@
+graph TD
+    %% TheAuditor Architecture - Data Flow Pipeline
+    
+    %% Input Stage
+    Files[Source Files<br/>Python/JS/TS/Config] --> Indexer
+    
+    %% Indexing Stage
+    Indexer[INDEXER<br/>First Data Step<br/>/indexer/] --> AST_Parser
+    AST_Parser[AST_PARSER<br/>ast_parser.py<br/>Parses code to AST] --> Extractors
+    
+    %% Extraction Stage
+    Extractors[EXTRACTORS<br/>/indexer/extractors/<br/>Python/JS/Docker/SQL/Generic] --> Database
+    
+    %% Storage Layer
+    Database[(DATABASE<br/>repo_index.db<br/>symbols/imports/functions/assignments)] --> Multiple_Systems
+    
+    %% Analysis Systems (Parallel)
+    Multiple_Systems --> Taint_Analyzer
+    Multiple_Systems --> Graph_System
+    Multiple_Systems --> Universal_Detector
+    
+    %% Taint Analysis Branch (The Mothership)
+    Taint_Analyzer[TAINT ANALYZER<br/>/taint/<br/>THE MOTHERSHIP] --> Taint_Core
+    Taint_Core[core.py<br/>trace_taint] --> Taint_Components
+    Taint_Components --> Sources[sources.py<br/>650+ patterns]
+    Taint_Components --> DB_Queries[database.py<br/>Find sources/sinks]
+    Taint_Components --> Propagation[propagation.py<br/>Trace flows]
+    Taint_Components --> Interprocedural[interprocedural.py<br/>Cross-function]
+    Taint_Components --> JavaScript[javascript.py<br/>JS patterns]
+    Taint_Components --> Registry[registry.py<br/>Dynamic patterns]
+    
+    %% Graph Analysis Branch
+    Graph_System[GRAPH SYSTEM<br/>/graph/] --> Graph_Components
+    Graph_Components --> Builder[builder.py<br/>Build graphs]
+    Graph_Components --> Analyzer[analyzer.py<br/>Algorithms]
+    Graph_Components --> Store[store.py<br/>graphs.db]
+    
+    %% Detection Branch
+    Universal_Detector[UNIVERSAL DETECTOR<br/>universal_detector.py] --> Detection_Systems
+    Detection_Systems --> Pattern_Loader[pattern_loader.py<br/>Load YAMLs]
+    Detection_Systems --> AST_Patterns[ast_patterns.py<br/>AST matching]
+    
+    %% Rules System
+    Detection_Systems --> Rules_Orchestrator
+    Rules_Orchestrator[RULES ORCHESTRATOR<br/>orchestrator.py<br/>Dynamic discovery] --> Rules
+    Rules[RULES<br/>/rules/<br/>Categories] --> Rule_Categories
+    Rule_Categories --> Python_Rules[/python/<br/>async_concurrency]
+    Rule_Categories --> Node_Rules[/node/<br/>async_concurrency]
+    Rule_Categories --> SQL_Rules[/sql/<br/>sql_safety<br/>multi_tenant]
+    Rule_Categories --> Security_Rules[/security/<br/>websocket<br/>input_validation<br/>crypto<br/>pii]
+    Rule_Categories --> Logic_Rules[/logic/<br/>general_logic]
+    Rule_Categories --> Auth_Rules[/auth/<br/>jwt_detector]
+    
+    %% Output Stage
+    Taint_Core --> Reports
+    Graph_Components --> Reports
+    Rules_Orchestrator --> Reports
+    Reports[REPORTS<br/>.pf/readthis/] --> AI_Consumer[AI/LLM<br/>Consumer]
+    
+    %% Styling
+    classDef storage fill:#f9f,stroke:#333,stroke-width:4px
+    classDef critical fill:#ff9,stroke:#333,stroke-width:4px
+    classDef analyzer fill:#9ff,stroke:#333,stroke-width:2px
+    
+    class Database,Store storage
+    class Taint_Analyzer,Taint_Core critical
+    class Graph_System,Universal_Detector,Rules_Orchestrator analyzer
