@@ -71,6 +71,10 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
         registry = TaintRegistry()
         orchestrator = RulesOrchestrator(project_path=Path("."), db_path=db_path)
         
+        # CRITICAL: Collect patterns from all rules and register them with the taint registry
+        # This allows rules to contribute their patterns (ws.broadcast, Math.random, etc.)
+        orchestrator.collect_rule_patterns(registry)
+        
         # Track all findings
         all_findings = []
         

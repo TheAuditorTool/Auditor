@@ -9,6 +9,74 @@ import re
 from typing import List, Dict, Any, Optional, Set
 
 
+def register_taint_patterns(taint_registry):
+    """Register input validation-specific patterns with the taint system.
+    
+    This function is called by the orchestrator before taint analysis runs,
+    allowing the taint analyzer to track data flow to dangerous operations.
+    
+    Args:
+        taint_registry: TaintRegistry instance to register patterns with
+    """
+    # Database operations - these are sinks where unvalidated data shouldn't flow
+    DATABASE_SINKS = [
+        # Python ORM/database operations
+        "create",
+        "update", 
+        "save",
+        "insert",
+        "query",
+        "execute",
+        "filter",
+        "find",
+        "find_one",
+        "find_by",
+        "get_or_create",
+        "update_or_create",
+        "bulk_create",
+        "bulk_update",
+        
+        # JavaScript/Node.js database operations
+        "findOneAndUpdate",
+        "findByIdAndUpdate", 
+        "updateOne",
+        "updateMany",
+        "insertOne",
+        "insertMany",
+        "replaceOne",
+        "deleteOne",
+        "deleteMany",
+    ]
+    
+    # Unsafe deserialization functions - dangerous sinks
+    DESERIALIZATION_SINKS = [
+        # Python dangerous functions
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "pickle.loads",
+        "yaml.load",  # unsafe version
+        "marshal.loads",
+        
+        # JavaScript dangerous functions
+        "Function",  # new Function() constructor
+        "deserialize",
+        # Note: JSON.parse is already in hardcoded sinks
+    ]
+    
+    # Register database operations as sinks
+    for pattern in DATABASE_SINKS:
+        taint_registry.register_sink(pattern, "database", "any")
+    
+    # Register deserialization functions as sinks
+    for pattern in DESERIALIZATION_SINKS:
+        taint_registry.register_sink(pattern, "deserialization", "any")
+    
+    # Note: We don't register validation functions as they're sanitizers,
+    # and the registry already has a sanitizers section in sources.py
+
+
 def find_input_validation_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find input validation and deserialization security issues.
     
@@ -34,21 +102,21 @@ def find_input_validation_issues(tree: Any, file_path: str = None, taint_checker
         if tree_type == "python_ast":
             actual_tree = tree.get("tree")
             if actual_tree:
-                return _analyze_python_validation(actual_tree, file_path)
+                return _analyze_python_validation(actual_tree, file_path, taint_checker)
         elif tree_type == "eslint_ast":
-            return _analyze_javascript_validation(tree, file_path)
+            return _analyze_javascript_validation(tree, file_path, taint_checker)
         elif tree_type == "tree_sitter":
-            return _analyze_tree_sitter_validation(tree, file_path)
+            return _analyze_tree_sitter_validation(tree, file_path, taint_checker)
     elif isinstance(tree, ast.AST):
         # Direct Python AST
-        return _analyze_python_validation(tree, file_path)
+        return _analyze_python_validation(tree, file_path, taint_checker)
     
     return findings
 
 
-def _analyze_python_validation(tree: ast.AST, file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_python_validation(tree: ast.AST, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze Python AST for input validation issues."""
-    analyzer = PythonValidationAnalyzer(file_path)
+    analyzer = PythonValidationAnalyzer(file_path, taint_checker)
     analyzer.visit(tree)
     return analyzer.findings
 
@@ -56,8 +124,9 @@ def _analyze_python_validation(tree: ast.AST, file_path: str = None) -> List[Dic
 class PythonValidationAnalyzer(ast.NodeVisitor):
     """AST visitor for detecting input validation issues in Python."""
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.findings = []
         self.request_vars = set()  # Track variables from request
         self.validated_vars = set()  # Track validated variables
@@ -217,7 +286,20 @@ class PythonValidationAnalyzer(ast.NodeVisitor):
         return False
     
     def _contains_user_input(self, node: ast.AST) -> bool:
-        """Check if node contains user input."""
+        """Check if node contains user input or tainted data."""
+        # First check with taint_checker if available
+        if self.taint_checker:
+            if isinstance(node, ast.Name):
+                # Check if variable is tainted
+                if self.taint_checker(node.id, node.lineno):
+                    return True
+            # Check all identifiers in the expression
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name):
+                    if self.taint_checker(child.id, child.lineno):
+                        return True
+        
+        # Fallback to local tracking
         if isinstance(node, ast.Name):
             return node.id in self.request_vars
         elif isinstance(node, ast.Attribute):
@@ -247,7 +329,7 @@ class PythonValidationAnalyzer(ast.NodeVisitor):
         return ''
 
 
-def _analyze_javascript_validation(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_javascript_validation(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze JavaScript/TypeScript ESLint AST for input validation issues."""
     findings = []
     
@@ -330,16 +412,24 @@ def _analyze_javascript_validation(tree_wrapper: Dict[str, Any], file_path: str 
                 args = node.get("arguments", [])
                 for arg in args:
                     arg_text = _extract_node_text(arg, content)
-                    if any(req in arg_text for req in ['req.', 'request.', 'params', 'query', 'body']):
-                        loc = node.get("loc", {}).get("start", {})
+                    loc = node.get("loc", {}).get("start", {})
+                    line_num = loc.get("line", 0)
+                    
+                    # Check with taint_checker if argument is an identifier
+                    is_tainted = False
+                    if taint_checker and arg.get("type") == "Identifier" and line_num > 0:
+                        is_tainted = taint_checker(arg.get("name"), line_num)
+                    
+                    # If tainted or contains request data
+                    if is_tainted or any(req in arg_text for req in ['req.', 'request.', 'params', 'query', 'body']):
                         findings.append({
-                            'line': loc.get("line", 0),
+                            'line': line_num,
                             'column': loc.get("column", 0),
                             'type': 'unsafe_deserialization',
                             'function': call_text,
                             'severity': 'CRITICAL' if 'eval' in call_text else 'HIGH',
-                            'confidence': 0.80,
-                            'message': f'Unsafe deserialization using {call_text} with user input',
+                            'confidence': 0.90 if is_tainted else 0.80,
+                            'message': f'Unsafe deserialization using {call_text} with {"tainted" if is_tainted else "user"} input',
                             'hint': 'Use JSON.parse() with try/catch or validation'
                         })
             
@@ -372,17 +462,25 @@ def _analyze_javascript_validation(tree_wrapper: Dict[str, Any], file_path: str 
                     # Check for unvalidated variables
                     elif arg.get("type") == "Identifier":
                         var_name = arg.get("name")
-                        if var_name in request_vars and var_name not in validated_vars:
-                            loc = node.get("loc", {}).get("start", {})
+                        loc = node.get("loc", {}).get("start", {})
+                        line_num = loc.get("line", 0)
+                        
+                        # Check with taint_checker first if available
+                        is_tainted = False
+                        if taint_checker and line_num > 0:
+                            is_tainted = taint_checker(var_name, line_num)
+                        
+                        # If tainted by taint_checker or tracked locally as unvalidated
+                        if is_tainted or (var_name in request_vars and var_name not in validated_vars):
                             findings.append({
-                                'line': loc.get("line", 0),
+                                'line': line_num,
                                 'column': loc.get("column", 0),
                                 'type': 'missing_input_validation',
                                 'variable': var_name,
                                 'operation': call_text,
                                 'severity': 'HIGH',
-                                'confidence': 0.75,
-                                'message': f'Using unvalidated variable {var_name} in {call_text}',
+                                'confidence': 0.85 if is_tainted else 0.75,
+                                'message': f'Using {"tainted" if is_tainted else "unvalidated"} variable {var_name} in {call_text}',
                                 'hint': 'Validate all user input before database operations'
                             })
         
@@ -452,7 +550,7 @@ def _extract_node_text(node: Dict[str, Any], content: str) -> str:
     return ""
 
 
-def _analyze_tree_sitter_validation(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_tree_sitter_validation(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze tree-sitter AST (simplified implementation)."""
     # Would need tree-sitter specific implementation
     # For now, return empty list

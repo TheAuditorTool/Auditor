@@ -14,9 +14,10 @@ logger = setup_logger(__name__)
 class PythonLogicAnalyzer(ast.NodeVisitor):
     """Analyzes Python AST for common logic and resource management issues."""
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.issues = []
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.open_resources = {}  # Track opened resources
         self.in_finally = False
         self.in_with = False
@@ -56,6 +57,14 @@ class PythonLogicAnalyzer(ast.NodeVisitor):
             
     def visit_BinOp(self, node: ast.BinOp) -> None:
         """Check for business logic issues in binary operations."""
+        # Check if operands are tainted
+        has_tainted_input = False
+        if self.taint_checker:
+            if isinstance(node.left, ast.Name) and self.taint_checker(node.left.id, node.lineno):
+                has_tainted_input = True
+            elif isinstance(node.right, ast.Name) and self.taint_checker(node.right.id, node.lineno):
+                has_tainted_input = True
+        
         # Check for float arithmetic with money-related variables
         if isinstance(node.op, (ast.Mult, ast.Div, ast.Add, ast.Sub)):
             left_str = self._get_node_str(node.left)
@@ -64,7 +73,7 @@ class PythonLogicAnalyzer(ast.NodeVisitor):
             # Money float arithmetic
             money_terms = ['price', 'cost', 'amount', 'total', 'balance', 'payment', 'fee', 'money']
             if any(term in left_str.lower() or term in right_str.lower() for term in money_terms):
-                if self._involves_float(node):
+                if self._involves_float(node) or has_tainted_input:
                     self.issues.append({
                         'type': 'money-float-arithmetic',
                         'file': self.file_path,
@@ -72,7 +81,8 @@ class PythonLogicAnalyzer(ast.NodeVisitor):
                         'column': node.col_offset,
                         'function': self.current_function or '<module>',
                         'severity': 'critical',
-                        'description': 'Using float/double for money calculations - precision loss risk'
+                        'description': f'Using float/double for money calculations{" with tainted data" if has_tainted_input else ""} - precision loss risk',
+                        'tainted': has_tainted_input
                     })
                     
             # Percentage calculation error
@@ -92,7 +102,12 @@ class PythonLogicAnalyzer(ast.NodeVisitor):
             if isinstance(node.op, ast.Div):
                 divisor_str = self._get_node_str(node.right)
                 risky_terms = ['count', 'length', 'size', 'total', 'sum', 'num']
-                if any(term in divisor_str.lower() for term in risky_terms):
+                # Especially risky if divisor is tainted
+                divisor_tainted = False
+                if self.taint_checker and isinstance(node.right, ast.Name):
+                    divisor_tainted = self.taint_checker(node.right.id, node.lineno)
+                
+                if any(term in divisor_str.lower() for term in risky_terms) or divisor_tainted:
                     if not self._has_zero_check_nearby(node):
                         self.issues.append({
                             'type': 'divide-by-zero-risk',
@@ -100,8 +115,9 @@ class PythonLogicAnalyzer(ast.NodeVisitor):
                             'line': node.lineno,
                             'column': node.col_offset,
                             'function': self.current_function or '<module>',
-                            'severity': 'medium',
-                            'description': 'Division without zero check'
+                            'severity': 'high' if divisor_tainted else 'medium',
+                            'description': f'Division without zero check{" (tainted divisor)" if divisor_tainted else ""}',
+                            'tainted': divisor_tainted
                         })
                         
         self.generic_visit(node)
@@ -244,7 +260,7 @@ class PythonLogicAnalyzer(ast.NodeVisitor):
         pass
 
 
-def analyze_javascript_logic(tree: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def analyze_javascript_logic(tree: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze JavaScript/TypeScript ESLint AST for logic and resource issues."""
     issues = []
     file_path = file_path or "unknown"
@@ -270,6 +286,15 @@ def analyze_javascript_logic(tree: Dict[str, Any], file_path: str = None) -> Lis
             operator = node.get('operator')
             left = node.get('left', {})
             right = node.get('right', {})
+            line_num = node.get('loc', {}).get('start', {}).get('line', 0)
+            
+            # Check if operands are tainted
+            has_tainted_input = False
+            if taint_checker and line_num > 0:
+                if left.get('type') == 'Identifier' and taint_checker(left.get('name'), line_num):
+                    has_tainted_input = True
+                elif right.get('type') == 'Identifier' and taint_checker(right.get('name'), line_num):
+                    has_tainted_input = True
             
             # Money float arithmetic
             if operator in ['+', '-', '*', '/']:
@@ -278,30 +303,37 @@ def analyze_javascript_logic(tree: Dict[str, Any], file_path: str = None) -> Lis
                 money_terms = ['price', 'cost', 'amount', 'total', 'balance', 'payment', 'fee', 'money']
                 
                 if any(term in left_str.lower() or term in right_str.lower() for term in money_terms):
-                    if involves_float(node):
+                    if involves_float(node) or has_tainted_input:
                         issues.append({
                             'type': 'money-float-arithmetic',
                             'file': file_path,
-                            'line': node.get('loc', {}).get('start', {}).get('line'),
+                            'line': line_num,
                             'column': node.get('loc', {}).get('start', {}).get('column'),
                             'function': current_func or '<module>',
                             'severity': 'critical',
-                            'description': 'Using float/double for money calculations - precision loss risk'
+                            'description': f'Using float/double for money calculations{" with tainted data" if has_tainted_input else ""} - precision loss risk',
+                            'tainted': has_tainted_input
                         })
                         
             # Division by zero risk
             if operator == '/':
                 divisor_str = get_node_text(right)
                 risky_terms = ['count', 'length', 'size', 'total', 'sum', 'num']
-                if any(term in divisor_str.lower() for term in risky_terms):
+                # Check if divisor is tainted
+                divisor_tainted = False
+                if taint_checker and line_num > 0 and right.get('type') == 'Identifier':
+                    divisor_tainted = taint_checker(right.get('name'), line_num)
+                
+                if any(term in divisor_str.lower() for term in risky_terms) or divisor_tainted:
                     issues.append({
                         'type': 'divide-by-zero-risk',
                         'file': file_path,
-                        'line': node.get('loc', {}).get('start', {}).get('line'),
+                        'line': line_num,
                         'column': node.get('loc', {}).get('start', {}).get('column'),
                         'function': current_func or '<module>',
-                        'severity': 'medium',
-                        'description': 'Division without zero check'
+                        'severity': 'high' if divisor_tainted else 'medium',
+                        'description': f'Division without zero check{" (tainted divisor)" if divisor_tainted else ""}',
+                        'tainted': divisor_tainted
                     })
                     
         # Check function calls
@@ -478,6 +510,52 @@ def analyze_javascript_logic(tree: Dict[str, Any], file_path: str = None) -> Lis
     return issues
 
 
+def register_taint_patterns(taint_registry):
+    """Register logic-related patterns with the taint analysis registry.
+    
+    Args:
+        taint_registry: TaintRegistry instance from theauditor.taint.registry
+    """
+    # Register datetime sources (can be dangerous if used for security decisions)
+    DATETIME_SOURCES = [
+        "datetime.now", "datetime.today", "datetime.utcnow",
+        "Date.now", "new Date", "Date.parse",
+        "time.time", "time.localtime", "time.gmtime"
+    ]
+    
+    for pattern in DATETIME_SOURCES:
+        taint_registry.register_source(pattern, "datetime", "any")
+    
+    # Register resource operation sinks (need proper cleanup)
+    RESOURCE_SINKS = [
+        "open", "createReadStream", "createWriteStream",
+        "socket", "createSocket", "connect", "createConnection",
+        "begin_transaction", "start_transaction", "beginTransaction",
+        "acquire", "lock", "getLock"
+    ]
+    
+    for pattern in RESOURCE_SINKS:
+        taint_registry.register_sink(pattern, "resource", "any")
+    
+    # Register money/financial operation sinks (precision-sensitive)
+    MONEY_SINKS = [
+        "parseFloat", "float", "toFixed", "toPrecision",
+        "price", "cost", "amount", "total", "balance", 
+        "payment", "fee", "money", "charge", "refund"
+    ]
+    
+    for pattern in MONEY_SINKS:
+        taint_registry.register_sink(pattern, "financial", "any")
+    
+    # Register division operations as sinks (divide by zero risk)
+    DIVISION_SINKS = [
+        "divide", "div", "quotient", "average", "mean"
+    ]
+    
+    for pattern in DIVISION_SINKS:
+        taint_registry.register_sink(pattern, "division", "any")
+
+
 def find_logic_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find common logic and resource management issues in Python or JavaScript/TypeScript code.
     
@@ -507,14 +585,14 @@ def find_logic_issues(tree: Any, file_path: str = None, taint_checker=None) -> L
     try:
         # Check if it's a Python AST
         if hasattr(tree, '_fields'):
-            analyzer = PythonLogicAnalyzer(file_path)
+            analyzer = PythonLogicAnalyzer(file_path, taint_checker)
             analyzer.visit(tree)
             return analyzer.issues
             
         # Check if it's JavaScript/TypeScript ESLint AST
         elif isinstance(tree, dict) and 'type' in tree:
             if tree.get('type') == 'Program':
-                return analyze_javascript_logic(tree, file_path)
+                return analyze_javascript_logic(tree, file_path, taint_checker)
                 
         # Tree-sitter format
         elif hasattr(tree, 'root_node'):

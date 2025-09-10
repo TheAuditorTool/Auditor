@@ -10,6 +10,53 @@ import re
 from typing import List, Dict, Any, Optional, Set
 
 
+def register_taint_patterns(taint_registry):
+    """Register multi-tenant related patterns with the taint analysis registry.
+    
+    Args:
+        taint_registry: TaintRegistry instance from theauditor.taint.registry
+    """
+    # Register RLS context setters as sinks (need careful validation)
+    RLS_CONTEXT_SINKS = [
+        "SET LOCAL", "SET SESSION", "SET ROLE",
+        "app.current_facility_id", "app.current_tenant_id",
+        "current_setting", "set_config"
+    ]
+    
+    for pattern in RLS_CONTEXT_SINKS:
+        taint_registry.register_sink(pattern, "rls_context", "any")
+    
+    # Register sensitive table operations as sinks
+    SENSITIVE_TABLE_SINKS = [
+        "products", "orders", "inventory", "customers", "users",
+        "locations", "transfers", "invoices", "payments", "shipments",
+        "accounts", "transactions", "balances", "billing", "subscriptions"
+    ]
+    
+    for pattern in SENSITIVE_TABLE_SINKS:
+        taint_registry.register_sink(pattern, "sensitive_table", "any")
+    
+    # Register policy management operations as sinks
+    POLICY_SINKS = [
+        "CREATE POLICY", "ALTER POLICY", "DROP POLICY",
+        "ENABLE ROW LEVEL SECURITY", "DISABLE ROW LEVEL SECURITY",
+        "ALTER TABLE", "GRANT", "REVOKE"
+    ]
+    
+    for pattern in POLICY_SINKS:
+        taint_registry.register_sink(pattern, "policy_management", "any")
+    
+    # Register Sequelize multi-tenant operations
+    SEQUELIZE_TENANT_SINKS = [
+        "sequelize.transaction", "sequelize.query",
+        "Model.scope", "addScope", "defaultScope",
+        "beforeFind", "beforeCreate", "beforeUpdate", "beforeDestroy"
+    ]
+    
+    for pattern in SEQUELIZE_TENANT_SINKS:
+        taint_registry.register_sink(pattern, "sequelize_tenant", "any")
+
+
 def find_multi_tenant_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find multi-tenant security issues in Python or JavaScript/TypeScript code.
     
@@ -37,21 +84,21 @@ def find_multi_tenant_issues(tree: Any, file_path: str = None, taint_checker=Non
         if tree_type == "python_ast":
             actual_tree = tree.get("tree")
             if actual_tree:
-                return _analyze_python_multitenant(actual_tree, file_path)
+                return _analyze_python_multitenant(actual_tree, file_path, taint_checker)
         elif tree_type == "eslint_ast":
-            return _analyze_javascript_multitenant(tree, file_path)
+            return _analyze_javascript_multitenant(tree, file_path, taint_checker)
         elif tree_type == "tree_sitter":
-            return _analyze_tree_sitter_multitenant(tree, file_path)
+            return _analyze_tree_sitter_multitenant(tree, file_path, taint_checker)
     elif isinstance(tree, ast.AST):
         # Direct Python AST
-        return _analyze_python_multitenant(tree, file_path)
+        return _analyze_python_multitenant(tree, file_path, taint_checker)
     
     return findings
 
 
-def _analyze_python_multitenant(tree: ast.AST, file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_python_multitenant(tree: ast.AST, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze Python AST for multi-tenant security issues."""
-    analyzer = PythonMultiTenantAnalyzer(file_path)
+    analyzer = PythonMultiTenantAnalyzer(file_path, taint_checker)
     analyzer.visit(tree)
     return analyzer.findings
 
@@ -65,8 +112,9 @@ class PythonMultiTenantAnalyzer(ast.NodeVisitor):
         'locations', 'transfers', 'invoices', 'payments', 'shipments'
     ]
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.findings = []
         self.in_transaction = False
         self.has_set_local = False
@@ -108,6 +156,15 @@ class PythonMultiTenantAnalyzer(ast.NodeVisitor):
         
         # Check for SET LOCAL
         if 'execute' in call_name.lower():
+            # Check if arguments are tainted (dangerous for tenant context)
+            has_tainted_input = False
+            if self.taint_checker:
+                for arg in node.args:
+                    if isinstance(arg, ast.Name):
+                        if self.taint_checker(arg.id, node.lineno):
+                            has_tainted_input = True
+                            break
+            
             sql_string = self._extract_sql_string(node)
             if sql_string:
                 sql_upper = sql_string.upper()
@@ -115,9 +172,20 @@ class PythonMultiTenantAnalyzer(ast.NodeVisitor):
                 # Check if it's SET LOCAL for RLS context
                 if 'SET LOCAL' in sql_upper and 'CURRENT_FACILITY_ID' in sql_upper:
                     self.has_set_local = True
+                    # Warn if using tainted data for tenant context
+                    if has_tainted_input:
+                        self.findings.append({
+                            'line': node.lineno,
+                            'column': node.col_offset,
+                            'type': 'tainted_tenant_context',
+                            'severity': 'CRITICAL',
+                            'confidence': 0.90,
+                            'message': 'Using tainted data for tenant context setting',
+                            'hint': 'Validate facility_id before setting tenant context'
+                        })
                 
                 # Check for raw queries on sensitive tables
-                self._check_cross_tenant_leak(sql_string, node)
+                self._check_cross_tenant_leak(sql_string, node, has_tainted_input)
                 
                 # Check for CREATE POLICY without USING
                 self._check_rls_policy(sql_string, node)
@@ -162,7 +230,7 @@ class PythonMultiTenantAnalyzer(ast.NodeVisitor):
         
         self.generic_visit(node)
     
-    def _check_cross_tenant_leak(self, sql: str, node: ast.AST):
+    def _check_cross_tenant_leak(self, sql: str, node: ast.AST, has_tainted_input: bool = False):
         """Check for cross-tenant data leak patterns."""
         sql_upper = sql.upper()
         
@@ -184,9 +252,10 @@ class PythonMultiTenantAnalyzer(ast.NodeVisitor):
                         'type': 'cross_tenant_data_leak',
                         'table': table,
                         'severity': 'CRITICAL',
-                        'confidence': 0.85,
-                        'message': f'Query on {table} without tenant filtering',
-                        'hint': 'Add facility_id/tenant_id to WHERE clause'
+                        'confidence': 0.95 if has_tainted_input else 0.85,
+                        'message': f'Query on {table} without tenant filtering{" (with tainted input!)" if has_tainted_input else ""}',
+                        'hint': 'Add facility_id/tenant_id to WHERE clause',
+                        'tainted': has_tainted_input
                     })
                 elif not has_tenant_filter and 'WHERE' not in sql_upper:
                     # No WHERE clause at all
@@ -245,7 +314,7 @@ class PythonMultiTenantAnalyzer(ast.NodeVisitor):
         return None
 
 
-def _analyze_javascript_multitenant(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_javascript_multitenant(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze JavaScript/TypeScript ESLint AST for multi-tenant security issues."""
     findings = []
     
@@ -315,6 +384,18 @@ def _analyze_javascript_multitenant(tree_wrapper: Dict[str, Any], file_path: str
             
             # Check for sequelize.query()
             if 'sequelize.query' in call_text.lower() or '.query' in call_text.lower():
+                # Check if arguments are tainted
+                has_tainted_input = False
+                if taint_checker:
+                    loc = node.get("loc", {}).get("start", {})
+                    line_num = loc.get("line", 0)
+                    if line_num > 0:
+                        for arg in node.get("arguments", []):
+                            if arg.get("type") == "Identifier":
+                                if taint_checker(arg.get("name"), line_num):
+                                    has_tainted_input = True
+                                    break
+                
                 # Extract SQL string
                 sql_string = _extract_sql_from_call(node, content)
                 
@@ -324,6 +405,18 @@ def _analyze_javascript_multitenant(tree_wrapper: Dict[str, Any], file_path: str
                     # Check if it's SET LOCAL
                     if 'SET LOCAL' in sql_upper and 'CURRENT_FACILITY_ID' in sql_upper:
                         has_set_local = True
+                        # Warn if using tainted data for tenant context
+                        if has_tainted_input:
+                            loc = node.get("loc", {}).get("start", {})
+                            findings.append({
+                                'line': loc.get("line", 0),
+                                'column': loc.get("column", 0),
+                                'type': 'tainted_tenant_context',
+                                'severity': 'CRITICAL',
+                                'confidence': 0.90,
+                                'message': 'Using tainted data for tenant context setting',
+                                'hint': 'Validate facility_id before setting tenant context'
+                            })
                     
                     # Pattern 1: cross-tenant-data-leak
                     for table in SENSITIVE_TABLES:
@@ -342,9 +435,10 @@ def _analyze_javascript_multitenant(tree_wrapper: Dict[str, Any], file_path: str
                                     'type': 'cross_tenant_data_leak',
                                     'table': table,
                                     'severity': 'CRITICAL',
-                                    'confidence': 0.85,
-                                    'message': f'Sequelize query on {table} without tenant filtering',
-                                    'hint': 'Add facility_id to WHERE clause or use ORM with RLS'
+                                    'confidence': 0.95 if has_tainted_input else 0.85,
+                                    'message': f'Sequelize query on {table} without tenant filtering{" (with tainted input!)" if has_tainted_input else ""}',
+                                    'hint': 'Add facility_id to WHERE clause or use ORM with RLS',
+                                    'tainted': has_tainted_input
                                 })
                             break
                     
@@ -521,7 +615,7 @@ def _contains_set_local(node: Dict[str, Any], content: str) -> bool:
     return False
 
 
-def _analyze_tree_sitter_multitenant(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_tree_sitter_multitenant(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze tree-sitter AST (simplified implementation)."""
     # Would need tree-sitter specific implementation
     # For now, return empty list

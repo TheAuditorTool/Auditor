@@ -54,6 +54,17 @@ from .javascript import (
     enhance_javascript_tracking,
 )
 
+from .python import (
+    track_fstrings,
+    track_comprehensions,
+    track_unpacking,
+    track_decorators,
+    track_context_managers,
+    track_string_operations,
+    track_exception_propagation,
+    enhance_python_tracking,
+)
+
 # Re-export EVERYTHING to maintain backward compatibility
 # This ensures that any code doing "from theauditor.taint_analyzer import X"
 # will continue to work when we update taint/__init__.py to import from here
@@ -89,11 +100,21 @@ __all__ = [
     # Inter-procedural
     "trace_inter_procedural_flow",
     
-    # JavaScript enhancements (new!)
+    # JavaScript enhancements
     "track_destructuring",
     "track_spread_operators",
     "track_bracket_notation",
     "track_array_operations",
     "track_type_conversions",
     "enhance_javascript_tracking",
+    
+    # Python enhancements (new!)
+    "track_fstrings",
+    "track_comprehensions",
+    "track_unpacking",
+    "track_decorators",
+    "track_context_managers",
+    "track_string_operations",
+    "track_exception_propagation",
+    "enhance_python_tracking",
 ]

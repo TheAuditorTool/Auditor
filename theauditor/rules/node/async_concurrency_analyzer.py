@@ -7,6 +7,66 @@ Replaces regex patterns from runtime_issues.yml with proper AST analysis.
 from typing import List, Dict, Any, Set, Optional
 
 
+def register_taint_patterns(taint_registry):
+    """Register JavaScript/TypeScript concurrency-related patterns with the taint analysis registry.
+    
+    Args:
+        taint_registry: TaintRegistry instance from theauditor.taint.registry
+    """
+    # Register shared state sources
+    SHARED_STATE_SOURCES = [
+        "global", "window", "globalThis", "process.env",
+        "module.exports", "exports", "self",
+        "localStorage", "sessionStorage", "document",
+        "SharedArrayBuffer", "Atomics"
+    ]
+    
+    for pattern in SHARED_STATE_SOURCES:
+        taint_registry.register_source(pattern, "shared_state", "javascript")
+    
+    # Register async operations as sinks
+    ASYNC_SINKS = [
+        "Promise.all", "Promise.race", "Promise.allSettled", "Promise.any",
+        "async", "await", "then", "catch", "finally",
+        "setTimeout", "setInterval", "setImmediate",
+        "process.nextTick", "queueMicrotask"
+    ]
+    
+    for pattern in ASYNC_SINKS:
+        taint_registry.register_sink(pattern, "async_operation", "javascript")
+    
+    # Register worker/thread operations as sinks
+    WORKER_SINKS = [
+        "Worker", "SharedWorker", "ServiceWorker",
+        "worker_threads", "cluster.fork", "child_process.spawn",
+        "child_process.fork", "child_process.exec",
+        "postMessage", "terminate", "disconnect"
+    ]
+    
+    for pattern in WORKER_SINKS:
+        taint_registry.register_sink(pattern, "worker_thread", "javascript")
+    
+    # Register stream operations as sinks
+    STREAM_SINKS = [
+        "createReadStream", "createWriteStream",
+        "pipe", "pipeline", "stream.Readable", "stream.Writable",
+        "fs.watch", "fs.watchFile", "chokidar.watch"
+    ]
+    
+    for pattern in STREAM_SINKS:
+        taint_registry.register_sink(pattern, "stream_operation", "javascript")
+    
+    # Register file system operations as sinks
+    FS_SINKS = [
+        "fs.readFile", "fs.writeFile", "fs.readFileSync", "fs.writeFileSync",
+        "fs.mkdir", "fs.mkdirSync", "fs.unlink", "fs.unlinkSync",
+        "fs.promises.readFile", "fs.promises.writeFile"
+    ]
+    
+    for pattern in FS_SINKS:
+        taint_registry.register_sink(pattern, "filesystem", "javascript")
+
+
 def find_async_concurrency_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find async and concurrency issues in JavaScript/TypeScript code.
     
@@ -40,17 +100,17 @@ def find_async_concurrency_issues(tree: Any, file_path: str = None, taint_checke
         tree_type = tree.get("type")
         
         if tree_type == "eslint_ast":
-            return _analyze_eslint_ast(tree, file_path)
+            return _analyze_eslint_ast(tree, file_path, taint_checker)
         elif tree_type == "tree_sitter":
-            return _analyze_tree_sitter_ast(tree, file_path)
+            return _analyze_tree_sitter_ast(tree, file_path, taint_checker)
         elif tree_type == "regex_ast":
             # Fallback to simple analysis
-            return _analyze_regex_ast(tree, file_path)
+            return _analyze_regex_ast(tree, file_path, taint_checker)
     
     return findings
 
 
-def _analyze_eslint_ast(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_eslint_ast(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze ESLint AST for async/concurrency issues."""
     findings = []
     
@@ -231,31 +291,39 @@ def _analyze_eslint_ast(tree_wrapper: Dict[str, Any], file_path: str = None) -> 
                 # Check if it's a global/static variable
                 if var_name in global_vars or var_name in static_vars:
                     loc = node.get("loc", {}).get("start", {})
+                    line_num = loc.get("line", 0)
+                    
+                    # Check if variable is tainted
+                    is_tainted = False
+                    if taint_checker and line_num > 0:
+                        is_tainted = taint_checker(var_name, line_num)
                     
                     # Pattern 7: unprotected-global-increment
                     if operator in ["+=", "-=", "++", "--"]:
                         findings.append({
-                            'line': loc.get("line", 0),
+                            'line': line_num,
                             'column': loc.get("column", 0),
                             'type': 'unprotected_global_increment',
                             'variable': var_name,
                             'operator': operator,
-                            'severity': 'HIGH',
-                            'confidence': 0.80,
-                            'message': f'Global variable "{var_name}" modified without synchronization',
-                            'hint': 'Use atomic operations or mutex/semaphore for thread safety'
+                            'severity': 'CRITICAL' if is_tainted else 'HIGH',
+                            'confidence': 0.95 if is_tainted else 0.80,
+                            'message': f'Global variable "{var_name}" modified without synchronization{" (tainted!)" if is_tainted else ""}',
+                            'hint': 'Use atomic operations or mutex/semaphore for thread safety',
+                            'tainted': is_tainted
                         })
                     # Pattern 2: shared-state-no-lock
                     elif operator == "=":
                         findings.append({
-                            'line': loc.get("line", 0),
+                            'line': line_num,
                             'column': loc.get("column", 0),
                             'type': 'shared_state_no_lock',
                             'variable': var_name,
-                            'severity': 'HIGH',
-                            'confidence': 0.75,
-                            'message': f'Shared state "{var_name}" modified without protection',
-                            'hint': 'Consider using locks or immutable updates'
+                            'severity': 'CRITICAL' if is_tainted else 'HIGH',
+                            'confidence': 0.90 if is_tainted else 0.75,
+                            'message': f'Shared state "{var_name}" modified without protection{" (tainted!)" if is_tainted else ""}',
+                            'hint': 'Consider using locks or immutable updates',
+                            'tainted': is_tainted
                         })
             
             # Pattern 8: shared-collection-mutation
@@ -283,16 +351,24 @@ def _analyze_eslint_ast(tree_wrapper: Dict[str, Any], file_path: str = None) -> 
                 var_name = argument.get("name")
                 if var_name in global_vars or var_name in static_vars:
                     loc = node.get("loc", {}).get("start", {})
+                    line_num = loc.get("line", 0)
+                    
+                    # Check if tainted
+                    is_tainted = False
+                    if taint_checker and line_num > 0:
+                        is_tainted = taint_checker(var_name, line_num)
+                    
                     findings.append({
-                        'line': loc.get("line", 0),
+                        'line': line_num,
                         'column': loc.get("column", 0),
                         'type': 'unprotected_global_increment',
                         'variable': var_name,
                         'operator': node.get("operator"),
-                        'severity': 'HIGH',
-                        'confidence': 0.80,
-                        'message': f'Global variable "{var_name}" incremented without synchronization',
-                        'hint': 'Use atomic operations for thread-safe increments'
+                        'severity': 'CRITICAL' if is_tainted else 'HIGH',
+                        'confidence': 0.95 if is_tainted else 0.80,
+                        'message': f'Global variable "{var_name}" incremented without synchronization{" (tainted!)" if is_tainted else ""}',
+                        'hint': 'Use atomic operations for thread-safe increments',
+                        'tainted': is_tainted
                     })
         
         # Pattern 12: field-use-before-init
@@ -764,14 +840,14 @@ def _contains_instance_creation(node: Dict[str, Any]) -> bool:
     return False
 
 
-def _analyze_tree_sitter_ast(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_tree_sitter_ast(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze tree-sitter AST (simplified implementation)."""
     # This would need tree-sitter specific implementation
     # For now, return empty list
     return []
 
 
-def _analyze_regex_ast(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_regex_ast(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Fallback regex-based analysis (simplified)."""
     # This would be the fallback simple analysis
     # For now, return empty list

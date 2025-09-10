@@ -9,6 +9,80 @@ import re
 from typing import List, Dict, Any, Optional, Set
 
 
+def register_taint_patterns(taint_registry):
+    """Register crypto-specific patterns with the taint system.
+    
+    This function is called by the orchestrator before taint analysis runs,
+    allowing the taint analyzer to track weak random sources and crypto sinks.
+    
+    Args:
+        taint_registry: TaintRegistry instance to register patterns with
+    """
+    # Weak random sources - these produce predictable/tainted data
+    WEAK_RANDOM_SOURCES = [
+        # Python weak random
+        "random.random",
+        "random.randint", 
+        "random.choice",
+        "random.randbytes",
+        "random.randrange",
+        "random.getrandbits",
+        "random.uniform",
+        "random.sample",
+        "random.shuffle",
+        
+        # JavaScript weak random
+        "Math.random",
+        "Math.floor(Math.random",  # Common pattern
+        
+        # Timestamp-based (predictable)
+        "time.time",
+        "datetime.now",
+        "Date.now",
+        "Date.getTime",
+        "new Date().getTime",
+        "timestamp",
+        "time.clock",
+        "time.perf_counter",
+    ]
+    
+    # Weak crypto algorithm sinks - where data shouldn't flow
+    WEAK_CRYPTO_SINKS = [
+        # Hash functions
+        "md5",
+        "sha1",
+        "hashlib.md5",
+        "hashlib.sha1",
+        "createHash('md5')",
+        'createHash("md5")',
+        "createHash('sha1')",
+        'createHash("sha1")',
+        "CryptoJS.MD5",
+        "CryptoJS.SHA1",
+        
+        # Encryption algorithms
+        "des",
+        "rc4",
+        "CryptoJS.DES",
+        "CryptoJS.RC4",
+        "DES.new",
+        "ARC4.new",
+        "Blowfish.new",
+        
+        # Weak key derivation
+        "pbkdf2_hmac('md5')",
+        "pbkdf2_hmac('sha1')",
+    ]
+    
+    # Register weak random as sources (they produce tainted/weak data)
+    for pattern in WEAK_RANDOM_SOURCES:
+        taint_registry.register_source(pattern, "weak_random", "any")
+    
+    # Register weak crypto as sinks (where data shouldn't flow)
+    for pattern in WEAK_CRYPTO_SINKS:
+        taint_registry.register_sink(pattern, "weak_crypto", "any")
+
+
 def find_crypto_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Find cryptographic and random number security issues.
     
@@ -34,21 +108,21 @@ def find_crypto_issues(tree: Any, file_path: str = None, taint_checker=None) -> 
         if tree_type == "python_ast":
             actual_tree = tree.get("tree")
             if actual_tree:
-                return _analyze_python_crypto(actual_tree, file_path)
+                return _analyze_python_crypto(actual_tree, file_path, taint_checker)
         elif tree_type == "eslint_ast":
-            return _analyze_javascript_crypto(tree, file_path)
+            return _analyze_javascript_crypto(tree, file_path, taint_checker)
         elif tree_type == "tree_sitter":
-            return _analyze_tree_sitter_crypto(tree, file_path)
+            return _analyze_tree_sitter_crypto(tree, file_path, taint_checker)
     elif isinstance(tree, ast.AST):
         # Direct Python AST
-        return _analyze_python_crypto(tree, file_path)
+        return _analyze_python_crypto(tree, file_path, taint_checker)
     
     return findings
 
 
-def _analyze_python_crypto(tree: ast.AST, file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_python_crypto(tree: ast.AST, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze Python AST for crypto security issues."""
-    analyzer = PythonCryptoAnalyzer(file_path)
+    analyzer = PythonCryptoAnalyzer(file_path, taint_checker)
     analyzer.visit(tree)
     return analyzer.findings
 
@@ -56,8 +130,9 @@ def _analyze_python_crypto(tree: ast.AST, file_path: str = None) -> List[Dict[st
 class PythonCryptoAnalyzer(ast.NodeVisitor):
     """AST visitor for detecting crypto issues in Python."""
     
-    def __init__(self, file_path: str = None):
+    def __init__(self, file_path: str = None, taint_checker=None):
         self.file_path = file_path or "unknown"
+        self.taint_checker = taint_checker
         self.findings = []
         self.has_secrets_import = False
         self.has_random_import = False
@@ -101,20 +176,29 @@ class PythonCryptoAnalyzer(ast.NodeVisitor):
         """Check for crypto and random function calls."""
         call_name = self._get_call_name(node)
         
+        # Check if any arguments are tainted
+        has_tainted_input = False
+        if self.taint_checker:
+            for arg in node.args:
+                if isinstance(arg, ast.Name):
+                    if self.taint_checker(arg.id, node.lineno):
+                        has_tainted_input = True
+                        break
+        
         # Pattern 1: insecure-random-python
         if self.has_random_import and 'random.' in call_name:
             random_functions = ['random', 'randint', 'choice', 'randbytes', 'randrange', 'getrandbits']
             if any(func in call_name for func in random_functions):
                 # Check if used in security context
-                if self._is_security_context(node):
+                if self._is_security_context(node) or has_tainted_input:
                     self.findings.append({
                         'line': node.lineno,
                         'column': node.col_offset,
                         'type': 'insecure_random_python',
                         'function': call_name,
                         'severity': 'CRITICAL',
-                        'confidence': 0.85,
-                        'message': f'Using {call_name} for security-sensitive value',
+                        'confidence': 0.95 if has_tainted_input else 0.85,
+                        'message': f'Using {call_name} for {"tainted" if has_tainted_input else "security-sensitive"} value',
                         'hint': 'Use secrets module instead: secrets.token_hex() or secrets.token_urlsafe()'
                     })
         
@@ -130,14 +214,16 @@ class PythonCryptoAnalyzer(ast.NodeVisitor):
             if weak_algo in call_name.lower():
                 # Check if it's not for file hashing
                 if not self._is_file_hashing_context(node):
+                    # Increase severity if tainted data is being hashed
+                    severity = 'CRITICAL' if has_tainted_input else 'HIGH'
                     self.findings.append({
                         'line': node.lineno,
                         'column': node.col_offset,
                         'type': 'weak_crypto_algorithm',
                         'algorithm': algo_name,
-                        'severity': 'HIGH',
-                        'confidence': 0.80,
-                        'message': f'Using weak cryptographic algorithm: {algo_name}',
+                        'severity': severity,
+                        'confidence': 0.90 if has_tainted_input else 0.80,
+                        'message': f'Using weak cryptographic algorithm: {algo_name}{" with tainted input" if has_tainted_input else ""}',
                         'hint': 'Use SHA-256, SHA-3, or stronger algorithms'
                     })
         
@@ -270,7 +356,7 @@ class PythonCryptoAnalyzer(ast.NodeVisitor):
         return ''
 
 
-def _analyze_javascript_crypto(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_javascript_crypto(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze JavaScript/TypeScript ESLint AST for crypto security issues."""
     findings = []
     
@@ -311,20 +397,31 @@ def _analyze_javascript_crypto(tree_wrapper: Dict[str, Any], file_path: str = No
         if node_type == "CallExpression":
             callee = node.get("callee", {})
             call_text = _extract_call_text(callee, content)
+            loc = node.get("loc", {}).get("start", {})
+            line_num = loc.get("line", 0)
+            
+            # Check if any arguments are tainted
+            has_tainted_input = False
+            if taint_checker and line_num > 0:
+                args = node.get("arguments", [])
+                for arg in args:
+                    if arg.get("type") == "Identifier":
+                        if taint_checker(arg.get("name"), line_num):
+                            has_tainted_input = True
+                            break
             
             # Pattern 1: insecure-random-for-security (JavaScript)
             if 'Math.random' in call_text:
                 # Check if in security context
-                if _is_js_security_context(node, parent, security_vars, content):
-                    loc = node.get("loc", {}).get("start", {})
+                if _is_js_security_context(node, parent, security_vars, content) or has_tainted_input:
                     findings.append({
-                        'line': loc.get("line", 0),
+                        'line': line_num,
                         'column': loc.get("column", 0),
                         'type': 'insecure_random_javascript',
                         'function': 'Math.random()',
                         'severity': 'CRITICAL',
-                        'confidence': 0.90,
-                        'message': 'Math.random() used for security-sensitive value',
+                        'confidence': 0.95 if has_tainted_input else 0.90,
+                        'message': f'Math.random() used for {"tainted" if has_tainted_input else "security-sensitive"} value',
                         'hint': 'Use crypto.randomBytes() or crypto.getRandomValues()'
                     })
             
@@ -345,15 +442,16 @@ def _analyze_javascript_crypto(tree_wrapper: Dict[str, Any], file_path: str = No
                 if pattern in node_text:
                     # Check it's not file hashing
                     if not _is_file_hashing_js(node, parent, content):
-                        loc = node.get("loc", {}).get("start", {})
+                        # Increase severity if tainted data is being hashed
+                        severity = 'CRITICAL' if has_tainted_input else 'HIGH'
                         findings.append({
-                            'line': loc.get("line", 0),
+                            'line': line_num,
                             'column': loc.get("column", 0),
                             'type': 'weak_crypto_algorithm',
                             'algorithm': algo_name,
-                            'severity': 'HIGH',
-                            'confidence': 0.80,
-                            'message': f'Using weak cryptographic algorithm: {algo_name}',
+                            'severity': severity,
+                            'confidence': 0.90 if has_tainted_input else 0.80,
+                            'message': f'Using weak cryptographic algorithm: {algo_name}{" with tainted input" if has_tainted_input else ""}',
                             'hint': 'Use SHA-256 or stronger: createHash("sha256")'
                         })
             
@@ -533,7 +631,7 @@ def _extract_node_text(node: Dict[str, Any], content: str) -> str:
     return ""
 
 
-def _analyze_tree_sitter_crypto(tree_wrapper: Dict[str, Any], file_path: str = None) -> List[Dict[str, Any]]:
+def _analyze_tree_sitter_crypto(tree_wrapper: Dict[str, Any], file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
     """Analyze tree-sitter AST (simplified implementation)."""
     # Would need tree-sitter specific implementation
     # For now, return empty list
