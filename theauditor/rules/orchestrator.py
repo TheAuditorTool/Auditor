@@ -602,9 +602,8 @@ class RulesOrchestrator:
     def collect_rule_patterns(self, registry):
         """Collect and register all taint patterns from rules that define them.
         
-        This method imports each rule module and calls its register_taint_patterns()
-        function if it exists, allowing rules to dynamically add their patterns
-        to the taint analysis registry.
+        This method DYNAMICALLY discovers and calls register_taint_patterns()
+        functions from ALL rule modules, without hardcoding any module names.
         
         Args:
             registry: TaintRegistry instance to populate with patterns
@@ -612,45 +611,46 @@ class RulesOrchestrator:
         Returns:
             The populated registry
         """
-        # List of rule modules that have register_taint_patterns functions
-        rule_modules = [
-            "theauditor.rules.security.websocket_analyzer",
-            "theauditor.rules.security.input_validation_analyzer",
-            "theauditor.rules.security.crypto_analyzer",
-            "theauditor.rules.security.pii_analyzer",
-            "theauditor.rules.logic.general_logic_analyzer",
-            "theauditor.rules.sql.sql_safety_analyzer",
-            "theauditor.rules.sql.multi_tenant_analyzer",
-            "theauditor.rules.python.async_concurrency_analyzer",
-            "theauditor.rules.node.async_concurrency_analyzer",
-        ]
+        # Track unique modules we've already processed
+        processed_modules = set()
         
-        for module_name in rule_modules:
-            try:
-                # Import the module
-                module = importlib.import_module(module_name)
+        # Use the ALREADY DISCOVERED rules to find modules dynamically
+        for category, rules in self.rules.items():
+            for rule in rules:
+                module_name = rule.module
                 
-                # Check if it has register_taint_patterns function
-                if hasattr(module, 'register_taint_patterns'):
-                    register_func = getattr(module, 'register_taint_patterns')
+                # Skip if we've already processed this module
+                if module_name in processed_modules:
+                    continue
+                processed_modules.add(module_name)
+                
+                try:
+                    # Import the module
+                    module = importlib.import_module(module_name)
                     
-                    # Call the registration function
-                    register_func(registry)
-                    
-                    if self._debug:
-                        print(f"[ORCHESTRATOR] Registered patterns from {module_name}")
+                    # Check if it has register_taint_patterns function
+                    if hasattr(module, 'register_taint_patterns'):
+                        register_func = getattr(module, 'register_taint_patterns')
                         
-            except ImportError as e:
-                if self._debug:
-                    print(f"[ORCHESTRATOR] Warning: Failed to import {module_name}: {e}")
-            except Exception as e:
-                if self._debug:
-                    print(f"[ORCHESTRATOR] Warning: Error registering patterns from {module_name}: {e}")
+                        # Call the registration function
+                        register_func(registry)
+                        
+                        if self._debug:
+                            print(f"[ORCHESTRATOR] Registered patterns from {module_name}")
+                            
+                except ImportError as e:
+                    if self._debug:
+                        print(f"[ORCHESTRATOR] Warning: Failed to import {module_name}: {e}")
+                except Exception as e:
+                    if self._debug:
+                        print(f"[ORCHESTRATOR] Warning: Error registering patterns from {module_name}: {e}")
         
         if self._debug:
             # Report statistics about registered patterns
             source_count = sum(len(patterns) for patterns in registry.sources.values())
             sink_count = sum(len(patterns) for patterns in registry.sinks.values())
+            processed_count = len(processed_modules)
+            print(f"[ORCHESTRATOR] Dynamically processed {processed_count} modules")
             print(f"[ORCHESTRATOR] Collected {source_count} sources and {sink_count} sinks from rules")
         
         return registry
