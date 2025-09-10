@@ -371,6 +371,54 @@ class IndexerOrchestrator:
                     ret['return_expr'], ret['return_vars']
                 )
         
+        # Store control flow graph data
+        if 'cfg' in extracted:
+            for function_cfg in extracted['cfg']:
+                if not function_cfg:
+                    continue
+                    
+                # Map temporary block IDs to real IDs
+                block_id_map = {}
+                
+                # Store blocks and build ID mapping
+                for block in function_cfg.get('blocks', []):
+                    temp_id = block['id']
+                    real_id = self.db_manager.add_cfg_block(
+                        file_path,
+                        function_cfg['function_name'],
+                        block['type'],
+                        block['start_line'],
+                        block['end_line'],
+                        block.get('condition')
+                    )
+                    block_id_map[temp_id] = real_id
+                    
+                    # Store statements for this block
+                    for stmt in block.get('statements', []):
+                        self.db_manager.add_cfg_statement(
+                            real_id,
+                            stmt['type'],
+                            stmt['line'],
+                            stmt.get('text')
+                        )
+                
+                # Store edges with mapped IDs
+                for edge in function_cfg.get('edges', []):
+                    source_id = block_id_map.get(edge['source'], edge['source'])
+                    target_id = block_id_map.get(edge['target'], edge['target'])
+                    self.db_manager.add_cfg_edge(
+                        file_path,
+                        function_cfg['function_name'],
+                        source_id,
+                        target_id,
+                        edge['type']
+                    )
+                
+                # Track count
+                if 'cfg_functions' not in self.counts:
+                    self.counts['cfg_functions'] = 0
+                self.counts['cfg_functions'] += 1
+        
         # Store configuration data from parsers
         if 'config_data' in extracted:
             # Store Docker Compose services

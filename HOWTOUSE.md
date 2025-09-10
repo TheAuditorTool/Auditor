@@ -500,6 +500,49 @@ The graph viz command:
 - Includes analysis data for cycle and hotspot highlighting
 - Produces AI-readable SVG output for LLM analysis
 
+### Control Flow Graph Analysis
+
+Analyze function-level control flow complexity and find code quality issues:
+
+```bash
+# Analyze all functions for high complexity
+aud cfg analyze --complexity-threshold 10
+
+# Find complex functions in specific file
+aud cfg analyze --file src/payment.py --complexity-threshold 15
+
+# Find dead code (unreachable blocks)
+aud cfg analyze --find-dead-code
+
+# Analyze workset files only
+aud cfg analyze --workset --find-dead-code
+
+# Save analysis results
+aud cfg analyze --output cfg_analysis.json
+
+# Visualize a specific function's control flow
+aud cfg viz --file src/auth.py --function validate_token
+
+# Generate SVG with statements shown
+aud cfg viz --file src/api.py --function handle_request --format svg --show-statements
+
+# Highlight execution paths
+aud cfg viz --file src/payment.py --function process_payment --highlight-paths
+```
+
+Metrics Provided:
+- **Cyclomatic Complexity**: Number of independent paths through code (McCabe complexity)
+- **Decision Points**: Count of if/else, loops, try/catch blocks
+- **Maximum Nesting**: Deepest level of nested control structures
+- **Unreachable Code**: Dead code blocks that can never execute
+- **Execution Paths**: All possible paths through a function
+
+The CFG commands help identify:
+- Functions that are too complex and need refactoring
+- Dead code that can be removed
+- High-risk functions with many execution paths
+- Code quality issues before they become bugs
+
 ### Dependency Management
 
 Check for outdated or vulnerable dependencies:
