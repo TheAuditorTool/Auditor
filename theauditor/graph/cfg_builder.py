@@ -337,7 +337,7 @@ class CFGBuilder:
         
         # Find entry and exit blocks
         entry_blocks = [b['id'] for b in cfg['blocks'] if b['type'] == 'entry']
-        exit_blocks = [b['id'] for b in cfg['blocks'] if b['type'] == 'exit']
+        exit_blocks = [b['id'] for b in cfg['blocks'] if b['type'] in ['exit', 'return']]
         
         if not entry_blocks or not exit_blocks:
             return []
@@ -386,7 +386,7 @@ class CFGBuilder:
             color = 'lightblue'
             if block['type'] == 'entry':
                 color = 'lightgreen'
-            elif block['type'] == 'exit':
+            elif block['type'] in ['exit', 'return']:
                 color = 'lightcoral'
             elif block['type'] in ['condition', 'loop_condition']:
                 color = 'lightyellow'
