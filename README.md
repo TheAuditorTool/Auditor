@@ -15,6 +15,15 @@ TheAuditor is a comprehensive code analysis platform that:
 
 Unlike traditional SAST tools, TheAuditor is designed specifically for AI-assisted development workflows, providing ground truth that both developers and AI assistants can trust.
 
+## v1.1 Performance Revolution
+
+- **355x faster** pattern detection (10 hours → 101 seconds)
+- **First-ever** working JavaScript/TypeScript CFG extraction (0 → 10,439 blocks)
+- **50% faster** overall analysis with new 4-stage pipeline
+- **66% faster** on typical projects (30 minutes → 10 minutes)
+
+*Built by a non-developer who learned to code 3 months ago. If I can build this, imagine what you can audit with it.*
+
 ## Quick Start
 
 ### Step 1: Install TheAuditor (One-Time Setup)
@@ -151,34 +160,37 @@ This architectural flaw is amplified by two dangerous behaviours inherent to AI 
 
 ## The Comprehensive Analysis Pipeline
 
-TheAuditor runs a comprehensive audit through multiple analysis phases organized in parallel stages:
+TheAuditor runs a comprehensive audit through multiple analysis phases organized in a 4-stage optimized pipeline (v1.1+):
 
 **STAGE 1: Foundation (Sequential)**
 1. **Index Repository** - Build complete code inventory and SQLite database
 2. **Detect Frameworks** - Identify Django, Flask, React, Vue, etc.
 
-**STAGE 2: Concurrent Analysis (3 parallel tracks)**
+**STAGE 2: Data Preparation (Sequential) [NEW in v1.1]**
+3. **Create Workset** - Define analysis scope
+4. **Build Graph** - Construct dependency graph structure
+5. **CFG Analysis** - Build control flow graphs (10,439 blocks for JS/TS!)
 
-*Track A - Network Operations:*
-3. **Check Dependencies** - Analyze package versions and known vulnerabilities
-4. **Fetch Documentation** - Extract docstrings and comments
-5. **Summarize Documentation** - Create AI-readable documentation chunks
+**STAGE 3: Heavy Parallel Analysis (3 rebalanced tracks)**
 
-*Track B - Code Analysis:*
-6. **Create Workset** - Identify all source files for analysis
+*Track A - Taint Analysis (Isolated):*
+6. **Taint Analysis** - Track data flow from sources to sinks (2-4 hours for large codebases)
+
+*Track B - Static & Graph Analysis:*
 7. **Run Linting** - Execute Ruff, MyPy, ESLint as configured
-8. **Detect Patterns** - Apply 100+ security pattern rules
+8. **Detect Patterns** - Apply security rules (355x faster with AST!)
+9. **Analyze Graph** - Find cycles, measure complexity
+10. **Visualize Graph** - Generate multiple graph views
 
-*Track C - Graph & Flow:*
-9. **Build Graph** - Create dependency graph structure
-10. **Analyze Graph** - Find cycles, measure complexity
-11. **Visualize Graph** - Generate multiple graph views
-12. **Taint Analysis** - Track data flow from sources to sinks
+*Track C - Network I/O:*
+11. **Check Dependencies** - Analyze package versions and known vulnerabilities
+12. **Fetch Documentation** - Extract docstrings and comments
+13. **Summarize Documentation** - Create AI-readable documentation chunks
 
-**STAGE 3: Final Aggregation (Sequential)**
-13. **Factual Correlation Engine** - Cross-reference findings across all tools
-14. **Generate Report** - Produce final AI-consumable chunks in `.pf/readthis/`
-15. **Summary Generation** - Create executive summary of findings
+**STAGE 4: Final Aggregation (Sequential)**
+14. **Factual Correlation Engine** - Cross-reference findings across all tools
+15. **Generate Report** - Produce final AI-consumable chunks in `.pf/readthis/`
+16. **Summary Generation** - Create executive summary of findings
 
 ## Key Features
 

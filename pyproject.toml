@@ -22,19 +22,19 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.4.2",
-    "ruff==0.12.12",
+    "ruff==0.13.0",
     "black==25.1.0",
 ]
 linters = [
-    "ruff==0.12.12",
+    "ruff==0.13.0",
     "mypy==1.17.1",
     "black==25.1.0",
     "bandit==1.8.6",
     "pylint==3.3.8",
 ]
 ml = [
-    "scikit-learn==1.7.1",
-    "numpy==2.3.2",
+    "scikit-learn==1.7.2",
+    "numpy==2.3.3",
     "scipy==1.16.1", 
     "joblib==1.5.2",
 ]
@@ -48,14 +48,14 @@ all = [
     # Dev tools
     "pytest==8.4.2",
     # Linters
-    "ruff==0.12.12",
+    "ruff==0.13.0",
     "mypy==1.17.1",
     "black==25.1.0",
     "bandit==1.8.6",
     "pylint==3.3.8",
     # ML features
-    "scikit-learn==1.7.1",
-    "numpy==2.3.2",
+    "scikit-learn==1.7.2",
+    "numpy==2.3.3",
     "scipy==1.16.1",
     "joblib==1.5.2",
     # AST parsing
