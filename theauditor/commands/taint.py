@@ -22,7 +22,11 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]), 
               default="all", help="Filter results by severity level")
 @click.option("--rules/--no-rules", default=True, help="Enable/disable rule-based detection")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
+@click.option("--use-cfg/--no-cfg", default=None,
+              help="Use flow-sensitive CFG analysis (auto-detect if not specified)")
+@click.option("--stage3/--no-stage3", default=False,
+              help="Enable experimental Stage 3 features (inter-procedural CFG, caching)")
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, stage3):
     """
     Perform taint analysis to detect security vulnerabilities.
     
@@ -97,7 +101,9 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
-            registry=registry
+            registry=registry,
+            use_cfg=use_cfg,
+            stage3=stage3
         )
         
         # Extract taint paths
@@ -143,7 +149,9 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
         click.echo("Performing taint analysis (rules disabled)...")
         result = trace_taint(
             db_path=str(db_path),
-            max_depth=max_depth
+            max_depth=max_depth,
+            use_cfg=use_cfg,
+            stage3=stage3
         )
     
     # Enrich raw paths with interpretive insights

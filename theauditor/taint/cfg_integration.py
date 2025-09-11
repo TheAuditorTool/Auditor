@@ -445,6 +445,161 @@ class PathAnalyzer:
                             print(f"[CFG]     Taint propagated: {tainted_var} -> {target_var}", file=sys.stderr)
         
         return new_state
+    
+    def analyze_loop_with_fixed_point(
+        self,
+        loop_block_id: int,
+        entry_state: BlockTaintState,
+        loop_condition: str
+    ) -> BlockTaintState:
+        """
+        Analyze loop using fixed-point iteration with widening.
+        
+        This catches patterns like:
+        header = tainted_input
+        for row in data:
+            query += build_query(header, row)  # Loop carries taint
+        """
+        iteration = 0
+        max_iterations = 3  # Widen after 3 iterations
+        
+        current_state = entry_state.copy()
+        loop_body_blocks = self._get_loop_body_blocks(loop_block_id)
+        
+        while iteration < max_iterations:
+            prev_state = current_state.copy()
+            
+            # Analyze one iteration through loop body
+            for block_id in loop_body_blocks:
+                block = self.blocks.get(block_id)
+                if not block:
+                    continue
+                
+                # Process assignments in this block
+                current_state = self._process_block_for_assignments(current_state, block)
+                
+                # Check for taint propagation
+                statements = self._get_block_statements(block_id)
+                for stmt in statements:
+                    if self._is_taint_propagating_operation(stmt):
+                        # Track how taint spreads in loops
+                        current_state = self._propagate_loop_taint(current_state, stmt)
+            
+            # Check for fixed point (no changes)
+            if current_state.tainted_vars == prev_state.tainted_vars:
+                break  # Converged!
+            
+            iteration += 1
+        
+        # Apply widening if didn't converge
+        if iteration == max_iterations:
+            # Conservative: assume all vars touched in loop become tainted
+            current_state = self._apply_widening(current_state, loop_body_blocks)
+        
+        return current_state
+    
+    def _get_loop_body_blocks(self, loop_block_id: int) -> List[int]:
+        """Get all blocks that are part of the loop body."""
+        loop_blocks = []
+        
+        # Find blocks dominated by the loop header
+        # Simplified: find blocks between loop header and back edge
+        visited = set()
+        queue = [loop_block_id]
+        
+        while queue:
+            block_id = queue.pop(0)
+            if block_id in visited:
+                continue
+            visited.add(block_id)
+            
+            # Add successors that are part of the loop
+            for succ_id, edge_type in self.successors.get(block_id, []):
+                if edge_type == "true":  # Loop body path
+                    loop_blocks.append(succ_id)
+                    queue.append(succ_id)
+                elif succ_id == loop_block_id:  # Back edge
+                    break
+        
+        return loop_blocks
+    
+    def _get_block_statements(self, block_id: int) -> List[Dict[str, Any]]:
+        """Get statements in a block from the database."""
+        self.cursor.execute("""
+            SELECT statement_type, statement_text, line
+            FROM cfg_block_statements
+            WHERE block_id = ?
+            ORDER BY statement_order
+        """, (block_id,))
+        
+        return [
+            {"type": row[0], "text": row[1], "line": row[2]}
+            for row in self.cursor.fetchall()
+        ]
+    
+    def _is_taint_propagating_operation(self, stmt: Dict[str, Any]) -> bool:
+        """Check if a statement propagates taint."""
+        text = stmt.get("text", "")
+        
+        # String concatenation operations
+        if "+=" in text or ".push(" in text or ".append(" in text:
+            return True
+        
+        # Array/object modifications
+        if "[" in text and "]" in text and "=" in text:
+            return True
+        
+        return False
+    
+    def _propagate_loop_taint(
+        self, 
+        state: BlockTaintState, 
+        stmt: Dict[str, Any]
+    ) -> BlockTaintState:
+        """Propagate taint through loop operations."""
+        new_state = state.copy()
+        text = stmt.get("text", "")
+        
+        # Check if any tainted variable is used in the statement
+        for tainted_var in state.tainted_vars:
+            if tainted_var in text:
+                # Find target variable (simplified)
+                if "+=" in text:
+                    target = text.split("+=")[0].strip()
+                    new_state.add_taint(target)
+                elif ".push(" in text:
+                    target = text.split(".push(")[0].strip()
+                    new_state.add_taint(target)
+        
+        return new_state
+    
+    def _apply_widening(self, state: BlockTaintState, loop_blocks: List[int]) -> BlockTaintState:
+        """
+        Conservative widening when fixed-point doesn't converge.
+        
+        Marks all variables modified in loop as potentially tainted.
+        """
+        widened_state = state.copy()
+        
+        # Find all variables assigned in loop body
+        for block_id in loop_blocks:
+            block = self.blocks.get(block_id)
+            if not block or not block.get("start_line"):
+                continue
+            
+            self.cursor.execute("""
+                SELECT DISTINCT target_var
+                FROM assignments
+                WHERE file = ?
+                AND line BETWEEN ? AND ?
+            """, (self.file_path, block["start_line"], block["end_line"]))
+            
+            for target_var, in self.cursor.fetchall():
+                # Conservative: if any tainted var exists, all loop vars become tainted
+                if state.tainted_vars:
+                    widened_state.add_taint(target_var)
+        
+        return widened_state
 
 
 def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
