@@ -19,7 +19,9 @@ def trace_inter_procedural_flow(
     source_line: int,
     source_function: str,
     sinks: List[Dict[str, Any]],
-    max_depth: int = 5
+    max_depth: int = 5,
+    use_cfg: bool = False,
+    stage3: bool = False
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     The 'Toss the Salad' algorithm for inter-procedural taint tracking.
@@ -44,6 +46,21 @@ def trace_inter_procedural_flow(
     """
     # Import TaintPath here to avoid circular dependency
     from .core import TaintPath
+    
+    # Stage 3: Use CFG-based inter-procedural analysis if enabled
+    if stage3 and use_cfg:
+        from .interprocedural_cfg import InterProceduralCFGAnalyzer
+        from .cache_manager import CFGCacheManager
+        
+        # Initialize cache and analyzer
+        cache = CFGCacheManager()
+        analyzer = InterProceduralCFGAnalyzer(cursor, cache)
+        
+        # Use enhanced CFG-based analysis
+        return trace_inter_procedural_flow_cfg(
+            analyzer, cursor, source_var, source_file, source_line,
+            source_function, sinks, max_depth
+        )
     
     paths = []
     debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_DEBUG")
@@ -235,5 +252,79 @@ def trace_inter_procedural_flow(
     
     if debug:
         print(f"\n[INTER-PROCEDURAL] Completed. Found {len(paths)} vulnerabilities", file=sys.stderr)
+    
+    return paths
+
+
+def trace_inter_procedural_flow_cfg(
+    analyzer: 'InterProceduralCFGAnalyzer',
+    cursor: sqlite3.Cursor,
+    source_var: str,
+    source_file: str,
+    source_line: int,
+    source_function: str,
+    sinks: List[Dict[str, Any]],
+    max_depth: int = 5
+) -> List[Any]:  # Returns List[TaintPath]
+    """
+    Stage 3: CFG-based inter-procedural taint tracking.
+    
+    This enhanced version uses Control Flow Graphs to understand:
+    - Pass-by-reference modifications
+    - Path-sensitive analysis within called functions
+    - Dynamic dispatch resolution
+    """
+    from .core import TaintPath
+    
+    paths = []
+    debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
+    
+    if debug:
+        print(f"\n[INTER-CFG] Starting Stage 3 inter-procedural analysis", file=sys.stderr)
+        print(f"  Source: {source_var} in {source_function}", file=sys.stderr)
+    
+    # Track taint state across function calls
+    taint_state = {source_var: True}
+    
+    # Analyze each sink
+    for sink in sinks:
+        if sink["file"] != source_file:
+            continue
+        
+        # Get function containing sink
+        sink_function = get_containing_function(cursor, sink)
+        if not sink_function:
+            continue
+        
+        # Check if we need inter-procedural analysis
+        if sink_function["name"] == source_function:
+            # Same function - use regular CFG analysis
+            continue
+        
+        # Analyze call path from source to sink function
+        args_mapping = {}  # Will be populated from call graph
+        
+        # Use CFG analyzer to check if taint reaches sink
+        effect = analyzer.analyze_function_call(
+            source_file, source_function,
+            sink["file"], sink_function["name"],
+            args_mapping, taint_state
+        )
+        
+        # Check if sink is reached with tainted data
+        if effect.return_tainted or any(effect.param_effects.values()):
+            if debug:
+                print(f"[INTER-CFG] Vulnerability found via {sink_function['name']}", file=sys.stderr)
+            
+            path_obj = TaintPath(
+                source={"file": source_file, "line": source_line, "pattern": source_var, "name": source_var},
+                sink=sink,
+                path=[{
+                    "type": "inter_procedural_cfg",
+                    "effect": effect.param_effects,
+                    "passthrough": effect.passthrough_taint
+                }]
+            )
+            paths.append(path_obj)
     
     return paths

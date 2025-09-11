@@ -118,7 +118,8 @@ def trace_from_source(
     sinks: List[Dict[str, Any]],
     call_graph: Dict[str, List[str]],
     max_depth: int,
-    use_cfg: bool = False
+    use_cfg: bool = False,
+    stage3: bool = False
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     Trace taint propagation from a source to potential sinks using true data flow analysis.
@@ -471,7 +472,9 @@ def trace_from_source(
                     source_line=source["line"],
                     source_function=func_name,
                     sinks=[sink],  # Check just this specific sink
-                    max_depth=3  # Limited depth for performance
+                    max_depth=3,  # Limited depth for performance
+                    use_cfg=use_cfg,
+                    stage3=stage3
                 )
                 
                 if inter_paths:
@@ -706,5 +709,6 @@ def trace_from_source_flow_sensitive(
         sinks=sinks,
         call_graph=call_graph,
         max_depth=max_depth,
-        use_cfg=True  # Enable flow-sensitive analysis
+        use_cfg=True,  # Enable flow-sensitive analysis
+        stage3=False  # This wrapper is for Stage 2 only
     )

@@ -84,7 +84,8 @@ class TaintPath:
         }
 
 
-def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, Any]:
+def trace_taint(db_path: str, max_depth: int = 5, registry=None, 
+                use_cfg: bool = False, stage3: bool = False) -> Dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
     
@@ -92,6 +93,8 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, An
         db_path: Path to the SQLite database
         max_depth: Maximum depth to trace taint propagation
         registry: Optional TaintRegistry with enriched patterns from rules
+        use_cfg: Enable flow-sensitive CFG analysis (Stage 2)
+        stage3: Enable inter-procedural CFG with caching (Stage 3)
         
     Returns:
         Dictionary containing:
@@ -343,7 +346,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, An
             
             # Trace taint propagation from this source
             paths = trace_from_source(
-                cursor, source, source_function, sinks, call_graph, max_depth
+                cursor, source, source_function, sinks, call_graph, max_depth, use_cfg, stage3
             )
             taint_paths.extend(paths)
         
