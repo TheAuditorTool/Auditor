@@ -172,7 +172,7 @@ class CFGCacheManager:
         state_str = json.dumps(state, sort_keys=True)
         return hashlib.md5(state_str.encode()).hexdigest()
     
-    def _evict_if_needed(self, max_entries: int = 10000):
+    def _evict_if_needed(self, max_entries: int = 25000):
         """Evict least recently used entries if cache is too large."""
         cursor = self.conn.execute("SELECT COUNT(*) FROM cfg_analysis_cache")
         count = cursor.fetchone()[0]
