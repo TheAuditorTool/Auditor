@@ -312,6 +312,7 @@ def run_full_pipeline(
     quiet: bool = False,
     exclude_self: bool = False,
     offline: bool = False,
+    use_subprocess_for_taint: bool = False,  # NEW: default to in-process for performance
     log_callback: Callable[[str, bool], None] = None
 ) -> dict[str, Any]:
     """
@@ -320,6 +321,9 @@ def run_full_pipeline(
     Args:
         root: Root directory to analyze
         quiet: Whether to run in quiet mode (minimal output)
+        exclude_self: Whether to exclude TheAuditor's own files from analysis
+        offline: Whether to skip network operations (deps, docs)
+        use_subprocess_for_taint: Whether to run taint analysis as subprocess (slower)
         log_callback: Optional callback function for logging messages (message, is_error)
         
     Returns:
@@ -728,6 +732,36 @@ def run_full_pipeline(
             log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
             break
     
+    # CRITICAL: Create pipeline-level cache after foundation (database exists)
+    # This cache will be reused for taint analysis to avoid repeated loading
+    pipeline_cache = None
+    if failed_phases == 0 and not use_subprocess_for_taint:
+        try:
+            log_output("\n[CACHE] Creating pipeline-level memory cache for taint analysis...")
+            import sqlite3
+            from theauditor.taint.memory_cache import MemoryCache
+            
+            # Database is ALWAYS at .pf/repo_index.db
+            db_path = Path(root) / ".pf" / "repo_index.db"
+            
+            # Create cache with 4GB limit
+            pipeline_cache = MemoryCache(max_memory_mb=4000)
+            
+            # Preload database into cache
+            conn = sqlite3.connect(str(db_path))
+            cache_loaded = pipeline_cache.preload(conn.cursor())
+            conn.close()
+            
+            if cache_loaded:
+                log_output(f"[CACHE] Successfully pre-loaded {pipeline_cache.get_memory_usage_mb():.1f}MB into memory")
+                log_output("[CACHE] This cache will be reused for taint analysis (avoiding reload)")
+            else:
+                log_output("[CACHE] Failed to pre-load cache, will fall back to disk queries")
+                pipeline_cache = None
+        except Exception as e:
+            log_output(f"[CACHE] Failed to create pipeline cache: {e}")
+            pipeline_cache = None
+    
     # STAGE 2: Data Preparation (Sequential) - Only if foundation succeeded
     if failed_phases == 0 and data_prep_commands:
         log_output("\n" + "="*60)
@@ -852,7 +886,75 @@ def run_full_pipeline(
             
             # Submit Track A if it has commands (Taint Analysis)
             if track_a_commands:
-                future_a = executor.submit(run_command_chain, track_a_commands, root, "Track A (Taint Analysis)")
+                # Check if we should run taint analysis directly (in-process)
+                if not use_subprocess_for_taint and pipeline_cache is not None:
+                    # Create a wrapper function for direct execution
+                    def run_taint_direct():
+                        """Run taint analysis directly in-process with pre-loaded cache."""
+                        try:
+                            from theauditor.taint import trace_taint, save_taint_analysis
+                            
+                            # Log start
+                            print(f"[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]", file=sys.stderr)
+                            start_time = time.time()
+                            
+                            # Run taint analysis with pre-loaded cache
+                            result = trace_taint(
+                                db_path=str(Path(root) / ".pf" / "repo_index.db"),
+                                max_depth=5,
+                                registry=None,  # Will use framework enhancement from frameworks.json
+                                use_cfg=True,   # Enable CFG analysis
+                                stage3=True,    # Enable inter-procedural analysis
+                                use_memory_cache=True,
+                                memory_limit_mb=4000,
+                                cache=pipeline_cache  # Pass pre-loaded cache
+                            )
+                            
+                            # Save results
+                            output_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
+                            output_path.parent.mkdir(parents=True, exist_ok=True)
+                            save_taint_analysis(result, str(output_path))
+                            
+                            elapsed = time.time() - start_time
+                            
+                            # Build result dict matching run_command_chain format
+                            output_lines = [
+                                f"\n{'='*60}",
+                                f"[Track A (Taint Analysis)] Taint analysis",
+                                '='*60,
+                                f"[OK] Taint analysis completed in {elapsed:.1f}s",
+                                f"  Found {result.get('sources_found', 0)} taint sources",
+                                f"  Found {result.get('sinks_found', 0)} security sinks",
+                                f"  Found {result.get('total_vulnerabilities', 0)} taint paths",
+                                f"  Results saved to .pf/raw/taint_analysis.json"
+                            ]
+                            
+                            print(f"[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]", file=sys.stderr)
+                            
+                            return {
+                                "success": True,
+                                "output": "\n".join(output_lines),
+                                "errors": "",
+                                "elapsed": elapsed,
+                                "name": "Track A (Taint Analysis)"
+                            }
+                        except Exception as e:
+                            error_msg = f"Direct taint analysis failed: {str(e)}"
+                            print(f"[ERROR] {error_msg}", file=sys.stderr)
+                            return {
+                                "success": False,
+                                "output": f"[FAILED] Taint analysis failed",
+                                "errors": error_msg,
+                                "elapsed": time.time() - start_time if 'start_time' in locals() else 0,
+                                "name": "Track A (Taint Analysis)"
+                            }
+                    
+                    # Submit direct execution function
+                    future_a = executor.submit(run_taint_direct)
+                else:
+                    # Fall back to subprocess execution
+                    future_a = executor.submit(run_command_chain, track_a_commands, root, "Track A (Taint Analysis)")
+                
                 futures.append(future_a)
                 current_phase += len(track_a_commands)
             

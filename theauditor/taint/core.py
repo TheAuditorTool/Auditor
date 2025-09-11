@@ -6,8 +6,11 @@ This module contains the main taint analysis function and TaintPath class.
 import sys
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
 from collections import defaultdict
+
+if TYPE_CHECKING:
+    from .memory_cache import MemoryCache
 
 from .sources import TAINT_SOURCES, SECURITY_SINKS, SANITIZERS
 from .database import (
@@ -86,7 +89,8 @@ class TaintPath:
 
 def trace_taint(db_path: str, max_depth: int = 5, registry=None, 
                 use_cfg: bool = False, stage3: bool = False,
-                use_memory_cache: bool = True, memory_limit_mb: int = 4000) -> Dict[str, Any]:
+                use_memory_cache: bool = True, memory_limit_mb: int = 4000,
+                cache: Optional['MemoryCache'] = None) -> Dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
     
@@ -98,6 +102,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         stage3: Enable inter-procedural CFG with caching (Stage 3)
         use_memory_cache: Enable in-memory caching for performance (default: True)
         memory_limit_mb: Memory limit for cache in MB (default: 4000)
+        cache: Optional pre-loaded MemoryCache to use (avoids reload)
         
     Returns:
         Dictionary containing:
@@ -328,14 +333,20 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     cursor = conn.cursor()
     
     # Attempt to preload database into memory cache for performance
-    cache = None
+    # CRITICAL FIX: Use provided cache if available (avoids reload in pipeline)
     if use_memory_cache:
-        from .memory_cache import attempt_cache_preload
-        cache = attempt_cache_preload(cursor, memory_limit_mb)
-        if cache:
-            print(f"[TAINT] Memory cache enabled: {cache.get_memory_usage_mb():.1f}MB used", file=sys.stderr)
+        if cache is None:  # Only create if not provided
+            from .memory_cache import attempt_cache_preload
+            cache = attempt_cache_preload(cursor, memory_limit_mb)
+            if cache:
+                print(f"[TAINT] Memory cache enabled: {cache.get_memory_usage_mb():.1f}MB used", file=sys.stderr)
+            else:
+                print("[TAINT] Memory cache disabled: falling back to disk queries", file=sys.stderr)
         else:
-            print("[TAINT] Memory cache disabled: falling back to disk queries", file=sys.stderr)
+            # Using pre-loaded cache from pipeline
+            print(f"[TAINT] Using pre-loaded cache: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
+    else:
+        cache = None  # Explicitly disable cache if not requested
     
     try:
         # Step 1: Find all taint sources in the codebase
