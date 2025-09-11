@@ -27,6 +27,21 @@ else:
 class ASTPatternMixin:
     """Mixin class providing pattern matching capabilities for AST analysis."""
     
+    def __init__(self):
+        """Initialize pattern mixin with cache support."""
+        super().__init__()
+        self._pattern_cache = None
+    
+    def _get_pattern_cache(self):
+        """Get or create pattern cache instance."""
+        if self._pattern_cache is None:
+            from pathlib import Path
+            from .cache.pattern_cache import PatternCache
+            cache_dir = Path(".pf/.cache")
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            self._pattern_cache = PatternCache(cache_dir)
+        return self._pattern_cache
+    
     def query_ast(self, tree: Any, query_string: str) -> List[ASTMatch]:
         """Execute a Tree-sitter query on the AST.
 
@@ -113,12 +128,13 @@ class ASTPatternMixin:
             return {"node_type": "class_def", "contains": []}
         return None
 
-    def find_ast_matches(self, tree: Any, ast_pattern: dict) -> List[ASTMatch]:
+    def find_ast_matches(self, tree: Any, ast_pattern: dict, file_hash: str = None) -> List[ASTMatch]:
         """Find matches in AST based on pattern.
 
         Args:
             tree: AST tree object.
             ast_pattern: Pattern dictionary with node_type and optional contains.
+            file_hash: Optional file content hash for caching.
 
         Returns:
             List of ASTMatch objects.
@@ -127,6 +143,14 @@ class ASTPatternMixin:
 
         if not tree:
             return matches
+        
+        # Try to get cached results if file hash is provided
+        if file_hash:
+            cache = self._get_pattern_cache()
+            cached_results = cache.get(file_hash, {})
+            if cached_results is not None:
+                # Convert cached dicts back to ASTMatch objects
+                return [ASTMatch(**match_dict) for match_dict in cached_results]
 
         # Handle wrapped tree objects
         if isinstance(tree, dict):
@@ -148,6 +172,24 @@ class ASTPatternMixin:
         # Handle direct AST objects (legacy support)
         elif isinstance(tree, ast.AST):
             matches.extend(self._find_python_ast_matches(tree, ast_pattern))
+
+        # Cache the results if file hash is provided
+        if file_hash and matches:
+            cache = self._get_pattern_cache()
+            # Convert ASTMatch objects to dicts for caching
+            match_dicts = []
+            for match in matches:
+                match_dict = {
+                    'node_type': match.node_type,
+                    'start_line': match.start_line,
+                    'end_line': match.end_line,
+                    'start_col': match.start_col,
+                    'snippet': match.snippet
+                }
+                if match.metadata:
+                    match_dict['metadata'] = match.metadata
+                match_dicts.append(match_dict)
+            cache.set(file_hash, match_dicts, {})
 
         return matches
 

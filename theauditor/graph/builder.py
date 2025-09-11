@@ -691,6 +691,12 @@ class XGraphBuilder:
         root_path = Path(root).resolve()
         nodes = {}
         edges = []
+        
+        # Initialize graph cache for incremental updates
+        from ..cache.graph_cache import GraphCache
+        cache_dir = root_path / ".pf" / ".cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        graph_cache = GraphCache(cache_dir)
 
         # Collect all source files
         files = []
@@ -733,10 +739,59 @@ class XGraphBuilder:
                         if lang and (not langs or lang in langs):
                             files.append((file, lang))
 
-        # Process files with progress bar
+        # Compute file hashes for cache lookup
+        import hashlib
+        current_files = {}
+        for file_path, lang in files:
+            try:
+                with open(file_path, 'rb') as f:
+                    file_hash = hashlib.sha256(f.read()).hexdigest()
+                rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")
+                current_files[rel_path] = {
+                    'hash': file_hash,
+                    'language': lang,
+                    'size': file_path.stat().st_size
+                }
+            except (OSError, PermissionError):
+                pass
+        
+        # Check for changed files using cache
+        added, removed, modified = graph_cache.get_changed_files(
+            {path: info['hash'] for path, info in current_files.items()}
+        )
+        
+        # Load cached edges for unchanged files
+        cached_edges = graph_cache.get_all_edges()
+        valid_cached_edges = []
+        
+        # Filter out edges from removed/modified files
+        invalidated = added | removed | modified
+        for source, target, edge_type, metadata in cached_edges:
+            if source not in invalidated:
+                valid_cached_edges.append({
+                    'source': source,
+                    'target': target,
+                    'type': edge_type
+                })
+        
+        # Only process changed files
+        files_to_process = []
+        for file_path, lang in files:
+            rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")
+            if rel_path in invalidated:
+                files_to_process.append((file_path, lang))
+        
+        print(f"[Graph Cache] Using {len(valid_cached_edges)} cached edges, processing {len(files_to_process)} changed files")
+        
+        # Invalidate edges for changed files
+        if invalidated:
+            graph_cache.invalidate_edges(invalidated)
+        
+        # Process only changed files with progress bar
+        new_edges = []
         with click.progressbar(
-            files,
-            label="Building import graph",
+            files_to_process,
+            label="Building import graph (incremental)",
             show_pos=True,
             show_percent=True,
             show_eta=True,
@@ -781,6 +836,42 @@ class XGraphBuilder:
                         file=rel_path,  # Already normalized
                     )
                     edges.append(asdict(edge))
+                    new_edges.append((node_id, target, "import", None))
+        
+        # Add cached edges to the result
+        edges.extend(valid_cached_edges)
+        
+        # Update cache with new edges and file states
+        if new_edges:
+            graph_cache.add_edges(new_edges)
+        if current_files:
+            graph_cache.update_file_states(current_files)
+        if removed:
+            graph_cache.remove_file_states(removed)
+        
+        # Create nodes for all files (including cached ones)
+        for file_path, lang in files:
+            rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")
+            if rel_path not in nodes:
+                # Get metrics
+                if str(file_path) in manifest_lookup:
+                    manifest_item = manifest_lookup[str(file_path)]
+                    loc = manifest_item.get('loc', 0)
+                    churn = None
+                else:
+                    metrics = self.get_file_metrics(file_path)
+                    loc = metrics["loc"]
+                    churn = metrics["churn"]
+                
+                node = GraphNode(
+                    id=rel_path,
+                    file=rel_path,
+                    lang=lang,
+                    loc=loc,
+                    churn=churn,
+                    type="module",
+                )
+                nodes[rel_path] = asdict(node)
 
         return {
             "nodes": list(nodes.values()),
