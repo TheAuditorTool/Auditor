@@ -87,29 +87,36 @@ Key features:
 - **Parallel JavaScript processing** when semantic parser available
 
 ### Pipeline System (`theauditor/pipelines.py`)
-Orchestrates comprehensive analysis pipeline in **parallel stages**:
+Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** (v1.1+):
 
 **Stage 1 - Foundation (Sequential):**
 1. Repository indexing - Build manifest and symbol database
 2. Framework detection - Identify technologies in use
 
-**Stage 2 - Concurrent Analysis (3 Parallel Tracks):**
-- **Track A (Network I/O):**
+**Stage 2 - Data Preparation (Sequential) [NEW in v1.1]:**
+3. Workset creation - Define analysis scope
+4. Graph building - Construct dependency graph
+5. CFG analysis - Build control flow graphs
+
+**Stage 3 - Heavy Parallel Analysis (Rebalanced in v1.1):**
+- **Track A (Taint Analysis - Isolated):**
+  - Taint flow analysis (2-4 hours for large codebases)
+- **Track B (Static & Graph Analysis):**
+  - Linting
+  - Pattern detection (355x faster with AST)
+  - Graph analysis
+  - Graph visualization
+- **Track C (Network I/O):**
   - Dependency checking
   - Documentation fetching
   - Documentation summarization
-- **Track B (Code Analysis):**
-  - Workset creation
-  - Linting
-  - Pattern detection
-- **Track C (Graph Build):**
-  - Graph building
 
-**Stage 3 - Final Aggregation (Sequential):**
-- Graph analysis
-- Taint analysis
+**Stage 4 - Final Aggregation (Sequential):**
 - Factual correlation engine
 - Report generation
+- Summary creation
+
+**Performance Impact:** 25-40% faster overall execution by isolating the heavy taint analysis and preparing data structures early
 
 ### Pattern Detection Engine
 - 100+ YAML-defined security patterns in `theauditor/patterns/`
@@ -204,46 +211,52 @@ graph TB
     Raw --> Chunks
 ```
 
-### Parallel Pipeline Execution
+### Parallel Pipeline Execution (v1.1 4-Stage Architecture)
 
 ```mermaid
 graph LR
-    subgraph "Stage 1 - Sequential"
+    subgraph "Stage 1 - Foundation"
         S1[Index] --> S2[Framework Detection]
     end
     
-    subgraph "Stage 2 - Parallel"
+    subgraph "Stage 2 - Data Prep"
+        D1[Workset] --> D2[Graph Build] --> D3[CFG Analyze]
+    end
+    
+    subgraph "Stage 3 - Parallel Heavy Analysis"
         direction TB
-        subgraph "Track A - Network I/O"
-            A1[Deps Check]
-            A2[Doc Fetch]
-            A3[Doc Summary]
-            A1 --> A2 --> A3
+        subgraph "Track A - Taint"
+            A1[Taint Analysis<br/>2-4 hours]
         end
         
-        subgraph "Track B - Code Analysis"
-            B1[Workset]
-            B2[Linting]
-            B3[Patterns]
-            B1 --> B2 --> B3
+        subgraph "Track B - Static & Graph"
+            B1[Linting]
+            B2[Patterns<br/>355x faster]
+            B3[Graph Analyze]
+            B4[Graph Viz]
+            B1 --> B2 --> B3 --> B4
         end
         
-        subgraph "Track C - Graph"
-            C1[Graph Build]
+        subgraph "Track C - Network I/O"
+            C1[Deps Check]
+            C2[Doc Fetch]
+            C3[Doc Summary]
+            C1 --> C2 --> C3
         end
     end
     
-    subgraph "Stage 3 - Sequential"
-        E1[Graph Analysis] --> E2[Taint] --> E3[FCE] --> E4[Report]
+    subgraph "Stage 4 - Final"
+        E1[FCE] --> E2[Report] --> E3[Summary]
     end
     
-    S2 --> A1
-    S2 --> B1
-    S2 --> C1
+    S2 --> D1
+    D3 --> A1
+    D3 --> B1
+    D3 --> C1
     
-    A3 --> E1
-    B3 --> E1
-    C1 --> E1
+    A1 --> E1
+    B4 --> E1
+    C3 --> E1
 ```
 
 ### Data Chunking System

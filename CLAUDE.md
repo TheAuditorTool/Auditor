@@ -5,11 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Quick Reference Commands
 
 ```bash
-# Development Setup
+# Development Setup (ONLY for developing TheAuditor itself)
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[all]"
 aud setup-claude --target .  # MANDATORY for JS/TS analysis
+
+# For normal usage on projects, install with system Python:
+# pip install -e . (from TheAuditor directory)
+# Then navigate to YOUR project and run: aud setup-claude --target .
 
 # Testing
 pytest -v                    # Run all tests
