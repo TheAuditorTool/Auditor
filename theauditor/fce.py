@@ -729,7 +729,56 @@ def run_fce(
         # Store factual clusters
         results["correlations"]["factual_clusters"] = factual_clusters
         
-        # Step G: Finalization - Apply intelligent organization sorting
+        # Step G: Phase 5 - CFG Path-Based Correlation (Factual control flow relationships)
+        path_clusters = []
+        try:
+            from theauditor.graph.path_correlator import PathCorrelator
+            
+            print("[FCE] Running CFG-based path correlation...")
+            
+            # Use the database path from the root
+            full_db_path = Path(root_path) / db_path
+            if full_db_path.exists():
+                path_correlator = PathCorrelator(str(full_db_path))
+                path_clusters = path_correlator.correlate(consolidated_findings)
+                path_correlator.close()
+                
+                print(f"[FCE] Found {len(path_clusters)} high-confidence path clusters")
+                
+                # Log example of factual conditions for verification
+                if path_clusters and path_clusters[0].get("conditions"):
+                    print(f"[FCE] Example cluster conditions: {path_clusters[0]['conditions']}")
+                
+                # Add to correlations with factual structure
+                results["correlations"]["path_clusters"] = path_clusters
+                results["correlations"]["total_path_clusters"] = len(path_clusters)
+                
+                # Calculate reduction in false positives (factual metric)
+                if hotspots and path_clusters:
+                    # Count findings that were hotspots but not in path clusters
+                    hotspot_findings = set()
+                    for hotspot_data in hotspots.values():
+                        for finding in hotspot_data.get("findings", []):
+                            hotspot_findings.add(f"{finding['file']}:{finding['line']}")
+                    
+                    path_findings = set()
+                    for cluster in path_clusters:
+                        for finding in cluster.get("findings", []):
+                            path_findings.add(f"{finding['file']}:{finding['line']}")
+                    
+                    false_positives_removed = len(hotspot_findings - path_findings)
+                    if false_positives_removed > 0:
+                        print(f"[FCE] Path correlation filtered {false_positives_removed} potential false positives")
+            else:
+                print("[FCE] Skipping path correlation - database not found")
+                
+        except ImportError:
+            print("[FCE] Path correlation not available - CFG support required")
+        except Exception as e:
+            print(f"[FCE] Path correlation failed: {e}")
+            # Non-fatal - continue without path correlation
+        
+        # Step H: Finalization - Apply intelligent organization sorting
         from theauditor.utils.finding_priority import sort_findings, normalize_severity
         
         # CRITICAL: Normalize all severities BEFORE sorting
@@ -776,7 +825,7 @@ def run_fce(
         }
         
     except Exception as e:
-        # Step H: Error Handling
+        # Step I: Error Handling
         return {
             "success": False,
             "failures_found": 0,
