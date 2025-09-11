@@ -436,9 +436,10 @@ class InterProceduralCFGAnalyzer:
             "side_effects": effect.side_effects
         })
     
-    def _deserialize_effect(self, data: str) -> InterProceduralEffect:
+    def _deserialize_effect(self, data) -> InterProceduralEffect:
         """Deserialize an effect from cache."""
-        obj = json.loads(data)
+        # Handle both string and dict inputs (cfg_cache returns dict after json.loads)
+        obj = data if isinstance(data, dict) else json.loads(data)
         return InterProceduralEffect(
             return_tainted=obj["return_tainted"],
             param_effects=obj["param_effects"],

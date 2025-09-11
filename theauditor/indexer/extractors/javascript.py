@@ -360,45 +360,57 @@ class JavaScriptExtractor(BaseExtractor):
         """
         cfg_data = []
         
-        # Check if we have a valid tree
-        if not tree or not tree.get('success'):
+        # Check if we have a valid tree (handle both tree_sitter and semantic_ast)
+        if not tree:
             return cfg_data
         
-        # Get semantic data if available
-        semantic_data = tree.get('semantic', {})
-        if not semantic_data:
-            return cfg_data
+        # For semantic_ast, success is nested at tree['tree']['success']
+        if tree.get('type') == 'semantic_ast':
+            if not tree.get('tree', {}).get('success'):
+                return cfg_data
+        else:
+            # For tree_sitter format, check at root
+            if not tree.get('success'):
+                return cfg_data
         
-        # Process each function found
-        functions = semantic_data.get('functions', [])
-        for func in functions:
+        # Extract function AST nodes directly for CFG building
+        # (Success already validated above, now extract functions)
+        from theauditor.ast_extractors.typescript_impl import extract_typescript_function_nodes
+        # Get complete function nodes with bodies
+        function_nodes = extract_typescript_function_nodes(tree, None)
+        for func in function_nodes:
             function_cfg = self._build_function_cfg_js(func, file_path)
             if function_cfg:
                 cfg_data.append(function_cfg)
         
-        # Process methods in classes
-        classes = semantic_data.get('classes', [])
+        # Extract classes and their methods
+        classes = self.ast_parser.extract_classes(tree)
         for cls in classes:
-            for method in cls.get('methods', []):
-                method_cfg = self._build_function_cfg_js(method, file_path)
-                if method_cfg:
-                    cfg_data.append(method_cfg)
+            # Classes don't have methods extracted separately in our parser
+            # but we can still create CFG for class methods if needed
+            pass
         
         return cfg_data
     
-    def _build_function_cfg_js(self, func_data: Dict[str, Any], file_path: str) -> Dict[str, Any]:
+    def _build_function_cfg_js(self, func_node: Dict[str, Any], file_path: str) -> Dict[str, Any]:
         """Build control flow graph for a single JavaScript/TypeScript function.
         
         Args:
-            func_data: Function data from semantic analysis
+            func_node: Complete AST node for the function
             file_path: Path to the file
             
         Returns:
             CFG data dictionary
         """
-        if not func_data.get('name'):
-            return None
-            
+        # Extract function name from AST node
+        func_name = 'anonymous'
+        name_node = func_node.get('name')
+        if isinstance(name_node, dict):
+            func_name = name_node.get('text', 'anonymous')
+        elif isinstance(name_node, str):
+            func_name = name_node
+        # For arrow functions and anonymous functions, may not have a name
+        
         blocks = []
         edges = []
         block_id_counter = [0]
@@ -409,8 +421,8 @@ class JavaScriptExtractor(BaseExtractor):
         
         # Entry block
         entry_block_id = get_next_block_id()
-        start_line = func_data.get('line', 1)
-        end_line = func_data.get('endLine', start_line)
+        start_line = func_node.get('line', 1)
+        end_line = func_node.get('end', start_line)
         
         blocks.append({
             'id': entry_block_id,
@@ -424,8 +436,12 @@ class JavaScriptExtractor(BaseExtractor):
         # This is simplified - a full implementation would parse the body
         current_block_id = entry_block_id
         
-        # Look for control flow keywords in the function body
-        body = func_data.get('body', '')
+        # Extract body from AST node - it's in the children as a Block node
+        body = ''
+        for child in func_node.get('children', []):
+            if isinstance(child, dict) and child.get('kind') == 'Block':
+                body = child.get('text', '')
+                break
         if body:
             # Detect if statements
             if_count = body.count('if (') + body.count('if(')
@@ -559,7 +575,7 @@ class JavaScriptExtractor(BaseExtractor):
             edges.append({'source': current_block_id, 'target': exit_block_id, 'type': 'normal'})
         
         return {
-            'function_name': func_data['name'],
+            'function_name': func_name,
             'file': file_path,
             'blocks': blocks,
             'edges': edges
