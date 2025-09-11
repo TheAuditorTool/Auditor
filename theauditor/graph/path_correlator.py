@@ -93,13 +93,12 @@ class PathCorrelator:
             cursor.execute("""
                 SELECT name, type
                 FROM symbols
-                WHERE file = ?
+                WHERE path = ?
                   AND line <= ?
-                  AND end_line >= ?
                   AND type = 'function'
                 ORDER BY line DESC
                 LIMIT 1
-            """, (file_path, line, line))
+            """, (file_path, line))
             
             result = cursor.fetchone()
             if result:

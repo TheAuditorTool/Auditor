@@ -16,7 +16,7 @@ def cfg():
 
 
 @cfg.command("analyze")
-@click.option("--db", default="repo_index.db", help="Path to repository database")
+@click.option("--db", default=".pf/repo_index.db", help="Path to repository database")
 @click.option("--file", help="Analyze specific file only")
 @click.option("--function", help="Analyze specific function only")
 @click.option("--complexity-threshold", default=10, type=int, help="Complexity threshold for reporting")
@@ -169,7 +169,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
 
 
 @cfg.command("viz")
-@click.option("--db", default="repo_index.db", help="Path to repository database")
+@click.option("--db", default=".pf/repo_index.db", help="Path to repository database")
 @click.option("--file", required=True, help="File containing the function")
 @click.option("--function", required=True, help="Function name to visualize")
 @click.option("--output", help="Output file path (default: function_name.dot)")
