@@ -422,6 +422,7 @@ def run_full_pipeline(
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
         ("graph", ["viz", "--view", "hotspots", "--include-analysis"]),
         ("graph", ["viz", "--view", "layers", "--include-analysis"]),
+        ("cfg", ["analyze", "--complexity-threshold", "10"]),
         ("taint-analyze", []),
         ("fce", []),
         ("report", []),
@@ -434,7 +435,7 @@ def run_full_pipeline(
     
     for cmd_name, extra_args in command_order:
         # Check if command exists (dynamic discovery)
-        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands):
+        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands):
             phase_num += 1
             # Generate human-readable description from command name
             if cmd_name == "index":
@@ -474,6 +475,8 @@ def run_full_pipeline(
                         description = f"{phase_num}. Visualize graph"
                 else:
                     description = f"{phase_num}. Visualize graph"
+            elif cmd_name == "cfg":
+                description = f"{phase_num}. Control flow analysis"
             elif cmd_name == "taint-analyze":
                 description = f"{phase_num}. Taint analysis"
             elif cmd_name == "fce":
@@ -563,6 +566,8 @@ def run_full_pipeline(
         elif "graph analyze" in cmd_str:
             track_c_commands.append((phase_name, cmd))
         elif "graph viz" in cmd_str:
+            track_c_commands.append((phase_name, cmd))
+        elif "cfg" in cmd_str:
             track_c_commands.append((phase_name, cmd))
         elif "taint" in cmd_str:
             track_c_commands.append((phase_name, cmd))

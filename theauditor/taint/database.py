@@ -299,3 +299,266 @@ def get_code_snippet(file_path: str, line_num: int) -> str:
     except (FileNotFoundError, IOError, OSError):
         pass
     return ""
+
+
+# ============================================================================
+# CFG Integration Functions - For Flow-Sensitive Taint Analysis
+# ============================================================================
+
+def get_block_for_line(cursor: sqlite3.Cursor, file_path: str, line: int, 
+                       function_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """
+    Find the CFG block containing a specific line.
+    
+    Args:
+        cursor: Database cursor
+        file_path: Path to the source file
+        line: Line number to find
+        function_name: Optional function name to narrow search
+        
+    Returns:
+        Block dictionary or None if not found
+    """
+    # Normalize path
+    file_path = file_path.replace("\\", "/")
+    
+    # Check if CFG tables exist
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='cfg_blocks'
+    """)
+    if not cursor.fetchone():
+        return None  # CFG tables don't exist
+    
+    # Query for block containing the line
+    if function_name:
+        cursor.execute("""
+            SELECT id, function_name, block_type, start_line, end_line, condition_expr
+            FROM cfg_blocks
+            WHERE file = ? 
+            AND function_name = ?
+            AND start_line <= ? 
+            AND end_line >= ?
+            ORDER BY start_line DESC
+            LIMIT 1
+        """, (file_path, function_name, line, line))
+    else:
+        cursor.execute("""
+            SELECT id, function_name, block_type, start_line, end_line, condition_expr
+            FROM cfg_blocks
+            WHERE file = ? 
+            AND start_line <= ? 
+            AND end_line >= ?
+            ORDER BY start_line DESC
+            LIMIT 1
+        """, (file_path, line, line))
+    
+    result = cursor.fetchone()
+    if result:
+        return {
+            "id": result[0],
+            "function_name": result[1],
+            "type": result[2],
+            "start_line": result[3],
+            "end_line": result[4],
+            "condition": result[5]
+        }
+    return None
+
+
+def get_paths_between_blocks(cursor: sqlite3.Cursor, file_path: str,
+                            source_block_id: int, sink_block_id: int,
+                            max_paths: int = 100) -> List[List[int]]:
+    """
+    Find all execution paths between two CFG blocks.
+    
+    Uses BFS to enumerate paths from source block to sink block,
+    avoiding cycles and limiting to max_paths.
+    
+    Args:
+        cursor: Database cursor
+        file_path: Path to the source file
+        source_block_id: Starting block ID
+        sink_block_id: Target block ID
+        max_paths: Maximum number of paths to return
+        
+    Returns:
+        List of paths, each path is a list of block IDs
+    """
+    from collections import deque
+    
+    # Normalize path
+    file_path = file_path.replace("\\", "/")
+    
+    # Check if CFG tables exist
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='cfg_edges'
+    """)
+    if not cursor.fetchone():
+        return []  # CFG tables don't exist
+    
+    # Build adjacency list from edges
+    cursor.execute("""
+        SELECT source_block_id, target_block_id, edge_type
+        FROM cfg_edges
+        WHERE file = ?
+    """, (file_path,))
+    
+    adjacency = defaultdict(list)
+    for source, target, edge_type in cursor.fetchall():
+        # Skip back edges to avoid infinite loops
+        if edge_type != 'back_edge':
+            adjacency[source].append(target)
+    
+    # BFS to find all paths
+    paths = []
+    queue = deque([(source_block_id, [source_block_id])])
+    
+    while queue and len(paths) < max_paths:
+        current_block, current_path = queue.popleft()
+        
+        if current_block == sink_block_id:
+            paths.append(current_path)
+            continue
+        
+        # Add neighbors to queue
+        for neighbor in adjacency[current_block]:
+            # Avoid cycles within path
+            if neighbor not in current_path:
+                queue.append((neighbor, current_path + [neighbor]))
+    
+    return paths
+
+
+def get_block_statements(cursor: sqlite3.Cursor, block_id: int) -> List[Dict[str, Any]]:
+    """
+    Get all statements within a CFG block.
+    
+    Args:
+        cursor: Database cursor
+        block_id: CFG block ID
+        
+    Returns:
+        List of statement dictionaries
+    """
+    # Check if CFG tables exist
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='cfg_block_statements'
+    """)
+    if not cursor.fetchone():
+        return []  # CFG tables don't exist
+    
+    cursor.execute("""
+        SELECT statement_type, line, statement_text
+        FROM cfg_block_statements
+        WHERE block_id = ?
+        ORDER BY line
+    """, (block_id,))
+    
+    statements = []
+    for stmt_type, line, text in cursor.fetchall():
+        statements.append({
+            "type": stmt_type,
+            "line": line,
+            "text": text
+        })
+    
+    return statements
+
+
+def get_cfg_for_function(cursor: sqlite3.Cursor, file_path: str, 
+                        function_name: str) -> Dict[str, Any]:
+    """
+    Get complete CFG for a function.
+    
+    Args:
+        cursor: Database cursor
+        file_path: Path to the source file
+        function_name: Name of the function
+        
+    Returns:
+        Dictionary with blocks and edges
+    """
+    # Normalize path
+    file_path = file_path.replace("\\", "/")
+    
+    # Check if CFG tables exist
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name='cfg_blocks'
+    """)
+    if not cursor.fetchone():
+        return {"blocks": [], "edges": []}  # CFG tables don't exist
+    
+    # Get all blocks for this function
+    cursor.execute("""
+        SELECT id, block_type, start_line, end_line, condition_expr
+        FROM cfg_blocks
+        WHERE file = ? AND function_name = ?
+        ORDER BY start_line
+    """, (file_path, function_name))
+    
+    blocks = []
+    block_ids = set()
+    for block_id, block_type, start_line, end_line, condition in cursor.fetchall():
+        blocks.append({
+            "id": block_id,
+            "type": block_type,
+            "start_line": start_line,
+            "end_line": end_line,
+            "condition": condition,
+            "statements": get_block_statements(cursor, block_id)
+        })
+        block_ids.add(block_id)
+    
+    # Get all edges for this function
+    cursor.execute("""
+        SELECT source_block_id, target_block_id, edge_type
+        FROM cfg_edges
+        WHERE file = ? AND function_name = ?
+    """, (file_path, function_name))
+    
+    edges = []
+    for source, target, edge_type in cursor.fetchall():
+        # Only include edges between blocks in this function
+        if source in block_ids and target in block_ids:
+            edges.append({
+                "source": source,
+                "target": target,
+                "type": edge_type
+            })
+    
+    return {
+        "function_name": function_name,
+        "file": file_path,
+        "blocks": blocks,
+        "edges": edges
+    }
+
+
+def check_cfg_available(cursor: sqlite3.Cursor) -> bool:
+    """
+    Check if CFG tables exist and contain data.
+    
+    Args:
+        cursor: Database cursor
+        
+    Returns:
+        True if CFG data is available
+    """
+    cursor.execute("""
+        SELECT name FROM sqlite_master 
+        WHERE type='table' AND name IN ('cfg_blocks', 'cfg_edges', 'cfg_block_statements')
+    """)
+    
+    tables = cursor.fetchall()
+    if len(tables) != 3:
+        return False  # Not all CFG tables exist
+    
+    # Check if tables have data
+    cursor.execute("SELECT COUNT(*) FROM cfg_blocks")
+    count = cursor.fetchone()[0]
+    
+    return count > 0

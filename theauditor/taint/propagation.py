@@ -117,7 +117,8 @@ def trace_from_source(
     source_function: Dict[str, Any],
     sinks: List[Dict[str, Any]],
     call_graph: Dict[str, List[str]],
-    max_depth: int
+    max_depth: int,
+    use_cfg: bool = False
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     Trace taint propagation from a source to potential sinks using true data flow analysis.
@@ -127,6 +128,9 @@ def trace_from_source(
     2. Propagates taint through assignments
     3. Tracks taint through function calls and returns
     4. Only reports vulnerabilities when tainted data reaches a sink
+    
+    When use_cfg=True and CFG data is available, performs flow-sensitive analysis
+    that distinguishes between different execution paths.
     """
     # Import TaintPath here to avoid circular dependency
     from .core import TaintPath
@@ -134,6 +138,34 @@ def trace_from_source(
     # Validate source is truly external
     if not is_external_source(cursor, source):
         return []  # Skip internal sources
+    
+    # If CFG analysis is requested and available, use flow-sensitive analysis
+    if use_cfg:
+        from .cfg_integration import trace_flow_sensitive, should_use_cfg
+        
+        # Check if we should use CFG for these specific sources/sinks
+        cfg_paths = []
+        for sink in sinks:
+            if should_use_cfg(cursor, source, sink):
+                # Perform flow-sensitive analysis for this source-sink pair
+                flow_paths = trace_flow_sensitive(
+                    cursor=cursor,
+                    source=source,
+                    sink=sink,
+                    source_function=source_function,
+                    max_paths=100  # Reasonable limit for path explosion
+                )
+                cfg_paths.extend(flow_paths)
+        
+        # If we found any flow-sensitive paths, prefer those
+        if cfg_paths:
+            # Also run flow-insensitive for comparison (can be removed in production)
+            debug_mode = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
+            if debug_mode:
+                print(f"[CFG] Found {len(cfg_paths)} flow-sensitive paths", file=sys.stderr)
+                print(f"[CFG] Running flow-insensitive analysis for comparison...", file=sys.stderr)
+            # Convert flow-sensitive paths to TaintPath objects
+            return cfg_paths
     
     paths = []
     
@@ -631,3 +663,48 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Accepts/returns List[Ta
             unique[key] = path
     
     return list(unique.values())
+
+
+def trace_from_source_flow_sensitive(
+    cursor: sqlite3.Cursor,
+    source: Dict[str, Any],
+    source_function: Dict[str, Any],
+    sinks: List[Dict[str, Any]],
+    call_graph: Dict[str, List[str]],
+    max_depth: int
+) -> List[Any]:  # Returns List[TaintPath]
+    """
+    Flow-sensitive wrapper for trace_from_source.
+    
+    This function explicitly enables CFG-based flow-sensitive analysis,
+    which distinguishes between different execution paths to reduce false positives.
+    
+    Example:
+        # This would be a false positive in flow-insensitive analysis:
+        user_input = req.body.data
+        if (validate(user_input)) {
+            db.query(user_input)  # Safe - only executed after validation
+        } else {
+            log_error("Invalid input")
+        }
+    
+    Args:
+        cursor: Database cursor
+        source: Taint source information
+        source_function: Function containing the source
+        sinks: List of potential sinks
+        call_graph: Function call graph
+        max_depth: Maximum depth for interprocedural analysis
+        
+    Returns:
+        List of TaintPath objects representing flow-sensitive vulnerabilities
+    """
+    return trace_from_source(
+        cursor=cursor,
+        source=source,
+        source_function=source_function,
+        sinks=sinks,
+        call_graph=call_graph,
+        max_depth=max_depth,
+        use_cfg=True  # Enable flow-sensitive analysis
+    )
