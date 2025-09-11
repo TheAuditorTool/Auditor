@@ -65,6 +65,12 @@ from .python import (
     enhance_python_tracking,
 )
 
+# Memory cache optimization (NEW!)
+from .memory_cache import (
+    MemoryCache,
+    attempt_cache_preload,
+)
+
 # Re-export EVERYTHING to maintain backward compatibility
 # This ensures that any code doing "from theauditor.taint_analyzer import X"
 # will continue to work when we update taint/__init__.py to import from here
@@ -117,4 +123,8 @@ __all__ = [
     "track_string_operations",
     "track_exception_propagation",
     "enhance_python_tracking",
+    
+    # Memory cache optimization (NEW!)
+    "MemoryCache",
+    "attempt_cache_preload",
 ]

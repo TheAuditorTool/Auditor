@@ -26,7 +26,11 @@ IS_WINDOWS = platform.system() == "Windows"
               help="Use flow-sensitive CFG analysis (enabled by default)")
 @click.option("--no-interprocedural", is_flag=True, default=False,
               help="Disable inter-procedural analysis (not recommended)")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, no_interprocedural):
+@click.option("--memory/--no-memory", default=True,
+              help="Use in-memory caching for 5-10x performance (enabled by default)")
+@click.option("--memory-limit", default=4000, type=int,
+              help="Memory limit for cache in MB (default: 4000)")
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, no_interprocedural, memory, memory_limit):
     """
     Perform taint analysis to detect security vulnerabilities.
     
@@ -106,7 +110,9 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             max_depth=max_depth,
             registry=registry,
             use_cfg=use_cfg,
-            stage3=not no_interprocedural  # Stage 3 is ON by default
+            stage3=not no_interprocedural,  # Stage 3 is ON by default
+            use_memory_cache=memory,
+            memory_limit_mb=memory_limit
         )
         
         # Extract taint paths
@@ -154,7 +160,9 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             db_path=str(db_path),
             max_depth=max_depth,
             use_cfg=use_cfg,
-            stage3=not no_interprocedural  # Stage 3 is ON by default
+            stage3=not no_interprocedural,  # Stage 3 is ON by default
+            use_memory_cache=memory,
+            memory_limit_mb=memory_limit
         )
     
     # Enrich raw paths with interpretive insights

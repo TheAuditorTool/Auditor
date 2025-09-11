@@ -85,7 +85,8 @@ class TaintPath:
 
 
 def trace_taint(db_path: str, max_depth: int = 5, registry=None, 
-                use_cfg: bool = False, stage3: bool = False) -> Dict[str, Any]:
+                use_cfg: bool = False, stage3: bool = False,
+                use_memory_cache: bool = True, memory_limit_mb: int = 4000) -> Dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
     
@@ -95,6 +96,8 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         registry: Optional TaintRegistry with enriched patterns from rules
         use_cfg: Enable flow-sensitive CFG analysis (Stage 2)
         stage3: Enable inter-procedural CFG with caching (Stage 3)
+        use_memory_cache: Enable in-memory caching for performance (default: True)
+        memory_limit_mb: Memory limit for cache in MB (default: 4000)
         
     Returns:
         Dictionary containing:
@@ -104,6 +107,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         - vulnerabilities: Count by vulnerability type
     """
     import sqlite3
+    import os
     
     # We'll temporarily modify the global TAINT_SOURCES and SECURITY_SINKS
     global TAINT_SOURCES, SECURITY_SINKS
@@ -323,14 +327,24 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    # Attempt to preload database into memory cache for performance
+    cache = None
+    if use_memory_cache:
+        from .memory_cache import attempt_cache_preload
+        cache = attempt_cache_preload(cursor, memory_limit_mb)
+        if cache:
+            print(f"[TAINT] Memory cache enabled: {cache.get_memory_usage_mb():.1f}MB used", file=sys.stderr)
+        else:
+            print("[TAINT] Memory cache disabled: falling back to disk queries", file=sys.stderr)
+    
     try:
         # Step 1: Find all taint sources in the codebase
-        # CRITICAL FIX: Pass dynamic sources to database function
-        sources = find_taint_sources(cursor, TAINT_SOURCES)
+        # CRITICAL FIX: Pass dynamic sources and cache to database function
+        sources = find_taint_sources(cursor, TAINT_SOURCES, cache=cache)
         
         # Step 2: Find all security sinks in the codebase
-        # CRITICAL FIX: Pass dynamic sinks to database function
-        sinks = find_security_sinks(cursor, SECURITY_SINKS)
+        # CRITICAL FIX: Pass dynamic sinks and cache to database function
+        sinks = find_security_sinks(cursor, SECURITY_SINKS, cache=cache)
         
         # Step 3: Build a call graph for efficient traversal
         call_graph = build_call_graph(cursor)
@@ -346,7 +360,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
             
             # Trace taint propagation from this source
             paths = trace_from_source(
-                cursor, source, source_function, sinks, call_graph, max_depth, use_cfg, stage3
+                cursor, source, source_function, sinks, call_graph, max_depth, use_cfg, stage3, cache=cache
             )
             taint_paths.extend(paths)
         

@@ -11,16 +11,26 @@ from collections import defaultdict
 from .sources import TAINT_SOURCES, SECURITY_SINKS
 
 
-def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, List[str]]] = None, 
+                      cache: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Find all occurrences of taint sources in the codebase.
+    
+    With cache: O(1) lookups, no queries
+    Without cache: Falls back to original implementation
     
     Args:
         cursor: Database cursor
         sources_dict: Optional dictionary of sources to use instead of global TAINT_SOURCES
+        cache: Optional MemoryCache for optimized lookups
     
     Returns:
         List of source occurrences found in the codebase
     """
+    # Check if cache is available and use it for O(1) lookups
+    if cache and hasattr(cache, 'find_taint_sources_cached'):
+        return cache.find_taint_sources_cached(sources_dict)
+    
+    # FALLBACK: Original disk-based implementation
     sources = []
     
     # Use provided sources or default to global
@@ -67,16 +77,26 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
     return sources
 
 
-def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, List[str]]] = None,
+                       cache: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Find all occurrences of security sinks in the codebase.
+    
+    With cache: O(1) lookups, no queries
+    Without cache: Falls back to original implementation
     
     Args:
         cursor: Database cursor
         sinks_dict: Optional dictionary of sinks to use instead of global SECURITY_SINKS
+        cache: Optional MemoryCache for optimized lookups
     
     Returns:
         List of sink occurrences found in the codebase
     """
+    # Check if cache is available and use it for O(1) lookups
+    if cache and hasattr(cache, 'find_security_sinks_cached'):
+        return cache.find_security_sinks_cached(sinks_dict)
+    
+    # FALLBACK: Original disk-based implementation
     sinks = []
     
     # Use provided sinks or default to global
