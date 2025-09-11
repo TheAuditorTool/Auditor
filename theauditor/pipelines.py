@@ -528,15 +528,16 @@ def run_full_pipeline(
         
         return sorted(set(files))
     
-    # PARALLEL PIPELINE IMPLEMENTATION
-    # Reorganize commands into stages for parallel execution
+    # PARALLEL PIPELINE IMPLEMENTATION - REBALANCED 4-STAGE STRUCTURE
+    # Reorganize commands into stages for optimal parallel execution
     
     # Stage categorization
-    foundation_commands = []  # Must run first sequentially
-    track_a_commands = []     # Network I/O track (deps, docs)
-    track_b_commands = []     # Code analysis track (workset, lint, patterns)
-    track_c_commands = []     # Graph & taint analysis track
-    final_commands = []       # Must run last sequentially
+    foundation_commands = []     # Stage 1: Must run first sequentially
+    data_prep_commands = []      # Stage 2: Data preparation (sequential)
+    track_a_commands = []        # Stage 3A: Taint analysis (isolated heavy task)
+    track_b_commands = []        # Stage 3B: Static & graph analysis
+    track_c_commands = []        # Stage 3C: Network I/O (deps, docs)
+    final_commands = []          # Stage 4: Must run last sequentially
     
     # Categorize each command into appropriate stage/track
     for phase_name, cmd in commands:
@@ -548,29 +549,36 @@ def run_full_pipeline(
         elif "detect-frameworks" in cmd_str:
             foundation_commands.append((phase_name, cmd))
         
-        # Stage 2: Parallel tracks
-        elif "deps" in cmd_str:
-            if not offline:  # Skip deps if offline mode
-                track_a_commands.append((phase_name, cmd))
-        elif "docs" in cmd_str:
-            if not offline:  # Skip docs if offline mode
-                track_a_commands.append((phase_name, cmd))
+        # Stage 2: Data Preparation (sequential, enables parallel work)
         elif "workset" in cmd_str:
-            track_b_commands.append((phase_name, cmd))
+            data_prep_commands.append((phase_name, cmd))
+        elif "graph build" in cmd_str:
+            data_prep_commands.append((phase_name, cmd))
+        elif "cfg" in cmd_str:
+            data_prep_commands.append((phase_name, cmd))
+        
+        # Stage 3: Heavy Parallel Analysis
+        # Track A: Taint analysis (isolated heavy task)
+        elif "taint" in cmd_str:
+            track_a_commands.append((phase_name, cmd))
+        
+        # Track B: Static & graph analysis
         elif "lint" in cmd_str:
             track_b_commands.append((phase_name, cmd))
         elif "detect-patterns" in cmd_str:
             track_b_commands.append((phase_name, cmd))
-        elif "graph build" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
         elif "graph analyze" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
+            track_b_commands.append((phase_name, cmd))
         elif "graph viz" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
-        elif "cfg" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
-        elif "taint" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
+            track_b_commands.append((phase_name, cmd))
+        
+        # Track C: Network I/O
+        elif "deps" in cmd_str:
+            if not offline:  # Skip deps if offline mode
+                track_c_commands.append((phase_name, cmd))
+        elif "docs" in cmd_str:
+            if not offline:  # Skip docs if offline mode
+                track_c_commands.append((phase_name, cmd))
         
         # Stage 4: Final aggregation (must run last)
         elif "fce" in cmd_str:
@@ -712,41 +720,143 @@ def run_full_pipeline(
             log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
             break
     
-    # Only proceed to parallel stage if foundation succeeded
-    if failed_phases == 0 and (track_a_commands or track_b_commands or track_c_commands):
-        # STAGE 2: Concurrent Analysis (Parallel Execution)
+    # STAGE 2: Data Preparation (Sequential) - Only if foundation succeeded
+    if failed_phases == 0 and data_prep_commands:
         log_output("\n" + "="*60)
-        log_output("[STAGE 2] CONCURRENT ANALYSIS - Parallel Execution")
+        log_output("[STAGE 2] DATA PREPARATION - Sequential Execution")
         log_output("="*60)
-        if offline:
-            log_output("[OFFLINE MODE] Skipping network operations")
-            log_output("Launching 2 parallel tracks:")
-        else:
-            log_output("Launching 3 parallel tracks:")
-            log_output("  Track A: Network I/O (deps, docs)")
-        log_output("  Track B: Code Analysis (workset, lint, patterns)")
-        log_output("  Track C: Graph & Taint Analysis")
+        log_output("Preparing data structures for parallel analysis...")
+        
+        for phase_name, cmd in data_prep_commands:
+            current_phase += 1
+            log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
+            start_time = time.time()
+            
+            try:
+                # Execute data preparation command
+                if TempManager:
+                    stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
+                        root, f"dataprep_{phase_name.replace(' ', '_')}"
+                    )
+                else:
+                    # Fallback to regular tempfile
+                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
+                         tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
+                        stdout_file = out_tmp.name
+                        stderr_file = err_tmp.name
+                
+                with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
+                     open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+                    
+                    # Determine appropriate timeout for this command
+                    cmd_timeout = get_command_timeout(cmd)
+                    
+                    result = run_subprocess_with_interrupt(
+                        cmd,
+                        stdout_fp=out_fp,
+                        stderr_fp=err_fp,
+                        cwd=root,
+                        shell=IS_WINDOWS,  # Windows compatibility fix
+                        timeout=cmd_timeout  # Adaptive timeout based on command type
+                    )
+                
+                # Read outputs
+                with open(stdout_file, 'r', encoding='utf-8') as f:
+                    result.stdout = f.read()
+                with open(stderr_file, 'r', encoding='utf-8') as f:
+                    result.stderr = f.read()
+                
+                # Clean up temp files
+                try:
+                    os.unlink(stdout_file)
+                    os.unlink(stderr_file)
+                except (OSError, PermissionError):
+                    pass
+                
+                elapsed = time.time() - start_time
+                
+                if result.returncode == 0:
+                    log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
+                    if result.stdout:
+                        lines = result.stdout.strip().split('\n')
+                        # Write FULL output to log file
+                        if log_file and len(lines) > 3:
+                            log_file.write("  [Full output below, truncated in terminal]\n")
+                            for line in lines:
+                                log_file.write(f"  {line}\n")
+                            log_file.flush()
+                        
+                        # Show first few lines in terminal
+                        for line in lines[:3]:
+                            if log_callback and not quiet:
+                                log_callback(f"  {line}", False)
+                            log_lines.append(f"  {line}")
+                        if len(lines) > 3:
+                            truncate_msg = f"  ... ({len(lines) - 3} more lines)"
+                            if log_callback and not quiet:
+                                log_callback(truncate_msg, False)
+                            log_lines.append(truncate_msg)
+                else:
+                    failed_phases += 1
+                    log_output(f"[FAILED] {phase_name} failed (exit code {result.returncode})", is_error=True)
+                    if result.stderr:
+                        # Write FULL error to log file
+                        if log_file:
+                            log_file.write(f"  [Full error output]:\n")
+                            log_file.write(f"  {result.stderr}\n")
+                            log_file.flush()
+                        # Show truncated in terminal
+                        error_msg = f"  Error: {result.stderr[:200]}"
+                        if len(result.stderr) > 200:
+                            error_msg += "... [see pipeline.log for full error]"
+                        if log_callback and not quiet:
+                            log_callback(error_msg, True)
+                        log_lines.append(error_msg)
+                    # Data prep failure stops pipeline
+                    log_output("[CRITICAL] Data preparation stage failed - stopping pipeline", is_error=True)
+                    break
+                    
+            except Exception as e:
+                failed_phases += 1
+                log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
+                break
+    
+    # Only proceed to parallel stage if foundation and data prep succeeded
+    if failed_phases == 0 and (track_a_commands or track_b_commands or track_c_commands):
+        # STAGE 3: Heavy Parallel Analysis (Rebalanced)
+        log_output("\n" + "="*60)
+        log_output("[STAGE 3] HEAVY PARALLEL ANALYSIS - Optimized Execution")
+        log_output("="*60)
+        log_output("Launching rebalanced parallel tracks:")
+        if track_a_commands:
+            log_output("  Track A: Taint Analysis (isolated heavy task)")
+        if track_b_commands:
+            log_output("  Track B: Static & Graph Analysis (lint, patterns, graph)")
+        if track_c_commands and not offline:
+            log_output("  Track C: Network I/O (deps, docs)")
+        elif offline:
+            log_output("  [OFFLINE MODE] Track C skipped")
         
         # Execute parallel tracks using ThreadPoolExecutor (Windows-safe)
         parallel_results = []
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = []
             
-            # Submit Track A if it has commands
+            # Submit Track A if it has commands (Taint Analysis)
             if track_a_commands:
-                future_a = executor.submit(run_command_chain, track_a_commands, root, "Track A (Network I/O)")
+                future_a = executor.submit(run_command_chain, track_a_commands, root, "Track A (Taint Analysis)")
                 futures.append(future_a)
                 current_phase += len(track_a_commands)
             
-            # Submit Track B if it has commands
+            # Submit Track B if it has commands (Static & Graph)
             if track_b_commands:
-                future_b = executor.submit(run_command_chain, track_b_commands, root, "Track B (Code Analysis)")
+                future_b = executor.submit(run_command_chain, track_b_commands, root, "Track B (Static & Graph)")
                 futures.append(future_b)
                 current_phase += len(track_b_commands)
             
-            # Submit Track C if it has commands
+            # Submit Track C if it has commands (Network I/O)
             if track_c_commands:
-                future_c = executor.submit(run_command_chain, track_c_commands, root, "Track C (Graph & Taint)")
+                future_c = executor.submit(run_command_chain, track_c_commands, root, "Track C (Network I/O)")
                 futures.append(future_c)
                 current_phase += len(track_c_commands)
             
@@ -851,7 +961,7 @@ def run_full_pipeline(
         
         # Print outputs from parallel tracks sequentially for clean logging
         log_output("\n" + "="*60)
-        log_output("[STAGE 2 RESULTS] Parallel Track Outputs")
+        log_output("[STAGE 3 RESULTS] Parallel Track Outputs")
         log_output("="*60)
         
         for result in parallel_results:
