@@ -423,6 +423,7 @@ def run_full_pipeline(
         ("graph", ["viz", "--view", "hotspots", "--include-analysis"]),
         ("graph", ["viz", "--view", "layers", "--include-analysis"]),
         ("cfg", ["analyze", "--complexity-threshold", "10"]),
+        ("metadata", ["churn"]),  # Collect git history (temporal dimension)
         ("taint-analyze", []),
         ("fce", []),
         ("report", []),
@@ -477,6 +478,11 @@ def run_full_pipeline(
                     description = f"{phase_num}. Visualize graph"
             elif cmd_name == "cfg":
                 description = f"{phase_num}. Control flow analysis"
+            elif cmd_name == "metadata":
+                if "churn" in extra_args:
+                    description = f"{phase_num}. Analyze code churn (git history)"
+                else:
+                    description = f"{phase_num}. Collect metadata"
             elif cmd_name == "taint-analyze":
                 description = f"{phase_num}. Taint analysis"
             elif cmd_name == "fce":
@@ -555,6 +561,8 @@ def run_full_pipeline(
         elif "graph build" in cmd_str:
             data_prep_commands.append((phase_name, cmd))
         elif "cfg" in cmd_str:
+            data_prep_commands.append((phase_name, cmd))
+        elif "metadata" in cmd_str:
             data_prep_commands.append((phase_name, cmd))
         
         # Stage 3: Heavy Parallel Analysis
