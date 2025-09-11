@@ -28,8 +28,8 @@ IS_WINDOWS = platform.system() == "Windows"
               help="Disable inter-procedural analysis (not recommended)")
 @click.option("--memory/--no-memory", default=True,
               help="Use in-memory caching for 5-10x performance (enabled by default)")
-@click.option("--memory-limit", default=4000, type=int,
-              help="Memory limit for cache in MB (default: 4000)")
+@click.option("--memory-limit", default=None, type=int,
+              help="Memory limit for cache in MB (auto-detected based on system RAM if not set)")
 def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, no_interprocedural, memory, memory_limit):
     """
     Perform taint analysis to detect security vulnerabilities.
@@ -59,7 +59,13 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
     from theauditor.taint.registry import TaintRegistry
+    from theauditor.utils.memory import get_recommended_memory_limit
     import json as json_lib
+    
+    # Auto-detect memory limit if not specified
+    if memory_limit is None:
+        memory_limit = get_recommended_memory_limit()
+        click.echo(f"[MEMORY] Using auto-detected memory limit: {memory_limit}MB")
     
     # Load configuration for default paths
     config = load_runtime_config(".")
@@ -112,7 +118,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             use_cfg=use_cfg,
             stage3=not no_interprocedural,  # Stage 3 is ON by default
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit
+            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
         
         # Extract taint paths
@@ -162,7 +168,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             use_cfg=use_cfg,
             stage3=not no_interprocedural,  # Stage 3 is ON by default
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit
+            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
     
     # Enrich raw paths with interpretive insights

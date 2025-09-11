@@ -89,7 +89,7 @@ class TaintPath:
 
 def trace_taint(db_path: str, max_depth: int = 5, registry=None, 
                 use_cfg: bool = False, stage3: bool = False,
-                use_memory_cache: bool = True, memory_limit_mb: int = 4000,
+                use_memory_cache: bool = True, memory_limit_mb: int = 12000,
                 cache: Optional['MemoryCache'] = None) -> Dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
@@ -101,7 +101,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         use_cfg: Enable flow-sensitive CFG analysis (Stage 2)
         stage3: Enable inter-procedural CFG with caching (Stage 3)
         use_memory_cache: Enable in-memory caching for performance (default: True)
-        memory_limit_mb: Memory limit for cache in MB (default: 4000)
+        memory_limit_mb: Memory limit for cache in MB (default: 12000)
         cache: Optional pre-loaded MemoryCache to use (avoids reload)
         
     Returns:

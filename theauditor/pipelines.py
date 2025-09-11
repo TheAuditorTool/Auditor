@@ -740,12 +740,17 @@ def run_full_pipeline(
             log_output("\n[CACHE] Creating pipeline-level memory cache for taint analysis...")
             import sqlite3
             from theauditor.taint.memory_cache import MemoryCache
+            from theauditor.utils.memory import get_recommended_memory_limit
             
             # Database is ALWAYS at .pf/repo_index.db
             db_path = Path(root) / ".pf" / "repo_index.db"
             
-            # Create cache with 4GB limit
-            pipeline_cache = MemoryCache(max_memory_mb=4000)
+            # Get intelligent memory limit based on system resources
+            memory_limit = get_recommended_memory_limit()
+            log_output(f"[CACHE] Memory limit set to {memory_limit}MB based on system resources")
+            
+            # Create cache with dynamic memory limit
+            pipeline_cache = MemoryCache(max_memory_mb=memory_limit)
             
             # Preload database into cache
             conn = sqlite3.connect(str(db_path))
@@ -893,10 +898,14 @@ def run_full_pipeline(
                         """Run taint analysis directly in-process with pre-loaded cache."""
                         try:
                             from theauditor.taint import trace_taint, save_taint_analysis
+                            from theauditor.utils.memory import get_recommended_memory_limit
                             
                             # Log start
                             print(f"[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]", file=sys.stderr)
                             start_time = time.time()
+                            
+                            # Get same memory limit as cache
+                            memory_limit = get_recommended_memory_limit()
                             
                             # Run taint analysis with pre-loaded cache
                             result = trace_taint(
@@ -906,7 +915,7 @@ def run_full_pipeline(
                                 use_cfg=True,   # Enable CFG analysis
                                 stage3=True,    # Enable inter-procedural analysis
                                 use_memory_cache=True,
-                                memory_limit_mb=4000,
+                                memory_limit_mb=memory_limit,
                                 cache=pipeline_cache  # Pass pre-loaded cache
                             )
                             
