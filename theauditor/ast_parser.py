@@ -256,7 +256,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         except SyntaxError:
             return None
     
-    @lru_cache(maxsize=500)
+    @lru_cache(maxsize=10000)
     def _parse_python_cached(self, content_hash: str, content: str) -> Optional[ast.AST]:
         """Parse Python code with caching based on content hash.
         
@@ -269,7 +269,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         """
         return self._parse_python_builtin(content)
     
-    @lru_cache(maxsize=500)
+    @lru_cache(maxsize=10000)
     def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
         """Parse code using Tree-sitter with caching based on content hash.
         

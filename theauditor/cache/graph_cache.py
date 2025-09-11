@@ -185,6 +185,9 @@ class GraphCache:
                 ))
         
         self.conn.commit()
+        
+        # Check if we need to evict old entries after updating file states
+        self._evict_if_needed()
     
     def remove_file_states(self, file_paths: Set[str]) -> None:
         """Remove file states for deleted files.
@@ -221,6 +224,9 @@ class GraphCache:
         
         # Update statistics
         self._update_stat("total_edges", self._get_edge_count())
+        
+        # Check if we need to evict old entries
+        self._evict_if_needed()
     
     def get_all_edges(self) -> List[Tuple[str, str, str, Optional[Dict]]]:
         """Get all cached edges for graph assembly.
@@ -367,6 +373,58 @@ class GraphCache:
         """
         cursor = self.conn.execute("SELECT COUNT(*) FROM dependency_edges")
         return cursor.fetchone()[0]
+    
+    def _evict_if_needed(self, max_edges: int = 100000, max_files: int = 50000) -> None:
+        """Evict old entries if cache grows too large.
+        
+        This prevents unbounded memory growth that could crash the program.
+        
+        Args:
+            max_edges: Maximum number of edges to keep (default: 100,000)
+            max_files: Maximum number of file states to keep (default: 50,000)
+        """
+        # Check edge count
+        edge_count = self._get_edge_count()
+        if edge_count > max_edges:
+            # Delete oldest 20% of edges based on source files that haven't been modified recently
+            to_delete = edge_count // 5
+            
+            # Find oldest files by last_modified
+            cursor = self.conn.execute("""
+                SELECT file_path FROM file_state
+                ORDER BY last_modified ASC
+                LIMIT ?
+            """, (to_delete // 10,))  # Assume ~10 edges per file average
+            
+            old_files = [row[0] for row in cursor.fetchall()]
+            
+            # Delete edges from these old files
+            for file_path in old_files:
+                self.conn.execute("""
+                    DELETE FROM dependency_edges
+                    WHERE source_file = ? OR target_file = ?
+                """, (file_path, file_path))
+            
+            self.conn.commit()
+        
+        # Check file state count
+        cursor = self.conn.execute("SELECT COUNT(*) FROM file_state")
+        file_count = cursor.fetchone()[0]
+        
+        if file_count > max_files:
+            # Delete oldest 20% of file states
+            to_delete = file_count // 5
+            
+            self.conn.execute("""
+                DELETE FROM file_state
+                WHERE file_path IN (
+                    SELECT file_path FROM file_state
+                    ORDER BY last_modified ASC
+                    LIMIT ?
+                )
+            """, (to_delete,))
+            
+            self.conn.commit()
     
     def get_stats(self) -> Dict[str, int]:
         """Get cache statistics.
