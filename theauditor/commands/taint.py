@@ -22,17 +22,19 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]), 
               default="all", help="Filter results by severity level")
 @click.option("--rules/--no-rules", default=True, help="Enable/disable rule-based detection")
-@click.option("--use-cfg/--no-cfg", default=None,
-              help="Use flow-sensitive CFG analysis (auto-detect if not specified)")
-@click.option("--stage3/--no-stage3", default=False,
-              help="Enable experimental Stage 3 features (inter-procedural CFG, caching)")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, stage3):
+@click.option("--use-cfg/--no-cfg", default=True,
+              help="Use flow-sensitive CFG analysis (enabled by default)")
+@click.option("--no-interprocedural", is_flag=True, default=False,
+              help="Disable inter-procedural analysis (not recommended)")
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, no_interprocedural):
     """
     Perform taint analysis to detect security vulnerabilities.
     
     This command traces the flow of untrusted data from taint sources
-    (user inputs) to security sinks (dangerous functions) to identify
-    potential injection vulnerabilities and data exposure risks.
+    (user inputs) to security sinks (dangerous functions) using:
+    - Control Flow Graph (CFG) for path-sensitive analysis
+    - Inter-procedural analysis to track data across function calls
+    - Unified caching for performance optimization
     
     The analysis detects:
     - SQL Injection
@@ -46,6 +48,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         aud taint-analyze
         aud taint-analyze --severity critical --verbose
         aud taint-analyze --json --output vulns.json
+        aud taint-analyze --no-interprocedural  # Not recommended - disables semantic layer
     """
     from theauditor.taint_analyzer import trace_taint, save_taint_analysis, normalize_taint_path, SECURITY_SINKS
     from theauditor.taint.insights import format_taint_report, calculate_severity, generate_summary, classify_vulnerability
@@ -103,7 +106,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             max_depth=max_depth,
             registry=registry,
             use_cfg=use_cfg,
-            stage3=stage3
+            stage3=not no_interprocedural  # Stage 3 is ON by default
         )
         
         # Extract taint paths
@@ -151,7 +154,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             db_path=str(db_path),
             max_depth=max_depth,
             use_cfg=use_cfg,
-            stage3=stage3
+            stage3=not no_interprocedural  # Stage 3 is ON by default
         )
     
     # Enrich raw paths with interpretive insights

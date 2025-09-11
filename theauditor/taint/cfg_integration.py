@@ -16,10 +16,9 @@ from .database import (
     get_paths_between_blocks,
     get_block_statements,
     get_cfg_for_function,
-    check_cfg_available,
-    has_sanitizer_between
+    check_cfg_available
 )
-from .propagation import is_sanitizer
+from .propagation import is_sanitizer, has_sanitizer_between
 
 
 @dataclass
