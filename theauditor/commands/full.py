@@ -12,7 +12,8 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--quiet", is_flag=True, help="Minimal output")
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
-def full(root, quiet, exclude_self, offline):
+@click.option("--subprocess-taint", is_flag=True, help="Run taint analysis as subprocess (slower but isolated)")
+def full(root, quiet, exclude_self, offline, subprocess_taint):
     """Run complete audit pipeline with multiple analysis phases organized in parallel stages."""
     from theauditor.pipelines import run_full_pipeline
     
@@ -29,6 +30,7 @@ def full(root, quiet, exclude_self, offline):
         quiet=quiet,
         exclude_self=exclude_self,
         offline=offline,
+        use_subprocess_for_taint=subprocess_taint,
         log_callback=log_callback if not quiet else None
     )
     
