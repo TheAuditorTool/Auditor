@@ -191,6 +191,7 @@ from theauditor.commands.insights import insights_command
 # Import new commands
 from theauditor.commands.docker_analyze import docker_analyze
 from theauditor.commands.structure import structure
+from theauditor.commands.metadata import metadata
 
 # Register simple commands
 cli.add_command(init)
@@ -237,6 +238,7 @@ cli.add_command(structure)
 # Register command groups
 cli.add_command(graph)
 cli.add_command(cfg)
+cli.add_command(metadata)
 
 # All commands have been migrated to separate modules
 

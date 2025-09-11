@@ -446,62 +446,76 @@ def run_fce(
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"[FCE] Warning: Could not load CFG analysis: {e}")
         
-        # Step B2: Load Optional Insights (ML predictions, etc.)
+        # Step B1.6: Load Metadata - Code Churn (Temporal Dimension)
+        churn_data = {}
+        churn_files = {}  # path -> churn metrics mapping
+        churn_path = raw_dir / "churn_analysis.json"
+        if churn_path.exists():
+            try:
+                with open(churn_path, 'r', encoding='utf-8') as f:
+                    churn_data = json.load(f)
+                # Index by file path for O(1) lookup during correlation
+                for file_data in churn_data.get('files', []):
+                    churn_files[file_data['path']] = file_data
+                print(f"[FCE] Loaded churn analysis: {len(churn_files)} files with git history")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"[FCE] Warning: Could not load churn analysis: {e}")
+        
+        # Step B1.7: Load Metadata - Test Coverage (Quality Dimension)
+        coverage_data = {}
+        coverage_files = {}  # path -> coverage metrics mapping
+        coverage_path = raw_dir / "coverage_analysis.json"
+        if coverage_path.exists():
+            try:
+                with open(coverage_path, 'r', encoding='utf-8') as f:
+                    coverage_data = json.load(f)
+                # Index by file path for O(1) lookup
+                for file_data in coverage_data.get('files', []):
+                    coverage_files[file_data['path']] = file_data
+                format_type = coverage_data.get('format_detected', 'unknown')
+                avg_coverage = coverage_data.get('average_coverage', 0)
+                print(f"[FCE] Loaded {format_type} coverage: {len(coverage_files)} files, {avg_coverage}% average")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"[FCE] Warning: Could not load coverage analysis: {e}")
+        
+        # Step B2: Load Optional Insights (Interpretive Analysis)
+        # IMPORTANT: Insights are kept separate from factual findings to maintain Truth Courier principles
+        insights_data = {}
         insights_dir = Path(root_path) / ".pf" / "insights"
+        
         if insights_dir.exists():
-            # Load ML suggestions if available
-            ml_path = insights_dir / "ml_suggestions.json"
-            if ml_path.exists():
+            # Dynamically load ALL JSON files from insights directory
+            # This future-proofs the system - new insights modules are automatically included
+            for insight_file in insights_dir.glob("*.json"):
                 try:
-                    with open(ml_path) as f:
-                        ml_data = json.load(f)
+                    with open(insight_file, 'r', encoding='utf-8') as f:
+                        file_data = json.load(f)
                     
-                    # Convert ML predictions to correlatable findings
-                    # ML has separate lists for root causes, risk scores, etc.
-                    for root_cause in ml_data.get("likely_root_causes", [])[:5]:  # Top 5 root causes
-                        if root_cause.get("score", 0) > 0.7:
-                            results["all_findings"].append({
-                                "file": root_cause["path"],
-                                "line": 0,  # ML doesn't provide line-level predictions
-                                "rule": "ML_ROOT_CAUSE",
-                                "tool": "ml",
-                                "message": f"ML predicts {root_cause['score']:.1%} probability as root cause",
-                                "severity": "high"
-                            })
+                    # Store each insights file's data under its name (without .json)
+                    # Examples: ml_suggestions, taint_severity, graph_health, impact_analysis, unified_insights
+                    insights_data[insight_file.stem] = file_data
+                    print(f"[FCE] Loaded insights module: {insight_file.stem}")
                     
-                    for risk_item in ml_data.get("risk", [])[:5]:  # Top 5 risky files
-                        if risk_item.get("score", 0) > 0.7:
-                            results["all_findings"].append({
-                                "file": risk_item["path"],
-                                "line": 0,
-                                "rule": f"ML_RISK_{int(risk_item['score']*100)}",
-                                "tool": "ml",
-                                "message": f"ML predicts {risk_item['score']:.1%} risk score",
-                                "severity": "high" if risk_item.get("score", 0) > 0.85 else "medium"
-                            })
-                except (json.JSONDecodeError, KeyError):
-                    pass  # ML insights are optional, continue if they fail
+                except (json.JSONDecodeError, IOError) as e:
+                    # Insights are optional - log warning but continue
+                    print(f"[FCE] Warning: Could not load insights file {insight_file.name}: {e}")
+                except Exception as e:
+                    # Catch any other errors to ensure robustness
+                    print(f"[FCE] Warning: Unexpected error loading {insight_file.name}: {e}")
             
-            # Load taint severity insights if available  
-            taint_severity_path = insights_dir / "taint_severity.json"
-            if taint_severity_path.exists():
-                try:
-                    with open(taint_severity_path) as f:
-                        taint_data = json.load(f)
-                    
-                    # Add severity-enhanced taint findings
-                    for item in taint_data.get("severity_analysis", []):
-                        if item.get("severity") in ["critical", "high"]:
-                            results["all_findings"].append({
-                                "file": item.get("file", ""),
-                                "line": item.get("line", 0),
-                                "rule": f"TAINT_{item.get('vulnerability_type', 'UNKNOWN').upper().replace(' ', '_')}",
-                                "tool": "taint-insights",
-                                "message": f"{item.get('vulnerability_type')} with {item.get('severity')} severity",
-                                "severity": item.get("severity")
-                            })
-                except (json.JSONDecodeError, KeyError):
-                    pass  # Insights are optional
+            if insights_data:
+                # Store ALL insights in a separate section to maintain fact/interpretation separation
+                # This preserves the Truth Courier model - facts and interpretations are never mixed
+                results["insights"] = insights_data
+                print(f"[FCE] Loaded {len(insights_data)} insights modules into results['insights']")
+                
+                # Log what was loaded for transparency
+                modules_loaded = list(insights_data.keys())
+                print(f"[FCE] Available insights: {', '.join(modules_loaded)}")
+            else:
+                print("[FCE] No insights data found in .pf/insights/")
+        else:
+            print("[FCE] Insights directory not found - skipping optional insights loading")
         
         # Step C: Phase 2 - Execute Tests
         # Detect test framework
@@ -860,6 +874,68 @@ def run_fce(
                                 print(f"[FCE] Meta-finding: Security issue in complex function {func_data.get('function', 'unknown')[:30]}")
                                 break  # Found the function, no need to check others
         
+        # 4. HIGH_CHURN_RISK_CORRELATION - High severity issues in volatile code (Temporal Dimension)
+        if churn_files and consolidated_findings:
+            # Calculate 90th percentile for churn (top 10% most active files)
+            all_churns = [f.get('commits_90d', 0) for f in churn_files.values()]
+            if all_churns:
+                all_churns_sorted = sorted(all_churns)
+                percentile_90_idx = int(len(all_churns_sorted) * 0.9)
+                percentile_90 = all_churns_sorted[percentile_90_idx] if percentile_90_idx < len(all_churns_sorted) else all_churns_sorted[-1]
+                
+                # Find high-severity issues in high-churn files
+                for finding in consolidated_findings:
+                    if finding.get('severity', '').lower() in ['critical', 'high']:
+                        file_path = finding.get('file', '')
+                        file_churn = churn_files.get(file_path, {})
+                        
+                        commits_90d = file_churn.get('commits_90d', 0)
+                        if commits_90d >= percentile_90 and commits_90d > 0:  # Must be in top 10% AND have commits
+                            meta_findings.append({
+                                'type': 'HIGH_CHURN_RISK_CORRELATION',
+                                'file': file_path,
+                                'line': finding.get('line', 0),
+                                'severity': 'critical',  # Escalate severity due to volatility
+                                'message': f"High-severity issue in volatile file ({commits_90d} commits in 90 days)",
+                                'description': f"File modified by {file_churn.get('unique_authors', 0)} authors, last modified {file_churn.get('days_since_modified', 0)} days ago. High churn increases regression risk.",
+                                'commits_90d': commits_90d,
+                                'unique_authors': file_churn.get('unique_authors', 0),
+                                'days_since_modified': file_churn.get('days_since_modified', 0),
+                                'percentile': 90,
+                                'original_finding': finding
+                            })
+                            print(f"[FCE] Meta-finding: High churn risk in {file_path[:50]} ({commits_90d} commits)")
+        
+        # 5. POORLY_TESTED_VULNERABILITY - Security issues in code with low test coverage (Quality Dimension)
+        if coverage_files and consolidated_findings:
+            for finding in consolidated_findings:
+                # Focus on security-related findings (taint, patterns, security scanners)
+                if finding.get('tool') in ['taint', 'taint-insights', 'patterns', 'bandit', 'semgrep', 'docker']:
+                    file_path = finding.get('file', '')
+                    file_coverage = coverage_files.get(file_path, {})
+                    
+                    # Default to 100% if no coverage data (assume tested unless proven otherwise)
+                    coverage_pct = file_coverage.get('line_coverage_percent', 100)
+                    
+                    if coverage_pct < 50:  # Less than 50% coverage threshold
+                        # Check if the specific line is uncovered (if we have that data)
+                        line_num = finding.get('line', 0)
+                        uncovered_lines = file_coverage.get('uncovered_lines', [])
+                        is_line_uncovered = line_num in uncovered_lines if uncovered_lines else True
+                        
+                        meta_findings.append({
+                            'type': 'POORLY_TESTED_VULNERABILITY',
+                            'file': file_path,
+                            'line': line_num,
+                            'severity': 'high',  # High severity due to lack of test safety net
+                            'message': f"Security issue in poorly tested code ({coverage_pct:.1f}% coverage)",
+                            'description': f"Vulnerability in {'untested' if is_line_uncovered else 'partially tested'} code. Fixes cannot be safely validated without adequate test coverage.",
+                            'line_coverage_percent': coverage_pct,
+                            'is_line_uncovered': is_line_uncovered,
+                            'original_finding': finding
+                        })
+                        print(f"[FCE] Meta-finding: Untested vulnerability in {file_path[:50]} ({coverage_pct:.1f}% coverage)")
+        
         # Store meta-findings
         results["correlations"]["meta_findings"] = meta_findings
         results["correlations"]["total_meta_findings"] = len(meta_findings)
@@ -876,13 +952,17 @@ def run_fce(
         else:
             print("[FCE] No architectural meta-findings generated (good architecture!)")
         
-        # Store graph/CFG metrics in correlations for reference
+        # Store graph/CFG/metadata metrics in correlations for reference
         results["correlations"]["graph_metrics"] = {
             "hotspot_count": len(hotspot_files),
             "cycle_count": len(cycles),
             "largest_cycle": cycles[0].get('size', 0) if cycles else 0,
             "complex_function_count": len(complex_functions),
-            "max_complexity": cfg_data.get('statistics', {}).get('max_complexity', 0) if cfg_data else 0
+            "max_complexity": cfg_data.get('statistics', {}).get('max_complexity', 0) if cfg_data else 0,
+            # Metadata metrics (temporal and quality dimensions)
+            "files_with_churn_data": len(churn_files),
+            "files_with_coverage_data": len(coverage_files),
+            "average_coverage": coverage_data.get('average_coverage', 0) if coverage_data else 0
         }
         
         # Step G: Phase 5 - CFG Path-Based Correlation (Factual control flow relationships)
