@@ -124,14 +124,15 @@ def extract_semantic_ast_symbols(node, depth=0):
     return symbols
 
 
-def extract_typescript_functions(tree: Dict, parser_self) -> List[Dict]:
-    """Extract function definitions from TypeScript semantic AST."""
+def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Dict]:
+    """Extract function metadata from TypeScript semantic AST for symbol table.
+    
+    This returns simplified metadata for the symbol table (name, line, type).
+    For CFG extraction, use extract_typescript_function_nodes instead.
+    """
     functions = []
     
-    # Common parameter names that should NEVER be marked as functions
-    PARAMETER_NAMES = {"req", "res", "next", "err", "error", "ctx", "request", "response", "callback", "done", "cb"}
-    
-    # CRITICAL FIX: Symbols are at tree["symbols"], not tree["tree"]["symbols"]
+    # Use symbols for quick metadata extraction
     for symbol in tree.get("symbols", []):
         ts_kind = symbol.get("kind", 0)
         symbol_name = symbol.get("name", "")
@@ -139,9 +140,10 @@ def extract_typescript_functions(tree: Dict, parser_self) -> List[Dict]:
         if not symbol_name or symbol_name == "anonymous":
             continue
         
-        # CRITICAL FIX: Skip known parameter names that are incorrectly marked as functions
+        # Skip parameters
+        PARAMETER_NAMES = {"req", "res", "next", "err", "error", "ctx", "request", "response", "callback", "done", "cb"}
         if symbol_name in PARAMETER_NAMES:
-            continue  # These are parameters, not function definitions
+            continue
         
         # Check if this is a function symbol
         is_function = False
@@ -149,14 +151,12 @@ def extract_typescript_functions(tree: Dict, parser_self) -> List[Dict]:
             if "Function" in ts_kind or "Method" in ts_kind:
                 is_function = True
         elif isinstance(ts_kind, (int, float)):
-            # TypeScript SymbolFlags: Function = 16, Method = 8192, Constructor = 16384
-            # Parameter = 8388608 (0x800000) - SKIP THIS
-            if ts_kind == 8388608:
-                continue  # This is a parameter, not a function
-            elif ts_kind in [16, 8192, 16384]:
+            if ts_kind == 8388608:  # Parameter
+                continue
+            elif ts_kind in [16, 8192, 16384]:  # Function, Method, Constructor
                 is_function = True
         
-        if is_function and symbol_name not in PARAMETER_NAMES:
+        if is_function:
             functions.append({
                 "name": symbol_name,
                 "line": symbol.get("line", 0),
@@ -164,6 +164,62 @@ def extract_typescript_functions(tree: Dict, parser_self) -> List[Dict]:
                 "kind": ts_kind
             })
     
+    return functions
+
+
+def extract_typescript_functions(tree: Dict, parser_self) -> List[Dict]:
+    """For backward compatibility, returns metadata for symbols."""
+    return extract_typescript_functions_for_symbols(tree, parser_self)
+
+
+def extract_typescript_function_nodes(tree: Dict, parser_self) -> List[Dict]:
+    """Extract COMPLETE function AST nodes from TypeScript semantic AST.
+    
+    This returns the full AST node for each function, including its body,
+    which is essential for Control Flow Graph construction.
+    """
+    functions = []
+    
+    # Get the actual AST tree, not the symbols
+    # The AST can be in different locations depending on how it was parsed
+    ast_root = tree.get("ast", {})
+    if not ast_root and "tree" in tree and isinstance(tree["tree"], dict):
+        # For semantic_ast type, the AST is nested at tree['tree']['ast']
+        ast_root = tree["tree"].get("ast", {})
+    
+    if not ast_root:
+        return []
+    
+    def traverse_for_functions(node, depth=0):
+        """Recursively find all function nodes in the AST."""
+        if depth > 100 or not isinstance(node, dict):
+            return
+        
+        kind = node.get("kind")
+        
+        # These are the TypeScript AST node types for functions
+        function_kinds = [
+            "FunctionDeclaration",
+            "MethodDeclaration", 
+            "ArrowFunction",
+            "FunctionExpression",
+            "Constructor",
+            "GetAccessor",
+            "SetAccessor"
+        ]
+        
+        if kind in function_kinds:
+            # Return the ENTIRE node - it contains everything including body
+            functions.append(node)
+            # Still traverse children for nested functions
+            for child in node.get("children", []):
+                traverse_for_functions(child, depth + 1)
+        else:
+            # Not a function, keep looking in children
+            for child in node.get("children", []):
+                traverse_for_functions(child, depth + 1)
+    
+    traverse_for_functions(ast_root)
     return functions
 
 
