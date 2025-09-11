@@ -151,10 +151,16 @@ class CFGBuilder:
             complexity = cfg['metrics']['cyclomatic_complexity']
             
             if complexity >= threshold:
+                # Get the start and end lines from the CFG blocks
+                start_line = min(b['start_line'] for b in cfg['blocks']) if cfg['blocks'] else 0
+                end_line = max(b['end_line'] for b in cfg['blocks']) if cfg['blocks'] else 0
+                
                 complex_functions.append({
                     'file': func['file'],
                     'function': func['function_name'],
                     'complexity': complexity,
+                    'start_line': start_line,
+                    'end_line': end_line,
                     'block_count': len(cfg['blocks']),
                     'edge_count': len(cfg['edges']),
                     'has_loops': cfg['metrics']['has_loops'],

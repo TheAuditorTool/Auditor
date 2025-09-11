@@ -20,7 +20,7 @@ def cfg():
 @click.option("--file", help="Analyze specific file only")
 @click.option("--function", help="Analyze specific function only")
 @click.option("--complexity-threshold", default=10, type=int, help="Complexity threshold for reporting")
-@click.option("--output", help="Output JSON file path")
+@click.option("--output", default="./.pf/raw/cfg_analysis.json", help="Output JSON file path")
 @click.option("--find-dead-code", is_flag=True, help="Find unreachable code blocks")
 @click.option("--workset", is_flag=True, help="Analyze workset files only")
 def analyze(db, file, function, complexity_threshold, output, find_dead_code, workset):
@@ -141,13 +141,12 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             else:
                 click.echo("[OK] No unreachable code detected")
         
-        # Save results if output specified
-        if output:
-            output_path = Path(output)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, 'w') as f:
-                json.dump(results, f, indent=2)
-            click.echo(f"\n[SAVED] Results saved to {output}")
+        # Save results to output file (always saves to .pf/raw/ by default)
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w') as f:
+            json.dump(results, f, indent=2)
+        click.echo(f"\n[SAVED] Results saved to {output}")
         
         # Summary statistics
         click.echo("\n[SUMMARY]")

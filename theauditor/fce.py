@@ -413,6 +413,39 @@ def run_fce(
         if raw_dir.exists():
             results["all_findings"] = scan_all_findings(raw_dir)
         
+        # Step B1: Load Graph Analysis Data (Hotspots, Cycles, Health)
+        graph_data = {}
+        hotspot_files = {}  # File -> hotspot data mapping
+        cycles = []  # List of dependency cycles
+        graph_path = raw_dir / "graph_analysis.json"
+        if graph_path.exists():
+            try:
+                with open(graph_path, 'r', encoding='utf-8') as f:
+                    graph_data = json.load(f)
+                # Index hotspots by file for O(1) lookup during correlation
+                for hotspot in graph_data.get('hotspots', []):
+                    hotspot_files[hotspot['id']] = hotspot
+                cycles = graph_data.get('cycles', [])
+                print(f"[FCE] Loaded graph analysis: {len(hotspot_files)} hotspots, {len(cycles)} cycles")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"[FCE] Warning: Could not load graph analysis: {e}")
+        
+        # Step B1.5: Load CFG Complexity Data (Function Complexity Metrics)
+        cfg_data = {}
+        complex_functions = {}  # file:function -> complexity data
+        cfg_path = raw_dir / "cfg_analysis.json"
+        if cfg_path.exists():
+            try:
+                with open(cfg_path, 'r', encoding='utf-8') as f:
+                    cfg_data = json.load(f)
+                # Index complex functions for correlation
+                for func in cfg_data.get('complex_functions', []):
+                    key = f"{func['file']}:{func['function']}"
+                    complex_functions[key] = func
+                print(f"[FCE] Loaded CFG analysis: {len(complex_functions)} complex functions")
+            except (json.JSONDecodeError, KeyError) as e:
+                print(f"[FCE] Warning: Could not load CFG analysis: {e}")
+        
         # Step B2: Load Optional Insights (ML predictions, etc.)
         insights_dir = Path(root_path) / ".pf" / "insights"
         if insights_dir.exists():
@@ -728,6 +761,129 @@ def run_fce(
         
         # Store factual clusters
         results["correlations"]["factual_clusters"] = factual_clusters
+        
+        # Step F2: Generate Architectural Meta-Findings (NEW)
+        # These correlations combine graph, CFG, and security findings for deeper insights
+        meta_findings = []
+        
+        # 1. ARCHITECTURAL_RISK_ESCALATION - Critical issues in architectural hotspots
+        if hotspot_files and consolidated_findings:
+            # Get top 5 hotspots sorted by score
+            top_hotspots = sorted(hotspot_files.values(), 
+                                 key=lambda x: x.get('score', 0), 
+                                 reverse=True)[:5]
+            
+            for hotspot in top_hotspots:
+                hotspot_file = hotspot['id']
+                # Find critical/high severity findings in this hotspot file
+                critical_in_hotspot = [
+                    f for f in consolidated_findings 
+                    if f.get('file') == hotspot_file and 
+                    f.get('severity', '').lower() in ['critical', 'high']
+                ]
+                
+                if critical_in_hotspot:
+                    meta_findings.append({
+                        'type': 'ARCHITECTURAL_RISK_ESCALATION',
+                        'file': hotspot_file,
+                        'severity': 'critical',
+                        'message': f"Critical security issues in architectural hotspot (connectivity score: {hotspot.get('score', 0):.2f})",
+                        'description': f"File {hotspot_file} is a key architectural component with {len(critical_in_hotspot)} critical/high issues. Changes here affect many other components.",
+                        'finding_count': len(critical_in_hotspot),
+                        'hotspot_in_degree': hotspot.get('in_degree', 0),
+                        'hotspot_out_degree': hotspot.get('out_degree', 0),
+                        'hotspot_centrality': hotspot.get('centrality', 0),
+                        'original_findings': critical_in_hotspot[:3]  # Sample of findings
+                    })
+                    print(f"[FCE] Meta-finding: Critical issues in hotspot {hotspot_file[:50]}")
+        
+        # 2. SYSTEMIC_DEBT_CLUSTER - Multiple issues in circular dependencies
+        if cycles and consolidated_findings:
+            for i, cycle in enumerate(cycles[:5]):  # Analyze top 5 cycles
+                cycle_files = set(cycle.get('nodes', []))
+                
+                # Find all findings in files that are part of this cycle
+                cycle_findings = [
+                    f for f in consolidated_findings
+                    if f.get('file') in cycle_files
+                ]
+                
+                # Only flag if there are significant issues in the cycle
+                if len(cycle_findings) >= 5:  # Threshold: 5+ issues
+                    severity_counts = {}
+                    for f in cycle_findings:
+                        sev = f.get('severity', 'low').lower()
+                        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+                    
+                    meta_findings.append({
+                        'type': 'SYSTEMIC_DEBT_CLUSTER',
+                        'severity': 'high',
+                        'message': f"Circular dependency with {len(cycle_findings)} issues across {cycle.get('size', len(cycle_files))} files",
+                        'description': f"Dependency cycle #{i+1} contains multiple code issues, making refactoring risky and error-prone.",
+                        'cycle_size': cycle.get('size', len(cycle_files)),
+                        'finding_count': len(cycle_findings),
+                        'severity_breakdown': severity_counts,
+                        'cycle_files': list(cycle_files)[:10],  # First 10 files
+                        'sample_findings': cycle_findings[:3]  # Sample findings
+                    })
+                    print(f"[FCE] Meta-finding: Debt cluster in {cycle.get('size', 0)}-file dependency cycle")
+        
+        # 3. COMPLEXITY_RISK_CORRELATION - Security issues in complex functions
+        if complex_functions and consolidated_findings:
+            for finding in consolidated_findings:
+                # Focus on security-related findings (taint, patterns, etc.)
+                if finding.get('tool') in ['taint', 'taint-insights', 'patterns', 'bandit']:
+                    file_path = finding.get('file', '')
+                    line_num = finding.get('line', 0)
+                    
+                    # Check if this finding is in a complex function
+                    for func_key, func_data in complex_functions.items():
+                        # func_key format: "file:function_name"
+                        if (func_data.get('file') == file_path and 
+                            func_data.get('start_line', 0) <= line_num <= func_data.get('end_line', float('inf'))):
+                            
+                            complexity = func_data.get('complexity', 0)
+                            if complexity > 20:  # High complexity threshold
+                                meta_findings.append({
+                                    'type': 'COMPLEXITY_RISK_CORRELATION',
+                                    'file': file_path,
+                                    'line': line_num,
+                                    'function': func_data.get('function', 'unknown'),
+                                    'severity': 'high',
+                                    'message': f"Security issue in highly complex function (complexity: {complexity})",
+                                    'description': f"Function {func_data.get('function')} has cyclomatic complexity of {complexity}, making the {finding.get('rule', 'security issue')} harder to fix and verify.",
+                                    'complexity': complexity,
+                                    'has_loops': func_data.get('has_loops', False),
+                                    'block_count': func_data.get('block_count', 0),
+                                    'original_finding': finding
+                                })
+                                print(f"[FCE] Meta-finding: Security issue in complex function {func_data.get('function', 'unknown')[:30]}")
+                                break  # Found the function, no need to check others
+        
+        # Store meta-findings
+        results["correlations"]["meta_findings"] = meta_findings
+        results["correlations"]["total_meta_findings"] = len(meta_findings)
+        
+        if meta_findings:
+            print(f"[FCE] Generated {len(meta_findings)} architectural meta-findings")
+            # Log distribution of meta-finding types
+            type_counts = {}
+            for mf in meta_findings:
+                mf_type = mf.get('type', 'unknown')
+                type_counts[mf_type] = type_counts.get(mf_type, 0) + 1
+            for mf_type, count in type_counts.items():
+                print(f"[FCE]   - {mf_type}: {count}")
+        else:
+            print("[FCE] No architectural meta-findings generated (good architecture!)")
+        
+        # Store graph/CFG metrics in correlations for reference
+        results["correlations"]["graph_metrics"] = {
+            "hotspot_count": len(hotspot_files),
+            "cycle_count": len(cycles),
+            "largest_cycle": cycles[0].get('size', 0) if cycles else 0,
+            "complex_function_count": len(complex_functions),
+            "max_complexity": cfg_data.get('statistics', {}).get('max_complexity', 0) if cfg_data else 0
+        }
         
         # Step G: Phase 5 - CFG Path-Based Correlation (Factual control flow relationships)
         path_clusters = []
