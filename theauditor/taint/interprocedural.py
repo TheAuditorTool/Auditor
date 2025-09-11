@@ -21,7 +21,8 @@ def trace_inter_procedural_flow(
     sinks: List[Dict[str, Any]],
     max_depth: int = 5,
     use_cfg: bool = False,
-    stage3: bool = False
+    stage3: bool = False,
+    cache: Optional[Any] = None
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     The 'Toss the Salad' algorithm for inter-procedural taint tracking.
@@ -264,7 +265,8 @@ def trace_inter_procedural_flow_cfg(
     source_line: int,
     source_function: str,
     sinks: List[Dict[str, Any]],
-    max_depth: int = 5
+    max_depth: int = 5,
+    cache: Optional[Any] = None
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     Stage 3: CFG-based inter-procedural taint tracking.

@@ -119,7 +119,8 @@ def trace_from_source(
     call_graph: Dict[str, List[str]],
     max_depth: int,
     use_cfg: bool = False,
-    stage3: bool = False
+    stage3: bool = False,
+    cache: Optional[Any] = None
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     Trace taint propagation from a source to potential sinks using true data flow analysis.
@@ -357,13 +358,30 @@ def trace_from_source(
                 var_name = element
             
             # Find assignments where this tainted variable is used as source
-            cursor.execute("""
-                SELECT target_var, in_function, line FROM assignments 
-                WHERE file = ? AND in_function = ? AND 
-                (source_expr LIKE ? OR source_vars LIKE ?)
-            """, (source["file"], func_name, f"%{var_name}%", f'%"{var_name}"%'))
+            if cache and hasattr(cache, 'assignments_by_func'):
+                # FAST: O(1) lookup in pre-indexed data
+                assignments = cache.assignments_by_func.get((source["file"], func_name), [])
+                
+                # Python-side filtering (still faster than SQL)
+                results = []
+                for assignment in assignments:
+                    if (var_name in assignment.get("source_expr", "") or
+                        f'"{var_name}"' in assignment.get("source_vars", "")):
+                        results.append((
+                            assignment["target_var"],
+                            assignment["in_function"],
+                            assignment["line"]
+                        ))
+            else:
+                # FALLBACK: Original query implementation
+                cursor.execute("""
+                    SELECT target_var, in_function, line FROM assignments 
+                    WHERE file = ? AND in_function = ? AND 
+                    (source_expr LIKE ? OR source_vars LIKE ?)
+                """, (source["file"], func_name, f"%{var_name}%", f'%"{var_name}"%'))
+                results = cursor.fetchall()
             
-            for target_var, in_function, line in cursor.fetchall():
+            for target_var, in_function, line in results:
                 new_element = f"{in_function}:{target_var}"
                 if new_element not in processed:
                     # CRITICAL DEBUG: Log taint propagation through assignments
@@ -373,12 +391,28 @@ def trace_from_source(
             
             # Track taint through function calls
             # Check if tainted variable is passed as argument
-            cursor.execute("""
-                SELECT callee_function, param_name, line FROM function_call_args 
-                WHERE file = ? AND caller_function = ? AND argument_expr LIKE ?
-            """, (source["file"], func_name, f"%{var_name}%"))
+            if cache and hasattr(cache, 'calls_by_caller'):
+                # FAST: O(1) lookup in pre-indexed data
+                calls = cache.calls_by_caller.get((source["file"], func_name), [])
+                
+                # Python-side filtering
+                call_results = []
+                for call in calls:
+                    if var_name in call.get("argument_expr", ""):
+                        call_results.append((
+                            call["callee_function"],
+                            call["param_name"],
+                            call["line"]
+                        ))
+            else:
+                # FALLBACK: Original query implementation
+                cursor.execute("""
+                    SELECT callee_function, param_name, line FROM function_call_args 
+                    WHERE file = ? AND caller_function = ? AND argument_expr LIKE ?
+                """, (source["file"], func_name, f"%{var_name}%"))
+                call_results = cursor.fetchall()
             
-            for callee_function, param_name, line in cursor.fetchall():
+            for callee_function, param_name, line in call_results:
                 # The parameter in the callee function is now tainted
                 new_element = f"{callee_function}:{param_name}"
                 if new_element not in processed:
@@ -388,13 +422,25 @@ def trace_from_source(
                     new_taints.add(new_element)
                 
                 # Check if the callee function returns the tainted parameter
-                cursor.execute("""
-                    SELECT return_expr FROM function_returns 
-                    WHERE file = ? AND function_name = ? AND 
-                    (return_expr LIKE ? OR return_vars LIKE ?)
-                """, (source["file"], callee_function, f"%{param_name}%", f'%"{param_name}"%'))
+                if cache and hasattr(cache, 'returns_by_function'):
+                    # FAST: O(1) lookup
+                    returns = cache.returns_by_function.get((source["file"], callee_function), [])
+                    found_return = False
+                    for ret in returns:
+                        if (param_name in ret.get("return_expr", "") or
+                            f'"{param_name}"' in ret.get("return_vars", "")):
+                            found_return = True
+                            break
+                else:
+                    # FALLBACK: Original query
+                    cursor.execute("""
+                        SELECT return_expr FROM function_returns 
+                        WHERE file = ? AND function_name = ? AND 
+                        (return_expr LIKE ? OR return_vars LIKE ?)
+                    """, (source["file"], callee_function, f"%{param_name}%", f'%"{param_name}"%'))
+                    found_return = cursor.fetchone() is not None
                 
-                if cursor.fetchone():
+                if found_return:
                     # Function returns tainted data
                     new_element = f"{callee_function}:__return__"
                     if new_element not in processed:
@@ -474,7 +520,8 @@ def trace_from_source(
                     sinks=[sink],  # Check just this specific sink
                     max_depth=3,  # Limited depth for performance
                     use_cfg=use_cfg,
-                    stage3=stage3
+                    stage3=stage3,
+                    cache=cache  # Pass cache through
                 )
                 
                 if inter_paths:
@@ -674,7 +721,8 @@ def trace_from_source_flow_sensitive(
     source_function: Dict[str, Any],
     sinks: List[Dict[str, Any]],
     call_graph: Dict[str, List[str]],
-    max_depth: int
+    max_depth: int,
+    cache: Optional[Any] = None
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     Flow-sensitive wrapper for trace_from_source.
@@ -710,5 +758,6 @@ def trace_from_source_flow_sensitive(
         call_graph=call_graph,
         max_depth=max_depth,
         use_cfg=True,  # Enable flow-sensitive analysis
-        stage3=False  # This wrapper is for Stage 2 only
+        stage3=False,  # This wrapper is for Stage 2 only
+        cache=cache  # Pass cache through
     )
