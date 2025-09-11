@@ -53,7 +53,10 @@ class IndexerOrchestrator:
         
         # Initialize components
         self.ast_parser = ASTParser()
-        self.ast_cache = ASTCache(root_path)
+        # ASTCache now expects cache_dir, not root_path
+        cache_dir = root_path / ".pf" / ".cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        self.ast_cache = ASTCache(cache_dir)
         self.db_manager = DatabaseManager(db_path, batch_size)
         self.file_walker = FileWalker(
             root_path, self.config, follow_symlinks, exclude_patterns

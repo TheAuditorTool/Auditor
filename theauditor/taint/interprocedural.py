@@ -50,7 +50,7 @@ def trace_inter_procedural_flow(
     # Stage 3: Use CFG-based inter-procedural analysis if enabled
     if stage3 and use_cfg:
         from .interprocedural_cfg import InterProceduralCFGAnalyzer
-        from .cache_manager import CFGCacheManager
+        from ..cache.cfg_cache import CFGCacheManager
         
         # Initialize cache and analyzer
         cache = CFGCacheManager()
