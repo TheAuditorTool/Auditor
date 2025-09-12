@@ -293,9 +293,9 @@ class UniversalPatternDetector:
                 ast_tree = None
                 
                 if ast_result:
-                    # Extract tree from result structure
-                    ast_tree = ast_result.get("tree")
-                    if os.environ.get("THEAUDITOR_DEBUG"):
+                    # Pass COMPLETE structure with type metadata for rules to identify AST type
+                    ast_tree = ast_result  # PRESERVES "type" field that rules require!
+                    if os.environ.get("THEAUDITOR_DEBUG", "").lower() == "true":  # Fix debug check
                         ast_type = ast_result.get("type", "unknown")
                         print(f"[DEBUG] Parsed {file_path} as {ast_type}")
                 else:
