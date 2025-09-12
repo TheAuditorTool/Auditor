@@ -307,6 +307,59 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             return True
 
         return False
+    
+    def parse_content(self, content: str, language: str, filepath: str = "unknown") -> Any:
+        """Parse in-memory content into AST.
+        
+        Why: parse_file() reads from disk, but universal_detector already has content.
+        This provides memory-based parsing with same infrastructure for both languages.
+        
+        Args:
+            content: Source code as string
+            language: Programming language ('python' or 'javascript')
+            filepath: Original file path for error messages
+            
+        Returns:
+            Dictionary with parsed AST or None if parsing fails
+        """
+        import tempfile
+        
+        # Hash for caching
+        content_bytes = content.encode('utf-8')
+        content_hash = hashlib.md5(content_bytes).hexdigest()
+        
+        # JavaScript/TypeScript need temp file for subprocess
+        if language in ["javascript", "typescript"]:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+            
+            try:
+                # Use existing semantic parser
+                semantic_result = get_semantic_ast(tmp_path)
+                if semantic_result and semantic_result.get("success"):
+                    return {
+                        "type": "semantic_ast",
+                        "tree": semantic_result,
+                        "language": language,
+                        "content": content
+                    }
+            finally:
+                os.unlink(tmp_path)
+        
+        # Python - prefer tree-sitter for consistency
+        if self.has_tree_sitter and language in self.parsers:
+            tree = self._parse_treesitter_cached(content_hash, content_bytes, language)
+            if tree:
+                return {"type": "tree_sitter", "tree": tree, "language": language, "content": content}
+        
+        # Python fallback to built-in
+        if language == "python":
+            python_ast = self._parse_python_cached(content_hash, content)
+            if python_ast:
+                return {"type": "python_ast", "tree": python_ast, "language": language, "content": content}
+        
+        return None
 
     def get_supported_languages(self) -> List[str]:
         """Get list of supported languages.
