@@ -124,6 +124,86 @@ def extract_semantic_ast_symbols(node, depth=0):
     return symbols
 
 
+def build_scope_map(ast_root: Dict) -> Dict[int, str]:
+    """Build a map of line numbers to containing function names.
+    
+    This solves the core problem: traverse() loses track of which function it's in.
+    By pre-mapping all line numbers to their containing functions, we can do O(1)
+    lookups instead of broken recursive tracking.
+    
+    Returns:
+        Dict mapping line number to function name for fast lookups
+    """
+    scope_map = {}
+    function_ranges = []
+    
+    def collect_functions(node, depth=0, parent=None, grandparent=None, parent_name=None):
+        """Recursively collect all function declarations with their line ranges.
+        
+        The JavaScript helper now provides accurate names using TypeScript's parent context.
+        We simply trust those names here.
+        """
+        if depth > 100 or not isinstance(node, dict):
+            return
+        
+        kind = node.get("kind", "")
+        
+        # Check if this is a function node
+        if kind in ["FunctionDeclaration", "MethodDeclaration", "ArrowFunction", 
+                    "FunctionExpression", "Constructor", "GetAccessor", "SetAccessor"]:
+            # CRITICAL: Trust the name from JavaScript helper - it has perfect parent context
+            name = node.get("name", "anonymous")
+            
+            # Convert dict names to strings if needed
+            if isinstance(name, dict):
+                name = name.get("text", "anonymous")
+            
+            # Get line range - TypeScript provides this!
+            start_line = node.get("line", 0)
+            end_line = node.get("endLine")
+            
+            # If no endLine, estimate based on next sibling or use heuristic
+            if not end_line:
+                # Conservative estimate: 50 lines for anonymous functions
+                end_line = start_line + 50
+            
+            if start_line > 0:  # Valid line number
+                function_ranges.append({
+                    "name": name,
+                    "start": start_line,
+                    "end": end_line,
+                    "depth": depth  # Track nesting depth for precedence
+                })
+        
+        # Recurse through children
+        for child in node.get("children", []):
+            collect_functions(child, depth + 1)
+    
+    # Collect all functions
+    collect_functions(ast_root)
+    
+    # Sort by depth (deeper functions take precedence) then by start line
+    function_ranges.sort(key=lambda x: (x["start"], -x["depth"]))
+    
+    # Build the line-to-function map
+    # Process in reverse order so deeper (more specific) functions override
+    for func in reversed(function_ranges):
+        for line in range(func["start"], func["end"] + 1):
+            # Deeper/inner functions take precedence
+            if line not in scope_map or func["depth"] > 0:
+                scope_map[line] = func["name"]
+    
+    # Fill in any gaps with "global"
+    # This ensures every line has a scope, even outside functions
+    if function_ranges:
+        max_line = max(func["end"] for func in function_ranges)
+        for line in range(1, max_line + 1):
+            if line not in scope_map:
+                scope_map[line] = "global"
+    
+    return scope_map
+
+
 def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Dict]:
     """Extract function metadata from TypeScript semantic AST for symbol table.
     
@@ -401,7 +481,10 @@ def extract_typescript_properties(tree: Dict, parser_self) -> List[Dict]:
 
 
 def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, Any]]:
-    """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring."""
+    """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring.
+    
+    CRITICAL FIX: Now uses line-based scope mapping for accurate function context.
+    """
     assignments = []
     
     # Check if parsing was successful - handle nested structure
@@ -412,11 +495,15 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
             print(f"[AST_DEBUG] extract_typescript_assignments: No success in tree", file=sys.stderr)
         return assignments
     
+    # CRITICAL FIX: Build scope map FIRST!
+    ast_root = actual_tree.get("ast", {})
+    scope_map = build_scope_map(ast_root)
+    
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
-        print(f"[AST_DEBUG] extract_typescript_assignments: Starting extraction", file=sys.stderr)
+        print(f"[AST_DEBUG] extract_typescript_assignments: Starting extraction with scope map", file=sys.stderr)
 
-    def traverse(node, current_function="global", depth=0):
+    def traverse(node, depth=0):  # No more current_function parameter!
         if depth > 100 or not isinstance(node, dict):
             return
 
@@ -431,16 +518,8 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                 if "Variable" in kind or "Assignment" in kind or "Binary" in kind or "=" in str(node.get("text", "")):
                     print(f"[AST_DEBUG] *** POTENTIAL ASSIGNMENT at depth {depth}: {kind}, text={str(node.get('text', ''))[:50]} ***", file=sys.stderr)
 
-            # --- Function Context Tracking ---
-            new_function = current_function
-            if kind in ["FunctionDeclaration", "MethodDeclaration", "ArrowFunction", "FunctionExpression"]:
-                name_node = node.get("name")
-                if name_node and isinstance(name_node, dict):
-                    new_function = name_node.get("text", "anonymous")
-                else:
-                    new_function = "anonymous"
-
             # --- Assignment Extraction ---
+            # No more function context tracking - scope map handles it!
             # 1. Standard Assignments: const x = y; or x = y;
             # NOTE: TypeScript AST has VariableDeclaration nested under FirstStatement->VariableDeclarationList
             if kind in ["VariableDeclaration", "BinaryExpression"]:
@@ -462,14 +541,18 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                             target_var = parts[0].strip()
                             source_expr = parts[1].strip()
                             if target_var and source_expr:
+                                line = node.get("line", 0)
+                                # CRITICAL FIX: Get function from scope map
+                                in_function = scope_map.get(line, "global")
+                                
                                 if os.environ.get("THEAUDITOR_DEBUG"):
                                     import sys
-                                    print(f"[AST_DEBUG] Found TS assignment: {target_var} = {source_expr[:30]}... at line {node.get('line', 0)}", file=sys.stderr)
+                                    print(f"[AST_DEBUG] Found TS assignment: {target_var} = {source_expr[:30]}... at line {line} in {in_function}", file=sys.stderr)
                                 assignments.append({
                                     "target_var": target_var,
                                     "source_expr": source_expr,
-                                    "line": node.get("line", 0),
-                                    "in_function": current_function,
+                                    "line": line,
+                                    "in_function": in_function,  # NOW ACCURATE!
                                     "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
                                 })
                     else:
@@ -486,11 +569,15 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                     if isinstance(element, dict) and element.get("name"):
                                         target_var = element.get("name", {}).get("text")
                                         if target_var:
+                                            line = element.get("line", node.get("line", 0))
+                                            # CRITICAL FIX: Get function from scope map
+                                            in_function = scope_map.get(line, "global")
+                                            
                                             assignments.append({
                                                 "target_var": target_var,
                                                 "source_expr": source_expr, # CRITICAL: Source is the original object/array
-                                                "line": element.get("line", node.get("line", 0)),
-                                                "in_function": current_function,
+                                                "line": line,
+                                                "in_function": in_function,  # NOW ACCURATE!
                                                 "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
                                             })
                             else:
@@ -498,20 +585,24 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                 target_var = target_node.get("text", "")
                                 source_expr = source_node.get("text", "")
                                 if target_var and source_expr:
+                                    line = node.get("line", 0)
+                                    # CRITICAL FIX: Get function from scope map
+                                    in_function = scope_map.get(line, "global")
+                                    
                                     if os.environ.get("THEAUDITOR_DEBUG"):
                                         import sys
-                                        print(f"[AST_DEBUG] Found assignment: {target_var} = {source_expr[:50]}... at line {node.get('line', 0)}", file=sys.stderr)
+                                        print(f"[AST_DEBUG] Found assignment: {target_var} = {source_expr[:50]}... at line {line} in {in_function}", file=sys.stderr)
                                     assignments.append({
                                         "target_var": target_var,
                                         "source_expr": source_expr,
-                                        "line": node.get("line", 0),
-                                        "in_function": current_function,
+                                        "line": line,
+                                        "in_function": in_function,  # NOW ACCURATE!
                                         "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
                                     })
 
-            # Recurse with updated function context
+            # Recurse without tracking function context (scope map handles it)
             for child in node.get("children", []):
-                traverse(child, new_function, depth + 1)
+                traverse(child, depth + 1)
 
         except Exception:
             # This safety net catches any unexpected AST structures
@@ -599,7 +690,11 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
 
 
 def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, List[str]], parser_self) -> List[Dict[str, Any]]:
-    """Extract function calls with arguments from TypeScript semantic AST."""
+    """Extract function calls with arguments from TypeScript semantic AST.
+    
+    CRITICAL FIX: Now uses line-based scope mapping instead of broken recursive tracking.
+    This solves the "100% anonymous caller" problem that crippled taint analysis.
+    """
     calls = []
     
     if os.environ.get("THEAUDITOR_DEBUG"):
@@ -612,26 +707,36 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
             print(f"[DEBUG] extract_typescript_calls_with_args: Returning early - no tree or no success")
         return calls
 
-    def traverse(node, current_function="global", depth=0):
+    # CRITICAL FIX: Build scope map FIRST before traversing!
+    # This pre-computes which function contains each line number
+    ast_root = actual_tree.get("ast", {})
+    scope_map = build_scope_map(ast_root)
+    
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        print(f"[DEBUG] Built scope map with {len(scope_map)} line mappings")
+        # Show sample mappings
+        sample_lines = sorted([l for l in scope_map.keys() if scope_map[l] != "global"])[:5]
+        for line in sample_lines:
+            print(f"[DEBUG]   Line {line} -> {scope_map[line]}")
+
+    def traverse(node, depth=0):  # No more current_function parameter!
+        """Traverse AST extracting calls. Scope is determined by line number lookup."""
         if depth > 100 or not isinstance(node, dict):
             return
 
         try:
             kind = node.get("kind", "")
 
-            # Track function context
-            new_function = current_function
-            if kind in ["FunctionDeclaration", "MethodDeclaration", "ArrowFunction", "FunctionExpression"]:
-                name_node = node.get("name")
-                if name_node and isinstance(name_node, dict):
-                    new_function = name_node.get("text", "anonymous")
-                else:
-                    new_function = "anonymous"
-
             # CallExpression: function calls
             if kind == "CallExpression":
+                line = node.get("line", 0)
+                
+                # CRITICAL FIX: Get caller from scope map using line number
+                # This is O(1) and accurate, unlike the old recursive tracking
+                caller_function = scope_map.get(line, "global")
+                
                 if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] Found CallExpression at line {node.get('line', 0)}")
+                    print(f"[DEBUG] Found CallExpression at line {line}, caller={caller_function}")
                 
                 # FIX: In TypeScript AST, the function and arguments are in children array
                 children = node.get("children", [])
@@ -650,9 +755,7 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                     callee_name = expression.get("text", "unknown")
                 
                 if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] CallExpression: callee={callee_name}, args={len(arguments)}")
-                    if arguments:
-                        print(f"[DEBUG] First arg: {arguments[0].get('text', 'N/A') if isinstance(arguments[0], dict) else arguments[0]}")
+                    print(f"[DEBUG] CallExpression: caller={caller_function}, callee={callee_name}, args={len(arguments)}")
 
                 # Get parameters for this function if we know them
                 callee_params = function_params.get(callee_name.split(".")[-1], [])
@@ -664,35 +767,41 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                         param_name = callee_params[i] if i < len(callee_params) else f"arg{i}"
 
                         calls.append({
-                            "line": node.get("line", 0),
-                            "caller_function": current_function,
+                            "line": line,
+                            "caller_function": caller_function,  # NOW ACCURATE from scope map!
                             "callee_function": callee_name,
                             "argument_index": i,
                             "argument_expr": arg_text,
                             "param_name": param_name
                         })
 
-            # Recurse with updated function context
+            # Recurse without tracking function context (scope map handles it)
             for child in node.get("children", []):
-                traverse(child, new_function, depth + 1)
+                traverse(child, depth + 1)
 
         except Exception as e:
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Error in extract_typescript_calls_with_args: {e}")
 
-    # Get AST from the correct location after unwrapping
-    ast_root = actual_tree.get("ast", {})
+    # Start traversal
     traverse(ast_root)
 
     # Debug output
     if os.environ.get("THEAUDITOR_DEBUG"):
         print(f"[DEBUG] Extracted {len(calls)} function calls with args from semantic AST")
+        # Show distribution of caller functions
+        from collections import Counter
+        caller_dist = Counter(c["caller_function"] for c in calls)
+        print(f"[DEBUG] Caller distribution: {dict(caller_dist)}")
 
     return calls
 
 
 def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
-    """Extract return statements from TypeScript semantic AST."""
+    """Extract return statements from TypeScript semantic AST.
+    
+    CRITICAL FIX: Now uses line-based scope mapping for accurate function context.
+    """
     returns = []
     
     # Check if parsing was successful - handle nested structure
@@ -700,24 +809,24 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     if not actual_tree or not actual_tree.get("success"):
         return returns
     
+    # CRITICAL FIX: Build scope map FIRST!
+    ast_root = actual_tree.get("ast", {})
+    scope_map = build_scope_map(ast_root)
+    
     # Traverse AST looking for return statements
-    def traverse(node, current_function="global", depth=0):
+    def traverse(node, depth=0):  # No more current_function parameter!
         if depth > 100 or not isinstance(node, dict):
             return
         
         kind = node.get("kind")
         
-        # Track current function context
-        if kind in ["FunctionDeclaration", "FunctionExpression", "ArrowFunction", "MethodDeclaration"]:
-            # Extract function name if available
-            name_node = node.get("name")
-            if name_node and isinstance(name_node, dict):
-                current_function = name_node.get("text", "anonymous")
-            else:
-                current_function = "anonymous"
-        
         # ReturnStatement
-        elif kind == "ReturnStatement":
+        if kind == "ReturnStatement":
+            line = node.get("line", 0)
+            
+            # CRITICAL FIX: Get function from scope map
+            current_function = scope_map.get(line, "global")
+            
             expr_node = node.get("expression", {})
             if isinstance(expr_node, dict):
                 return_expr = expr_node.get("text", "")
@@ -725,18 +834,17 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                 return_expr = str(expr_node) if expr_node else "undefined"
             
             returns.append({
-                "function_name": current_function,
-                "line": node.get("line", 0),
+                "function_name": current_function,  # NOW ACCURATE!
+                "line": line,
                 "return_expr": return_expr,
                 "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
             })
         
         # Recurse through children
         for child in node.get("children", []):
-            traverse(child, current_function, depth + 1)
+            traverse(child, depth + 1)
     
-    # Get AST from the correct location after unwrapping
-    ast_root = actual_tree.get("ast", {})
+    # Start traversal
     traverse(ast_root)
     
     return returns

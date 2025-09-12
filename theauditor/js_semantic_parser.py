@@ -274,7 +274,7 @@ try {
     );
     
     // Helper function to serialize AST nodes
-    function serializeNode(node, depth = 0) {
+    function serializeNode(node, depth = 0, parentNode = null, grandparentNode = null) {
         if (depth > 100) {  // Prevent infinite recursion
             return { kind: "TooDeep" };
         }
@@ -301,16 +301,76 @@ try {
                 } else if (node.name.text !== undefined) {
                     result.name = node.name.text;
                 } else {
-                    result.name = serializeNode(node.name, depth + 1);
+                    result.name = serializeNode(node.name, depth + 1, node, parentNode);
                 }
             } else {
                 result.name = node.name;
             }
         }
         
+        // CRITICAL FIX: Enhanced function name extraction for different node types
+        // This fixes the "100% anonymous functions" problem that crippled taint analysis
+        const nodeKind = result.kind;
+        if (!result.name || result.name === 'anonymous' || typeof result.name === 'object') {
+            // Handle function-specific name extraction
+            if (nodeKind === 'FunctionDeclaration' || nodeKind === 'MethodDeclaration') {
+                // These should always have names in node.name.escapedText
+                if (node.name && node.name.escapedText) {
+                    result.name = node.name.escapedText;
+                } else if (node.name && node.name.text) {
+                    result.name = node.name.text;
+                }
+            } else if (nodeKind === 'FunctionExpression') {
+                // Function expressions may or may not have names
+                if (node.name && node.name.escapedText) {
+                    result.name = node.name.escapedText;
+                } else if (node.name && node.name.text) {
+                    result.name = node.name.text;
+                } else {
+                    // Apply heuristics for anonymous function expressions
+                    result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
+                }
+            } else if (nodeKind === 'ArrowFunction') {
+                // Arrow functions NEVER have direct names - apply heuristics
+                result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
+            } else if (nodeKind === 'Constructor') {
+                // Constructors are always named "constructor"
+                result.name = 'constructor';
+            } else if (nodeKind === 'GetAccessor') {
+                // Getter methods
+                if (node.name && node.name.escapedText) {
+                    result.name = 'get ' + node.name.escapedText;
+                } else if (node.name && node.name.text) {
+                    result.name = 'get ' + node.name.text;
+                }
+            } else if (nodeKind === 'SetAccessor') {
+                // Setter methods
+                if (node.name && node.name.escapedText) {
+                    result.name = 'set ' + node.name.escapedText;
+                } else if (node.name && node.name.text) {
+                    result.name = 'set ' + node.name.text;
+                }
+            }
+        }
+        
+        // CRITICAL FIX: Store variable name for arrow function assignments
+        // This helps Python code resolve: const myFunc = () => {}
+        if (nodeKind === 'VariableDeclaration') {
+            const varName = node.name ? (node.name.escapedText || node.name.text) : null;
+            if (varName && node.initializer) {
+                // Check if initializer is an arrow function or function expression
+                const initKind = node.initializer.kind;
+                if (initKind === ts.SyntaxKind.ArrowFunction || 
+                    initKind === ts.SyntaxKind.FunctionExpression) {
+                    // Store variable name for later association
+                    result.variableName = varName;
+                }
+            }
+        }
+        
         // Add type information if available
         if (node.type) {
-            result.type = serializeNode(node.type, depth + 1);
+            result.type = serializeNode(node.type, depth + 1, node, parentNode);
         }
         
         // Add children - handle nodes with members property
@@ -318,11 +378,11 @@ try {
         if (node.members && Array.isArray(node.members)) {
             // Handle nodes with members (interfaces, enums, etc.)
             node.members.forEach(member => {
-                if (member) children.push(serializeNode(member, depth + 1));
+                if (member) children.push(serializeNode(member, depth + 1, node, parentNode));
             });
         }
         ts.forEachChild(node, child => {
-            if (child) children.push(serializeNode(child, depth + 1));
+            if (child) children.push(serializeNode(child, depth + 1, node, parentNode));
         });
         
         if (children.length > 0) {
@@ -346,6 +406,242 @@ try {
         result.text = sourceCode.substring(node.pos, node.end).trim();
         
         return result;
+    }
+    
+    // CRITICAL NEW FUNCTION: Apply naming heuristics using TypeScript parent context
+    function applyNamingHeuristics(node, parentNode, grandparentNode) {
+        if (!parentNode) return null;
+        
+        const parentKind = ts.SyntaxKind[parentNode.kind] || parentNode.kind;
+        
+        // CRITICAL: JSX PATTERNS MUST COME FIRST (Fix for 11% regression)
+        
+        // HEURISTIC 0: Direct JSX Attribute (onClick={handleClick})
+        if (parentKind === 'JsxAttribute') {
+            const attrName = parentNode.name?.escapedText || parentNode.name?.text;
+            if (attrName) return attrName + '_handler';
+        }
+        
+        // HEURISTIC 0.1: JSX Expression Container (onClick={() => {}})
+        // This handles nested JSX where arrow function is inside JsxExpression
+        if (parentKind === 'JsxExpression') {
+            // Traverse up to find the JsxAttribute (can be 2-3 levels up)
+            let current = parentNode;
+            let depth = 0;
+            while (current && depth < 5) {
+                if (current.parent && ts.SyntaxKind[current.parent.kind] === 'JsxAttribute') {
+                    const attrName = current.parent.name?.escapedText || current.parent.name?.text;
+                    if (attrName) return attrName + '_handler';
+                }
+                current = current.parent;
+                depth++;
+            }
+            // If in JSX but not an attribute, might be render prop child
+            if (grandparentNode && ts.SyntaxKind[grandparentNode.kind] === 'JsxElement') {
+                return 'jsx_render_function';
+            }
+        }
+        
+        // HEURISTIC 0.2: Class Properties (handleSubmit = () => {})
+        if (parentKind === 'PropertyDeclaration') {
+            const propName = parentNode.name?.escapedText || parentNode.name?.text;
+            if (propName) return propName;
+        }
+        
+        // HEURISTIC 1: Variable Assignment (const validateInput = () => {})
+        if (parentKind === 'VariableDeclaration') {
+            if (parentNode.name) {
+                const varName = parentNode.name.escapedText || parentNode.name.text;
+                if (varName) return varName;
+            }
+        }
+        
+        // HEURISTIC 2: Property Assignment ({ handleRequest: function() {} })
+        if (parentKind === 'PropertyAssignment') {
+            if (parentNode.name) {
+                const propName = parentNode.name.escapedText || parentNode.name.text;
+                if (propName) return propName;
+            }
+        }
+        
+        // HEURISTIC 3: Method Call Argument (promise.then(() => {}))
+        if (parentKind === 'CallExpression') {
+            // Get the method being called
+            if (parentNode.expression) {
+                let methodName = null;
+                
+                // Handle PropertyAccessExpression (e.g., promise.then)
+                if (parentNode.expression.kind === ts.SyntaxKind.PropertyAccessExpression) {
+                    if (parentNode.expression.name) {
+                        methodName = parentNode.expression.name.escapedText || parentNode.expression.name.text;
+                    }
+                } 
+                // Handle simple Identifier (e.g., map, filter)
+                else if (parentNode.expression.kind === ts.SyntaxKind.Identifier) {
+                    methodName = parentNode.expression.escapedText || parentNode.expression.text;
+                }
+                
+                if (methodName) {
+                    // Find which argument position this function is in
+                    const args = parentNode.arguments || [];
+                    let argIndex = 0;
+                    for (let i = 0; i < args.length; i++) {
+                        if (args[i] === node) {
+                            argIndex = i;
+                            break;
+                        }
+                    }
+                    
+                    // Special naming for common patterns
+                    if (methodName === 'then' || methodName === 'catch') {
+                        return methodName + '_callback' + (argIndex > 0 ? argIndex : '');
+                    } else if (methodName === 'map' || methodName === 'filter' || methodName === 'forEach') {
+                        return methodName + '_callback';
+                    } else if (methodName === 'addEventListener' || methodName === 'on') {
+                        // Try to get event name from first argument
+                        if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
+                            const eventName = args[0].text;
+                            return eventName + '_handler';
+                        }
+                        return 'event_handler';
+                    } else if (methodName.startsWith('use')) {
+                        // React hooks
+                        return methodName.replace('use', '').toLowerCase() + '_callback';
+                    } else {
+                        return methodName + '_arg' + argIndex;
+                    }
+                }
+            }
+        }
+        
+        // HEURISTIC 4: Array Element ([function() {}])
+        if (parentKind === 'ArrayLiteralExpression') {
+            const elements = parentNode.elements || [];
+            for (let i = 0; i < elements.length; i++) {
+                if (elements[i] === node) {
+                    return 'array_function_' + i;
+                }
+            }
+        }
+        
+        // HEURISTIC 5: Return Statement (return () => {})
+        if (parentKind === 'ReturnStatement' && grandparentNode) {
+            // Get the containing function name
+            const grandKind = ts.SyntaxKind[grandparentNode.kind];
+            if (grandKind && grandKind.includes('Function')) {
+                let containerName = 'unknown';
+                if (grandparentNode.name) {
+                    containerName = grandparentNode.name.escapedText || grandparentNode.name.text || 'unknown';
+                }
+                return containerName + '_returned_function';
+            }
+        }
+        
+        // HEURISTIC 6: IIFE ((function() {})())
+        if (parentKind === 'ParenthesizedExpression' && grandparentNode) {
+            const grandKind = ts.SyntaxKind[grandparentNode.kind];
+            if (grandKind === 'CallExpression') {
+                return 'IIFE';
+            }
+        }
+        
+        // HEURISTIC 7: React.lazy(() => import())
+        if (parentKind === 'CallExpression' && parentNode.expression) {
+            const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
+            if (exprText.includes('React.lazy')) {
+                return 'lazy_component_loader';
+            }
+        }
+        
+        // HEURISTIC 8: Binary Expression (x = () => {})
+        if (parentKind === 'BinaryExpression' && parentNode.operatorToken) {
+            if (parentNode.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+                if (parentNode.left) {
+                    const leftText = sourceCode.substring(parentNode.left.pos, parentNode.left.end).trim();
+                    if (leftText) return leftText;
+                }
+            }
+        }
+        
+        // HEURISTIC 9: Export Assignment (export default () => {})
+        if (parentKind === 'ExportAssignment') {
+            return 'default_export';
+        }
+        
+        // HEURISTIC 10: on() event handlers (redisClient.on('error', ...))
+        if (parentKind === 'CallExpression' && parentNode.expression) {
+            const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
+            if (exprText.endsWith('.on')) {
+                // Get event name from first argument
+                const args = parentNode.arguments || [];
+                if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
+                    const eventName = args[0].text;
+                    return eventName + '_handler';
+                }
+            }
+        }
+        
+        // HEURISTIC 11: Deep traversal for complex patterns (HOCs, module.exports, etc.)
+        // This catches patterns missed by single-parent checks
+        let current = node;
+        let depth = 0;
+        const visited = new Set();
+        
+        while (current && depth < 5 && !visited.has(current)) {
+            visited.add(current);
+            
+            // Check parent for additional patterns
+            if (current.parent) {
+                const currentParentKind = ts.SyntaxKind[current.parent.kind] || current.parent.kind;
+                
+                // Higher-Order Component patterns (connect, memo, forwardRef)
+                if (currentParentKind === 'CallExpression') {
+                    const expr = current.parent.expression;
+                    if (expr) {
+                        let funcName = null;
+                        if (expr.text) {
+                            funcName = expr.text;
+                        } else if (expr.name && expr.name.text) {
+                            funcName = expr.name.text;
+                        } else if (expr.escapedText) {
+                            funcName = expr.escapedText;
+                        }
+                        
+                        if (funcName === 'connect') return 'redux_connector';
+                        if (funcName === 'memo') return 'memoized_component';
+                        if (funcName === 'forwardRef') return 'forwarded_ref_component';
+                        if (funcName === 'withRouter') return 'with_router_hoc';
+                    }
+                }
+                
+                // Module.exports patterns
+                if (currentParentKind === 'BinaryExpression' && current.parent.left) {
+                    const leftText = sourceCode.substring(current.parent.left.pos, current.parent.left.end).trim();
+                    if (leftText.includes('module.exports')) {
+                        return 'module_export';
+                    }
+                    if (leftText.includes('exports.')) {
+                        const exportName = leftText.split('exports.')[1];
+                        if (exportName) return exportName.split(/[^a-zA-Z0-9_]/)[0]; // Take first valid identifier
+                    }
+                }
+                
+                // Promise chain patterns (.then().then().catch())
+                if (currentParentKind === 'PropertyAccessExpression') {
+                    const propName = current.parent.name?.escapedText || current.parent.name?.text;
+                    if (propName === 'then' || propName === 'catch' || propName === 'finally') {
+                        return propName + '_chained_callback';
+                    }
+                }
+            }
+            
+            current = current.parent;
+            depth++;
+        }
+        
+        // Last resort - line-based naming
+        const { line } = sourceFile.getLineAndCharacterOfPosition(node.pos);
+        return 'anonymous_line_' + (line + 1);
     }
     
     // Collect diagnostics (errors, warnings)
@@ -541,7 +837,7 @@ try {
             const sourceCode = sourceFile.text;
             
             // Helper function to serialize AST nodes (same as single-file version)
-            function serializeNode(node, depth = 0) {
+            function serializeNode(node, depth = 0, parentNode = null, grandparentNode = null) {
                 if (depth > 100) return { kind: "TooDeep" };
                 
                 const result = {
@@ -561,25 +857,75 @@ try {
                         } else if (node.name.text !== undefined) {
                             result.name = node.name.text;
                         } else {
-                            result.name = serializeNode(node.name, depth + 1);
+                            result.name = serializeNode(node.name, depth + 1, node, parentNode);
                         }
                     } else {
                         result.name = node.name;
                     }
                 }
                 
+                // CRITICAL FIX: Enhanced function name extraction (same as single-file version)
+                const nodeKind = result.kind;
+                if (!result.name || result.name === 'anonymous' || typeof result.name === 'object') {
+                    if (nodeKind === 'FunctionDeclaration' || nodeKind === 'MethodDeclaration') {
+                        if (node.name && node.name.escapedText) {
+                            result.name = node.name.escapedText;
+                        } else if (node.name && node.name.text) {
+                            result.name = node.name.text;
+                        }
+                    } else if (nodeKind === 'FunctionExpression') {
+                        if (node.name && node.name.escapedText) {
+                            result.name = node.name.escapedText;
+                        } else if (node.name && node.name.text) {
+                            result.name = node.name.text;
+                        } else {
+                            // Apply heuristics for anonymous function expressions
+                            result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
+                        }
+                    } else if (nodeKind === 'ArrowFunction') {
+                        // Arrow functions NEVER have direct names - apply heuristics
+                        result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
+                    } else if (nodeKind === 'Constructor') {
+                        result.name = 'constructor';
+                    } else if (nodeKind === 'GetAccessor') {
+                        if (node.name && node.name.escapedText) {
+                            result.name = 'get ' + node.name.escapedText;
+                        } else if (node.name && node.name.text) {
+                            result.name = 'get ' + node.name.text;
+                        }
+                    } else if (nodeKind === 'SetAccessor') {
+                        if (node.name && node.name.escapedText) {
+                            result.name = 'set ' + node.name.escapedText;
+                        } else if (node.name && node.name.text) {
+                            result.name = 'set ' + node.name.text;
+                        }
+                    }
+                }
+                
+                // Store variable name for arrow function assignments
+                if (nodeKind === 'VariableDeclaration') {
+                    const varName = node.name ? (node.name.escapedText || node.name.text) : null;
+                    if (varName && node.initializer) {
+                        const initKind = node.initializer.kind;
+                        if (initKind === ts.SyntaxKind.ArrowFunction || 
+                            initKind === ts.SyntaxKind.FunctionExpression) {
+                            result.variableName = varName;
+                        }
+                    }
+                }
+                
                 if (node.type) {
-                    result.type = serializeNode(node.type, depth + 1);
+                    result.type = serializeNode(node.type, depth + 1, node, parentNode);
                 }
                 
                 const children = [];
                 if (node.members && Array.isArray(node.members)) {
                     node.members.forEach(member => {
-                        if (member) children.push(serializeNode(member, depth + 1));
+                        if (member) children.push(serializeNode(member, depth + 1, node, parentNode));
                     });
                 }
                 ts.forEachChild(node, child => {
-                    if (child) children.push(serializeNode(child, depth + 1));
+                    if (child) children.push(serializeNode(child, depth + 1, node, parentNode));
                 });
                 
                 if (children.length > 0) {
@@ -595,6 +941,232 @@ try {
                 result.text = sourceCode.substring(node.pos, node.end).trim();
                 
                 return result;
+            }
+            
+            // Apply naming heuristics using TypeScript parent context
+            function applyNamingHeuristics(node, parentNode, grandparentNode) {
+                if (!parentNode) return null;
+                
+                const parentKind = ts.SyntaxKind[parentNode.kind] || parentNode.kind;
+                
+                // CRITICAL: JSX PATTERNS MUST COME FIRST (Fix for 11% regression)
+                
+                // HEURISTIC 0: Direct JSX Attribute (onClick={handleClick})
+                if (parentKind === 'JsxAttribute') {
+                    const attrName = parentNode.name?.escapedText || parentNode.name?.text;
+                    if (attrName) return attrName + '_handler';
+                }
+                
+                // HEURISTIC 0.1: JSX Expression Container (onClick={() => {}})
+                // This handles nested JSX where arrow function is inside JsxExpression
+                if (parentKind === 'JsxExpression') {
+                    // Traverse up to find the JsxAttribute (can be 2-3 levels up)
+                    let current = parentNode;
+                    let depth = 0;
+                    while (current && depth < 5) {
+                        if (current.parent && ts.SyntaxKind[current.parent.kind] === 'JsxAttribute') {
+                            const attrName = current.parent.name?.escapedText || current.parent.name?.text;
+                            if (attrName) return attrName + '_handler';
+                        }
+                        current = current.parent;
+                        depth++;
+                    }
+                    // If in JSX but not an attribute, might be render prop child
+                    if (grandparentNode && ts.SyntaxKind[grandparentNode.kind] === 'JsxElement') {
+                        return 'jsx_render_function';
+                    }
+                }
+                
+                // HEURISTIC 0.2: Class Properties (handleSubmit = () => {})
+                if (parentKind === 'PropertyDeclaration') {
+                    const propName = parentNode.name?.escapedText || parentNode.name?.text;
+                    if (propName) return propName;
+                }
+                
+                // HEURISTIC 1: Variable Assignment
+                if (parentKind === 'VariableDeclaration') {
+                    if (parentNode.name) {
+                        const varName = parentNode.name.escapedText || parentNode.name.text;
+                        if (varName) return varName;
+                    }
+                }
+                
+                // HEURISTIC 2: Property Assignment
+                if (parentKind === 'PropertyAssignment') {
+                    if (parentNode.name) {
+                        const propName = parentNode.name.escapedText || parentNode.name.text;
+                        if (propName) return propName;
+                    }
+                }
+                
+                // HEURISTIC 3: Method Call Argument
+                if (parentKind === 'CallExpression') {
+                    if (parentNode.expression) {
+                        let methodName = null;
+                        
+                        if (parentNode.expression.kind === ts.SyntaxKind.PropertyAccessExpression) {
+                            if (parentNode.expression.name) {
+                                methodName = parentNode.expression.name.escapedText || parentNode.expression.name.text;
+                            }
+                        } else if (parentNode.expression.kind === ts.SyntaxKind.Identifier) {
+                            methodName = parentNode.expression.escapedText || parentNode.expression.text;
+                        }
+                        
+                        if (methodName) {
+                            const args = parentNode.arguments || [];
+                            let argIndex = 0;
+                            for (let i = 0; i < args.length; i++) {
+                                if (args[i] === node) {
+                                    argIndex = i;
+                                    break;
+                                }
+                            }
+                            
+                            if (methodName === 'then' || methodName === 'catch') {
+                                return methodName + '_callback' + (argIndex > 0 ? argIndex : '');
+                            } else if (methodName === 'map' || methodName === 'filter' || methodName === 'forEach') {
+                                return methodName + '_callback';
+                            } else if (methodName === 'addEventListener' || methodName === 'on') {
+                                if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
+                                    const eventName = args[0].text;
+                                    return eventName + '_handler';
+                                }
+                                return 'event_handler';
+                            } else if (methodName.startsWith('use')) {
+                                return methodName.replace('use', '').toLowerCase() + '_callback';
+                            } else {
+                                return methodName + '_arg' + argIndex;
+                            }
+                        }
+                    }
+                }
+                
+                // HEURISTIC 4: Array Element
+                if (parentKind === 'ArrayLiteralExpression') {
+                    const elements = parentNode.elements || [];
+                    for (let i = 0; i < elements.length; i++) {
+                        if (elements[i] === node) {
+                            return 'array_function_' + i;
+                        }
+                    }
+                }
+                
+                // HEURISTIC 5: Return Statement
+                if (parentKind === 'ReturnStatement' && grandparentNode) {
+                    const grandKind = ts.SyntaxKind[grandparentNode.kind];
+                    if (grandKind && grandKind.includes('Function')) {
+                        let containerName = 'unknown';
+                        if (grandparentNode.name) {
+                            containerName = grandparentNode.name.escapedText || grandparentNode.name.text || 'unknown';
+                        }
+                        return containerName + '_returned_function';
+                    }
+                }
+                
+                // HEURISTIC 6: IIFE
+                if (parentKind === 'ParenthesizedExpression' && grandparentNode) {
+                    const grandKind = ts.SyntaxKind[grandparentNode.kind];
+                    if (grandKind === 'CallExpression') {
+                        return 'IIFE';
+                    }
+                }
+                
+                // HEURISTIC 7: React.lazy
+                if (parentKind === 'CallExpression' && parentNode.expression) {
+                    const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
+                    if (exprText.includes('React.lazy')) {
+                        return 'lazy_component_loader';
+                    }
+                }
+                
+                // HEURISTIC 8: Binary Expression assignment
+                if (parentKind === 'BinaryExpression' && parentNode.operatorToken) {
+                    if (parentNode.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+                        if (parentNode.left) {
+                            const leftText = sourceCode.substring(parentNode.left.pos, parentNode.left.end).trim();
+                            if (leftText) return leftText;
+                        }
+                    }
+                }
+                
+                // HEURISTIC 9: Export Assignment
+                if (parentKind === 'ExportAssignment') {
+                    return 'default_export';
+                }
+                
+                // HEURISTIC 10: on() event handlers
+                if (parentKind === 'CallExpression' && parentNode.expression) {
+                    const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
+                    if (exprText.endsWith('.on')) {
+                        const args = parentNode.arguments || [];
+                        if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
+                            const eventName = args[0].text;
+                            return eventName + '_handler';
+                        }
+                    }
+                }
+                
+                // HEURISTIC 11: Deep traversal for complex patterns (HOCs, module.exports, etc.)
+                // This catches patterns missed by single-parent checks
+                let current = node;
+                let depth = 0;
+                const visited = new Set();
+                
+                while (current && depth < 5 && !visited.has(current)) {
+                    visited.add(current);
+                    
+                    // Check parent for additional patterns
+                    if (current.parent) {
+                        const currentParentKind = ts.SyntaxKind[current.parent.kind] || current.parent.kind;
+                        
+                        // Higher-Order Component patterns (connect, memo, forwardRef)
+                        if (currentParentKind === 'CallExpression') {
+                            const expr = current.parent.expression;
+                            if (expr) {
+                                let funcName = null;
+                                if (expr.text) {
+                                    funcName = expr.text;
+                                } else if (expr.name && expr.name.text) {
+                                    funcName = expr.name.text;
+                                } else if (expr.escapedText) {
+                                    funcName = expr.escapedText;
+                                }
+                                
+                                if (funcName === 'connect') return 'redux_connector';
+                                if (funcName === 'memo') return 'memoized_component';
+                                if (funcName === 'forwardRef') return 'forwarded_ref_component';
+                                if (funcName === 'withRouter') return 'with_router_hoc';
+                            }
+                        }
+                        
+                        // Module.exports patterns
+                        if (currentParentKind === 'BinaryExpression' && current.parent.left) {
+                            const leftText = sourceCode.substring(current.parent.left.pos, current.parent.left.end).trim();
+                            if (leftText.includes('module.exports')) {
+                                return 'module_export';
+                            }
+                            if (leftText.includes('exports.')) {
+                                const exportName = leftText.split('exports.')[1];
+                                if (exportName) return exportName.split(/[^a-zA-Z0-9_]/)[0]; // Take first valid identifier
+                            }
+                        }
+                        
+                        // Promise chain patterns (.then().then().catch())
+                        if (currentParentKind === 'PropertyAccessExpression') {
+                            const propName = current.parent.name?.escapedText || current.parent.name?.text;
+                            if (propName === 'then' || propName === 'catch' || propName === 'finally') {
+                                return propName + '_chained_callback';
+                            }
+                        }
+                    }
+                    
+                    current = current.parent;
+                    depth++;
+                }
+                
+                // Last resort - line-based naming
+                const { line } = sourceFile.getLineAndCharacterOfPosition(node.pos);
+                return 'anonymous_line_' + (line + 1);
             }
             
             // Collect diagnostics for this file
