@@ -9,7 +9,7 @@ import ast
 import re
 from typing import List, Dict, Any
 
-from theauditor.rules.common.utils import (
+from theauditor.rules.common.util import (
     calculate_entropy,
     is_sequential,
     is_keyboard_walk,
