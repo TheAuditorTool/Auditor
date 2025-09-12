@@ -63,7 +63,7 @@ def track_fstrings(cursor: sqlite3.Cursor, tainted_var: str, file_path: str) -> 
         FROM assignments
         WHERE file = ?
         AND source_expr LIKE ?
-        AND source_expr LIKE '%\%%s%'
+        AND source_expr LIKE '%%%s%%'
     """, (file_path, f"%{tainted_var}%"))
     
     for target, expr in cursor.fetchall():
