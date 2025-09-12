@@ -19,6 +19,7 @@ import click
 
 from theauditor.pattern_loader import PatternLoader
 from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
+from theauditor.ast_parser import ASTParser
 
 
 @dataclass
@@ -76,6 +77,9 @@ class UniversalPatternDetector:
             project_path=self.project_path,
             db_path=self.project_path / ".pf" / "repo_index.db"
         )
+        
+        # Create unified AST parser for both languages
+        self.ast_parser = ASTParser()
         
         # Get orchestrator statistics for debugging
         stats = self.orchestrator.get_rule_stats()
@@ -284,10 +288,24 @@ class UniversalPatternDetector:
                 # Determine language
                 language = 'python' if ext == '.py' else 'javascript'
                 
-                # Create context for orchestrator
+                # Parse AST using unified parser
+                ast_result = self.ast_parser.parse_content(content, language, str(file_path))
+                ast_tree = None
+                
+                if ast_result:
+                    # Extract tree from result structure
+                    ast_tree = ast_result.get("tree")
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        ast_type = ast_result.get("type", "unknown")
+                        print(f"[DEBUG] Parsed {file_path} as {ast_type}")
+                else:
+                    print(f"[WARNING] Failed to parse AST for {file_path}")
+                
+                # Create context WITH AST for orchestrator
                 context = RuleContext(
                     file_path=file_path,
                     content=content,
+                    ast_tree=ast_tree,  # NOW PROVIDED!
                     language=language,
                     db_path=str(self.project_path / ".pf" / "repo_index.db"),
                     project_path=self.project_path
