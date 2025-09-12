@@ -60,6 +60,7 @@ class PythonExtractor(BaseExtractor):
                         'name': func.get('name', ''),
                         'type': 'function',
                         'line': func.get('line', 0),
+                        'end_line': func.get('end_line', func.get('line', 0)),  # Use end_line if available
                         'col': func.get('col', 0)
                     })
                 

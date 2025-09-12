@@ -261,16 +261,25 @@ class MemoryCache:
                 func_key = f"{file}:{func['name']}"
 
                 # Find all calls within this function's scope
-                # Use a simple heuristic: calls within 200 lines after function definition
                 calls_in_func = []
                 func_line = func["line"]
                 
-                # Get all calls in the same file
-                for call in self.symbols_by_type.get("call", []):
-                    if call["file"] == file:
-                        # Simple proximity check - can be improved with actual boundaries
-                        if func_line <= call["line"] < func_line + 200:
-                            calls_in_func.append(call["name"])
+                # CRITICAL FIX: Use actual function boundaries if available
+                func_end_line = func.get("end_line")
+                if func_end_line and func_end_line > func_line:
+                    # We have accurate boundaries - use them
+                    for call in self.symbols_by_type.get("call", []):
+                        if call["file"] == file:
+                            if func_line <= call["line"] <= func_end_line:
+                                calls_in_func.append(call["name"])
+                else:
+                    # Fallback: Use heuristic for functions without end_line
+                    # This happens for older indexed data or languages without boundary support
+                    for call in self.symbols_by_type.get("call", []):
+                        if call["file"] == file:
+                            # Use 200-line heuristic as fallback
+                            if func_line <= call["line"] < func_line + 200:
+                                calls_in_func.append(call["name"])
 
                 self.call_graph[func_key] = calls_in_func
 

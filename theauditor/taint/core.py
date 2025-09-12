@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .memory_cache import MemoryCache
 
 from .sources import TAINT_SOURCES, SECURITY_SINKS, SANITIZERS
+from .config import TaintConfig
 from .database import (
     find_taint_sources,
     find_security_sinks,
@@ -114,10 +115,8 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     import sqlite3
     import os
     
-    # We'll temporarily modify the global TAINT_SOURCES and SECURITY_SINKS
-    global TAINT_SOURCES, SECURITY_SINKS
-    original_sources = TAINT_SOURCES
-    original_sinks = SECURITY_SINKS
+    # Create configuration instead of modifying globals
+    # This ensures thread safety and reentrancy
     
     # Load framework data to enhance analysis
     frameworks = []
@@ -325,9 +324,17 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
                     if sink not in dynamic_sinks["path"]:
                         dynamic_sinks["path"].append(sink)
     
-    # Replace global TAINT_SOURCES and SECURITY_SINKS with dynamic versions
-    TAINT_SOURCES = dynamic_sources
-    SECURITY_SINKS = dynamic_sinks
+    # Create immutable config with all patterns
+    if registry:
+        # Use registry configuration
+        config = TaintConfig().with_registry(registry)
+    else:
+        # Use enhanced configuration with frameworks
+        config = TaintConfig(
+            sources=dynamic_sources,
+            sinks=dynamic_sinks,
+            sanitizers=SANITIZERS
+        )
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -350,12 +357,12 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     
     try:
         # Step 1: Find all taint sources in the codebase
-        # CRITICAL FIX: Pass dynamic sources and cache to database function
-        sources = find_taint_sources(cursor, TAINT_SOURCES, cache=cache)
+        # Pass config sources instead of global TAINT_SOURCES
+        sources = find_taint_sources(cursor, config.sources, cache=cache)
         
         # Step 2: Find all security sinks in the codebase
-        # CRITICAL FIX: Pass dynamic sinks and cache to database function
-        sinks = find_security_sinks(cursor, SECURITY_SINKS, cache=cache)
+        # Pass config sinks instead of global SECURITY_SINKS
+        sinks = find_security_sinks(cursor, config.sinks, cache=cache)
         
         # Step 3: Build a call graph for efficient traversal
         call_graph = build_call_graph(cursor)
@@ -457,9 +464,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         }
     finally:
         conn.close()
-        # Restore original TAINT_SOURCES and SECURITY_SINKS
-        TAINT_SOURCES = original_sources
-        SECURITY_SINKS = original_sinks
+        # No need to restore globals - we never modified them!
 
 
 def save_taint_analysis(analysis_result: Dict[str, Any], output_path: str = "./.pf/taint_analysis.json"):

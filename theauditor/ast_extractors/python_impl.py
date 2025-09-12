@@ -31,9 +31,12 @@ def extract_python_functions(tree: Dict, parser_self) -> List[Dict]:
     
     for node in ast.walk(actual_tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # CRITICAL FIX: Add end_line for proper function boundaries
+            end_line = getattr(node, 'end_lineno', node.lineno)
             functions.append({
                 "name": node.name,
                 "line": node.lineno,
+                "end_line": end_line,
                 "async": isinstance(node, ast.AsyncFunctionDef),
                 "args": [arg.arg for arg in node.args.args],
             })
