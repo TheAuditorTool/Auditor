@@ -18,6 +18,19 @@ from pathlib import Path
 from typing import Dict, List, Any, Callable, Optional, Set
 from dataclasses import dataclass, field
 
+# Import standardized contracts (Phase 1 addition)
+try:
+    from theauditor.rules.base import (
+        StandardRuleContext, 
+        StandardFinding, 
+        validate_rule_signature,
+        convert_old_context
+    )
+    STANDARD_CONTRACTS_AVAILABLE = True
+except ImportError:
+    # Fallback if base.py not available yet
+    STANDARD_CONTRACTS_AVAILABLE = False
+
 
 @dataclass
 class RuleInfo:
@@ -27,6 +40,7 @@ class RuleInfo:
     function: Callable
     signature: inspect.Signature
     category: str
+    is_standardized: bool = False  # NEW: Track if rule uses new interface
     requires_ast: bool = False
     requires_db: bool = False
     requires_file: bool = False
@@ -68,8 +82,29 @@ class RulesOrchestrator:
         self._taint_trace_func = None
         self._taint_conn = None  # Lazy-load database connection
         
+        # PHASE 1: Track migration progress
+        self.migration_stats = {
+            'standardized_rules': 0,
+            'legacy_rules': 0,
+            'categories_migrated': set(),
+            'categories_pending': set()
+        }
+        
+        # Count rules by type
+        for category, rules in self.rules.items():
+            for rule in rules:
+                if hasattr(rule, 'is_standardized') and rule.is_standardized:
+                    self.migration_stats['standardized_rules'] += 1
+                    self.migration_stats['categories_migrated'].add(category)
+                else:
+                    self.migration_stats['legacy_rules'] += 1
+                    self.migration_stats['categories_pending'].add(category)
+        
         if self._debug:
-            print(f"[ORCHESTRATOR] Discovered {sum(len(r) for r in self.rules.values())} rules across {len(self.rules)} categories")
+            total_rules = sum(len(r) for r in self.rules.values())
+            print(f"[ORCHESTRATOR] Discovered {total_rules} rules across {len(self.rules)} categories")
+            if STANDARD_CONTRACTS_AVAILABLE:
+                print(f"[ORCHESTRATOR] Migration Status: {self.migration_stats['standardized_rules']} standardized, {self.migration_stats['legacy_rules']} legacy")
     
     def _discover_all_rules(self) -> Dict[str, List[RuleInfo]]:
         """Dynamically discover ALL rules in /rules directory.
@@ -151,6 +186,8 @@ class RulesOrchestrator:
     def _analyze_rule(self, name: str, func: Callable, module: str, category: str) -> RuleInfo:
         """Analyze a rule function to determine its requirements.
         
+        Now detects standardized vs legacy rules for dual-mode support.
+        
         Args:
             name: Function name
             func: The function object
@@ -162,6 +199,37 @@ class RulesOrchestrator:
         """
         sig = inspect.signature(func)
         params = list(sig.parameters.keys())
+        
+        # Check if this is a standardized rule (Phase 1 addition)
+        is_standardized = False
+        if STANDARD_CONTRACTS_AVAILABLE:
+            is_standardized = validate_rule_signature(func)
+        
+        if is_standardized:
+            # New standardized rule - simple case
+            if self._debug:
+                print(f"[ORCHESTRATOR] Found STANDARDIZED rule: {category}/{name}")
+            
+            return RuleInfo(
+                name=name,
+                module=module,
+                function=func,
+                signature=sig,
+                category=category,
+                is_standardized=True,
+                # Standardized rules handle their own requirements
+                requires_ast=False,
+                requires_db=False,
+                requires_file=True,
+                requires_content=True,
+                param_count=1,
+                param_names=['context'],
+                rule_type="standard"
+            )
+        
+        # Legacy rule - maintain compatibility
+        if self._debug and STANDARD_CONTRACTS_AVAILABLE:
+            print(f"[ORCHESTRATOR] Found LEGACY rule: {category}/{name} with params: {params}")
         
         # Determine what the rule needs based on parameter names
         requires_ast = any(p in ['ast', 'tree', 'ast_tree', 'python_ast'] for p in params)
@@ -448,6 +516,8 @@ class RulesOrchestrator:
     def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> List[Dict[str, Any]]:
         """Execute a single rule with appropriate parameters.
         
+        Now handles both standardized and legacy rules (Phase 1 dual-mode).
+        
         Args:
             rule: RuleInfo object describing the rule
             context: RuleContext with available data
@@ -455,6 +525,27 @@ class RulesOrchestrator:
         Returns:
             List of findings from the rule
         """
+        # PHASE 1: Check if this is a standardized rule
+        if rule.is_standardized and STANDARD_CONTRACTS_AVAILABLE:
+            # STANDARDIZED PATH - Clean and simple
+            try:
+                # Convert old context to standardized format
+                std_context = convert_old_context(context, self.project_path)
+                
+                # Execute standardized rule
+                findings = rule.function(std_context)
+                
+                # Convert StandardFinding objects to dicts if needed
+                if findings and hasattr(findings[0], 'to_dict'):
+                    return [f.to_dict() for f in findings]
+                return findings if findings else []
+                
+            except Exception as e:
+                if self._debug:
+                    print(f"[ORCHESTRATOR] Standardized rule {rule.name} failed: {e}")
+                return []
+        
+        # LEGACY PATH - Keep existing complex logic
         # Build arguments based on what the rule needs
         kwargs = {}
         
