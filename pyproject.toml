@@ -27,7 +27,7 @@ dev = [
 ]
 linters = [
     "ruff==0.13.0",
-    "mypy==1.17.1",
+    "mypy==1.18.1",
     "black==25.1.0",
     "bandit==1.8.6",
     "pylint==3.3.8",
@@ -35,7 +35,7 @@ linters = [
 ml = [
     "scikit-learn==1.7.2",
     "numpy==2.3.3",
-    "scipy==1.16.1", 
+    "scipy==1.16.2", 
     "joblib==1.5.2",
 ]
 ast = [
@@ -49,14 +49,14 @@ all = [
     "pytest==8.4.2",
     # Linters
     "ruff==0.13.0",
-    "mypy==1.17.1",
+    "mypy==1.18.1",
     "black==25.1.0",
     "bandit==1.8.6",
     "pylint==3.3.8",
     # ML features
     "scikit-learn==1.7.2",
     "numpy==2.3.3",
-    "scipy==1.16.1",
+    "scipy==1.16.2",
     "joblib==1.5.2",
     # AST parsing
     "tree-sitter==0.25.1",
