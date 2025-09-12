@@ -31,6 +31,14 @@ class TaintPath:
         self.sink = sink
         self.path = path
         self.vulnerability_type = self._classify_vulnerability()
+        
+        # CFG-specific attributes (optional, added by cfg_integration)
+        self.flow_sensitive = False
+        self.conditions = []
+        self.condition_summary = ""
+        self.path_complexity = 0
+        self.tainted_vars = []
+        self.sanitized_vars = []
     
     def _classify_vulnerability(self) -> str:
         """Classify the vulnerability based on sink type - factual categorization."""
@@ -79,13 +87,24 @@ class TaintPath:
         sink_dict.setdefault("line", 0)
         sink_dict.setdefault("pattern", "unknown_pattern")
         
-        return {
+        result = {
             "source": source_dict,
             "sink": sink_dict,
             "path": self.path or [],
             "path_length": len(self.path) if self.path else 0,
             "vulnerability_type": self.vulnerability_type
         }
+        
+        # Include CFG metadata if present (from cfg_integration)
+        if self.flow_sensitive:
+            result["flow_sensitive"] = self.flow_sensitive
+            result["conditions"] = self.conditions
+            result["condition_summary"] = self.condition_summary
+            result["path_complexity"] = self.path_complexity
+            result["tainted_vars"] = self.tainted_vars
+            result["sanitized_vars"] = self.sanitized_vars
+        
+        return result
 
 
 def trace_taint(db_path: str, max_depth: int = 5, registry=None, 
@@ -387,12 +406,13 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         
         # Step 6: Build factual summary with vulnerability counts
         # Count vulnerabilities by type (factual categorization, not interpretation)
+        # Clean implementation - only TaintPath objects now
         vulnerabilities_by_type = defaultdict(int)
         for path in unique_paths:
-            vuln_type = path.vulnerability_type
-            vulnerabilities_by_type[vuln_type] += 1
+            vulnerabilities_by_type[path.vulnerability_type] += 1
         
         # Convert paths to dictionaries
+        # Clean implementation - all paths are TaintPath objects
         path_dicts = [p.to_dict() for p in unique_paths]
         
         # Create summary for pipeline integration
