@@ -353,6 +353,11 @@ class UniversalPatternDetector:
                         if not pattern.compiled_regex:
                             continue
                         
+                        # Check language compatibility
+                        file_language = ext.lstrip('.')  # '.yaml' -> 'yaml'
+                        if not pattern.matches_language(file_language):
+                            continue
+                        
                         # Find matches
                         for match in pattern.compiled_regex.finditer(content):
                             line_num = content.count('\n', 0, match.start()) + 1

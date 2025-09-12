@@ -19,6 +19,7 @@ from .database import (
     check_cfg_available
 )
 from .propagation import is_sanitizer, has_sanitizer_between
+from .core import TaintPath  # ARCHITECTURAL FIX: Use proper data structure
 
 
 @dataclass
@@ -436,7 +437,10 @@ class PathAnalyzer:
             
             for target_var, source_expr in self.cursor.fetchall():
                 # Check if source expression contains tainted variables
-                for tainted_var in new_state.tainted_vars:
+                # CRITICAL FIX: Create a list copy to avoid "Set changed size during iteration" error
+                # This bug only affects Python files because they have CFG data and assignments
+                # JavaScript files in PlantFlow also have this, but Python's set iteration is stricter
+                for tainted_var in list(new_state.tainted_vars):
                     if tainted_var in source_expr:
                         # Target becomes tainted
                         new_state.add_taint(target_var)
@@ -716,18 +720,23 @@ def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
             "pattern": sink["pattern"]
         })
         
-        # Stage 2: Include enhanced path information
-        taint_paths.append({
-            "source": source,
-            "sink": sink,
-            "path": path_description,
-            "flow_sensitive": True,
-            "conditions": path_info.get("conditions", []),
-            "condition_summary": path_info.get("condition_summary", ""),
-            "path_complexity": path_info.get("path_complexity", 0),
-            "tainted_vars": path_info.get("tainted_vars", []),
-            "sanitized_vars": path_info.get("sanitized_vars", [])
-        })
+        # ARCHITECTURAL FIX: Create proper TaintPath object instead of dict
+        # TaintPath will automatically calculate vulnerability_type
+        path_obj = TaintPath(
+            source=source,
+            sink=sink,
+            path=path_description
+        )
+        
+        # Add CFG-specific metadata as attributes
+        path_obj.flow_sensitive = True
+        path_obj.conditions = path_info.get("conditions", [])
+        path_obj.condition_summary = path_info.get("condition_summary", "")
+        path_obj.path_complexity = path_info.get("path_complexity", 0)
+        path_obj.tainted_vars = path_info.get("tainted_vars", [])
+        path_obj.sanitized_vars = path_info.get("sanitized_vars", [])
+        
+        taint_paths.append(path_obj)
     
     if debug:
         print(f"[CFG] Found {len(taint_paths)} vulnerable paths", file=sys.stderr)

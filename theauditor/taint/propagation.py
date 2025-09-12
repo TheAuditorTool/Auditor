@@ -338,6 +338,15 @@ def trace_from_source(
         if debug_mode and tainted_elements:
             print(f"[TAINT] JavaScript enhancement added: {tainted_elements}", file=sys.stderr)
     
+    # ENHANCEMENT: Apply Python-specific taint tracking
+    if source["file"].endswith(('.py', '.pyx')):
+        from .python import enhance_python_tracking
+        tainted_elements = enhance_python_tracking(
+            cursor, source, tainted_elements, source["file"]
+        )
+        if debug_mode and tainted_elements:
+            print(f"[TAINT] Python enhancement added: {tainted_elements}", file=sys.stderr)
+    
     # Step 2: Propagate taint through assignments (worklist algorithm)
     processed = set()
     iterations = 0
@@ -347,7 +356,9 @@ def trace_from_source(
         iterations += 1
         new_taints = set()
         
-        for element in tainted_elements - processed:
+        # Create stable copy to iterate over
+        to_process = list(tainted_elements - processed)
+        for element in to_process:
             processed.add(element)
             
             # Parse the element (format: "function:variable")
@@ -699,11 +710,16 @@ def trace_from_source_legacy(
     return paths
 
 
-def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Accepts/returns List[TaintPath]
-    """Deduplicate taint paths, keeping the shortest path for each source-sink pair."""
+def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
+    """Deduplicate taint paths, keeping the shortest path for each source-sink pair.
+    
+    Clean implementation - only handles TaintPath objects now that cfg_integration
+    has been fixed to create proper TaintPath objects instead of dicts.
+    """
     unique = {}
     
     for path in paths:
+        # Direct attribute access - no defensive checks needed
         key = (
             f"{path.source['file']}:{path.source['line']}",
             f"{path.sink['file']}:{path.sink['line']}"
