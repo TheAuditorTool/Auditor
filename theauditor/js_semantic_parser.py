@@ -336,6 +336,12 @@ try {
         result.line = line + 1;  // Convert to 1-indexed
         result.column = character;
         
+        // CRITICAL FIX: Add endLine for proper CFG boundaries (not character position)
+        if (node.end !== undefined) {
+            const endPosition = sourceFile.getLineAndCharacterOfPosition(node.end);
+            result.endLine = endPosition.line + 1;  // Convert to 1-indexed
+        }
+        
         // RESTORED: Text extraction needed for accurate symbol names in taint analysis
         result.text = sourceCode.substring(node.pos, node.end).trim();
         
@@ -382,11 +388,15 @@ try {
                 const type = checker.getTypeOfSymbolAtLocation(symbol, node);
                 const typeString = checker.typeToString(type);
                 
+                const startPos = sourceFile.getLineAndCharacterOfPosition(node.pos || 0);
+                const endPos = node.end !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.end) : startPos;
+                
                 symbols.push({
                     name: symbol.getName ? symbol.getName() : 'anonymous',
                     kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
                     type: typeString || 'unknown',
-                    line: node.pos !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.pos).line + 1 : 0
+                    line: startPos.line + 1,
+                    endLine: endPos.line + 1
                 });
             }
         } catch (e) {
@@ -614,11 +624,15 @@ try {
                         const type = checker.getTypeOfSymbolAtLocation(symbol, node);
                         const typeString = checker.typeToString(type);
                         
+                        const startPos = sourceFile.getLineAndCharacterOfPosition(node.pos || 0);
+                        const endPos = node.end !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.end) : startPos;
+                        
                         symbols.push({
                             name: symbol.getName ? symbol.getName() : 'anonymous',
                             kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
                             type: typeString || 'unknown',
-                            line: node.pos !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.pos).line + 1 : 0
+                            line: startPos.line + 1,
+                            endLine: endPos.line + 1
                         });
                     }
                 } catch (e) {

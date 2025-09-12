@@ -404,7 +404,9 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
     """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring."""
     assignments = []
     
-    if not tree or not tree.get("success"):
+    # Check if parsing was successful - handle nested structure
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
         if os.environ.get("THEAUDITOR_DEBUG"):
             import sys
             print(f"[AST_DEBUG] extract_typescript_assignments: No success in tree", file=sys.stderr)
@@ -515,7 +517,8 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
             # This safety net catches any unexpected AST structures
             pass
 
-    ast_root = tree.get("ast", {})
+    # Get AST from the correct location after unwrapping
+    ast_root = actual_tree.get("ast", {})
     traverse(ast_root)
     
     if os.environ.get("THEAUDITOR_DEBUG"):
@@ -532,7 +535,9 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
     """Extract function parameters from TypeScript semantic AST."""
     func_params = {}
     
-    if not tree or not tree.get("success"):
+    # Check if parsing was successful - handle nested structure
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
         return func_params
     
     def traverse(node, depth=0):
@@ -586,7 +591,8 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
         for child in node.get("children", []):
             traverse(child, depth + 1)
     
-    ast_root = tree.get("ast", {})
+    # Get AST from the correct location after unwrapping
+    ast_root = actual_tree.get("ast", {})
     traverse(ast_root)
     
     return func_params
@@ -599,7 +605,9 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
     if os.environ.get("THEAUDITOR_DEBUG"):
         print(f"[DEBUG] extract_typescript_calls_with_args: tree type={type(tree)}, success={tree.get('success') if tree else 'N/A'}")
     
-    if not tree or not tree.get("success"):
+    # Check if parsing was successful - handle nested structure
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] extract_typescript_calls_with_args: Returning early - no tree or no success")
         return calls
@@ -672,7 +680,8 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Error in extract_typescript_calls_with_args: {e}")
 
-    ast_root = tree.get("ast", {})
+    # Get AST from the correct location after unwrapping
+    ast_root = actual_tree.get("ast", {})
     traverse(ast_root)
 
     # Debug output
@@ -686,7 +695,9 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     """Extract return statements from TypeScript semantic AST."""
     returns = []
     
-    if not tree or not tree.get("success"):
+    # Check if parsing was successful - handle nested structure
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
         return returns
     
     # Traverse AST looking for return statements
@@ -724,7 +735,8 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         for child in node.get("children", []):
             traverse(child, current_function, depth + 1)
     
-    ast_root = tree.get("ast", {})
+    # Get AST from the correct location after unwrapping
+    ast_root = actual_tree.get("ast", {})
     traverse(ast_root)
     
     return returns
