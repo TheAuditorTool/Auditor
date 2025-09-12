@@ -422,9 +422,8 @@ class JavaScriptExtractor(BaseExtractor):
         # Entry block
         entry_block_id = get_next_block_id()
         start_line = func_node.get('line', 1)
-        # CRITICAL FIX: 'end' is character position, not line number
-        # Look for 'endLine' field from TypeScript parser, otherwise use start_line
-        end_line = func_node.get('endLine', start_line)
+        # Don't extract 'end' - it's character position not line number
+        # Exit blocks are synthetic and don't need real end line
         
         blocks.append({
             'id': entry_block_id,
@@ -570,8 +569,8 @@ class JavaScriptExtractor(BaseExtractor):
             blocks.append({
                 'id': exit_block_id,
                 'type': 'exit',
-                'start_line': end_line if end_line != start_line else start_line,
-                'end_line': end_line if end_line != start_line else start_line,
+                'start_line': start_line,  # Exit block is synthetic - use function start
+                'end_line': start_line,    # Doesn't correspond to real code lines
                 'statements': []
             })
             edges.append({'source': current_block_id, 'target': exit_block_id, 'type': 'normal'})
