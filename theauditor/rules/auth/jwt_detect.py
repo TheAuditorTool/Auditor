@@ -143,7 +143,35 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
             ))
         
         # ========================================================
-        # CHECK 5: Sensitive Data in JWT Payload
+        # CHECK 5: Insecure Transport (HTTP instead of HTTPS)
+        # ========================================================
+        cursor.execute("""
+            SELECT DISTINCT a.file, a.line, a.source_expr
+            FROM assignments a
+            WHERE a.source_expr LIKE '%http://%'
+              AND (a.target_var LIKE '%url%' OR a.target_var LIKE '%endpoint%' OR a.target_var LIKE '%base%')
+              AND EXISTS (
+                  SELECT 1 FROM function_call_args f
+                  WHERE f.file = a.file
+                    AND (f.argument_expr LIKE '%token%' OR f.argument_expr LIKE '%jwt%' OR f.argument_expr LIKE '%bearer%')
+              )
+        """)
+        
+        for file, line, url_expr in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='jwt-insecure-transport',
+                message='JWT/tokens may be transmitted over insecure HTTP',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='authentication',
+                snippet=url_expr[:100],
+                fix_suggestion='Use HTTPS for all API endpoints handling authentication tokens',
+                cwe_id='CWE-319'
+            ))
+        
+        # ========================================================
+        # CHECK 6: Sensitive Data in JWT Payload
         # ========================================================
         cursor.execute("""
             SELECT file, line, argument_expr
