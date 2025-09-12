@@ -1101,45 +1101,77 @@ def run_full_pipeline(
             start_time = time.time()
             
             try:
-                # Execute final aggregation command
-                if TempManager:
-                    stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
-                        root, f"final_{phase_name.replace(' ', '_')}"
-                    )
+                # Check if this is the FCE command
+                is_fce = "factual correlation" in phase_name.lower() or "fce" in " ".join(cmd)
+                
+                if is_fce:
+                    # FCE gets special treatment - redirect to dedicated log file
+                    fce_log_path = Path(root) / ".pf" / "fce.log"
+                    log_output(f"[INFO] Redirecting FCE output to: {fce_log_path}")
+                    
+                    # Open dedicated log file for FCE
+                    with open(fce_log_path, 'w', encoding='utf-8') as fce_log:
+                        # Write header
+                        fce_log.write(f"FCE Execution Log - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        fce_log.write("="*80 + "\n")
+                        fce_log.flush()
+                        
+                        # Determine appropriate timeout for this command
+                        cmd_timeout = get_command_timeout(cmd)
+                        
+                        # Run FCE with output directly to file
+                        result = run_subprocess_with_interrupt(
+                            cmd,
+                            stdout_fp=fce_log,
+                            stderr_fp=fce_log,
+                            cwd=root,
+                            shell=IS_WINDOWS,
+                            timeout=cmd_timeout
+                        )
+                        
+                        # Create minimal stdout/stderr for main log
+                        result.stdout = "[FCE output redirected to .pf/fce.log]"
+                        result.stderr = ""
                 else:
-                    # Fallback to regular tempfile
-                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
-                         tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
-                        stdout_file = out_tmp.name
-                        stderr_file = err_tmp.name
-                
-                with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
-                     open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+                    # Regular command - use temp files as before
+                    if TempManager:
+                        stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
+                            root, f"final_{phase_name.replace(' ', '_')}"
+                        )
+                    else:
+                        # Fallback to regular tempfile
+                        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
+                             tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
+                            stdout_file = out_tmp.name
+                            stderr_file = err_tmp.name
                     
-                    # Determine appropriate timeout for this command
-                    cmd_timeout = get_command_timeout(cmd)
+                    with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
+                         open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+                        
+                        # Determine appropriate timeout for this command
+                        cmd_timeout = get_command_timeout(cmd)
+                        
+                        result = run_subprocess_with_interrupt(
+                            cmd,
+                            stdout_fp=out_fp,
+                            stderr_fp=err_fp,
+                            cwd=root,
+                            shell=IS_WINDOWS,  # Windows compatibility fix
+                            timeout=cmd_timeout  # Adaptive timeout based on command type
+                        )
                     
-                    result = run_subprocess_with_interrupt(
-                        cmd,
-                        stdout_fp=out_fp,
-                        stderr_fp=err_fp,
-                        cwd=root,
-                        shell=IS_WINDOWS,  # Windows compatibility fix
-                        timeout=cmd_timeout  # Adaptive timeout based on command type
-                    )
-                
-                # Read outputs
-                with open(stdout_file, 'r', encoding='utf-8') as f:
-                    result.stdout = f.read()
-                with open(stderr_file, 'r', encoding='utf-8') as f:
-                    result.stderr = f.read()
-                
-                # Clean up temp files
-                try:
-                    os.unlink(stdout_file)
-                    os.unlink(stderr_file)
-                except (OSError, PermissionError):
-                    pass
+                    # Read outputs
+                    with open(stdout_file, 'r', encoding='utf-8') as f:
+                        result.stdout = f.read()
+                    with open(stderr_file, 'r', encoding='utf-8') as f:
+                        result.stderr = f.read()
+                    
+                    # Clean up temp files
+                    try:
+                        os.unlink(stdout_file)
+                        os.unlink(stderr_file)
+                    except (OSError, PermissionError):
+                        pass
                 
                 elapsed = time.time() - start_time
                 
@@ -1323,6 +1355,7 @@ def run_full_pipeline(
     log_output(f"  * .pf/readthis/ - All AI-consumable chunks")
     log_output(f"  * .pf/allfiles.md - Complete file list")
     log_output(f"  * .pf/pipeline.log - Full execution log")
+    log_output(f"  * .pf/fce.log - FCE detailed output (if FCE was run)")
     log_output(f"  * .pf/findings.json - Pattern detection results")
     log_output(f"  * .pf/risk_scores.json - Risk analysis")
     
