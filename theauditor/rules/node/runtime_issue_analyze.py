@@ -10,100 +10,66 @@ Performance: ~15x faster using SQL queries vs AST traversal
 
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-import json
-import re
+from typing import List
 
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 
-@dataclass
-class StandardRuleContext:
-    """Standard context for rule execution."""
-    db_path: Path
-    project_root: Path
-    exclusions: List[str]
-    workset_files: Optional[List[str]] = None
+def find_runtime_issues(context: StandardRuleContext) -> List[StandardFinding]:
+    """Detect Node.js runtime security issues using indexed data.
     
-
-@dataclass 
-class StandardFinding:
-    """Standard finding format for all rules."""
-    file: str
-    line: int
-    pattern: str
-    message: str
-    confidence: float
-    severity: str
-    category: str
-    snippet: Optional[str] = None
+    Detects:
+    - Command injection vulnerabilities
+    - Prototype pollution vulnerabilities
+    - Dangerous eval() usage
+    - ReDoS vulnerabilities
+    - Path traversal vulnerabilities
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format."""
-        return {
-            "file": self.file,
-            "line": self.line,
-            "pattern": self.pattern,
-            "message": self.message,
-            "confidence": self.confidence,
-            "severity": self.severity,
-            "category": self.category,
-            "snippet": self.snippet
-        }
-
-
-class NodeRuntimeAnalyzer:
-    """Analyzer for Node.js runtime security issues using SQL queries."""
+    Returns:
+        List of runtime security issues found
+    """
+    findings = []
     
-    def __init__(self, context: StandardRuleContext):
-        """Initialize with standard context."""
-        self.context = context
-        self.conn = sqlite3.connect(context.db_path)
-        self.cursor = self.conn.cursor()
-        
-        # User input sources for taint tracking
-        self.user_input_sources = [
-            'req.body', 'req.query', 'req.params', 
-            'request.body', 'request.query', 'request.params',
-            'process.argv', 'process.env'
-        ]
-        
-        # Dangerous exec functions
-        self.exec_functions = [
-            'exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync'
-        ]
-        
-        # Object manipulation functions prone to pollution
-        self.merge_functions = [
-            'Object.assign', 'merge', 'extend', 'deepMerge', 
-            'mergeDeep', 'mergeRecursive', '_.merge', '_.extend'
-        ]
-    
-    def analyze(self) -> List[StandardFinding]:
-        """Run all Node.js runtime security checks."""
-        findings = []
-        
-        try:
-            # Run each analysis
-            findings.extend(self._detect_command_injection())
-            findings.extend(self._detect_prototype_pollution())
-            findings.extend(self._detect_eval_usage())
-            findings.extend(self._detect_unsafe_regex())
-            findings.extend(self._detect_path_traversal())
-            
-            logger.info(f"Found {len(findings)} Node.js runtime issues")
-            
-        except Exception as e:
-            logger.error(f"Error during Node.js runtime analysis: {e}")
-        finally:
-            self.conn.close()
-            
+    if not context.db_path:
         return findings
     
-    def _detect_command_injection(self) -> List[StandardFinding]:
+    conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
+        
+    # User input sources for taint tracking
+    user_input_sources = [
+        'req.body', 'req.query', 'req.params', 
+        'request.body', 'request.query', 'request.params',
+        'process.argv', 'process.env'
+    ]
+    
+    # Dangerous exec functions
+    exec_functions = [
+        'exec', 'execSync', 'execFile', 'execFileSync', 'spawn', 'spawnSync'
+    ]
+    
+    # Object manipulation functions prone to pollution
+    merge_functions = [
+        'Object.assign', 'merge', 'extend', 'deepMerge', 
+        'mergeDeep', 'mergeRecursive', '_.merge', '_.extend'
+    ]
+    
+    try:
+        # Run each analysis
+        findings.extend(_detect_command_injection(cursor, user_input_sources))
+        findings.extend(_detect_prototype_pollution(cursor))
+        findings.extend(_detect_eval_usage(cursor))
+        findings.extend(_detect_unsafe_regex(cursor))
+        findings.extend(_detect_path_traversal(cursor))
+        
+    except Exception:
+        pass  # Return empty findings on error
+    finally:
+        conn.close()
+        
+    return findings
+    
+def _detect_command_injection(cursor, user_input_sources) -> List[StandardFinding]:
         """Detect command injection vulnerabilities."""
         findings = []
         
@@ -119,24 +85,25 @@ class NodeRuntimeAnalyzer:
         )
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, func, args_json = row
             
             # Check if arguments contain user input
             if args_json:
                 args_str = str(args_json).lower()
-                for source in self.user_input_sources:
+                for source in user_input_sources:
                     if source.lower() in args_str:
                         findings.append(StandardFinding(
-                            file=file,
+                            rule_name='command-injection-direct',
+                            message=f'Command injection: {func} called with user input from {source}',
+                            file_path=file,
                             line=line,
-                            pattern="command_injection_direct",
-                            message=f"Command injection: {func} called with user input from {source}",
-                            confidence=0.85,
-                            severity="CRITICAL",
-                            category="runtime_security",
-                            snippet=f"{func}({args_json[:50]}...)" if len(args_json) > 50 else f"{func}({args_json})"
+                            severity=Severity.CRITICAL,
+                            category='runtime-security',
+                            snippet=f'{func}({args_json[:50]}...)' if len(args_json) > 50 else f'{func}({args_json})',
+                            fix_suggestion='Use parameterized commands or validate/sanitize input',
+                            cwe_id='CWE-78'
                         ))
                         break
         
@@ -150,7 +117,7 @@ class NodeRuntimeAnalyzer:
            OR a.source_expr LIKE '%process.env%'
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         tainted_vars = {}
         for row in self.cursor.fetchall():
             file, line, var, source = row
@@ -170,14 +137,15 @@ class NodeRuntimeAnalyzer:
             for row in self.cursor.fetchall():
                 file, line, func = row
                 findings.append(StandardFinding(
-                    file=file,
-                    line=line,
-                    pattern="command_injection_tainted",
+                    rule_name='command-injection-tainted',
                     message=f"Command injection: {func} uses tainted variable '{var}' from {source}",
-                    confidence=0.80,
-                    severity="CRITICAL",
-                    category="runtime_security",
-                    snippet=f"{func}(...{var}...)"
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='runtime-security',
+                    snippet=f'{func}(...{var}...)',
+                    fix_suggestion='Use parameterized commands or validate/sanitize input',
+                    cwe_id='CWE-78'
                 ))
         
         # 3. Template literals with user input in exec context
@@ -188,23 +156,24 @@ class NodeRuntimeAnalyzer:
           AND (a.source_expr LIKE '%req.%' OR a.source_expr LIKE '%process.%')
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, expr = row
             findings.append(StandardFinding(
-                file=file,
+                rule_name='command-injection-template',
+                message='Template literal with user input may lead to command injection',
+                file_path=file,
                 line=line,
-                pattern="command_injection_template",
-                message="Template literal with user input may lead to command injection",
-                confidence=0.75,
-                severity="HIGH",
-                category="runtime_security",
-                snippet=expr[:80] + "..." if len(expr) > 80 else expr
+                severity=Severity.HIGH,
+                category='runtime-security',
+                snippet=expr[:80] + '...' if len(expr) > 80 else expr,
+                fix_suggestion='Use parameterized commands instead of template literals',
+                cwe_id='CWE-78'
             ))
         
         return findings
     
-    def _detect_prototype_pollution(self) -> List[StandardFinding]:
+def _detect_prototype_pollution(cursor) -> List[StandardFinding]:
         """Detect prototype pollution vulnerabilities."""
         findings = []
         
@@ -216,18 +185,19 @@ class NodeRuntimeAnalyzer:
           AND (f.args_json LIKE '%...req%' OR f.args_json LIKE '%...request%')
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, func, args = row
             findings.append(StandardFinding(
-                file=file,
+                rule_name='prototype-pollution-spread',
+                message=f'Prototype pollution: {func} with spread of user input',
+                file_path=file,
                 line=line,
-                pattern="prototype_pollution_spread",
-                message=f"Prototype pollution: {func} with spread of user input",
-                confidence=0.80,
-                severity="HIGH",
-                category="runtime_security",
-                snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})"
+                severity=Severity.HIGH,
+                category='runtime-security',
+                snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
+                fix_suggestion='Validate and sanitize object keys before merging',
+                cwe_id='CWE-1321'
             ))
         
         # 2. for...in loops without validation
@@ -238,7 +208,7 @@ class NodeRuntimeAnalyzer:
            OR (s.name LIKE 'for%in%' AND s.type = 'block')
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, name = row
             # Check if there's validation in nearby lines
@@ -258,14 +228,15 @@ class NodeRuntimeAnalyzer:
             
             if not has_validation:
                 findings.append(StandardFinding(
-                    file=file,
+                    rule_name='prototype-pollution-forin',
+                    message='for...in loop without key validation may cause prototype pollution',
+                    file_path=file,
                     line=line,
-                    pattern="prototype_pollution_forin",
-                    message="for...in loop without key validation may cause prototype pollution",
-                    confidence=0.70,
-                    severity="MEDIUM",
-                    category="runtime_security",
-                    snippet="for...in without hasOwnProperty check"
+                    severity=Severity.MEDIUM,
+                    category='runtime-security',
+                    snippet='for...in without hasOwnProperty check',
+                    fix_suggestion='Use hasOwnProperty() or Object.hasOwn() to validate keys',
+                    cwe_id='CWE-1321'
                 ))
         
         # 3. Recursive merge patterns
@@ -276,7 +247,7 @@ class NodeRuntimeAnalyzer:
           AND (s.name LIKE '%merge%' OR s.name LIKE '%extend%')
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, func_name = row
             # Check if function has recursive calls and lacks validation
@@ -292,19 +263,20 @@ class NodeRuntimeAnalyzer:
             self.cursor.execute(check_query, (file, line, line, func_name))
             if self.cursor.fetchone():
                 findings.append(StandardFinding(
-                    file=file,
+                    rule_name='prototype-pollution-recursive',
+                    message=f'Recursive {func_name} without key validation',
+                    file_path=file,
                     line=line,
-                    pattern="prototype_pollution_recursive",
-                    message=f"Recursive {func_name} without key validation",
-                    confidence=0.65,
-                    severity="MEDIUM",
-                    category="runtime_security",
-                    snippet=f"function {func_name}(...) with recursive calls"
+                    severity=Severity.MEDIUM,
+                    category='runtime-security',
+                    snippet=f'function {func_name}(...) with recursive calls',
+                    fix_suggestion='Add key validation to prevent __proto__ pollution',
+                    cwe_id='CWE-1321'
                 ))
         
         return findings
     
-    def _detect_eval_usage(self) -> List[StandardFinding]:
+def _detect_eval_usage(cursor) -> List[StandardFinding]:
         """Detect dangerous eval() usage."""
         findings = []
         
@@ -318,23 +290,24 @@ class NodeRuntimeAnalyzer:
                OR f.args_json LIKE '%data%')
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, func, args = row
             findings.append(StandardFinding(
-                file=file,
+                rule_name='eval-injection',
+                message=f'Code injection: {func} with potentially user-controlled input',
+                file_path=file,
                 line=line,
-                pattern="eval_injection",
-                message=f"Code injection: {func} with potentially user-controlled input",
-                confidence=0.85 if func == "eval" else 0.75,
-                severity="CRITICAL",
-                category="runtime_security",
-                snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})"
+                severity=Severity.CRITICAL,
+                category='runtime-security',
+                snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
+                fix_suggestion='Avoid eval() and Function() constructor with user input',
+                cwe_id='CWE-94'
             ))
         
         return findings
     
-    def _detect_unsafe_regex(self) -> List[StandardFinding]:
+def _detect_unsafe_regex(cursor) -> List[StandardFinding]:
         """Detect ReDoS vulnerabilities from unsafe regex patterns."""
         findings = []
         
@@ -346,23 +319,24 @@ class NodeRuntimeAnalyzer:
           AND (f.args_json LIKE '%req.%' OR f.args_json LIKE '%input%')
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, args = row
             findings.append(StandardFinding(
-                file=file,
+                rule_name='unsafe-regex',
+                message='ReDoS: RegExp constructed from user input',
+                file_path=file,
                 line=line,
-                pattern="unsafe_regex",
-                message="ReDoS: RegExp constructed from user input",
-                confidence=0.80,
-                severity="HIGH",
-                category="runtime_security",
-                snippet=f"new RegExp({args[:50]}...)" if len(args) > 50 else f"new RegExp({args})"
+                severity=Severity.HIGH,
+                category='runtime-security',
+                snippet=f'new RegExp({args[:50]}...)' if len(args) > 50 else f'new RegExp({args})',
+                fix_suggestion='Use pre-defined regex patterns or validate input',
+                cwe_id='CWE-1333'
             ))
         
         return findings
     
-    def _detect_path_traversal(self) -> List[StandardFinding]:
+def _detect_path_traversal(cursor) -> List[StandardFinding]:
         """Detect path traversal vulnerabilities."""
         findings = []
         
@@ -381,27 +355,21 @@ class NodeRuntimeAnalyzer:
                OR f.args_json LIKE '%input%')
         """
         
-        self.cursor.execute(query)
+        cursor.execute(query)
         for row in self.cursor.fetchall():
             file, line, func, args = row
             # Check if path.join or normalization is used
             if 'path.join' not in args and 'path.resolve' not in args:
                 findings.append(StandardFinding(
-                    file=file,
+                    rule_name='path-traversal',
+                    message=f'Path traversal: {func} with user input and no path normalization',
+                    file_path=file,
                     line=line,
-                    pattern="path_traversal",
-                    message=f"Path traversal: {func} with user input and no path normalization",
-                    confidence=0.75,
-                    severity="HIGH",
-                    category="runtime_security",
-                    snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})"
+                    severity=Severity.HIGH,
+                    category='runtime-security',
+                    snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
+                    fix_suggestion='Use path.join() or path.resolve() to normalize paths',
+                    cwe_id='CWE-22'
                 ))
         
         return findings
-
-
-def analyze(context: StandardRuleContext) -> List[Dict[str, Any]]:
-    """Entry point for the analyzer."""
-    analyzer = NodeRuntimeAnalyzer(context)
-    findings = analyzer.analyze()
-    return [f.to_dict() for f in findings]

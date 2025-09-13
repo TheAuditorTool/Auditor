@@ -5,13 +5,11 @@ by querying the indexed database instead of traversing AST structures.
 """
 
 import sqlite3
-from typing import List, Dict, Any, Set
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from typing import List, Set
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 
-def detect_rate_limit_patterns(db_path: str) -> List[Dict[str, Any]]:
+def find_rate_limit_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """
     Detect rate limiting misconfigurations using SQL queries.
     
@@ -22,15 +20,18 @@ def detect_rate_limit_patterns(db_path: str) -> List[Dict[str, Any]]:
     - Non-persistent storage (in-memory store)
     
     Args:
-        db_path: Path to the repo_index.db database
+        context: StandardRuleContext with database path
         
     Returns:
-        List of security findings in StandardFinding format
+        List of StandardFinding objects
     """
     findings = []
     
+    if not context.db_path:
+        return findings
+    
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
         
         # Pattern 1: Rate limiting after authentication middleware
@@ -50,13 +51,13 @@ def detect_rate_limit_patterns(db_path: str) -> List[Dict[str, Any]]:
         
         conn.close()
         
-    except Exception as e:
-        logger.error(f"Error detecting rate limit patterns: {e}")
+    except Exception:
+        pass  # Return empty findings on error
     
     return findings
 
 
-def _find_middleware_ordering_issues(cursor) -> List[Dict[str, Any]]:
+def _find_middleware_ordering_issues(cursor) -> List[StandardFinding]:
     """Find cases where auth middleware runs before rate limiting."""
     findings = []
     
@@ -136,17 +137,17 @@ def _find_middleware_ordering_issues(cursor) -> List[Dict[str, Any]]:
         if rate_limit_line > 0:
             for auth_line in auth_lines:
                 if auth_line < rate_limit_line:
-                    findings.append({
-                        'rule_id': 'rate-limit-after-auth',
-                        'message': 'Authentication middleware runs before rate limiting - expensive operation not protected',
-                        'file': file,
-                        'line': auth_line,
-                        'column': 0,
-                        'severity': 'high',
-                        'category': 'security',
-                        'confidence': 'high',
-                        'description': 'Authentication logic (DB queries, bcrypt) runs before rate limiting check. Move rate limiting middleware before authentication.'
-                    })
+                    findings.append(StandardFinding(
+                        rule_name='rate-limit-after-auth',
+                        message='Authentication middleware runs before rate limiting - expensive operation not protected',
+                        file_path=file,
+                        line=auth_line,
+                        severity=Severity.HIGH,
+                        category='security',
+                        snippet='app.use(authenticate) // before rate limiting',
+                        fix_suggestion='Move rate limiting middleware before authentication',
+                        cwe_id='CWE-770'
+                    ))
     
     # Also check for decorators in Python
     cursor.execute("""
@@ -214,22 +215,22 @@ def _find_middleware_ordering_issues(cursor) -> List[Dict[str, Any]]:
                     auth_line = dec['line']
             
             if rate_limit_line > 0 and auth_line > 0 and auth_line < rate_limit_line:
-                findings.append({
-                    'rule_id': 'rate-limit-after-auth',
-                    'message': 'Authentication decorator runs before rate limiting decorator',
-                    'file': file,
-                    'line': auth_line,
-                    'column': 0,
-                    'severity': 'high',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': 'Place rate limiting decorator before authentication decorator to protect expensive operations.'
-                })
+                findings.append(StandardFinding(
+                    rule_name='rate-limit-after-auth',
+                    message='Authentication decorator runs before rate limiting decorator',
+                    file_path=file,
+                    line=auth_line,
+                    severity=Severity.HIGH,
+                    category='security',
+                    snippet='@login_required // before @rate_limit',
+                    fix_suggestion='Place rate limiting decorator before authentication decorator',
+                    cwe_id='CWE-770'
+                ))
     
     return findings
 
 
-def _find_unprotected_critical_endpoints(cursor) -> List[Dict[str, Any]]:
+def _find_unprotected_critical_endpoints(cursor) -> List[StandardFinding]:
     """Find critical endpoints without rate limiting protection."""
     findings = []
     
@@ -304,22 +305,22 @@ def _find_unprotected_critical_endpoints(cursor) -> List[Dict[str, Any]]:
                 has_rate_limit = cursor.fetchone()[0] > 0
             
             if not has_rate_limit:
-                findings.append({
-                    'rule_id': 'missing-rate-limit-critical',
-                    'message': f'Critical endpoint {route_path} lacks rate limiting protection',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'critical',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': f'Authentication endpoint vulnerable to brute force attacks. Apply rate limiting middleware or decorator.'
-                })
+                findings.append(StandardFinding(
+                    rule_name='missing-rate-limit-critical',
+                    message=f'Critical endpoint {route_path} lacks rate limiting protection',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='security',
+                    snippet=f'{func}("{route_path}", ...)',
+                    fix_suggestion='Apply rate limiting middleware or decorator',
+                    cwe_id='CWE-307'
+                ))
     
     return findings
 
 
-def _find_bypassable_key_generation(cursor) -> List[Dict[str, Any]]:
+def _find_bypassable_key_generation(cursor) -> List[StandardFinding]:
     """Find rate limiters using single spoofable headers for key generation."""
     findings = []
     
@@ -358,17 +359,17 @@ def _find_bypassable_key_generation(cursor) -> List[Dict[str, Any]]:
             has_fallback = '||' in args or '??' in args or 'req.ip' in args_lower
             
             if not has_fallback:
-                findings.append({
-                    'rule_id': 'rate-limit-bypassable-key',
-                    'message': 'Rate limiter relies on spoofable header for key generation',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'critical',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': 'Attacker can bypass rate limiting by spoofing header values. Use multiple sources with fallback: req.headers["x-forwarded-for"] || req.ip'
-                })
+                findings.append(StandardFinding(
+                    rule_name='rate-limit-bypassable-key',
+                    message='Rate limiter relies on spoofable header for key generation',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='security',
+                    snippet='keyGenerator: req.headers["x-forwarded-for"]',
+                    fix_suggestion='Use multiple sources with fallback: req.headers["x-forwarded-for"] || req.ip',
+                    cwe_id='CWE-290'
+                ))
     
     # Also check for simple header access patterns
     cursor.execute("""
@@ -393,22 +394,22 @@ def _find_bypassable_key_generation(cursor) -> List[Dict[str, Any]]:
         """, (file, line, line + 20, f'%{var}%'))
         
         if cursor.fetchone()[0] > 0:
-            findings.append({
-                'rule_id': 'rate-limit-bypassable-key',
-                'message': 'Rate limiting key derived from spoofable header',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'critical',
-                'category': 'security',
-                'confidence': 'medium',
-                'description': 'Header values can be spoofed by attackers. Combine with req.ip for robust key generation.'
-            })
+            findings.append(StandardFinding(
+                rule_name='rate-limit-bypassable-key',
+                message='Rate limiting key derived from spoofable header',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                snippet=f'{var} = {expr}',
+                fix_suggestion='Combine with req.ip for robust key generation',
+                cwe_id='CWE-290'
+            ))
     
     return findings
 
 
-def _find_memory_storage_issues(cursor) -> List[Dict[str, Any]]:
+def _find_memory_storage_issues(cursor) -> List[StandardFinding]:
     """Find rate limiters using in-memory storage in production."""
     findings = []
     
@@ -437,17 +438,17 @@ def _find_memory_storage_issues(cursor) -> List[Dict[str, Any]]:
             
         # Check for memory storage patterns
         if any(pattern.lower() in args.lower() for pattern in memory_patterns):
-            findings.append({
-                'rule_id': 'rate-limit-memory-store',
-                'message': 'Rate limiter using in-memory storage - ineffective in distributed/serverless environment',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'high',
-                'category': 'security',
-                'confidence': 'high',
-                'description': 'Memory store resets on restart and is not shared across instances. Use Redis, MongoDB, or other persistent storage.'
-            })
+            findings.append(StandardFinding(
+                rule_name='rate-limit-memory-store',
+                message='Rate limiter using in-memory storage - ineffective in distributed/serverless environment',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                snippet='store: new MemoryStore()',
+                fix_suggestion='Use Redis, MongoDB, or other persistent storage',
+                cwe_id='CWE-770'
+            ))
     
     # Check Flask-Limiter configurations
     cursor.execute("""
@@ -463,22 +464,22 @@ def _find_memory_storage_issues(cursor) -> List[Dict[str, Any]]:
     
     for file, line, func, args in flask_configs:
         # No storage_uri or explicit memory means default memory storage
-        findings.append({
-            'rule_id': 'rate-limit-memory-store',
-            'message': 'Flask-Limiter using default in-memory storage - ineffective in production',
-            'file': file,
-            'line': line,
-            'column': 0,
-            'severity': 'high',
-            'category': 'security',
-            'confidence': 'high',
-            'description': 'Memory storage not shared across workers/processes. Use Redis backend: storage_uri="redis://localhost:6379"'
-        })
+        findings.append(StandardFinding(
+            rule_name='rate-limit-memory-store',
+            message='Flask-Limiter using default in-memory storage - ineffective in production',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet='Limiter(app)',
+            fix_suggestion='Use Redis backend: storage_uri="redis://localhost:6379"',
+            cwe_id='CWE-770'
+        ))
     
     return findings
 
 
-def _find_expensive_operations_before_rate_limit(cursor) -> List[Dict[str, Any]]:
+def _find_expensive_operations_before_rate_limit(cursor) -> List[StandardFinding]:
     """Find expensive operations that run before rate limiting."""
     findings = []
     
@@ -539,38 +540,18 @@ def _find_expensive_operations_before_rate_limit(cursor) -> List[Dict[str, Any]]
                 """, (file, exp_line - 10, exp_line + 10))
                 
                 if cursor.fetchone()[0] > 0:
-                    findings.append({
-                        'rule_id': 'rate-limit-after-expensive',
-                        'message': f'Expensive operation ({exp_func}) runs before rate limiting',
-                        'file': file,
-                        'line': exp_line,
-                        'column': 0,
-                        'severity': 'high',
-                        'category': 'security',
-                        'confidence': 'medium',
-                        'description': 'Resource-intensive operations not protected by rate limiting. Move rate limiting middleware earlier in the stack.'
-                    })
+                    findings.append(StandardFinding(
+                        rule_name='rate-limit-after-expensive',
+                        message=f'Expensive operation ({exp_func}) runs before rate limiting',
+                        file_path=file,
+                        line=exp_line,
+                        severity=Severity.HIGH,
+                        category='security',
+                        snippet=f'{exp_func}(...)',
+                        fix_suggestion='Move rate limiting middleware earlier in the stack',
+                        cwe_id='CWE-770'
+                    ))
     
     return findings
 
 
-def find_rate_limit_issues(tree: Any, file_path: str) -> List[Dict[str, Any]]:
-    """
-    Compatibility wrapper for AST-based callers.
-    
-    This function is called by universal_detector but we ignore the AST tree
-    and query the database instead.
-    """
-    # This would need access to the database path
-    # In real implementation, this would be configured
-    return []
-
-
-# For direct CLI usage
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        db_path = sys.argv[1]
-        findings = detect_rate_limit_patterns(db_path)
-        for finding in findings:
-            print(f"{finding['file']}:{finding['line']} - {finding['message']}")

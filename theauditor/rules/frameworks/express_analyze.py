@@ -13,7 +13,7 @@ from pathlib import Path
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
 
 
-def find_express_vulnerabilities(context: StandardRuleContext) -> List[StandardFinding]:
+def find_express_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Express.js security vulnerabilities using indexed data.
     
     Detects:

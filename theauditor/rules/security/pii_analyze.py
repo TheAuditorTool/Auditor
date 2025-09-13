@@ -48,7 +48,7 @@ PII_FIELD_PATTERNS = {
 }
 
 
-def find_pii_exposure(context: StandardRuleContext) -> List[StandardFinding]:
+def find_pii_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect PII exposure issues using indexed data.
     
     Main entry point that delegates to specific detectors.
