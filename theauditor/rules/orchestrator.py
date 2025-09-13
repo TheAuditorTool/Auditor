@@ -160,6 +160,10 @@ class RulesOrchestrator:
             if py_file.name.startswith('__') or py_file.is_dir():
                 continue
             
+            # SKIP OLD BACKUP FILES during refactor
+            if py_file.name.endswith('_analyzer.py') or py_file.name.endswith('_detector.py'):
+                continue  # These are old backups, not the new refactored rules
+            
             module_name = f"theauditor.rules.{py_file.stem}"
             category = "general"  # Top-level rules go in general category
             

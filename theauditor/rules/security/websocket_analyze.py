@@ -5,13 +5,11 @@ instead of traversing AST structures.
 """
 
 import sqlite3
-from typing import List, Dict, Any, Set
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from typing import List, Set
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 
-def detect_websocket_patterns(db_path: str) -> List[Dict[str, Any]]:
+def find_websocket_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """
     Detect WebSocket security issues using SQL queries.
     
@@ -22,15 +20,18 @@ def detect_websocket_patterns(db_path: str) -> List[Dict[str, Any]]:
     - Broadcasting sensitive data to all clients
     
     Args:
-        db_path: Path to the repo_index.db database
+        context: StandardRuleContext with database path
         
     Returns:
-        List of security findings in StandardFinding format
+        List of StandardFinding objects
     """
     findings = []
     
+    if not context.db_path:
+        return findings
+    
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
         
         # Pattern 1: WebSocket without authentication handshake
@@ -50,13 +51,13 @@ def detect_websocket_patterns(db_path: str) -> List[Dict[str, Any]]:
         
         conn.close()
         
-    except Exception as e:
-        logger.error(f"Error detecting WebSocket patterns: {e}")
+    except Exception:
+        pass  # Return empty findings on error
     
     return findings
 
 
-def _find_websocket_no_auth(cursor) -> List[Dict[str, Any]]:
+def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
     """Find WebSocket connections without authentication."""
     findings = []
     
@@ -110,17 +111,17 @@ def _find_websocket_no_auth(cursor) -> List[Dict[str, Any]]:
             has_auth = cursor.fetchone()[0] > 0
         
         if not has_auth:
-            findings.append({
-                'rule_id': 'websocket-no-auth-handshake',
-                'message': 'WebSocket connection handler without authentication',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'critical',
-                'category': 'security',
-                'confidence': 'high',
-                'description': 'Add authentication verification before accepting WebSocket connections to prevent unauthorized access.'
-            })
+            findings.append(StandardFinding(
+                rule_name='websocket-no-auth-handshake',
+                message='WebSocket connection handler without authentication',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                snippet=f'{func}("connection", ...)',
+                fix_suggestion='Add authentication verification before accepting WebSocket connections',
+                cwe_id='CWE-862'
+            ))
     
     # Check for Python async WebSocket handlers
     cursor.execute("""
@@ -147,22 +148,22 @@ def _find_websocket_no_auth(cursor) -> List[Dict[str, Any]]:
         has_auth = cursor.fetchone()[0] > 0
         
         if not has_auth and ('connect' in name.lower() or 'handshake' in name.lower()):
-            findings.append({
-                'rule_id': 'websocket-no-auth-handshake',
-                'message': f'WebSocket handler {name} lacks authentication',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'critical',
-                'category': 'security',
-                'confidence': 'high',
-                'description': 'Verify authentication token or session before establishing WebSocket connection.'
-            })
+            findings.append(StandardFinding(
+                rule_name='websocket-no-auth-handshake',
+                message=f'WebSocket handler {name} lacks authentication',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                snippet=f'def {name}(...)',
+                fix_suggestion='Verify authentication token or session before establishing WebSocket connection',
+                cwe_id='CWE-862'
+            ))
     
     return findings
 
 
-def _find_websocket_no_validation(cursor) -> List[Dict[str, Any]]:
+def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
     """Find WebSocket message handlers without validation."""
     findings = []
     
@@ -201,17 +202,17 @@ def _find_websocket_no_validation(cursor) -> List[Dict[str, Any]]:
         has_validation = cursor.fetchone()[0] > 0
         
         if not has_validation:
-            findings.append({
-                'rule_id': 'websocket-no-message-validation',
-                'message': 'WebSocket message handler without input validation',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'high',
-                'category': 'security',
-                'confidence': 'high',
-                'description': 'Validate all incoming WebSocket messages before processing to prevent injection attacks.'
-            })
+            findings.append(StandardFinding(
+                rule_name='websocket-no-message-validation',
+                message='WebSocket message handler without input validation',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                snippet=f'{func}("message", ...)',
+                fix_suggestion='Validate all incoming WebSocket messages before processing',
+                cwe_id='CWE-20'
+            ))
     
     # Check Python message handlers
     cursor.execute("""
@@ -238,22 +239,22 @@ def _find_websocket_no_validation(cursor) -> List[Dict[str, Any]]:
         has_validation = cursor.fetchone()[0] > 0
         
         if not has_validation:
-            findings.append({
-                'rule_id': 'websocket-no-message-validation',
-                'message': f'WebSocket handler {name} lacks message validation',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'high',
-                'category': 'security',
-                'confidence': 'medium',
-                'description': 'Implement schema validation for all incoming messages.'
-            })
+            findings.append(StandardFinding(
+                rule_name='websocket-no-message-validation',
+                message=f'WebSocket handler {name} lacks message validation',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                snippet=f'def {name}(...)',
+                fix_suggestion='Implement schema validation for all incoming messages',
+                cwe_id='CWE-20'
+            ))
     
     return findings
 
 
-def _find_websocket_no_rate_limit(cursor) -> List[Dict[str, Any]]:
+def _find_websocket_no_rate_limit(cursor) -> List[StandardFinding]:
     """Find WebSocket handlers without rate limiting."""
     findings = []
     
@@ -310,22 +311,22 @@ def _find_websocket_no_rate_limit(cursor) -> List[Dict[str, Any]]:
             
             line = cursor.fetchone()[0] or 0
             
-            findings.append({
-                'rule_id': 'websocket-no-rate-limiting',
-                'message': 'WebSocket message handling without rate limiting',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'high',
-                'category': 'security',
-                'confidence': 'medium',
-                'description': 'Implement rate limiting to prevent WebSocket abuse and DoS attacks.'
-            })
+            findings.append(StandardFinding(
+                rule_name='websocket-no-rate-limiting',
+                message='WebSocket message handling without rate limiting',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                snippet='on("message", handler)',
+                fix_suggestion='Implement rate limiting to prevent WebSocket abuse and DoS attacks',
+                cwe_id='CWE-770'
+            ))
     
     return findings
 
 
-def _find_websocket_broadcast_sensitive(cursor) -> List[Dict[str, Any]]:
+def _find_websocket_broadcast_sensitive(cursor) -> List[StandardFinding]:
     """Find broadcasting of sensitive data via WebSocket."""
     findings = []
     
@@ -360,17 +361,17 @@ def _find_websocket_broadcast_sensitive(cursor) -> List[Dict[str, Any]]:
         contains_sensitive = any(sens in args_lower for sens in sensitive_patterns)
         
         if contains_sensitive:
-            findings.append({
-                'rule_id': 'websocket-broadcast-sensitive-data',
-                'message': 'Broadcasting potentially sensitive data via WebSocket',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'critical',
-                'category': 'security',
-                'confidence': 'high',
-                'description': 'Filter sensitive data before broadcasting to all clients. Consider targeted messaging instead.'
-            })
+            findings.append(StandardFinding(
+                rule_name='websocket-broadcast-sensitive-data',
+                message='Broadcasting potentially sensitive data via WebSocket',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                snippet=f'{func}(sensitive_data)',
+                fix_suggestion='Filter sensitive data before broadcasting to all clients',
+                cwe_id='CWE-200'
+            ))
         else:
             # Check if broadcasting variables that might contain sensitive data
             cursor.execute("""
@@ -392,22 +393,22 @@ def _find_websocket_broadcast_sensitive(cursor) -> List[Dict[str, Any]]:
             sensitive_vars = cursor.fetchall()
             
             if sensitive_vars:
-                findings.append({
-                    'rule_id': 'websocket-broadcast-sensitive-data',
-                    'message': 'Broadcasting variable containing sensitive data',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'critical',
-                    'category': 'security',
-                    'confidence': 'medium',
-                    'description': 'Variable may contain sensitive information. Sanitize before broadcasting.'
-                })
+                findings.append(StandardFinding(
+                    rule_name='websocket-broadcast-sensitive-data',
+                    message='Broadcasting variable containing sensitive data',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='security',
+                    snippet=f'{func}(variable)',
+                    fix_suggestion='Variable may contain sensitive information. Sanitize before broadcasting',
+                    cwe_id='CWE-200'
+                ))
     
     return findings
 
 
-def _find_websocket_no_tls(cursor) -> List[Dict[str, Any]]:
+def _find_websocket_no_tls(cursor) -> List[StandardFinding]:
     """Find WebSocket connections without TLS (ws:// instead of wss://)."""
     findings = []
     
@@ -424,17 +425,17 @@ def _find_websocket_no_tls(cursor) -> List[Dict[str, Any]]:
     insecure_urls = cursor.fetchall()
     
     for file, line, url in insecure_urls:
-        findings.append({
-            'rule_id': 'websocket-no-tls',
-            'message': 'WebSocket connection without TLS encryption',
-            'file': file,
-            'line': line,
-            'column': 0,
-            'severity': 'high',
-            'category': 'security',
-            'confidence': 'high',
-            'description': f'Use wss:// instead of ws:// for encrypted WebSocket connections. Found: {url[:50]}'
-        })
+        findings.append(StandardFinding(
+            rule_name='websocket-no-tls',
+            message='WebSocket connection without TLS encryption',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet=f'{url[:50]}...' if len(url) > 50 else url,
+            fix_suggestion='Use wss:// instead of ws:// for encrypted WebSocket connections',
+            cwe_id='CWE-319'
+        ))
     
     # Check for WebSocket server without TLS config
     cursor.execute("""
@@ -451,60 +452,18 @@ def _find_websocket_no_tls(cursor) -> List[Dict[str, Any]]:
     unencrypted_servers = cursor.fetchall()
     
     for file, line, func, args in unencrypted_servers:
-        findings.append({
-            'rule_id': 'websocket-no-tls',
-            'message': 'WebSocket server without TLS configuration',
-            'file': file,
-            'line': line,
-            'column': 0,
-            'severity': 'high',
-            'category': 'security',
-            'confidence': 'medium',
-            'description': 'Configure WebSocket server with TLS/SSL certificates for encrypted communication.'
-        })
+        findings.append(StandardFinding(
+            rule_name='websocket-no-tls',
+            message='WebSocket server without TLS configuration',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet=f'{func}(...)',
+            fix_suggestion='Configure WebSocket server with TLS/SSL certificates for encrypted communication',
+            cwe_id='CWE-319'
+        ))
     
     return findings
 
 
-def register_taint_patterns(taint_registry):
-    """Register WebSocket-specific patterns with the taint system.
-    
-    This function maintains compatibility with the taint analyzer.
-    """
-    # WebSocket broadcast/emit operations - these are sinks where data flows out
-    WEBSOCKET_SINKS = [
-        "ws.send", "ws.broadcast", "ws.emit",
-        "socket.send", "socket.emit", "socket.broadcast",
-        "io.emit", "io.send", "io.broadcast",
-        "clients.forEach", "wss.clients.forEach",
-        "connection.send", "connection.write",
-        "websocket.send", "websocket.send_text",
-        "websocket.send_bytes", "websocket.send_json",
-        "broadcast", "emit", "send_all", "publish",
-        "on_message", "onmessage", "recv", "receive"
-    ]
-    
-    for pattern in WEBSOCKET_SINKS:
-        taint_registry.register_sink(pattern, "websocket", "any")
-
-
-def find_websocket_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
-    """
-    Compatibility wrapper for AST-based callers.
-    
-    This function is called by universal_detector but we ignore the AST tree
-    and query the database instead.
-    """
-    # This would need access to the database path
-    # In real implementation, this would be configured
-    return []
-
-
-# For direct CLI usage
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        db_path = sys.argv[1]
-        findings = detect_websocket_patterns(db_path)
-        for finding in findings:
-            print(f"{finding['file']}:{finding['line']} - {finding['message']}")

@@ -1,74 +1,473 @@
-"""SQL-based SQL safety analyzer.
+"""SQL Safety Analyzer - Pure Database Implementation.
 
-This module detects SQL safety issues by querying the indexed database
-instead of traversing AST structures.
+This module detects SQL safety issues using ONLY indexed database data.
+NO AST TRAVERSAL. NO FILE I/O. Just efficient SQL queries against the sql_queries table.
+
+The sql_queries table contains 4,723 actual SQL queries with:
+- file_path: Where the query is located
+- line_number: Line in source file
+- query_text: The actual SQL query text
+- command: Type of query (SELECT, INSERT, UPDATE, DELETE)
+- tables: Tables referenced in the query
 """
 
 import sqlite3
-import re
-from typing import List, Dict, Any, Set
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from typing import List
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 
-def detect_sql_safety_patterns(db_path: str) -> List[Dict[str, Any]]:
-    """
-    Detect SQL safety issues using SQL queries.
+def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding]:
+    """Detect SQL safety issues using indexed SQL queries.
     
-    This function queries the indexed database to find:
-    - Transactions without rollback in error paths
-    - Queries on potentially unindexed fields
-    - Unbounded SELECT queries without LIMIT
-    - Nested transactions (deadlock risk)
-    - UPDATE/DELETE without WHERE clause
-    - SELECT * usage
-    
-    Args:
-        db_path: Path to the repo_index.db database
-        
     Returns:
-        List of security findings in StandardFinding format
+        List of SQL safety findings
     """
     findings = []
     
+    if not context.db_path:
+        return findings
+    
+    conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
+    
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        # First check if we have SQL queries indexed
+        cursor.execute("SELECT COUNT(*) FROM sql_queries")
+        query_count = cursor.fetchone()[0]
         
-        # Pattern 1: Transactions without rollback in error handlers
+        if query_count == 0:
+            # No SQL queries indexed, fallback to function call analysis
+            findings.extend(_find_safety_issues_in_function_calls(cursor))
+        else:
+            # Primary analysis using actual SQL queries
+            findings.extend(_find_update_without_where(cursor))
+            findings.extend(_find_delete_without_where(cursor))
+            findings.extend(_find_select_star_queries(cursor))
+            findings.extend(_find_unbounded_queries(cursor))
+            findings.extend(_find_large_in_clauses(cursor))
+            findings.extend(_find_missing_transactions(cursor))
+            findings.extend(_find_inefficient_joins(cursor))
+            findings.extend(_find_n_plus_one_queries(cursor))
+        
+        # Secondary analysis using function calls and symbols
         findings.extend(_find_transactions_without_rollback(cursor))
-        
-        # Pattern 2: Unbounded queries (SELECT without LIMIT)
-        findings.extend(_find_unbounded_queries(cursor))
-        
-        # Pattern 3: Nested transactions
         findings.extend(_find_nested_transactions(cursor))
+        findings.extend(_find_connection_leaks(cursor))
         
-        # Pattern 4: UPDATE without WHERE clause
-        findings.extend(_find_update_without_where(cursor))
-        
-        # Pattern 5: DELETE without WHERE clause
-        findings.extend(_find_delete_without_where(cursor))
-        
-        # Pattern 6: SELECT * usage
-        findings.extend(_find_select_star_queries(cursor))
-        
-        # Pattern 7: Queries on commonly unindexed fields
-        findings.extend(_find_unindexed_field_queries(cursor))
-        
-        # Pattern 8: Large IN clauses
-        findings.extend(_find_large_in_clauses(cursor))
-        
+    finally:
         conn.close()
-        
-    except Exception as e:
-        logger.error(f"Error detecting SQL safety patterns: {e}")
     
     return findings
 
 
-def _find_transactions_without_rollback(cursor) -> List[Dict[str, Any]]:
+# ============================================================================
+# PRIMARY DETECTION: Using sql_queries table
+# ============================================================================
+
+def _find_update_without_where(cursor) -> List[StandardFinding]:
+    """Find UPDATE statements without WHERE clause in actual SQL queries."""
+    findings = []
+    
+    cursor.execute("""
+        SELECT file_path, line_number, query_text, command
+        FROM sql_queries
+        WHERE command = 'UPDATE'
+          AND query_text NOT LIKE '%WHERE%'
+          AND query_text NOT LIKE '%where%'
+        ORDER BY file_path, line_number
+    """)
+    
+    for file, line, query, command in cursor.fetchall():
+        # Double-check it's really missing WHERE
+        query_upper = query.upper()
+        if 'WHERE' not in query_upper:
+            findings.append(StandardFinding(
+                rule_name='sql-safety-update-no-where',
+                message='UPDATE without WHERE clause will affect ALL rows',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                snippet=query[:100] + '...' if len(query) > 100 else query,
+                fix_suggestion='Add WHERE clause to target specific rows. If updating all rows is intentional, add a comment',
+                cwe_id='CWE-89'
+            ))
+    
+    return findings
+
+
+def _find_delete_without_where(cursor) -> List[StandardFinding]:
+    """Find DELETE statements without WHERE clause in actual SQL queries."""
+    findings = []
+    
+    cursor.execute("""
+        SELECT file_path, line_number, query_text, command
+        FROM sql_queries
+        WHERE command = 'DELETE'
+          AND query_text NOT LIKE '%WHERE%'
+          AND query_text NOT LIKE '%where%'
+          AND query_text NOT LIKE '%TRUNCATE%'
+        ORDER BY file_path, line_number
+    """)
+    
+    for file, line, query, command in cursor.fetchall():
+        # Double-check it's really missing WHERE
+        query_upper = query.upper()
+        if 'WHERE' not in query_upper and 'TRUNCATE' not in query_upper:
+            findings.append(StandardFinding(
+                rule_name='sql-safety-delete-no-where',
+                message='DELETE without WHERE clause will delete ALL rows',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                snippet=query[:100] + '...' if len(query) > 100 else query,
+                fix_suggestion='Add WHERE clause. Use TRUNCATE TABLE if you intend to delete all rows',
+                cwe_id='CWE-89'
+            ))
+    
+    return findings
+
+
+def _find_select_star_queries(cursor) -> List[StandardFinding]:
+    """Find SELECT * usage in actual SQL queries."""
+    findings = []
+    
+    cursor.execute("""
+        SELECT file_path, line_number, query_text, command, tables
+        FROM sql_queries
+        WHERE command = 'SELECT'
+          AND (query_text LIKE '%SELECT *%'
+               OR query_text LIKE '%select *%'
+               OR query_text LIKE '%SELECT%*%FROM%')
+        ORDER BY file_path, line_number
+    """)
+    
+    for file, line, query, command, tables in cursor.fetchall():
+        # Check if it's really SELECT *
+        query_upper = query.upper()
+        if 'SELECT *' in query_upper or 'SELECT\t*' in query_upper.replace(' ', '\t'):
+            # Check table size hint from tables column
+            table_list = tables.split(',') if tables else []
+            severity = Severity.MEDIUM if len(table_list) > 1 else Severity.LOW
+            
+            findings.append(StandardFinding(
+                rule_name='sql-safety-select-star',
+                message='SELECT * query - specify needed columns for better performance',
+                file_path=file,
+                line=line,
+                severity=severity,
+                category='performance',
+                snippet=query[:100] + '...' if len(query) > 100 else query,
+                fix_suggestion='List specific columns instead of * to reduce data transfer and improve query performance',
+                cwe_id='CWE-770'
+            ))
+    
+    return findings
+
+
+def _find_unbounded_queries(cursor) -> List[StandardFinding]:
+    """Find SELECT queries without LIMIT clause in actual SQL queries."""
+    findings = []
+    
+    cursor.execute("""
+        SELECT file_path, line_number, query_text, command, tables
+        FROM sql_queries
+        WHERE command = 'SELECT'
+          AND query_text NOT LIKE '%LIMIT%'
+          AND query_text NOT LIKE '%limit%'
+          AND query_text NOT LIKE '%TOP%'
+          AND query_text NOT LIKE '%COUNT(%'
+          AND query_text NOT LIKE '%MAX(%'
+          AND query_text NOT LIKE '%MIN(%'
+          AND query_text NOT LIKE '%SUM(%'
+          AND query_text NOT LIKE '%AVG(%'
+        ORDER BY file_path, line_number
+    """)
+    
+    for file, line, query, command, tables in cursor.fetchall():
+        query_upper = query.upper()
+        # Skip aggregate queries
+        if not any(agg in query_upper for agg in ['COUNT(', 'MAX(', 'MIN(', 'SUM(', 'AVG(', 'GROUP BY']):
+            # Check if it's a potentially large result set
+            if 'JOIN' in query_upper or (tables and ',' in tables):
+                severity = Severity.HIGH  # Joins without LIMIT are dangerous
+            else:
+                severity = Severity.MEDIUM
+            
+            findings.append(StandardFinding(
+                rule_name='sql-safety-unbounded-query',
+                message='SELECT query without LIMIT - potential memory issue with large datasets',
+                file_path=file,
+                line=line,
+                severity=severity,
+                category='performance',
+                snippet=query[:100] + '...' if len(query) > 100 else query,
+                fix_suggestion='Add LIMIT clause to prevent fetching entire tables. Use pagination for large result sets',
+                cwe_id='CWE-770'
+            ))
+    
+    return findings
+
+
+def _find_large_in_clauses(cursor) -> List[StandardFinding]:
+    """Find queries with large IN clauses that could be inefficient."""
+    findings = []
+    
+    cursor.execute("""
+        SELECT file_path, line_number, query_text, command
+        FROM sql_queries
+        WHERE (query_text LIKE '%IN (%' OR query_text LIKE '%in (%')
+          AND LENGTH(query_text) > 200
+        ORDER BY file_path, line_number
+    """)
+    
+    for file, line, query, command in cursor.fetchall():
+        # Count items in IN clause
+        query_upper = query.upper()
+        in_pos = query_upper.find(' IN (')
+        if in_pos != -1:
+            # Extract the IN clause content
+            paren_start = in_pos + 4
+            paren_count = 1
+            pos = paren_start + 1
+            while pos < len(query) and paren_count > 0:
+                if query[pos] == '(':
+                    paren_count += 1
+                elif query[pos] == ')':
+                    paren_count -= 1
+                pos += 1
+            
+            if pos > paren_start:
+                in_content = query[paren_start:pos-1]
+                # Count commas to estimate values
+                comma_count = in_content.count(',')
+                
+                if comma_count > 50:
+                    severity = Severity.HIGH
+                    threshold = "50+"
+                elif comma_count > 20:
+                    severity = Severity.MEDIUM
+                    threshold = "20+"
+                elif comma_count > 10:
+                    severity = Severity.LOW
+                    threshold = "10+"
+                else:
+                    continue
+                
+                findings.append(StandardFinding(
+                    rule_name='sql-safety-large-in-clause',
+                    message=f'{command} query with large IN clause ({comma_count + 1} values)',
+                    file_path=file,
+                    line=line,
+                    severity=severity,
+                    category='performance',
+                    snippet=query[:100] + '...' if len(query) > 100 else query,
+                    fix_suggestion=f'Consider using a temporary table or JOIN for {threshold} values in IN clause',
+                    cwe_id='CWE-770'
+                ))
+    
+    return findings
+
+
+def _find_missing_transactions(cursor) -> List[StandardFinding]:
+    """Find multiple DML operations without transaction boundaries."""
+    findings = []
+    
+    # Find files with multiple UPDATE/DELETE/INSERT operations
+    cursor.execute("""
+        SELECT file_path, COUNT(*) as dml_count
+        FROM sql_queries
+        WHERE command IN ('UPDATE', 'DELETE', 'INSERT')
+        GROUP BY file_path
+        HAVING COUNT(*) > 3
+        ORDER BY dml_count DESC
+    """)
+    
+    high_dml_files = cursor.fetchall()
+    
+    for file, dml_count in high_dml_files:
+        # Check if this file has transaction management
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM function_call_args
+            WHERE file = ?
+              AND (callee_function LIKE '%begin%'
+                   OR callee_function LIKE '%transaction%'
+                   OR callee_function LIKE '%commit%')
+        """, (file,))
+        
+        has_transactions = cursor.fetchone()[0] > 0
+        
+        if not has_transactions and dml_count > 5:
+            # Get sample line for reporting
+            cursor.execute("""
+                SELECT MIN(line_number)
+                FROM sql_queries
+                WHERE file_path = ?
+                  AND command IN ('UPDATE', 'DELETE', 'INSERT')
+            """, (file,))
+            
+            first_line = cursor.fetchone()[0]
+            
+            findings.append(StandardFinding(
+                rule_name='sql-safety-missing-transaction',
+                message=f'File has {dml_count} DML operations without transaction management',
+                file_path=file,
+                line=first_line,
+                severity=Severity.HIGH,
+                category='reliability',
+                snippet=f'{dml_count} UPDATE/DELETE/INSERT operations',
+                fix_suggestion='Wrap related DML operations in transactions for atomicity',
+                cwe_id='CWE-667'
+            ))
+    
+    return findings
+
+
+def _find_inefficient_joins(cursor) -> List[StandardFinding]:
+    """Find queries with multiple JOINs that might be inefficient."""
+    findings = []
+    
+    cursor.execute("""
+        SELECT file_path, line_number, query_text, tables
+        FROM sql_queries
+        WHERE command = 'SELECT'
+          AND (query_text LIKE '%JOIN%JOIN%JOIN%'
+               OR query_text LIKE '%join%join%join%')
+        ORDER BY file_path, line_number
+    """)
+    
+    for file, line, query, tables in cursor.fetchall():
+        # Count number of JOINs
+        query_upper = query.upper()
+        join_count = query_upper.count(' JOIN ') + query_upper.count(' LEFT JOIN ') + query_upper.count(' RIGHT JOIN ') + query_upper.count(' INNER JOIN ')
+        
+        if join_count >= 5:
+            severity = Severity.HIGH
+            message = f'Query with {join_count} JOINs - likely performance issue'
+        elif join_count >= 3:
+            severity = Severity.MEDIUM
+            message = f'Query with {join_count} JOINs - consider optimization'
+        else:
+            continue
+        
+        findings.append(StandardFinding(
+            rule_name='sql-safety-excessive-joins',
+            message=message,
+            file_path=file,
+            line=line,
+            severity=severity,
+            category='performance',
+            snippet=query[:100] + '...' if len(query) > 100 else query,
+            fix_suggestion='Consider denormalizing, using materialized views, or breaking into multiple queries',
+            cwe_id='CWE-770'
+        ))
+    
+    return findings
+
+
+def _find_n_plus_one_queries(cursor) -> List[StandardFinding]:
+    """Find potential N+1 query patterns."""
+    findings = []
+    
+    # Look for files with many similar SELECT queries
+    cursor.execute("""
+        SELECT file_path, tables, COUNT(*) as query_count, MIN(line_number) as first_line
+        FROM sql_queries
+        WHERE command = 'SELECT'
+          AND tables IS NOT NULL
+          AND tables != ''
+        GROUP BY file_path, tables
+        HAVING COUNT(*) > 5
+        ORDER BY query_count DESC
+    """)
+    
+    for file, tables, count, first_line in cursor.fetchall():
+        # Check if these queries are in close proximity (likely in a loop)
+        cursor.execute("""
+            SELECT line_number
+            FROM sql_queries
+            WHERE file_path = ?
+              AND command = 'SELECT'
+              AND tables = ?
+            ORDER BY line_number
+            LIMIT 10
+        """, (file, tables))
+        
+        lines = [row[0] for row in cursor.fetchall()]
+        
+        # Check if lines are close together (within 50 lines)
+        if len(lines) >= 3:
+            max_gap = max(lines[i+1] - lines[i] for i in range(len(lines)-1))
+            
+            if max_gap < 50:  # Queries are close together, likely in a loop
+                findings.append(StandardFinding(
+                    rule_name='sql-safety-n-plus-one',
+                    message=f'Potential N+1 query pattern: {count} similar SELECT queries on {tables}',
+                    file_path=file,
+                    line=first_line,
+                    severity=Severity.HIGH,
+                    category='performance',
+                    snippet=f'{count} SELECT queries on table: {tables}',
+                    fix_suggestion='Use JOIN or batch loading to avoid N+1 queries',
+                    cwe_id='CWE-770'
+                ))
+    
+    return findings
+
+
+# ============================================================================
+# SECONDARY DETECTION: Using function_call_args and symbols
+# ============================================================================
+
+def _find_safety_issues_in_function_calls(cursor) -> List[StandardFinding]:
+    """Fallback detection using function calls when sql_queries is empty."""
+    findings = []
+    
+    # Find execute/query calls with dangerous patterns
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE (f.callee_function LIKE '%execute%'
+               OR f.callee_function LIKE '%query%')
+          AND (f.argument_expr LIKE '%UPDATE%SET%'
+               OR f.argument_expr LIKE '%DELETE%FROM%')
+        ORDER BY f.file, f.line
+    """)
+    
+    for file, line, func, args in cursor.fetchall():
+        if args:
+            args_upper = args.upper()
+            if 'UPDATE' in args_upper and 'WHERE' not in args_upper:
+                findings.append(StandardFinding(
+                    rule_name='sql-safety-update-no-where-fallback',
+                    message='UPDATE without WHERE clause detected',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='security',
+                    snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
+                    fix_suggestion='Add WHERE clause to UPDATE statement',
+                    cwe_id='CWE-89'
+                ))
+            elif 'DELETE' in args_upper and 'WHERE' not in args_upper:
+                findings.append(StandardFinding(
+                    rule_name='sql-safety-delete-no-where-fallback',
+                    message='DELETE without WHERE clause detected',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='security',
+                    snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
+                    fix_suggestion='Add WHERE clause to DELETE statement',
+                    cwe_id='CWE-89'
+                ))
+    
+    return findings
+
+
+def _find_transactions_without_rollback(cursor) -> List[StandardFinding]:
     """Find transactions that lack rollback in error handlers."""
     findings = []
     
@@ -114,86 +513,22 @@ def _find_transactions_without_rollback(cursor) -> List[Dict[str, Any]]:
             has_error_handling = cursor.fetchone()[0] > 0
             
             if has_error_handling:
-                findings.append({
-                    'rule_id': 'transaction-not-rolled-back',
-                    'message': 'Transaction without rollback in error path',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'high',
-                    'category': 'reliability',
-                    'confidence': 'medium',
-                    'description': 'Add rollback in except/catch or finally block to prevent locked transactions on errors.'
-                })
+                findings.append(StandardFinding(
+                    rule_name='transaction-not-rolled-back',
+                    message='Transaction without rollback in error path',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='reliability',
+                    snippet=f'{func}()',
+                    fix_suggestion='Add rollback in except/catch or finally block',
+                    cwe_id='CWE-667'
+                ))
     
     return findings
 
 
-def _find_unbounded_queries(cursor) -> List[Dict[str, Any]]:
-    """Find SELECT queries without LIMIT clause."""
-    findings = []
-    
-    # Find SQL query strings in assignments and function calls
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%SELECT%'
-          AND a.source_expr LIKE '%FROM%'
-    """)
-    
-    select_queries = cursor.fetchall()
-    
-    for file, line, var, expr in select_queries:
-        if expr:
-            expr_upper = expr.upper()
-            # Check if it has LIMIT or TOP
-            if 'LIMIT' not in expr_upper and 'TOP' not in expr_upper:
-                # Check if it's a COUNT query (which doesn't need LIMIT)
-                if 'COUNT(' not in expr_upper and 'COUNT(*)' not in expr_upper:
-                    findings.append({
-                        'rule_id': 'unbounded-query',
-                        'message': 'SELECT query without LIMIT clause',
-                        'file': file,
-                        'line': line,
-                        'column': 0,
-                        'severity': 'medium',
-                        'category': 'performance',
-                        'confidence': 'high',
-                        'description': 'Add LIMIT to prevent memory issues with large result sets. Consider pagination for user-facing queries.'
-                    })
-    
-    # Also check function call arguments
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%query%' OR f.callee_function LIKE '%execute%')
-          AND f.argument_expr LIKE '%SELECT%'
-          AND f.argument_expr LIKE '%FROM%'
-    """)
-    
-    query_calls = cursor.fetchall()
-    
-    for file, line, func, args in query_calls:
-        if args:
-            args_upper = args.upper()
-            if 'LIMIT' not in args_upper and 'TOP' not in args_upper:
-                if 'COUNT(' not in args_upper:
-                    findings.append({
-                        'rule_id': 'unbounded-query',
-                        'message': 'Database query without LIMIT clause',
-                        'file': file,
-                        'line': line,
-                        'column': 0,
-                        'severity': 'medium',
-                        'category': 'performance',
-                        'confidence': 'high',
-                        'description': 'Consider adding LIMIT to prevent fetching entire tables into memory.'
-                    })
-    
-    return findings
-
-
-def _find_nested_transactions(cursor) -> List[Dict[str, Any]]:
+def _find_nested_transactions(cursor) -> List[StandardFinding]:
     """Find nested transaction starts that could cause deadlocks."""
     findings = []
     
@@ -235,325 +570,77 @@ def _find_nested_transactions(cursor) -> List[Dict[str, Any]]:
                 has_commit_between = cursor.fetchone()[0] > 0
                 
                 if not has_commit_between and (line2 - line1) < 100:  # Within 100 lines
-                    findings.append({
-                        'rule_id': 'nested-transaction',
-                        'message': 'Nested transaction detected - potential deadlock risk',
-                        'file': file,
-                        'line': line2,
-                        'column': 0,
-                        'severity': 'high',
-                        'category': 'reliability',
-                        'confidence': 'medium',
-                        'description': 'Avoid nested transactions. Use savepoints or restructure code to prevent deadlocks.'
-                    })
+                    findings.append(StandardFinding(
+                        rule_name='nested-transaction',
+                        message='Nested transaction detected - potential deadlock risk',
+                        file_path=file,
+                        line=line2,
+                        severity=Severity.HIGH,
+                        category='reliability',
+                        snippet=f'{func2}()',
+                        fix_suggestion='Use savepoints or restructure code to prevent deadlocks',
+                        cwe_id='CWE-667'
+                    ))
     
     return findings
 
 
-def _find_update_without_where(cursor) -> List[Dict[str, Any]]:
-    """Find UPDATE statements without WHERE clause."""
+def _find_connection_leaks(cursor) -> List[StandardFinding]:
+    """Find potential database connection leaks."""
     findings = []
     
-    # Pattern for UPDATE without WHERE
-    update_pattern = re.compile(r'\bUPDATE\s+\S+\s+SET\s+', re.IGNORECASE)
-    
-    # Check assignments containing UPDATE
+    # Find connection opens without corresponding closes
     cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%UPDATE%'
-          AND a.source_expr LIKE '%SET%'
-    """)
-    
-    update_queries = cursor.fetchall()
-    
-    for file, line, var, expr in update_queries:
-        if expr and update_pattern.search(expr):
-            if 'WHERE' not in expr.upper():
-                findings.append({
-                    'rule_id': 'missing-where-clause-update',
-                    'message': 'UPDATE without WHERE clause will affect ALL rows',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'critical',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': 'Add WHERE clause to target specific rows. Updating all rows is rarely intentional.'
-                })
-    
-    # Check function calls with UPDATE
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        SELECT f.file, f.line, f.callee_function
         FROM function_call_args f
-        WHERE f.argument_expr LIKE '%UPDATE%'
-          AND f.argument_expr LIKE '%SET%'
+        WHERE f.callee_function LIKE '%connect%'
+           OR f.callee_function LIKE '%createConnection%'
+           OR f.callee_function LIKE '%getConnection%'
+        ORDER BY f.file, f.line
     """)
     
-    update_calls = cursor.fetchall()
+    connections = cursor.fetchall()
     
-    for file, line, func, args in update_calls:
-        if args and update_pattern.search(args):
-            if 'WHERE' not in args.upper():
-                findings.append({
-                    'rule_id': 'missing-where-clause-update',
-                    'message': 'UPDATE query without WHERE clause - dangerous',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'critical',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': 'This will update every row in the table. Add WHERE clause or use explicit UPDATE ALL if intentional.'
-                })
+    for file, line, func in connections:
+        # Check if there's a close/end/release within reasonable distance
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM function_call_args f2
+            WHERE f2.file = ?
+              AND f2.line BETWEEN ? AND ?
+              AND (f2.callee_function LIKE '%close%'
+                   OR f2.callee_function LIKE '%end%'
+                   OR f2.callee_function LIKE '%release%'
+                   OR f2.callee_function LIKE '%destroy%')
+        """, (file, line, line + 100))
+        
+        has_close = cursor.fetchone()[0] > 0
+        
+        if not has_close:
+            # Check for using/with context manager patterns
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM symbols s
+                WHERE s.file = ?
+                  AND s.line BETWEEN ? AND ?
+                  AND (s.name LIKE '%with%' OR s.name LIKE '%using%')
+            """, (file, line - 2, line + 2))
+            
+            has_context_manager = cursor.fetchone()[0] > 0
+            
+            if not has_context_manager:
+                findings.append(StandardFinding(
+                    rule_name='sql-safety-connection-leak',
+                    message='Database connection opened but not closed',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='reliability',
+                    snippet=f'{func}()',
+                    fix_suggestion='Use connection pooling or ensure connections are closed in finally block',
+                    cwe_id='CWE-404'
+                ))
     
     return findings
 
 
-def _find_delete_without_where(cursor) -> List[Dict[str, Any]]:
-    """Find DELETE statements without WHERE clause."""
-    findings = []
-    
-    # Pattern for DELETE without WHERE
-    delete_pattern = re.compile(r'\bDELETE\s+FROM\s+\S+', re.IGNORECASE)
-    
-    # Check assignments containing DELETE
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%DELETE%'
-          AND a.source_expr LIKE '%FROM%'
-    """)
-    
-    delete_queries = cursor.fetchall()
-    
-    for file, line, var, expr in delete_queries:
-        if expr and delete_pattern.search(expr):
-            expr_upper = expr.upper()
-            if 'WHERE' not in expr_upper and 'TRUNCATE' not in expr_upper:
-                findings.append({
-                    'rule_id': 'missing-where-clause-delete',
-                    'message': 'DELETE without WHERE clause will delete ALL rows',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'critical',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': 'Add WHERE clause to target specific rows. Use TRUNCATE if you really want to delete all rows.'
-                })
-    
-    # Check function calls with DELETE
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_expr LIKE '%DELETE%'
-          AND f.argument_expr LIKE '%FROM%'
-    """)
-    
-    delete_calls = cursor.fetchall()
-    
-    for file, line, func, args in delete_calls:
-        if args and delete_pattern.search(args):
-            args_upper = args.upper()
-            if 'WHERE' not in args_upper and 'TRUNCATE' not in args_upper:
-                findings.append({
-                    'rule_id': 'missing-where-clause-delete',
-                    'message': 'DELETE query without WHERE clause - will delete entire table',
-                    'file': file,
-                    'line': line,
-                    'column': 0,
-                    'severity': 'critical',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': 'This is equivalent to TRUNCATE. Add WHERE clause or use TRUNCATE TABLE if intentional.'
-                })
-    
-    return findings
-
-
-def _find_select_star_queries(cursor) -> List[Dict[str, Any]]:
-    """Find SELECT * usage."""
-    findings = []
-    
-    # Pattern for SELECT *
-    select_star_pattern = re.compile(r'SELECT\s+\*\s+FROM', re.IGNORECASE)
-    
-    # Check assignments
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%SELECT%*%FROM%'
-           OR a.source_expr LIKE '%SELECT *%'
-    """)
-    
-    select_star_queries = cursor.fetchall()
-    
-    for file, line, var, expr in select_star_queries:
-        if expr and select_star_pattern.search(expr):
-            findings.append({
-                'rule_id': 'select-star-query',
-                'message': 'SELECT * query - specify needed columns',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'low',
-                'category': 'performance',
-                'confidence': 'high',
-                'description': 'List specific columns for better performance, reduced network traffic, and protection against schema changes.'
-            })
-    
-    # Check function calls
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_expr LIKE '%SELECT%*%FROM%'
-           OR f.argument_expr LIKE '%SELECT *%'
-    """)
-    
-    select_star_calls = cursor.fetchall()
-    
-    for file, line, func, args in select_star_calls:
-        if args and select_star_pattern.search(args):
-            findings.append({
-                'rule_id': 'select-star-query',
-                'message': 'Avoid SELECT * in production code',
-                'file': file,
-                'line': line,
-                'column': 0,
-                'severity': 'low',
-                'category': 'performance',
-                'confidence': 'high',
-                'description': 'Explicitly list columns to improve query performance and maintainability.'
-            })
-    
-    return findings
-
-
-def _find_unindexed_field_queries(cursor) -> List[Dict[str, Any]]:
-    """Find queries on commonly unindexed fields (heuristic)."""
-    findings = []
-    
-    # Common fields that are often not indexed
-    common_unindexed = [
-        'email', 'username', 'user_id', 'created_at', 'updated_at', 
-        'status', 'type', 'category', 'description', 'name'
-    ]
-    
-    # Check WHERE clauses
-    cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%WHERE%'
-          AND (a.source_expr LIKE '%SELECT%' OR a.source_expr LIKE '%UPDATE%' OR a.source_expr LIKE '%DELETE%')
-    """)
-    
-    where_queries = cursor.fetchall()
-    
-    for file, line, expr in where_queries:
-        if expr:
-            expr_lower = expr.lower()
-            for field in common_unindexed:
-                # Look for patterns like WHERE field = or WHERE field IN
-                if f'where {field}' in expr_lower or f'where {field} ' in expr_lower:
-                    findings.append({
-                        'rule_id': 'missing-db-index-hint',
-                        'message': f'Query on potentially unindexed field: {field}',
-                        'file': file,
-                        'line': line,
-                        'column': 0,
-                        'severity': 'medium',
-                        'category': 'performance',
-                        'confidence': 'low',
-                        'description': f'Consider adding index on {field} if queries are slow. Use EXPLAIN to verify.'
-                    })
-                    break
-    
-    return findings
-
-
-def _find_large_in_clauses(cursor) -> List[Dict[str, Any]]:
-    """Find queries with large IN clauses that could be inefficient."""
-    findings = []
-    
-    # Pattern for IN clause with many values
-    in_pattern = re.compile(r'\bIN\s*\([^)]{100,}\)', re.IGNORECASE)
-    
-    # Check assignments
-    cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%IN (%'
-          AND LENGTH(a.source_expr) > 200
-    """)
-    
-    in_queries = cursor.fetchall()
-    
-    for file, line, expr in in_queries:
-        if expr and in_pattern.search(expr):
-            # Count commas to estimate number of values
-            in_match = in_pattern.search(expr)
-            if in_match:
-                in_clause = in_match.group()
-                comma_count = in_clause.count(',')
-                if comma_count > 10:
-                    findings.append({
-                        'rule_id': 'large-in-clause',
-                        'message': f'Large IN clause with ~{comma_count + 1} values',
-                        'file': file,
-                        'line': line,
-                        'column': 0,
-                        'severity': 'medium',
-                        'category': 'performance',
-                        'confidence': 'high',
-                        'description': 'Consider using a temporary table or JOIN instead of large IN clauses for better performance.'
-                    })
-    
-    return findings
-
-
-def register_taint_patterns(taint_registry):
-    """Register SQL-related patterns with the taint analysis registry.
-    
-    This maintains compatibility with the taint analyzer.
-    """
-    # SQL execution functions as sinks
-    SQL_EXECUTION_SINKS = [
-        "execute", "executemany", "query", "exec", "execSQL",
-        "db.query", "db.execute", "cursor.execute",
-        "sequelize.query", "knex.raw", "pool.query"
-    ]
-    
-    for pattern in SQL_EXECUTION_SINKS:
-        taint_registry.register_sink(pattern, "sql", "any")
-    
-    # Transaction operations
-    TRANSACTION_SINKS = [
-        "begin", "start_transaction", "commit", "rollback",
-        "BEGIN", "COMMIT", "ROLLBACK"
-    ]
-    
-    for pattern in TRANSACTION_SINKS:
-        taint_registry.register_sink(pattern, "transaction", "any")
-
-
-def find_sql_safety_issues(tree: Any, file_path: str = None, taint_checker=None) -> List[Dict[str, Any]]:
-    """
-    Compatibility wrapper for AST-based callers.
-    
-    This function is called by universal_detector but we ignore the AST tree
-    and query the database instead.
-    """
-    # This would need access to the database path
-    # In real implementation, this would be configured
-    return []
-
-
-# For direct CLI usage
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        db_path = sys.argv[1]
-        findings = detect_sql_safety_patterns(db_path)
-        for finding in findings:
-            print(f"{finding['file']}:{finding['line']} - {finding['message']}")

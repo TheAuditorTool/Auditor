@@ -1,272 +1,381 @@
-"""Source map exposure detector for production builds - Golden Standard.
+"""Source Map Exposure Detector - Pure Database Implementation.
 
-This module detects exposed source maps using a hybrid approach:
-- Database queries for indexed JavaScript files
-- Direct file I/O for scanning build artifacts
+This module detects exposed source maps using ONLY indexed database data.
+NO AST TRAVERSAL. NO FILE I/O. Just efficient SQL queries.
 """
 
-import re
 import sqlite3
-from pathlib import Path
-from typing import List, Dict, Any
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from typing import List
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 
-def detect_sourcemap_patterns(db_path: str) -> List[Dict[str, Any]]:
-    """
-    Detect exposed source maps using hybrid database + file I/O approach.
+def find_sourcemap_issues(context: StandardRuleContext) -> List[StandardFinding]:
+    """Detect exposed source maps using indexed database.
     
-    This follows the golden standard pattern while maintaining necessary file operations
-    for deployment artifact scanning.
-    
-    Args:
-        db_path: Path to the repo_index.db database
-        
     Returns:
-        List of security findings in StandardFinding format
+        List of source map exposure findings
     """
     findings = []
+    
+    if not context.db_path:
+        return findings
+    
+    conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
     
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        # Pattern 1: Find sourceMappingURL references in symbols
+        findings.extend(_find_sourcemap_urls(cursor))
         
-        # Get project root from database
-        cursor.execute("SELECT DISTINCT file FROM files LIMIT 1")
-        sample_file = cursor.fetchone()
-        if not sample_file:
-            return findings
-            
-        project_root = Path(sample_file[0]).parent
-        while project_root.parent != project_root and not (project_root / '.git').exists():
-            project_root = project_root.parent
+        # Pattern 2: Find .map files in production directories
+        findings.extend(_find_map_files(cursor))
         
-        # Pattern 1: Find JavaScript files with sourcemap URLs in database
-        findings.extend(_find_sourcemap_urls_in_db(cursor))
+        # Pattern 3: Find inline source maps in JavaScript files
+        findings.extend(_find_inline_sourcemaps(cursor))
         
-        # Pattern 2: Find inline sourcemaps in indexed files
-        findings.extend(_find_inline_sourcemaps_in_db(cursor))
+        # Pattern 4: Find source map generation in build configs
+        findings.extend(_find_sourcemap_config(cursor))
         
-        # Pattern 3: Scan build directories for .map files (file I/O required)
-        findings.extend(_scan_build_artifacts(project_root))
+        # Pattern 5: Find webpack devtool settings
+        findings.extend(_find_webpack_sourcemap_settings(cursor))
         
+        # Pattern 6: Find source map headers in server configs
+        findings.extend(_find_sourcemap_headers(cursor))
+        
+    finally:
         conn.close()
-        
-    except Exception as e:
-        logger.error(f"Error detecting sourcemap patterns: {e}")
     
     return findings
 
 
-def _find_sourcemap_urls_in_db(cursor) -> List[Dict[str, Any]]:
-    """Find sourceMappingURL comments in indexed JavaScript files."""
+def _find_sourcemap_urls(cursor) -> List[StandardFinding]:
+    """Find sourceMappingURL comments in production JavaScript."""
     findings = []
     
-    # Query for JavaScript files in production directories
-    production_paths = ['dist/', 'build/', 'out/', 'public/', 'static/', 'bundle/', '_next/']
-    
-    conditions = ' OR '.join([f"f.file LIKE '%{path}%'" for path in production_paths])
-    
-    cursor.execute(f"""
-        SELECT f.file, f.extension
-        FROM files f
-        WHERE f.extension IN ('js', 'mjs', 'cjs', 'jsx')
-          AND ({conditions})
+    # Look for sourceMappingURL in symbols and strings
+    cursor.execute("""
+        SELECT s.file, s.line, s.name
+        FROM symbols s
+        WHERE s.file LIKE '%.js' 
+          AND (s.name LIKE '%sourceMappingURL%'
+               OR s.name LIKE '%sourceURL%'
+               OR s.name LIKE '%.map%')
+          AND (s.file LIKE '%dist/%'
+               OR s.file LIKE '%build/%'
+               OR s.file LIKE '%public/%'
+               OR s.file LIKE '%static/%'
+               OR s.file LIKE '%bundle/%'
+               OR s.file LIKE '%_next/%'
+               OR s.file LIKE '%out/%')
+        ORDER BY s.file, s.line
     """)
     
-    js_files = cursor.fetchall()
+    for file, line, name in cursor.fetchall():
+        # Check if it's a source map reference
+        if 'sourceMappingURL' in name or '.map' in name:
+            findings.append(StandardFinding(
+                rule_name='sourcemap-url-exposed',
+                message='Source map URL reference in production JavaScript',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                snippet=name[:100],
+                fix_suggestion='Remove sourceMappingURL comments from production builds',
+                cwe_id='CWE-200'
+            ))
     
-    # Pattern for source map URLs
-    url_pattern = re.compile(
-        r'//[#@]\s*sourceMappingURL\s*=\s*([^\s]+\.map)',
-        re.IGNORECASE
-    )
+    # Also check in assignments for dynamically generated URLs
+    cursor.execute("""
+        SELECT a.file, a.line, a.target_var, a.source_expr
+        FROM assignments a
+        WHERE (a.source_expr LIKE '%sourceMappingURL%'
+               OR a.source_expr LIKE '%sourceURL%'
+               OR a.source_expr LIKE '%.map%')
+          AND (a.file LIKE '%webpack%'
+               OR a.file LIKE '%rollup%'
+               OR a.file LIKE '%vite%'
+               OR a.file LIKE '%build%')
+    """)
     
-    for file_path, ext in js_files:
-        try:
-            # Read last portion of file for performance
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                f.seek(0, 2)  # Go to end
-                file_size = f.tell()
-                read_size = min(5000, file_size)
-                f.seek(max(0, file_size - read_size))
-                content_tail = f.read()
-            
-            # Check for source map URL
-            url_match = url_pattern.search(content_tail)
-            if url_match:
-                map_url = url_match.group(1)
-                
-                # Check if map file exists
-                map_path = Path(file_path).parent / map_url
-                map_exists = map_path.exists()
-                
-                findings.append({
-                    'rule_id': 'sourcemap-url-exposed',
-                    'message': f'Source map URL in production JavaScript: {map_url}',
-                    'file': file_path,
-                    'line': 0,  # Would need full file scan for exact line
-                    'column': 0,
-                    'severity': 'high' if map_exists else 'medium',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': f'Source map {"exists and" if map_exists else "referenced but not found,"} may expose original source code. Remove sourceMappingURL comments from production builds.'
-                })
-                
-        except (OSError, UnicodeDecodeError):
-            continue
+    for file, line, var, expr in cursor.fetchall():
+        if expr and ('sourceMappingURL' in expr or '.map' in expr):
+            findings.append(StandardFinding(
+                rule_name='sourcemap-generation',
+                message='Source map generation detected in build configuration',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='security',
+                snippet=f'{var} = {expr[:50]}...' if len(expr) > 50 else f'{var} = {expr}',
+                fix_suggestion='Disable source map generation for production builds',
+                cwe_id='CWE-200'
+            ))
     
     return findings
 
 
-def _find_inline_sourcemaps_in_db(cursor) -> List[Dict[str, Any]]:
-    """Find inline base64 sourcemaps in indexed JavaScript files."""
+def _find_map_files(cursor) -> List[StandardFinding]:
+    """Find .map files in production directories."""
     findings = []
     
-    # Inline source map pattern
-    inline_pattern = re.compile(
-        r'//[#@]\s*sourceMappingURL\s*=\s*data:application/json[^,]*;base64,',
-        re.IGNORECASE
-    )
-    
-    # Query for production JavaScript files
-    production_paths = ['dist/', 'build/', 'out/', 'public/', 'static/', 'bundle/', '_next/']
-    conditions = ' OR '.join([f"f.file LIKE '%{path}%'" for path in production_paths])
-    
-    cursor.execute(f"""
+    # Query for .map files in production paths
+    cursor.execute("""
         SELECT f.file, f.size
         FROM files f
-        WHERE f.extension IN ('js', 'mjs', 'cjs', 'jsx')
-          AND ({conditions})
-          AND f.size > 10000
+        WHERE f.extension = 'map'
+          AND (f.file LIKE '%dist/%'
+               OR f.file LIKE '%build/%'
+               OR f.file LIKE '%public/%'
+               OR f.file LIKE '%static/%'
+               OR f.file LIKE '%bundle/%'
+               OR f.file LIKE '%_next/%'
+               OR f.file LIKE '%out/%'
+               OR f.file LIKE '%assets/%')
+          AND f.file NOT LIKE '%node_modules/%'
+          AND f.file NOT LIKE '%vendor/%'
+        ORDER BY f.file
     """)
     
-    large_js_files = cursor.fetchall()
-    
-    for file_path, size in large_js_files:
-        try:
-            # Read last portion of file
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                f.seek(0, 2)
-                file_size = f.tell()
-                read_size = min(5000, file_size)
-                f.seek(max(0, file_size - read_size))
-                content_tail = f.read()
+    for file, size in cursor.fetchall():
+        # Check if it's a JavaScript source map (ends with .js.map, .mjs.map, etc.)
+        if any(file.endswith(ext) for ext in ['.js.map', '.mjs.map', '.cjs.map', '.jsx.map', '.ts.map', '.tsx.map']):
+            # Large map files are more concerning
+            severity = Severity.CRITICAL if size > 100000 else Severity.HIGH
             
-            # Check for inline source map
-            if inline_pattern.search(content_tail):
-                findings.append({
-                    'rule_id': 'inline-sourcemap-exposed',
-                    'message': 'Inline source map embedded in production JavaScript',
-                    'file': file_path,
-                    'line': 0,
-                    'column': 0,
-                    'severity': 'high',
-                    'category': 'security',
-                    'confidence': 'high',
-                    'description': 'Full source code embedded as base64 in production file. Disable inline source maps in production build configuration.'
-                })
-                
-        except (OSError, UnicodeDecodeError):
-            continue
+            findings.append(StandardFinding(
+                rule_name='sourcemap-file-exposed',
+                message=f'Source map file in production directory ({size} bytes)',
+                file_path=file,
+                line=1,
+                severity=severity,
+                category='security',
+                snippet=file.split('/')[-1],
+                fix_suggestion='Remove .map files from production or block access via server config',
+                cwe_id='CWE-200'
+            ))
     
     return findings
 
 
-def _scan_build_artifacts(project_root: Path) -> List[Dict[str, Any]]:
-    """Scan build directories for exposed .map files."""
+def _find_inline_sourcemaps(cursor) -> List[StandardFinding]:
+    """Find inline base64 source maps in JavaScript files."""
     findings = []
     
-    # Common production build directories
-    build_dirs = ['dist', 'build', 'out', 'public', 'static', 'assets', 'bundle', '_next']
+    # Look for data:application/json base64 patterns
+    cursor.execute("""
+        SELECT s.file, s.line, s.name
+        FROM symbols s
+        WHERE s.symbol_type = 'string'
+          AND (s.name LIKE '%data:application/json%base64%'
+               OR s.name LIKE '%sourceMap:%'
+               OR s.name LIKE '%sourcesContent%')
+          AND s.file LIKE '%.js'
+          AND (s.file LIKE '%dist/%'
+               OR s.file LIKE '%build/%'
+               OR s.file LIKE '%public/%')
+    """)
     
-    # Find existing build directories
-    existing_dirs = []
-    for dir_name in build_dirs:
-        dir_path = project_root / dir_name
-        if dir_path.exists() and dir_path.is_dir():
-            existing_dirs.append(dir_path)
+    for file, line, content in cursor.fetchall():
+        if 'data:application/json' in content and 'base64' in content:
+            findings.append(StandardFinding(
+                rule_name='inline-sourcemap-exposed',
+                message='Inline source map embedded in production JavaScript',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                snippet=content[:50] + '...',
+                fix_suggestion='Disable inline source maps in production build configuration',
+                cwe_id='CWE-200'
+            ))
     
-    # Check if project root itself is build output
-    if _is_likely_build_output(project_root):
-        existing_dirs.append(project_root)
+    # Check for large string assignments that might be inline maps
+    cursor.execute("""
+        SELECT a.file, a.line, a.target_var, LENGTH(a.source_expr) as expr_len
+        FROM assignments a
+        WHERE a.target_var LIKE '%sourceMap%'
+          AND LENGTH(a.source_expr) > 10000
+          AND a.file LIKE '%.js'
+    """)
     
-    # Scan for .map files
-    for build_dir in existing_dirs:
-        try:
-            # Use rglob but limit depth for performance
-            for map_file in build_dir.rglob('*.map'):
-                # Skip vendor and hidden directories
-                if any(skip in str(map_file) for skip in ['node_modules', '.git', 'vendor', 'third_party']):
-                    continue
-                
-                # Check if it's a JavaScript source map
-                if map_file.name.endswith(('.js.map', '.mjs.map', '.cjs.map')):
-                    try:
-                        relative_path = map_file.relative_to(project_root)
-                        
-                        findings.append({
-                            'rule_id': 'sourcemap-file-exposed',
-                            'message': f'Source map file exposed in production: {map_file.name}',
-                            'file': str(map_file),
-                            'line': 0,
-                            'column': 0,
-                            'severity': 'high',
-                            'category': 'security',
-                            'confidence': 'high',
-                            'description': f'Source map in {build_dir.name}/ exposes original source code structure. Remove .map files from production builds or block access via server configuration.'
-                        })
-                        
-                    except ValueError:
-                        continue
-                        
-        except OSError:
-            continue
+    for file, line, var, expr_len in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='large-inline-sourcemap',
+            message=f'Large inline source map detected ({expr_len} characters)',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet=f'{var} = <large base64 data>',
+            fix_suggestion='Use external source maps or disable them in production',
+            cwe_id='CWE-200'
+        ))
     
     return findings
 
 
-def _is_likely_build_output(directory: Path) -> bool:
-    """Check if directory contains build artifacts."""
-    # Check for minified files
-    minified = list(directory.glob('*.min.js')[:5])  # Limit for performance
-    if minified:
-        return True
-    
-    # Check for common bundle files
-    bundle_indicators = ['main.js', 'bundle.js', 'app.js', 'vendor.js', 'chunk.js']
-    for indicator in bundle_indicators:
-        if (directory / indicator).exists():
-            return True
-    
-    return False
-
-
-# Compatibility wrapper for file-based callers
-def find_source_maps(project_path: str) -> List[Dict[str, Any]]:
-    """
-    Legacy compatibility wrapper that uses file I/O.
-    New code should use detect_sourcemap_patterns with database.
-    """
-    # Try to find database
-    db_path = Path(project_path) / '.pf' / 'repo_index.db'
-    if db_path.exists():
-        return detect_sourcemap_patterns(str(db_path))
-    
-    # Fallback to pure file scanning
+def _find_sourcemap_config(cursor) -> List[StandardFinding]:
+    """Find source map generation in build configurations."""
     findings = []
-    project_root = Path(project_path)
-    findings.extend(_scan_build_artifacts(project_root))
+    
+    # Check for source map settings in config files
+    cursor.execute("""
+        SELECT a.file, a.line, a.target_var, a.source_expr
+        FROM assignments a
+        WHERE (a.target_var LIKE '%sourceMap%'
+               OR a.target_var LIKE '%devtool%'
+               OR a.target_var LIKE '%sourcemap%')
+          AND (a.source_expr LIKE '%true%'
+               OR a.source_expr LIKE '%inline%'
+               OR a.source_expr LIKE '%eval%'
+               OR a.source_expr LIKE '%cheap%')
+          AND (a.file LIKE '%webpack%'
+               OR a.file LIKE '%rollup%'
+               OR a.file LIKE '%vite%'
+               OR a.file LIKE '%tsconfig%'
+               OR a.file LIKE '%next.config%')
+    """)
+    
+    for file, line, var, expr in cursor.fetchall():
+        # Check if it's enabling source maps
+        if expr and any(val in expr.lower() for val in ['true', 'inline', 'eval', 'cheap-source-map']):
+            # Check if it's a production config
+            is_prod = 'prod' in file.lower() or 'production' in expr.lower()
+            
+            if is_prod:
+                severity = Severity.HIGH
+                message = 'Source maps enabled in production configuration'
+            else:
+                severity = Severity.MEDIUM
+                message = 'Source maps enabled - ensure disabled for production'
+            
+            findings.append(StandardFinding(
+                rule_name='sourcemap-config-enabled',
+                message=message,
+                file_path=file,
+                line=line,
+                severity=severity,
+                category='security',
+                snippet=f'{var} = {expr[:50]}...' if len(expr) > 50 else f'{var} = {expr}',
+                fix_suggestion='Set sourceMap: false or devtool: false for production builds',
+                cwe_id='CWE-200'
+            ))
+    
     return findings
 
 
-# For direct CLI usage
-if __name__ == "__main__":
-    import sys
-    if len(sys.argv) > 1:
-        db_path = sys.argv[1]
-        findings = detect_sourcemap_patterns(db_path)
-        for finding in findings:
-            print(f"{finding['file']}:{finding['line']} - {finding['message']}")
+def _find_webpack_sourcemap_settings(cursor) -> List[StandardFinding]:
+    """Find webpack devtool settings that generate source maps."""
+    findings = []
+    
+    # Dangerous devtool values for production
+    dangerous_devtools = [
+        'eval', 'eval-source-map', 'eval-cheap-source-map',
+        'eval-cheap-module-source-map', 'inline-source-map',
+        'inline-cheap-source-map', 'inline-cheap-module-source-map'
+    ]
+    
+    cursor.execute("""
+        SELECT a.file, a.line, a.target_var, a.source_expr
+        FROM assignments a
+        WHERE a.target_var LIKE '%devtool%'
+          AND a.file LIKE '%webpack%'
+    """)
+    
+    for file, line, var, expr in cursor.fetchall():
+        if expr:
+            expr_lower = expr.lower()
+            for dangerous in dangerous_devtools:
+                if dangerous in expr_lower:
+                    findings.append(StandardFinding(
+                        rule_name='webpack-dangerous-devtool',
+                        message=f'Webpack devtool "{dangerous}" exposes source code',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category='security',
+                        snippet=f'devtool: "{dangerous}"',
+                        fix_suggestion='Use devtool: false or source-map for production (external files)',
+                        cwe_id='CWE-200'
+                    ))
+                    break
+    
+    # Check for SourceMapDevToolPlugin
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function
+        FROM function_call_args f
+        WHERE f.callee_function LIKE '%SourceMapDevToolPlugin%'
+          AND f.file LIKE '%webpack%'
+    """)
+    
+    for file, line, func in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='webpack-sourcemap-plugin',
+            message='SourceMapDevToolPlugin detected - may expose source maps',
+            file_path=file,
+            line=line,
+            severity=Severity.MEDIUM,
+            category='security',
+            snippet=func,
+            fix_suggestion='Remove SourceMapDevToolPlugin from production webpack config',
+            cwe_id='CWE-200'
+        ))
+    
+    return findings
+
+
+def _find_sourcemap_headers(cursor) -> List[StandardFinding]:
+    """Find source map headers in server configurations."""
+    findings = []
+    
+    # Check for X-SourceMap headers
+    cursor.execute("""
+        SELECT a.file, a.line, a.source_expr
+        FROM assignments a
+        WHERE (a.source_expr LIKE '%X-SourceMap%'
+               OR a.source_expr LIKE '%SourceMap:%'
+               OR a.source_expr LIKE '%source-map%')
+          AND (a.file LIKE '%nginx%'
+               OR a.file LIKE '%apache%'
+               OR a.file LIKE '%server%'
+               OR a.file LIKE '%express%')
+    """)
+    
+    for file, line, expr in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='sourcemap-http-header',
+            message='Source map HTTP header configuration detected',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet=expr[:100],
+            fix_suggestion='Remove X-SourceMap headers from production server configuration',
+            cwe_id='CWE-200'
+        ))
+    
+    # Check for Express static middleware serving .map files
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.callee_function LIKE '%express.static%'
+           OR f.callee_function LIKE '%serve-static%'
+    """)
+    
+    for file, line, func, args in cursor.fetchall():
+        # Check if there's filtering to exclude .map files
+        if args and '.map' not in args:
+            findings.append(StandardFinding(
+                rule_name='static-serving-maps',
+                message='Static file serving may expose .map files',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='security',
+                snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
+                fix_suggestion='Add middleware to block .map file access in production',
+                cwe_id='CWE-200'
+            ))
+    
+    return findings
