@@ -67,17 +67,28 @@ def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding
 def _find_update_without_where(cursor) -> List[StandardFinding]:
     """Find UPDATE statements without WHERE clause in actual SQL queries."""
     findings = []
+    seen_files = set()
     
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE command = 'UPDATE'
+          AND (file_path LIKE '%backend%' OR file_path LIKE '%server%' OR file_path LIKE '%api%')
+          AND file_path NOT LIKE '%frontend%'
+          AND file_path NOT LIKE '%.tsx'
+          AND file_path NOT LIKE '%.jsx'
           AND query_text NOT LIKE '%WHERE%'
           AND query_text NOT LIKE '%where%'
         ORDER BY file_path, line_number
+        LIMIT 10
     """)
     
     for file, line, query, command in cursor.fetchall():
+        # Dedupe by file
+        if file in seen_files:
+            continue
+        seen_files.add(file)
+        
         # Double-check it's really missing WHERE
         query_upper = query.upper()
         if 'WHERE' not in query_upper:
@@ -86,7 +97,7 @@ def _find_update_without_where(cursor) -> List[StandardFinding]:
                 message='UPDATE without WHERE clause will affect ALL rows',
                 file_path=file,
                 line=line,
-                severity=Severity.CRITICAL,
+                severity=Severity.HIGH,  # Not always critical
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
                 fix_suggestion='Add WHERE clause to target specific rows. If updating all rows is intentional, add a comment',
