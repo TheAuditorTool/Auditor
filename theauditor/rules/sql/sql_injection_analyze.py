@@ -65,19 +65,34 @@ def find_sql_injection_issues(context: StandardRuleContext) -> List[StandardFind
 def _find_string_concatenation_in_queries(cursor) -> List[StandardFinding]:
     """Find SQL queries with string concatenation patterns."""
     findings = []
+    seen_patterns = set()  # For deduplication
     
     # Look for concatenation patterns in actual SQL queries
+    # EXCLUDE UNKNOWN commands and frontend files
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
-        WHERE query_text LIKE '%||%'
-           OR query_text LIKE '%+%'
-           OR query_text LIKE '%${%'
-           OR query_text LIKE '%' + '%'
+        WHERE command != 'UNKNOWN'
+          AND command IS NOT NULL
+          AND (file_path LIKE '%backend%' OR file_path LIKE '%server%' OR file_path LIKE '%api%')
+          AND file_path NOT LIKE '%frontend%'
+          AND file_path NOT LIKE '%client%'
+          AND file_path NOT LIKE '%.tsx'
+          AND file_path NOT LIKE '%.jsx'
+          AND (query_text LIKE '%||%'
+               OR query_text LIKE '%+%'
+               OR query_text LIKE '%${%')
         ORDER BY file_path, line_number
+        LIMIT 50
     """)
     
     for file, line, query, command in cursor.fetchall():
+        # Deduplicate by file + pattern type
+        pattern_key = f"{file}:{command}:concatenation"
+        if pattern_key in seen_patterns:
+            continue
+        seen_patterns.add(pattern_key)
+        
         # Check for common concatenation patterns that indicate injection
         if '||' in query or '+' in query or '${' in query:
             # Try to identify if it's user input concatenation
@@ -88,7 +103,7 @@ def _find_string_concatenation_in_queries(cursor) -> List[StandardFinding]:
                     message=f'SQL {command} query using string concatenation - injection risk',
                     file_path=file,
                     line=line,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HIGH,  # Not always CRITICAL
                     category='security',
                     snippet=query[:100] + '...' if len(query) > 100 else query,
                     fix_suggestion='Use parameterized queries with placeholders (?, :param, %s)',
@@ -145,9 +160,15 @@ def _find_fstring_patterns_in_queries(cursor) -> List[StandardFinding]:
     """)
     
     for file, line, query, command in cursor.fetchall():
+        pattern_key = f"{file}:{command}:fstring"
+        if pattern_key in seen_patterns:
+            continue
+        seen_patterns.add(pattern_key)
+        
         # Check for f-string indicators
         if (query.startswith('f"') or query.startswith("f'") or 
             ('{' in query and '}' in query and not query.count('{') == query.count('{}'))):
+
             findings.append(StandardFinding(
                 rule_name='sql-injection-fstring',
                 message=f'SQL {command} query using f-string interpolation - critical vulnerability',
