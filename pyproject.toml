@@ -17,6 +17,7 @@ dependencies = [
     "PyYAML==6.0.2",
     "jsonschema==4.25.1",
     "ijson==3.4.0",
+    "json5==0.12.1",
 ]
 
 [project.optional-dependencies]
