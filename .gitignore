@@ -77,6 +77,8 @@ repo_index.db
 *.db-journal
 /test_scaffold/
 /tmp/
+teamsop.md
+node_modules/
 
 # Test and temporary files
 test_output/

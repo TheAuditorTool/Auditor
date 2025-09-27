@@ -127,48 +127,19 @@ def create_wrappers(target_dir: Path) -> Dict[str, str]:
     return results
 
 
-def copy_agent_templates(source_dir: Path, target_dir: Path) -> Dict[str, str]:
-    """
-    Copy all .md agent template files directly to target/.claude/agents/.
-    
-    Args:
-        source_dir: Directory containing agent template .md files
-        target_dir: Project root directory
-        
-    Returns:
-        Dict mapping agent paths to their status
-    """
-    agents_dir = target_dir / ".claude" / "agents"
-    agents_dir.mkdir(parents=True, exist_ok=True)
-    
-    results = {}
-    
-    # Find all .md files in source directory
-    for md_file in source_dir.glob("*.md"):
-        if md_file.is_file():
-            # Read content
-            content = md_file.read_text(encoding='utf-8')
-            
-            # Write to target
-            target_file = agents_dir / md_file.name
-            status = write_file_atomic(target_file, content)
-            results[str(target_file)] = status
-    
-    return results
+# Agent template functionality removed - no longer needed
 
 
 def setup_claude_complete(
     target: str,
-    source: str = "agent_templates",
     sync: bool = False,
     dry_run: bool = False
 ) -> Dict[str, List[str]]:
     """
-    Complete Claude setup: venv, wrappers, hooks, and agents.
+    Setup sandboxed environment for JS/TS analysis tools.
     
     Args:
         target: Target project root (absolute or relative path)
-        source: Path to TheAuditor agent templates directory
         sync: Force update (still creates .bak on first change)
         dry_run: Print plan without executing
         
@@ -181,21 +152,11 @@ def setup_claude_complete(
     if not target_dir.exists():
         raise ValueError(f"Target directory does not exist: {target_dir}")
     
-    # Find source docs
-    if Path(source).is_absolute():
-        source_dir = Path(source)
-    else:
-        theauditor_root = find_theauditor_root()
-        source_dir = theauditor_root / source
-    
-    if not source_dir.exists():
-        raise ValueError(f"Source agent templates directory not found: {source_dir}")
     
     print(f"\n{'='*60}")
     print(f"Claude Setup - Zero-Optional Installation")
     print(f"{'='*60}")
     print(f"Target:  {target_dir}")
-    print(f"Source:  {source_dir}")
     print(f"Mode:    {'DRY RUN' if dry_run else 'EXECUTE'}")
     print(f"{'='*60}\n")
     
@@ -203,9 +164,7 @@ def setup_claude_complete(
         print("DRY RUN - Plan of operations:")
         print(f"1. Create/verify venv at {target_dir}/.auditor_venv")
         print(f"2. Install TheAuditor (editable) into venv")
-        print(f"3. Create wrappers at {target_dir}/.claude/bin/")
-        print(f"4. Copy agent templates from {source_dir}/*.md")
-        print(f"5. Write agents to {target_dir}/.claude/agents/")
+        print(f"3. Install JS/TS analysis tools (ESLint, TypeScript, etc.)")
         print("\nNo files will be modified.")
         return {"created": [], "updated": [], "skipped": []}
     
@@ -231,25 +190,8 @@ def setup_claude_complete(
         results["failed"].append("venv setup")
         return results
     
-    # Step 2: Create wrappers
-    print("\nStep 2: Creating cross-platform wrappers...", flush=True)
-    wrapper_results = create_wrappers(target_dir)
-    for path, status in wrapper_results.items():
-        results[status].append(path)
-    
-    # Step 3: Copy agent templates
-    print("\nStep 3: Copying agent templates...", flush=True)
-    try:
-        agent_results = copy_agent_templates(source_dir, target_dir)
-        for path, status in agent_results.items():
-            results[status].append(path)
-        
-        if not agent_results:
-            print("WARNING: No .md files found in agent_templates directory")
-    
-    except Exception as e:
-        print(f"ERROR copying agent templates: {e}")
-        results["failed"].append("agent template copy")
+    # Step 2 removed - no longer creating wrappers or copying templates
+    # Sandboxed tools are sufficient for JS/TS analysis
     
     # Summary
     print(f"\n{'='*60}")
@@ -265,9 +207,8 @@ def setup_claude_complete(
             print(f"  - {item}")
     
     check_mark = "[OK]" if IS_WINDOWS else "✓"
-    print(f"\n{check_mark} Project configured at: {target_dir}")
-    print(f"{check_mark} Wrapper available at: {target_dir}/.claude/bin/aud")
-    print(f"{check_mark} Agents installed to: {target_dir}/.claude/agents/")
-    print(f"{check_mark} Professional linters installed (ruff, mypy, black, ESLint, etc.)")
+    print(f"\n{check_mark} Sandboxed environment configured at: {target_dir}/.auditor_venv")
+    print(f"{check_mark} JS/TS tools installed at: {target_dir}/.auditor_venv/.theauditor_tools")
+    print(f"{check_mark} Professional linters installed (ruff, mypy, black, ESLint, TypeScript)")
     
     return results

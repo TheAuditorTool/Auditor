@@ -118,8 +118,6 @@ def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
     patterns = [
         "theauditor/**",
         "tests/**",
-        "agent_templates/**",
-        ".claude/**",
         ".make/**",
         ".venv/**",
         ".venv_wsl/**",

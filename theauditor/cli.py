@@ -173,7 +173,6 @@ from theauditor.commands.docs import docs
 from theauditor.commands.tool_versions import tool_versions
 from theauditor.commands.init_js import init_js
 from theauditor.commands.init_config import init_config
-from theauditor.commands.validate_templates import validate_templates
 
 # Import ML commands
 from theauditor.commands.ml import learn, suggest, learn_feedback
@@ -214,7 +213,6 @@ cli.add_command(docs)
 cli.add_command(tool_versions)
 cli.add_command(init_js)
 cli.add_command(init_config)
-cli.add_command(validate_templates)
 
 # Register ML commands
 cli.add_command(learn)
