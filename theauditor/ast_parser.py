@@ -361,6 +361,101 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         
         return None
 
+    def parse_files_batch(self, file_paths: List[Path], root_path: str = None) -> Dict[str, Any]:
+        """Parse multiple files into ASTs in batch for performance.
+
+        This method dramatically improves performance for JavaScript/TypeScript projects
+        by processing multiple files in a single TypeScript compiler invocation.
+
+        Args:
+            file_paths: List of paths to source files
+            root_path: Absolute path to project root (for sandbox resolution)
+
+        Returns:
+            Dictionary mapping file paths to their AST trees
+        """
+        results = {}
+
+        # Separate files by language
+        js_ts_files = []
+        python_files = []
+        other_files = []
+
+        for file_path in file_paths:
+            language = self._detect_language(file_path)
+            if language in ["javascript", "typescript"]:
+                js_ts_files.append(file_path)
+            elif language == "python":
+                python_files.append(file_path)
+            else:
+                other_files.append(file_path)
+
+        # Batch process JavaScript/TypeScript files if in a JS or polyglot project
+        project_type = self._detect_project_type()
+        if js_ts_files and project_type in ["javascript", "polyglot"] and get_semantic_ast_batch:
+            try:
+                # Convert paths to strings for the semantic parser with normalized separators
+                js_ts_paths = [str(f).replace("\\", "/") for f in js_ts_files]
+
+                # Use batch processing for JS/TS files
+                batch_results = get_semantic_ast_batch(js_ts_paths, project_root=root_path)
+
+                # Process batch results
+                for file_path in js_ts_files:
+                    file_str = str(file_path).replace("\\", "/")  # Normalize for matching
+                    if file_str in batch_results:
+                        semantic_result = batch_results[file_str]
+                        if semantic_result.get("success"):
+                            # Read file content for inclusion
+                            try:
+                                with open(file_path, "rb") as f:
+                                    content = f.read()
+
+                                results[str(file_path).replace("\\", "/")] = {
+                                    "type": "semantic_ast",
+                                    "tree": semantic_result,
+                                    "language": self._detect_language(file_path),
+                                    "content": content.decode("utf-8", errors="ignore"),
+                                    "has_types": semantic_result.get("hasTypes", False),
+                                    "diagnostics": semantic_result.get("diagnostics", []),
+                                    "symbols": semantic_result.get("symbols", [])
+                                }
+                            except Exception as e:
+                                print(f"Warning: Failed to read {file_path}: {e}, falling back to individual parsing")
+                                # CRITICAL FIX: Fall back to individual parsing on read failure
+                                individual_result = self.parse_file(file_path, root_path=root_path)
+                                results[str(file_path).replace("\\", "/")] = individual_result
+                        else:
+                            print(f"Warning: Semantic parser failed for {file_path}: {semantic_result.get('error')}, falling back to individual parsing")
+                            # CRITICAL FIX: Fall back to individual parsing instead of None
+                            individual_result = self.parse_file(file_path, root_path=root_path)
+                            results[str(file_path).replace("\\", "/")] = individual_result
+                    else:
+                        # CRITICAL FIX: Fall back to individual parsing instead of None
+                        print(f"Warning: No batch result for {file_path}, falling back to individual parsing")
+                        individual_result = self.parse_file(file_path, root_path=root_path)
+                        results[str(file_path).replace("\\", "/")] = individual_result
+
+            except Exception as e:
+                print(f"Warning: Batch processing failed for JS/TS files: {e}")
+                # Fall back to individual processing
+                for file_path in js_ts_files:
+                    results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+        else:
+            # Process JS/TS files individually if not in JS project or batch failed
+            for file_path in js_ts_files:
+                results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+
+        # Process Python files individually (they're fast enough)
+        for file_path in python_files:
+            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+
+        # Process other files individually
+        for file_path in other_files:
+            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+
+        return results
+
     def get_supported_languages(self) -> List[str]:
         """Get list of supported languages.
 
