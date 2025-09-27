@@ -9,7 +9,44 @@ import click
 @click.option("--skip-docs", is_flag=True, help="Skip documentation fetching")
 @click.option("--skip-deps", is_flag=True, help="Skip dependency checking")
 def init(offline, skip_docs, skip_deps):
-    """Initialize TheAuditor for first-time use (runs all setup steps)."""
+    """Initialize TheAuditor and create analysis infrastructure.
+
+    Sets up the complete TheAuditor environment in your project. This is
+    typically the first command you run in a new project. It creates the
+    .pf/ directory structure and performs initial analysis.
+
+    Creates Directory Structure:
+      .pf/
+      ├── raw/                # Immutable tool outputs
+      │   ├── *.json         # Tool results in JSON format
+      │   └── *.ndjson       # Streaming outputs
+      ├── readthis/          # AI-optimized chunks
+      │   ├── *_chunk*.json  # Findings split into <65KB chunks
+      │   └── summary.json   # Executive summary
+      ├── .ast_cache/        # Cached AST trees for performance
+      ├── repo_index.db      # SQLite database with all symbols
+      ├── manifest.json      # File inventory
+      ├── workset.json       # Target file list
+      └── pipeline.log       # Execution trace
+
+    Operations Performed:
+      1. Index repository - Build symbol database
+      2. Create workset - Identify all source files
+      3. Check dependencies - Inventory packages (unless --skip-deps)
+      4. Fetch documentation - Download API docs (unless --skip-docs)
+
+    Examples:
+      aud init                    # Full initialization
+      aud init --offline          # Skip network operations
+      aud init --skip-docs        # Skip documentation fetch
+      aud init --skip-deps        # Skip dependency check
+
+    After init, typical next steps:
+      aud full                    # Run complete audit
+      aud taint-analyze           # Check for vulnerabilities
+      aud lint                    # Run code quality checks
+
+    Note: Safe to run multiple times - won't overwrite existing data."""
     from theauditor.init import initialize_project
     
     click.echo("[INIT] Initializing TheAuditor...\n")

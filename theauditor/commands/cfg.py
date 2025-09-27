@@ -11,7 +11,47 @@ logger = setup_logger(__name__)
 @click.group()
 @click.help_option("-h", "--help")
 def cfg():
-    """Control flow graph analysis for functions."""
+    """Analyze function complexity through Control Flow Graphs.
+
+    Control Flow Graphs (CFGs) map all possible execution paths through
+    functions, revealing complexity, dead code, and potential bugs. CFGs
+    help identify functions that are too complex to maintain or test.
+
+    Subcommands:
+      analyze  - Calculate complexity metrics and find issues
+      viz      - Visualize function control flow (requires Graphviz)
+
+    Key Metrics:
+      - Cyclomatic Complexity: Number of independent paths
+      - Dead Code: Unreachable code blocks
+      - Nested Depth: Maximum nesting level
+      - Loop Complexity: Nested loops and conditions
+
+    McCabe Complexity Guidelines:
+      1-10   : Simple, low risk
+      11-20  : Moderate complexity, medium risk
+      21-50  : Complex, high risk, needs refactoring
+      50+    : Untestable, very high risk
+
+    Examples:
+      aud cfg analyze                            # Analyze all functions
+      aud cfg analyze --complexity-threshold 15  # Find complex functions
+      aud cfg analyze --find-dead-code           # Detect unreachable code
+      aud cfg analyze --file auth.py             # Analyze specific file
+      aud cfg analyze --workset                  # Analyze changed files only
+      aud cfg viz --file auth.py --function login # Visualize login function
+
+    Output:
+      .pf/raw/cfg_analysis.json  # Complexity metrics and issues
+      .pf/repo_index.db          # CFG data stored in database
+        - cfg_blocks table        # Basic blocks
+        - cfg_edges table         # Control flow edges
+
+    Use Cases:
+      - Code review: Find overly complex functions
+      - Testing: Identify hard-to-test code
+      - Refactoring: Prioritize by complexity
+      - Security: Complex functions hide bugs"""
     pass
 
 

@@ -48,7 +48,6 @@ aud impact <file>            # Analyze impact of changing a file
 
 # Utility Commands
 aud setup-claude             # Setup sandboxed JS/TS tools (MANDATORY)
-aud js-semantic <file>       # Parse JS/TS file semantically
 aud structure                # Display project structure
 aud insights                 # Generate ML insights (requires [ml] extras)
 aud refactor <operation>     # Perform refactoring operations
@@ -172,18 +171,23 @@ The package uses a dynamic extractor registry for automatic language detection a
 - Supports semantic analysis via TypeScript compiler
 
 #### Factual Correlation Engine (FCE) (`theauditor/fce.py`)
-- **29 advanced correlation rules** in `theauditor/correlations/rules/`
+- **30 advanced correlation rules** in `theauditor/correlations/rules/`
 - Detects complex vulnerability patterns across multiple tools
 - Categories: Authentication, Injection, Data Exposure, Infrastructure, Code Quality, Framework-Specific
 
-#### Taint Analysis Package (`theauditor/taint_analyzer/`)
-Previously a monolithic 1822-line file, now refactored into a modular package:
+#### Taint Analysis Package (`theauditor/taint/`)
+Previously a monolithic file, now refactored into a modular package:
 - **core.py**: TaintAnalyzer main class
 - **sources.py**: Source pattern definitions (user inputs)
-- **sinks.py**: Sink pattern definitions (dangerous outputs)
-- **patterns.py**: Pattern matching logic
-- **flow.py**: Data flow tracking algorithms
-- **insights.py**: Optional severity scoring (Insights module)
+- **config.py**: Sink patterns and taint configuration
+- **propagation.py**: Taint propagation algorithms
+- **cfg_integration.py**: Control flow graph integration
+- **interprocedural.py**: Cross-function taint tracking
+- **memory_cache.py**: In-memory performance optimization
+- **python.py** & **javascript.py**: Language-specific handlers
+- **database.py**: Database operations for taint analysis
+- **registry.py**: Dynamic handler registration
+- **insights.py**: Optional severity scoring (backward compat shim)
 
 Features:
 - Tracks data flow from sources to sinks

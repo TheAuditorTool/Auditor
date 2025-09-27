@@ -139,14 +139,74 @@ class VerboseGroup(click.Group):
 @click.version_option(version=__version__, prog_name="aud")
 @click.help_option("-h", "--help")
 def cli():
-    """TheAuditor - Offline, air-gapped CLI for repo indexing and evidence checking.
-    
-    Quick Start:
-      aud init                    # Initialize project
-      aud full                    # Run complete audit
-      aud full --offline          # Run without network operations
-    
-    View results in .pf/readthis/ directory."""
+    """TheAuditor - Security & Code Intelligence Platform for AI-Assisted Development
+
+    PURPOSE:
+      Provides ground truth about your codebase through comprehensive security
+      analysis, taint tracking, and quality auditing. Designed for both human
+      developers and AI assistants to detect vulnerabilities, incomplete
+      refactorings, and architectural issues.
+
+    QUICK START:
+      aud init                    # First-time setup (creates .pf/ directory)
+      aud full                    # Run complete 13+ phase security audit
+      aud full --offline          # Air-gapped analysis (no network calls)
+
+    COMMON WORKFLOWS:
+      First time setup:
+        aud init && aud full              # Complete initialization and audit
+
+      After code changes:
+        aud workset --diff HEAD~1         # Identify changed files
+        aud lint --workset                # Quality check changes
+        aud taint-analyze --workset       # Security check changes
+
+      Pull request review:
+        aud workset --diff main..feature  # What changed in PR
+        aud impact --file api.py --line 1 # Check change impact
+        aud detect-patterns --workset     # Security patterns
+
+      Security audit:
+        aud full --offline                # Complete offline audit
+        aud deps --vuln-scan              # Check for CVEs
+        aud explain severity              # Understand findings
+
+      Performance optimization:
+        aud cfg analyze --threshold 20    # Find complex functions
+        aud graph analyze                 # Find circular dependencies
+        aud structure                     # Understand architecture
+
+      CI/CD pipeline:
+        aud full --quiet || exit $?       # Fail on critical issues
+
+      Understanding results:
+        aud explain taint                 # Learn about concepts
+        aud structure                     # Project overview
+        aud report --print-stats          # Summary statistics
+
+    OUTPUT STRUCTURE:
+      .pf/
+      ├── raw/                    # Immutable tool outputs (ground truth)
+      ├── readthis/              # AI-optimized chunks (<65KB each)
+      │   ├── *_chunk01.json     # Chunked findings for LLM consumption
+      │   └── summary.json       # Executive summary
+      ├── repo_index.db          # SQLite database with all code symbols
+      └── pipeline.log           # Detailed execution trace
+
+    EXIT CODES:
+      0 = Success, no issues found
+      1 = High severity findings detected
+      2 = Critical security vulnerabilities found
+      3 = Analysis incomplete or failed
+
+    ENVIRONMENT VARIABLES:
+      THEAUDITOR_LIMITS_MAX_FILE_SIZE=2097152   # Max file size in bytes (2MB)
+      THEAUDITOR_LIMITS_MAX_CHUNK_SIZE=65536    # Max chunk size (65KB)
+      THEAUDITOR_TIMEOUT_SECONDS=1800           # Default timeout (30 min)
+      THEAUDITOR_DB_BATCH_SIZE=200              # Database batch insert size
+
+    For detailed help on any command: aud <command> --help
+    Full documentation: https://github.com/TheAuditorTool/Auditor"""
     pass
 
 
@@ -165,6 +225,7 @@ from theauditor.commands.fce import fce
 from theauditor.commands.impact import impact
 from theauditor.commands.taint import taint_analyze
 from theauditor.commands.setup import setup_claude
+from theauditor.commands.explain import explain
 
 # Import additional migrated commands
 from theauditor.commands.detect_patterns import detect_patterns
@@ -205,6 +266,7 @@ cli.add_command(fce)
 cli.add_command(impact)
 cli.add_command(taint_analyze)
 cli.add_command(setup_claude)
+cli.add_command(explain)
 
 # Register additional migrated commands
 cli.add_command(detect_patterns)
