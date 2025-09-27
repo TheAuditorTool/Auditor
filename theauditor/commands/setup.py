@@ -10,39 +10,32 @@ import click
     help="Target project root (absolute or relative path)"
 )
 @click.option(
-    "--source", 
-    default="agent_templates",
-    help="Path to TheAuditor agent templates directory (default: agent_templates)"
-)
-@click.option(
     "--sync",
     is_flag=True,
-    help="Force update (still creates .bak on first change only)"
+    help="Force update (reinstall packages)"
 )
 @click.option(
     "--dry-run",
     is_flag=True,
     help="Print plan without executing"
 )
-def setup_claude(target, source, sync, dry_run):
-    """Install Claude Code agents, hooks, and per-project venv for TheAuditor.
-    
-    This command performs a complete zero-optional installation:
-    1. Creates a Python venv at <target>/.venv
-    2. Installs TheAuditor into that venv (editable/offline)
-    3. Creates cross-platform launcher wrappers at <target>/.claude/bin/
-    4. Generates Claude agents from agent_templates/*.md
-    5. Writes hooks to <target>/.claude/hooks.json
-    
-    All commands in agents/hooks use ./.claude/bin/aud to ensure
-    they run with the project's own venv.
+def setup_claude(target, sync, dry_run):
+    """Setup sandboxed JS/TS analysis tools for TheAuditor.
+
+    This command creates a sandboxed environment for JavaScript/TypeScript analysis:
+    1. Creates a Python venv at <target>/.auditor_venv
+    2. Installs TheAuditor into that venv (editable)
+    3. Sets up isolated JS/TS tools at <target>/.auditor_venv/.theauditor_tools
+    4. Installs ESLint, TypeScript, and other analysis tools
+
+    This sandbox ensures JS/TS analysis works correctly without interfering
+    with the project's own dependencies.
     """
     from theauditor.claude_setup import setup_claude_complete
 
     try:
         result = setup_claude_complete(
             target=target,
-            source=source,
             sync=sync,
             dry_run=dry_run
         )
