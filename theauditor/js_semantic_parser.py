@@ -15,6 +15,9 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Any, List, Tuple
 
+# Import helper templates for JavaScript/Node.js scripts
+from theauditor.ast_extractors import js_helper_templates
+
 # Import our custom temp manager to avoid WSL2/Windows issues
 try:
     from theauditor.utils.temp_manager import TempManager
@@ -28,13 +31,19 @@ IS_WINDOWS = platform.system() == "Windows"
 # Module-level cache for resolver (it's stateless now)
 _module_resolver_cache = None
 
+# Module-level cache for JSSemanticParser instances (one per project root)
+_parser_cache = {}
+
+# Track cache statistics for debugging
+_cache_stats = {'hits': 0, 'misses': 0}
+
 
 class JSSemanticParser:
     """Semantic parser for JavaScript/TypeScript using the TypeScript Compiler API."""
     
     def __init__(self, project_root: str = None):
         """Initialize the semantic parser.
-        
+
         Args:
             project_root: Absolute path to project root. If not provided, uses current directory.
         """
@@ -42,13 +51,25 @@ class JSSemanticParser:
         self.using_windows_node = False  # Track if we're using Windows node.exe from WSL
         self.tsc_path = None  # Path to TypeScript compiler
         self.node_modules_path = None  # Path to sandbox node_modules
+        self.project_module_type = self._detect_module_type()  # Detect ES module or CommonJS
+
+        # Debug: Log parser creation to detect if caching is failing
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import traceback
+            # Show where this was called from to debug caching issues
+            stack = traceback.extract_stack()
+            caller = stack[-2] if len(stack) > 1 else None
+            if caller:
+                print(f"[DEBUG] JSSemanticParser.__init__ called from {caller.filename}:{caller.lineno}")
+            print(f"[DEBUG] Created JSSemanticParser for project: {self.project_root}")
+            if self.project_module_type == "module":
+                print(f"[DEBUG] Detected ES module project (package.json has 'type': 'module')")
         
         # CRITICAL: Reuse cached ModuleResolver (stateless, database-driven)
         global _module_resolver_cache
         if _module_resolver_cache is None:
             from theauditor.module_resolver import ModuleResolver
             _module_resolver_cache = ModuleResolver()  # No project_root needed!
-            print("[DEBUG] Created singleton ModuleResolver instance")
         
         self.module_resolver = _module_resolver_cache
         
@@ -78,7 +99,29 @@ class JSSemanticParser:
         self.tsc_available = self._check_tsc_availability()
         self.helper_script = self._create_helper_script()
         self.batch_helper_script = self._create_batch_helper_script()  # NEW: Batch processing helper
-    
+
+    def _detect_module_type(self) -> str:
+        """Detect the project's module type from package.json.
+
+        Returns:
+            "module" if ES modules are used, "commonjs" otherwise
+        """
+        try:
+            package_json_path = self.project_root / "package.json"
+            if package_json_path.exists():
+                with open(package_json_path, 'r', encoding='utf-8') as f:
+                    package_data = json.load(f)
+                    module_type = package_data.get("type", "commonjs")
+                    if module_type == "module":
+                        return "module"
+            # Default to CommonJS (Node.js default)
+            return "commonjs"
+        except (json.JSONDecodeError, IOError, OSError) as e:
+            # On any error, default to CommonJS
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] Could not detect module type: {e}. Defaulting to CommonJS.")
+            return "commonjs"
+
     def _convert_path_for_node(self, path: Path) -> str:
         """Convert path to appropriate format for node execution.
         
@@ -202,7 +245,7 @@ class JSSemanticParser:
     
     def _create_helper_script(self) -> Path:
         """Create a Node.js helper script for TypeScript AST extraction.
-        
+
         Returns:
             Path to the created helper script
         """
@@ -210,1063 +253,49 @@ class JSSemanticParser:
         # Always create in project root's .pf directory
         pf_dir = self.project_root / ".pf"
         pf_dir.mkdir(exist_ok=True)
-        
+
         helper_path = pf_dir / "tsc_ast_helper.js"
-        
+
         # Check if TypeScript module exists in our sandbox
         typescript_exists = False
         if self.node_modules_path:
             # The TypeScript module is at node_modules/typescript/lib/typescript.js
             ts_path = self.node_modules_path / "typescript" / "lib" / "typescript.js"
             typescript_exists = ts_path.exists()
-        
-        # Write the helper script that uses TypeScript Compiler API
-        # CRITICAL: Use relative path from helper script location to find TypeScript
-        helper_content = '''
-// Use TypeScript from our sandbox location with RELATIVE PATH
-// This is portable - works on any machine in any location
-const path = require('path');
-const fs = require('fs');
 
-// Find project root by going up from .pf directory
-const projectRoot = path.resolve(__dirname, '..');
+        # Generate appropriate helper content based on module type
+        if self.project_module_type == "module":
+            # Use the ES Module helper from templates
+            helper_content = js_helper_templates.get_single_file_helper("module")
+        else:
+            # Use the CommonJS helper from templates
+            helper_content = js_helper_templates.get_single_file_helper("commonjs")
 
-// Build path to TypeScript module relative to project root
-const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
-
-// Try to load TypeScript with helpful error message
-let ts;
-try {
-    if (!fs.existsSync(tsPath)) {
-        throw new Error(`TypeScript not found at expected location: ${tsPath}. Run 'aud setup-claude' to install tools.`);
-    }
-    ts = require(tsPath);
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: `Failed to load TypeScript: ${error.message}`,
-        expectedPath: tsPath,
-        projectRoot: projectRoot
-    }));
-    process.exit(1);
-}
-
-// Get file path and output path from command line arguments
-const filePath = process.argv[2];
-const outputPath = process.argv[3];
-
-if (!filePath || !outputPath) {
-    console.error(JSON.stringify({ error: "File path and output path required" }));
-    process.exit(1);
-}
-
-try {
-    // Read the source file
-    const sourceCode = fs.readFileSync(filePath, 'utf8');
-    
-    // Create a source file object
-    const sourceFile = ts.createSourceFile(
-        filePath,
-        sourceCode,
-        ts.ScriptTarget.Latest,
-        true,  // setParentNodes - important for full AST traversal
-        ts.ScriptKind.TSX  // Support both TS and TSX
-    );
-    
-    // Helper function to serialize AST nodes
-    function serializeNode(node, depth = 0, parentNode = null, grandparentNode = null) {
-        if (depth > 100) {  // Prevent infinite recursion
-            return { kind: "TooDeep" };
-        }
-        
-        const result = {
-            kind: node.kind !== undefined ? (ts.SyntaxKind[node.kind] || node.kind) : 'Unknown',
-            kindValue: node.kind || 0,
-            pos: node.pos || 0,
-            end: node.end || 0,
-            flags: node.flags || 0
-        };
-        
-        // Add text content for leaf nodes
-        if (node.text !== undefined) {
-            result.text = node.text;
-        }
-        
-        // Add identifier name
-        if (node.name) {
-            if (typeof node.name === 'object') {
-                // Handle both escapedName and regular name
-                if (node.name.escapedText !== undefined) {
-                    result.name = node.name.escapedText;
-                } else if (node.name.text !== undefined) {
-                    result.name = node.name.text;
-                } else {
-                    result.name = serializeNode(node.name, depth + 1, node, parentNode);
-                }
-            } else {
-                result.name = node.name;
-            }
-        }
-        
-        // CRITICAL FIX: Enhanced function name extraction for different node types
-        // This fixes the "100% anonymous functions" problem that crippled taint analysis
-        const nodeKind = result.kind;
-        if (!result.name || result.name === 'anonymous' || typeof result.name === 'object') {
-            // Handle function-specific name extraction
-            if (nodeKind === 'FunctionDeclaration' || nodeKind === 'MethodDeclaration') {
-                // These should always have names in node.name.escapedText
-                if (node.name && node.name.escapedText) {
-                    result.name = node.name.escapedText;
-                } else if (node.name && node.name.text) {
-                    result.name = node.name.text;
-                }
-            } else if (nodeKind === 'FunctionExpression') {
-                // Function expressions may or may not have names
-                if (node.name && node.name.escapedText) {
-                    result.name = node.name.escapedText;
-                } else if (node.name && node.name.text) {
-                    result.name = node.name.text;
-                } else {
-                    // Apply heuristics for anonymous function expressions
-                    result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
-                }
-            } else if (nodeKind === 'ArrowFunction') {
-                // Arrow functions NEVER have direct names - apply heuristics
-                result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
-            } else if (nodeKind === 'Constructor') {
-                // Constructors are always named "constructor"
-                result.name = 'constructor';
-            } else if (nodeKind === 'GetAccessor') {
-                // Getter methods
-                if (node.name && node.name.escapedText) {
-                    result.name = 'get ' + node.name.escapedText;
-                } else if (node.name && node.name.text) {
-                    result.name = 'get ' + node.name.text;
-                }
-            } else if (nodeKind === 'SetAccessor') {
-                // Setter methods
-                if (node.name && node.name.escapedText) {
-                    result.name = 'set ' + node.name.escapedText;
-                } else if (node.name && node.name.text) {
-                    result.name = 'set ' + node.name.text;
-                }
-            }
-        }
-        
-        // CRITICAL FIX: Store variable name for arrow function assignments
-        // This helps Python code resolve: const myFunc = () => {}
-        if (nodeKind === 'VariableDeclaration') {
-            const varName = node.name ? (node.name.escapedText || node.name.text) : null;
-            if (varName && node.initializer) {
-                // Check if initializer is an arrow function or function expression
-                const initKind = node.initializer.kind;
-                if (initKind === ts.SyntaxKind.ArrowFunction || 
-                    initKind === ts.SyntaxKind.FunctionExpression) {
-                    // Store variable name for later association
-                    result.variableName = varName;
-                }
-            }
-        }
-        
-        // Add type information if available
-        if (node.type) {
-            result.type = serializeNode(node.type, depth + 1, node, parentNode);
-        }
-        
-        // Add children - handle nodes with members property
-        const children = [];
-        if (node.members && Array.isArray(node.members)) {
-            // Handle nodes with members (interfaces, enums, etc.)
-            node.members.forEach(member => {
-                if (member) children.push(serializeNode(member, depth + 1, node, parentNode));
-            });
-        }
-        ts.forEachChild(node, child => {
-            if (child) children.push(serializeNode(child, depth + 1, node, parentNode));
-        });
-        
-        if (children.length > 0) {
-            result.children = children;
-        }
-        
-        // Get line and column information
-        // CRITICAL FIX: Use getStart() to exclude leading trivia for accurate line numbers
-        const actualStart = node.getStart ? node.getStart(sourceFile) : node.pos;
-        const { line, character } = sourceFile.getLineAndCharacterOfPosition(actualStart);
-        result.line = line + 1;  // Convert to 1-indexed
-        result.column = character;
-        
-        // CRITICAL FIX: Add endLine for proper CFG boundaries (not character position)
-        if (node.end !== undefined) {
-            const endPosition = sourceFile.getLineAndCharacterOfPosition(node.end);
-            result.endLine = endPosition.line + 1;  // Convert to 1-indexed
-        }
-        
-        // RESTORED: Text extraction needed for accurate symbol names in taint analysis
-        result.text = sourceCode.substring(node.pos, node.end).trim();
-        
-        return result;
-    }
-    
-    // CRITICAL NEW FUNCTION: Apply naming heuristics using TypeScript parent context
-    function applyNamingHeuristics(node, parentNode, grandparentNode) {
-        if (!parentNode) return null;
-        
-        const parentKind = ts.SyntaxKind[parentNode.kind] || parentNode.kind;
-        
-        // CRITICAL: JSX PATTERNS MUST COME FIRST (Fix for 11% regression)
-        
-        // HEURISTIC 0: Direct JSX Attribute (onClick={handleClick})
-        if (parentKind === 'JsxAttribute') {
-            const attrName = parentNode.name?.escapedText || parentNode.name?.text;
-            if (attrName) return attrName + '_handler';
-        }
-        
-        // HEURISTIC 0.1: JSX Expression Container (onClick={() => {}})
-        // This handles nested JSX where arrow function is inside JsxExpression
-        if (parentKind === 'JsxExpression') {
-            // Traverse up to find the JsxAttribute (can be 2-3 levels up)
-            let current = parentNode;
-            let depth = 0;
-            while (current && depth < 5) {
-                if (current.parent && ts.SyntaxKind[current.parent.kind] === 'JsxAttribute') {
-                    const attrName = current.parent.name?.escapedText || current.parent.name?.text;
-                    if (attrName) return attrName + '_handler';
-                }
-                current = current.parent;
-                depth++;
-            }
-            // If in JSX but not an attribute, might be render prop child
-            if (grandparentNode && ts.SyntaxKind[grandparentNode.kind] === 'JsxElement') {
-                return 'jsx_render_function';
-            }
-        }
-        
-        // HEURISTIC 0.2: Class Properties (handleSubmit = () => {})
-        if (parentKind === 'PropertyDeclaration') {
-            const propName = parentNode.name?.escapedText || parentNode.name?.text;
-            if (propName) return propName;
-        }
-        
-        // HEURISTIC 1: Variable Assignment (const validateInput = () => {})
-        if (parentKind === 'VariableDeclaration') {
-            if (parentNode.name) {
-                const varName = parentNode.name.escapedText || parentNode.name.text;
-                if (varName) return varName;
-            }
-        }
-        
-        // HEURISTIC 2: Property Assignment ({ handleRequest: function() {} })
-        if (parentKind === 'PropertyAssignment') {
-            if (parentNode.name) {
-                const propName = parentNode.name.escapedText || parentNode.name.text;
-                if (propName) return propName;
-            }
-        }
-        
-        // HEURISTIC 3: Method Call Argument (promise.then(() => {}))
-        if (parentKind === 'CallExpression') {
-            // Get the method being called
-            if (parentNode.expression) {
-                let methodName = null;
-                
-                // Handle PropertyAccessExpression (e.g., promise.then)
-                if (parentNode.expression.kind === ts.SyntaxKind.PropertyAccessExpression) {
-                    if (parentNode.expression.name) {
-                        methodName = parentNode.expression.name.escapedText || parentNode.expression.name.text;
-                    }
-                } 
-                // Handle simple Identifier (e.g., map, filter)
-                else if (parentNode.expression.kind === ts.SyntaxKind.Identifier) {
-                    methodName = parentNode.expression.escapedText || parentNode.expression.text;
-                }
-                
-                if (methodName) {
-                    // Find which argument position this function is in
-                    const args = parentNode.arguments || [];
-                    let argIndex = 0;
-                    for (let i = 0; i < args.length; i++) {
-                        if (args[i] === node) {
-                            argIndex = i;
-                            break;
-                        }
-                    }
-                    
-                    // Special naming for common patterns
-                    if (methodName === 'then' || methodName === 'catch') {
-                        return methodName + '_callback' + (argIndex > 0 ? argIndex : '');
-                    } else if (methodName === 'map' || methodName === 'filter' || methodName === 'forEach') {
-                        return methodName + '_callback';
-                    } else if (methodName === 'addEventListener' || methodName === 'on') {
-                        // Try to get event name from first argument
-                        if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
-                            const eventName = args[0].text;
-                            return eventName + '_handler';
-                        }
-                        return 'event_handler';
-                    } else if (methodName.startsWith('use')) {
-                        // React hooks
-                        return methodName.replace('use', '').toLowerCase() + '_callback';
-                    } else {
-                        return methodName + '_arg' + argIndex;
-                    }
-                }
-            }
-        }
-        
-        // HEURISTIC 4: Array Element ([function() {}])
-        if (parentKind === 'ArrayLiteralExpression') {
-            const elements = parentNode.elements || [];
-            for (let i = 0; i < elements.length; i++) {
-                if (elements[i] === node) {
-                    return 'array_function_' + i;
-                }
-            }
-        }
-        
-        // HEURISTIC 5: Return Statement (return () => {})
-        if (parentKind === 'ReturnStatement' && grandparentNode) {
-            // Get the containing function name
-            const grandKind = ts.SyntaxKind[grandparentNode.kind];
-            if (grandKind && grandKind.includes('Function')) {
-                let containerName = 'unknown';
-                if (grandparentNode.name) {
-                    containerName = grandparentNode.name.escapedText || grandparentNode.name.text || 'unknown';
-                }
-                return containerName + '_returned_function';
-            }
-        }
-        
-        // HEURISTIC 6: IIFE ((function() {})())
-        if (parentKind === 'ParenthesizedExpression' && grandparentNode) {
-            const grandKind = ts.SyntaxKind[grandparentNode.kind];
-            if (grandKind === 'CallExpression') {
-                return 'IIFE';
-            }
-        }
-        
-        // HEURISTIC 7: React.lazy(() => import())
-        if (parentKind === 'CallExpression' && parentNode.expression) {
-            const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
-            if (exprText.includes('React.lazy')) {
-                return 'lazy_component_loader';
-            }
-        }
-        
-        // HEURISTIC 8: Binary Expression (x = () => {})
-        if (parentKind === 'BinaryExpression' && parentNode.operatorToken) {
-            if (parentNode.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-                if (parentNode.left) {
-                    const leftText = sourceCode.substring(parentNode.left.pos, parentNode.left.end).trim();
-                    if (leftText) return leftText;
-                }
-            }
-        }
-        
-        // HEURISTIC 9: Export Assignment (export default () => {})
-        if (parentKind === 'ExportAssignment') {
-            return 'default_export';
-        }
-        
-        // HEURISTIC 10: on() event handlers (redisClient.on('error', ...))
-        if (parentKind === 'CallExpression' && parentNode.expression) {
-            const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
-            if (exprText.endsWith('.on')) {
-                // Get event name from first argument
-                const args = parentNode.arguments || [];
-                if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
-                    const eventName = args[0].text;
-                    return eventName + '_handler';
-                }
-            }
-        }
-        
-        // HEURISTIC 11: Deep traversal for complex patterns (HOCs, module.exports, etc.)
-        // This catches patterns missed by single-parent checks
-        let current = node;
-        let depth = 0;
-        const visited = new Set();
-        
-        while (current && depth < 5 && !visited.has(current)) {
-            visited.add(current);
-            
-            // Check parent for additional patterns
-            if (current.parent) {
-                const currentParentKind = ts.SyntaxKind[current.parent.kind] || current.parent.kind;
-                
-                // Higher-Order Component patterns (connect, memo, forwardRef)
-                if (currentParentKind === 'CallExpression') {
-                    const expr = current.parent.expression;
-                    if (expr) {
-                        let funcName = null;
-                        if (expr.text) {
-                            funcName = expr.text;
-                        } else if (expr.name && expr.name.text) {
-                            funcName = expr.name.text;
-                        } else if (expr.escapedText) {
-                            funcName = expr.escapedText;
-                        }
-                        
-                        if (funcName === 'connect') return 'redux_connector';
-                        if (funcName === 'memo') return 'memoized_component';
-                        if (funcName === 'forwardRef') return 'forwarded_ref_component';
-                        if (funcName === 'withRouter') return 'with_router_hoc';
-                    }
-                }
-                
-                // Module.exports patterns
-                if (currentParentKind === 'BinaryExpression' && current.parent.left) {
-                    const leftText = sourceCode.substring(current.parent.left.pos, current.parent.left.end).trim();
-                    if (leftText.includes('module.exports')) {
-                        return 'module_export';
-                    }
-                    if (leftText.includes('exports.')) {
-                        const exportName = leftText.split('exports.')[1];
-                        if (exportName) return exportName.split(/[^a-zA-Z0-9_]/)[0]; // Take first valid identifier
-                    }
-                }
-                
-                // Promise chain patterns (.then().then().catch())
-                if (currentParentKind === 'PropertyAccessExpression') {
-                    const propName = current.parent.name?.escapedText || current.parent.name?.text;
-                    if (propName === 'then' || propName === 'catch' || propName === 'finally') {
-                        return propName + '_chained_callback';
-                    }
-                }
-            }
-            
-            current = current.parent;
-            depth++;
-        }
-        
-        // Last resort - line-based naming
-        const { line } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-        return 'anonymous_line_' + (line + 1);
-    }
-    
-    // Collect diagnostics (errors, warnings)
-    const diagnostics = [];
-    const program = ts.createProgram([filePath], {
-        target: ts.ScriptTarget.Latest,
-        module: ts.ModuleKind.ESNext,
-        jsx: ts.JsxEmit.Preserve,
-        allowJs: true,
-        checkJs: false,
-        noEmit: true,
-        skipLibCheck: true  // Skip checking .d.ts files for speed
-    });
-    
-    const allDiagnostics = ts.getPreEmitDiagnostics(program);
-    allDiagnostics.forEach(diagnostic => {
-        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\\n');
-        const location = diagnostic.file && diagnostic.start
-            ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-            : null;
-            
-        diagnostics.push({
-            message,
-            category: ts.DiagnosticCategory[diagnostic.category],
-            code: diagnostic.code,
-            line: location ? location.line + 1 : null,
-            column: location ? location.character : null
-        });
-    });
-    
-    // Collect symbols and type information
-    const checker = program.getTypeChecker();
-    const symbols = [];
-    
-    // Visit nodes to collect symbols
-    function visit(node) {
-        try {
-            const symbol = checker.getSymbolAtLocation(node);
-            if (symbol && symbol.getName) {
-                const type = checker.getTypeOfSymbolAtLocation(symbol, node);
-                const typeString = checker.typeToString(type);
-                
-                const startPos = sourceFile.getLineAndCharacterOfPosition(node.pos || 0);
-                const endPos = node.end !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.end) : startPos;
-                
-                symbols.push({
-                    name: symbol.getName ? symbol.getName() : 'anonymous',
-                    kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
-                    type: typeString || 'unknown',
-                    line: startPos.line + 1,
-                    endLine: endPos.line + 1
-                });
-            }
-        } catch (e) {
-            // Log error for debugging
-            console.error(`[ERROR] Symbol extraction failed at ${filePath}:${node.pos}: ${e.message}`);
-        }
-        
-        ts.forEachChild(node, visit);
-    }
-    
-    visit(sourceFile);
-    
-    // Log symbol extraction results
-    console.error(`[INFO] Found ${symbols.length} symbols in ${filePath}`);
-    
-    // Output the complete AST with metadata
-    const result = {
-        success: true,
-        fileName: filePath,
-        languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-        ast: serializeNode(sourceFile),
-        diagnostics: diagnostics,
-        symbols: symbols,
-        nodeCount: 0,
-        hasTypes: symbols.some(s => s.type && s.type !== 'any')
-    };
-    
-    // Count nodes
-    function countNodes(node) {
-        if (!node) return;
-        result.nodeCount++;
-        if (node.children && Array.isArray(node.children)) {
-            node.children.forEach(countNodes);
-        }
-    }
-    if (result.ast) countNodes(result.ast);
-    
-    // Write output to file instead of stdout to avoid pipe buffer limits
-    fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf8');
-    process.exit(0);  // CRITICAL: Ensure clean exit on success
-    
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: error.message,
-        stack: error.stack
-    }));
-    process.exit(1);
-}
-'''
-        
         helper_path.write_text(helper_content, encoding='utf-8')
         return helper_path
     
     def _create_batch_helper_script(self) -> Path:
         """Create a Node.js helper script for batch TypeScript AST extraction.
-        
+
         This script processes multiple files in a single TypeScript program,
         dramatically improving performance by reusing the dependency cache.
-        
+
         Returns:
             Path to the created batch helper script
         """
         pf_dir = self.project_root / ".pf"
         pf_dir.mkdir(exist_ok=True)
-        
+
         batch_helper_path = pf_dir / "tsc_batch_helper.js"
-        
-        batch_helper_content = '''
-// Batch TypeScript AST extraction - processes multiple files in one program
-const path = require('path');
-const fs = require('fs');
 
-// Find project root by going up from .pf directory
-const projectRoot = path.resolve(__dirname, '..');
+        # Generate appropriate batch helper based on module type
+        if self.project_module_type == "module":
+            # Use the ES Module batch helper from templates
+            batch_helper_content = js_helper_templates.get_batch_helper("module")
+        else:
+            # Use the CommonJS batch helper from templates
+            batch_helper_content = js_helper_templates.get_batch_helper("commonjs")
 
-// Build path to TypeScript module
-const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
-
-// Load TypeScript
-let ts;
-try {
-    if (!fs.existsSync(tsPath)) {
-        throw new Error(`TypeScript not found at: ${tsPath}`);
-    }
-    ts = require(tsPath);
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: `Failed to load TypeScript: ${error.message}`
-    }));
-    process.exit(1);
-}
-
-// Get request and output paths from command line
-const requestPath = process.argv[2];
-const outputPath = process.argv[3];
-
-if (!requestPath || !outputPath) {
-    console.error(JSON.stringify({ error: "Request and output paths required" }));
-    process.exit(1);
-}
-
-try {
-    // Read batch request
-    const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
-    const filePaths = request.files || [];
-    
-    if (filePaths.length === 0) {
-        fs.writeFileSync(outputPath, JSON.stringify({}), 'utf8');
-        process.exit(0);
-    }
-    
-    // Create a SINGLE TypeScript program with ALL files
-    // This is the key optimization - TypeScript will parse dependencies ONCE
-    const program = ts.createProgram(filePaths, {
-        target: ts.ScriptTarget.Latest,
-        module: ts.ModuleKind.ESNext,
-        jsx: ts.JsxEmit.Preserve,
-        allowJs: true,
-        checkJs: false,
-        noEmit: true,
-        skipLibCheck: true,  // Skip checking .d.ts files for speed
-        moduleResolution: ts.ModuleResolutionKind.NodeJs
-    });
-    
-    const checker = program.getTypeChecker();
-    const results = {};
-    
-    // Process each file using the SHARED program
-    for (const filePath of filePaths) {
-        try {
-            const sourceFile = program.getSourceFile(filePath);
-            if (!sourceFile) {
-                results[filePath] = {
-                    success: false,
-                    error: `Could not load source file: ${filePath}`
-                };
-                continue;
-            }
-            
-            const sourceCode = sourceFile.text;
-            
-            // Helper function to serialize AST nodes (same as single-file version)
-            function serializeNode(node, depth = 0, parentNode = null, grandparentNode = null) {
-                if (depth > 100) return { kind: "TooDeep" };
-                
-                const result = {
-                    kind: node.kind !== undefined ? (ts.SyntaxKind[node.kind] || node.kind) : 'Unknown',
-                    kindValue: node.kind || 0,
-                    pos: node.pos || 0,
-                    end: node.end || 0,
-                    flags: node.flags || 0
-                };
-                
-                if (node.text !== undefined) result.text = node.text;
-                
-                if (node.name) {
-                    if (typeof node.name === 'object') {
-                        if (node.name.escapedText !== undefined) {
-                            result.name = node.name.escapedText;
-                        } else if (node.name.text !== undefined) {
-                            result.name = node.name.text;
-                        } else {
-                            result.name = serializeNode(node.name, depth + 1, node, parentNode);
-                        }
-                    } else {
-                        result.name = node.name;
-                    }
-                }
-                
-                // CRITICAL FIX: Enhanced function name extraction (same as single-file version)
-                const nodeKind = result.kind;
-                if (!result.name || result.name === 'anonymous' || typeof result.name === 'object') {
-                    if (nodeKind === 'FunctionDeclaration' || nodeKind === 'MethodDeclaration') {
-                        if (node.name && node.name.escapedText) {
-                            result.name = node.name.escapedText;
-                        } else if (node.name && node.name.text) {
-                            result.name = node.name.text;
-                        }
-                    } else if (nodeKind === 'FunctionExpression') {
-                        if (node.name && node.name.escapedText) {
-                            result.name = node.name.escapedText;
-                        } else if (node.name && node.name.text) {
-                            result.name = node.name.text;
-                        } else {
-                            // Apply heuristics for anonymous function expressions
-                            result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
-                        }
-                    } else if (nodeKind === 'ArrowFunction') {
-                        // Arrow functions NEVER have direct names - apply heuristics
-                        result.name = applyNamingHeuristics(node, parentNode, grandparentNode) || 'anonymous';
-                    } else if (nodeKind === 'Constructor') {
-                        result.name = 'constructor';
-                    } else if (nodeKind === 'GetAccessor') {
-                        if (node.name && node.name.escapedText) {
-                            result.name = 'get ' + node.name.escapedText;
-                        } else if (node.name && node.name.text) {
-                            result.name = 'get ' + node.name.text;
-                        }
-                    } else if (nodeKind === 'SetAccessor') {
-                        if (node.name && node.name.escapedText) {
-                            result.name = 'set ' + node.name.escapedText;
-                        } else if (node.name && node.name.text) {
-                            result.name = 'set ' + node.name.text;
-                        }
-                    }
-                }
-                
-                // Store variable name for arrow function assignments
-                if (nodeKind === 'VariableDeclaration') {
-                    const varName = node.name ? (node.name.escapedText || node.name.text) : null;
-                    if (varName && node.initializer) {
-                        const initKind = node.initializer.kind;
-                        if (initKind === ts.SyntaxKind.ArrowFunction || 
-                            initKind === ts.SyntaxKind.FunctionExpression) {
-                            result.variableName = varName;
-                        }
-                    }
-                }
-                
-                if (node.type) {
-                    result.type = serializeNode(node.type, depth + 1, node, parentNode);
-                }
-                
-                const children = [];
-                if (node.members && Array.isArray(node.members)) {
-                    node.members.forEach(member => {
-                        if (member) children.push(serializeNode(member, depth + 1, node, parentNode));
-                    });
-                }
-                ts.forEachChild(node, child => {
-                    if (child) children.push(serializeNode(child, depth + 1, node, parentNode));
-                });
-                
-                if (children.length > 0) {
-                    result.children = children;
-                }
-                
-                // CRITICAL FIX: Use getStart() to exclude leading trivia for accurate line numbers
-                const actualStart = node.getStart ? node.getStart(sourceFile) : node.pos;
-                const { line, character } = sourceFile.getLineAndCharacterOfPosition(actualStart);
-                result.line = line + 1;
-                result.column = character;
-                // RESTORED: Text extraction needed for accurate symbol names in taint analysis
-                result.text = sourceCode.substring(node.pos, node.end).trim();
-                
-                return result;
-            }
-            
-            // Apply naming heuristics using TypeScript parent context
-            function applyNamingHeuristics(node, parentNode, grandparentNode) {
-                if (!parentNode) return null;
-                
-                const parentKind = ts.SyntaxKind[parentNode.kind] || parentNode.kind;
-                
-                // CRITICAL: JSX PATTERNS MUST COME FIRST (Fix for 11% regression)
-                
-                // HEURISTIC 0: Direct JSX Attribute (onClick={handleClick})
-                if (parentKind === 'JsxAttribute') {
-                    const attrName = parentNode.name?.escapedText || parentNode.name?.text;
-                    if (attrName) return attrName + '_handler';
-                }
-                
-                // HEURISTIC 0.1: JSX Expression Container (onClick={() => {}})
-                // This handles nested JSX where arrow function is inside JsxExpression
-                if (parentKind === 'JsxExpression') {
-                    // Traverse up to find the JsxAttribute (can be 2-3 levels up)
-                    let current = parentNode;
-                    let depth = 0;
-                    while (current && depth < 5) {
-                        if (current.parent && ts.SyntaxKind[current.parent.kind] === 'JsxAttribute') {
-                            const attrName = current.parent.name?.escapedText || current.parent.name?.text;
-                            if (attrName) return attrName + '_handler';
-                        }
-                        current = current.parent;
-                        depth++;
-                    }
-                    // If in JSX but not an attribute, might be render prop child
-                    if (grandparentNode && ts.SyntaxKind[grandparentNode.kind] === 'JsxElement') {
-                        return 'jsx_render_function';
-                    }
-                }
-                
-                // HEURISTIC 0.2: Class Properties (handleSubmit = () => {})
-                if (parentKind === 'PropertyDeclaration') {
-                    const propName = parentNode.name?.escapedText || parentNode.name?.text;
-                    if (propName) return propName;
-                }
-                
-                // HEURISTIC 1: Variable Assignment
-                if (parentKind === 'VariableDeclaration') {
-                    if (parentNode.name) {
-                        const varName = parentNode.name.escapedText || parentNode.name.text;
-                        if (varName) return varName;
-                    }
-                }
-                
-                // HEURISTIC 2: Property Assignment
-                if (parentKind === 'PropertyAssignment') {
-                    if (parentNode.name) {
-                        const propName = parentNode.name.escapedText || parentNode.name.text;
-                        if (propName) return propName;
-                    }
-                }
-                
-                // HEURISTIC 3: Method Call Argument
-                if (parentKind === 'CallExpression') {
-                    if (parentNode.expression) {
-                        let methodName = null;
-                        
-                        if (parentNode.expression.kind === ts.SyntaxKind.PropertyAccessExpression) {
-                            if (parentNode.expression.name) {
-                                methodName = parentNode.expression.name.escapedText || parentNode.expression.name.text;
-                            }
-                        } else if (parentNode.expression.kind === ts.SyntaxKind.Identifier) {
-                            methodName = parentNode.expression.escapedText || parentNode.expression.text;
-                        }
-                        
-                        if (methodName) {
-                            const args = parentNode.arguments || [];
-                            let argIndex = 0;
-                            for (let i = 0; i < args.length; i++) {
-                                if (args[i] === node) {
-                                    argIndex = i;
-                                    break;
-                                }
-                            }
-                            
-                            if (methodName === 'then' || methodName === 'catch') {
-                                return methodName + '_callback' + (argIndex > 0 ? argIndex : '');
-                            } else if (methodName === 'map' || methodName === 'filter' || methodName === 'forEach') {
-                                return methodName + '_callback';
-                            } else if (methodName === 'addEventListener' || methodName === 'on') {
-                                if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
-                                    const eventName = args[0].text;
-                                    return eventName + '_handler';
-                                }
-                                return 'event_handler';
-                            } else if (methodName.startsWith('use')) {
-                                return methodName.replace('use', '').toLowerCase() + '_callback';
-                            } else {
-                                return methodName + '_arg' + argIndex;
-                            }
-                        }
-                    }
-                }
-                
-                // HEURISTIC 4: Array Element
-                if (parentKind === 'ArrayLiteralExpression') {
-                    const elements = parentNode.elements || [];
-                    for (let i = 0; i < elements.length; i++) {
-                        if (elements[i] === node) {
-                            return 'array_function_' + i;
-                        }
-                    }
-                }
-                
-                // HEURISTIC 5: Return Statement
-                if (parentKind === 'ReturnStatement' && grandparentNode) {
-                    const grandKind = ts.SyntaxKind[grandparentNode.kind];
-                    if (grandKind && grandKind.includes('Function')) {
-                        let containerName = 'unknown';
-                        if (grandparentNode.name) {
-                            containerName = grandparentNode.name.escapedText || grandparentNode.name.text || 'unknown';
-                        }
-                        return containerName + '_returned_function';
-                    }
-                }
-                
-                // HEURISTIC 6: IIFE
-                if (parentKind === 'ParenthesizedExpression' && grandparentNode) {
-                    const grandKind = ts.SyntaxKind[grandparentNode.kind];
-                    if (grandKind === 'CallExpression') {
-                        return 'IIFE';
-                    }
-                }
-                
-                // HEURISTIC 7: React.lazy
-                if (parentKind === 'CallExpression' && parentNode.expression) {
-                    const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
-                    if (exprText.includes('React.lazy')) {
-                        return 'lazy_component_loader';
-                    }
-                }
-                
-                // HEURISTIC 8: Binary Expression assignment
-                if (parentKind === 'BinaryExpression' && parentNode.operatorToken) {
-                    if (parentNode.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-                        if (parentNode.left) {
-                            const leftText = sourceCode.substring(parentNode.left.pos, parentNode.left.end).trim();
-                            if (leftText) return leftText;
-                        }
-                    }
-                }
-                
-                // HEURISTIC 9: Export Assignment
-                if (parentKind === 'ExportAssignment') {
-                    return 'default_export';
-                }
-                
-                // HEURISTIC 10: on() event handlers
-                if (parentKind === 'CallExpression' && parentNode.expression) {
-                    const exprText = sourceCode.substring(parentNode.expression.pos, parentNode.expression.end).trim();
-                    if (exprText.endsWith('.on')) {
-                        const args = parentNode.arguments || [];
-                        if (args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
-                            const eventName = args[0].text;
-                            return eventName + '_handler';
-                        }
-                    }
-                }
-                
-                // HEURISTIC 11: Deep traversal for complex patterns (HOCs, module.exports, etc.)
-                // This catches patterns missed by single-parent checks
-                let current = node;
-                let depth = 0;
-                const visited = new Set();
-                
-                while (current && depth < 5 && !visited.has(current)) {
-                    visited.add(current);
-                    
-                    // Check parent for additional patterns
-                    if (current.parent) {
-                        const currentParentKind = ts.SyntaxKind[current.parent.kind] || current.parent.kind;
-                        
-                        // Higher-Order Component patterns (connect, memo, forwardRef)
-                        if (currentParentKind === 'CallExpression') {
-                            const expr = current.parent.expression;
-                            if (expr) {
-                                let funcName = null;
-                                if (expr.text) {
-                                    funcName = expr.text;
-                                } else if (expr.name && expr.name.text) {
-                                    funcName = expr.name.text;
-                                } else if (expr.escapedText) {
-                                    funcName = expr.escapedText;
-                                }
-                                
-                                if (funcName === 'connect') return 'redux_connector';
-                                if (funcName === 'memo') return 'memoized_component';
-                                if (funcName === 'forwardRef') return 'forwarded_ref_component';
-                                if (funcName === 'withRouter') return 'with_router_hoc';
-                            }
-                        }
-                        
-                        // Module.exports patterns
-                        if (currentParentKind === 'BinaryExpression' && current.parent.left) {
-                            const leftText = sourceCode.substring(current.parent.left.pos, current.parent.left.end).trim();
-                            if (leftText.includes('module.exports')) {
-                                return 'module_export';
-                            }
-                            if (leftText.includes('exports.')) {
-                                const exportName = leftText.split('exports.')[1];
-                                if (exportName) return exportName.split(/[^a-zA-Z0-9_]/)[0]; // Take first valid identifier
-                            }
-                        }
-                        
-                        // Promise chain patterns (.then().then().catch())
-                        if (currentParentKind === 'PropertyAccessExpression') {
-                            const propName = current.parent.name?.escapedText || current.parent.name?.text;
-                            if (propName === 'then' || propName === 'catch' || propName === 'finally') {
-                                return propName + '_chained_callback';
-                            }
-                        }
-                    }
-                    
-                    current = current.parent;
-                    depth++;
-                }
-                
-                // Last resort - line-based naming
-                const { line } = sourceFile.getLineAndCharacterOfPosition(node.pos);
-                return 'anonymous_line_' + (line + 1);
-            }
-            
-            // Collect diagnostics for this file
-            const diagnostics = [];
-            const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
-            fileDiagnostics.forEach(diagnostic => {
-                const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\\n');
-                const location = diagnostic.file && diagnostic.start
-                    ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-                    : null;
-                
-                diagnostics.push({
-                    message,
-                    category: ts.DiagnosticCategory[diagnostic.category],
-                    code: diagnostic.code,
-                    line: location ? location.line + 1 : null,
-                    column: location ? location.character : null
-                });
-            });
-            
-            // Collect symbols for this file
-            const symbols = [];
-            function visit(node) {
-                try {
-                    const symbol = checker.getSymbolAtLocation(node);
-                    if (symbol && symbol.getName) {
-                        const type = checker.getTypeOfSymbolAtLocation(symbol, node);
-                        const typeString = checker.typeToString(type);
-                        
-                        const startPos = sourceFile.getLineAndCharacterOfPosition(node.pos || 0);
-                        const endPos = node.end !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.end) : startPos;
-                        
-                        symbols.push({
-                            name: symbol.getName ? symbol.getName() : 'anonymous',
-                            kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
-                            type: typeString || 'unknown',
-                            line: startPos.line + 1,
-                            endLine: endPos.line + 1
-                        });
-                    }
-                } catch (e) {
-                    // Log error for debugging
-                    console.error(`[ERROR] Symbol extraction failed at ${filePath}:${node.pos}: ${e.message}`);
-                }
-                ts.forEachChild(node, visit);
-            }
-            visit(sourceFile);
-            
-            // Log symbol extraction results
-            console.error(`[INFO] Found ${symbols.length} symbols in ${filePath}`);
-            
-            // Build result for this file
-            const result = {
-                success: true,
-                fileName: filePath,
-                languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                ast: serializeNode(sourceFile),
-                diagnostics: diagnostics,
-                symbols: symbols,
-                nodeCount: 0,
-                hasTypes: symbols.some(s => s.type && s.type !== 'any')
-            };
-            
-            // Count nodes
-            function countNodes(node) {
-                if (!node) return;
-                result.nodeCount++;
-                if (node.children && Array.isArray(node.children)) {
-                    node.children.forEach(countNodes);
-                }
-            }
-            if (result.ast) countNodes(result.ast);
-            
-            results[filePath] = result;
-            
-        } catch (error) {
-            results[filePath] = {
-                success: false,
-                error: `Error processing file: ${error.message}`,
-                ast: null,
-                diagnostics: [],
-                symbols: []
-            };
-        }
-    }
-    
-    // Write all results to output file
-    fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), 'utf8');
-    process.exit(0);
-    
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: error.message,
-        stack: error.stack
-    }));
-    process.exit(1);
-}
-'''
-        
         batch_helper_path.write_text(batch_helper_content, encoding='utf-8')
         return batch_helper_path
     
@@ -1563,8 +592,11 @@ try {
                 file_path_converted = self._convert_path_for_node(Path(actual_file_to_parse).resolve())
                 output_path_converted = self._convert_path_for_node(Path(tmp_output_path))
                 
+                # Pass projectRoot as the fourth argument
+                project_root_converted = self._convert_path_for_node(self.project_root)
+
                 result = subprocess.run(
-                    [str(self.node_exe), helper_path_converted, file_path_converted, output_path_converted],
+                    [str(self.node_exe), helper_path_converted, file_path_converted, output_path_converted, project_root_converted],
                     capture_output=False,  # Don't capture stdout - writing to file instead
                     stderr=subprocess.PIPE,  # Still capture stderr for error messages
                     text=True,
@@ -1824,33 +856,57 @@ try {
 # Module-level function for direct usage
 def get_semantic_ast(file_path: str, project_root: str = None) -> Dict[str, Any]:
     """Get semantic AST for a JavaScript/TypeScript file.
-    
-    This is a convenience function that creates a parser instance
+
+    This is a convenience function that creates or reuses a cached parser instance
     and calls its get_semantic_ast method.
-    
+
     Args:
         file_path: Path to the JavaScript or TypeScript file to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
-        
+
     Returns:
         Dictionary containing the semantic AST and metadata
     """
-    parser = JSSemanticParser(project_root=project_root)
+    # Reuse parser for same project
+    cache_key = str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
+    if cache_key not in _parser_cache:
+        _cache_stats['misses'] += 1
+        _parser_cache[cache_key] = JSSemanticParser(project_root=project_root)
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] Cache MISS - Created new JSSemanticParser for {cache_key}")
+            print(f"[DEBUG] Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses")
+    else:
+        _cache_stats['hits'] += 1
+        if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
+            print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
+    parser = _parser_cache[cache_key]
     return parser.get_semantic_ast(file_path)
 
 
 def get_semantic_ast_batch(file_paths: List[str], project_root: str = None) -> Dict[str, Dict[str, Any]]:
     """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
-    
-    This is a convenience function that creates a parser instance
+
+    This is a convenience function that creates or reuses a cached parser instance
     and calls its get_semantic_ast_batch method.
-    
+
     Args:
         file_paths: List of paths to JavaScript or TypeScript files to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
-        
+
     Returns:
         Dictionary mapping file paths to their AST results
     """
-    parser = JSSemanticParser(project_root=project_root)
+    # Reuse parser for same project
+    cache_key = str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
+    if cache_key not in _parser_cache:
+        _cache_stats['misses'] += 1
+        _parser_cache[cache_key] = JSSemanticParser(project_root=project_root)
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] Cache MISS - Created new JSSemanticParser for {cache_key}")
+            print(f"[DEBUG] Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses")
+    else:
+        _cache_stats['hits'] += 1
+        if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
+            print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
+    parser = _parser_cache[cache_key]
     return parser.get_semantic_ast_batch(file_paths)

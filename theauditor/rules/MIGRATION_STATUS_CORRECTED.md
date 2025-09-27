@@ -97,16 +97,16 @@ The SQL rules demonstrate best practices:
 
 ## Real-World SAST Analysis Results
 
-### Critical Discovery from PlantPro & PlantFlow Production Codebases
+### Critical Discovery from Production Codebases
 
 **Analysis Date**: 2025-09-27
-**Codebases**: PlantPro (Cannabis Management), PlantFlow (Inventory System)
+**Codebases**: Two production systems (ERP & Inventory Management)
 **Tool Output**: `aud full` run on both active production systems
 
 #### The Catastrophic False Positive Problem
 
-- **PlantPro**: 97.6% false positive rate (41/42 security "issues" were false)
-- **PlantFlow**: 100% false positive rate (120/120 XSS "vulnerabilities" were false)
+- **System A**: 97.6% false positive rate (41/42 security "issues" were false)
+- **System B**: 100% false positive rate (120/120 XSS "vulnerabilities" were false)
 
 #### Core Problem Identified
 

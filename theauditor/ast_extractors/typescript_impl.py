@@ -846,5 +846,377 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     
     # Start traversal
     traverse(ast_root)
-    
+
     return returns
+
+
+def extract_typescript_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract control flow graphs for all TypeScript/JavaScript functions.
+
+    Returns CFG data matching the database schema expectations.
+    """
+    cfgs = []
+
+    # Get complete function AST nodes
+    func_nodes = extract_typescript_function_nodes(tree, parser_self)
+
+    for func_node in func_nodes:
+        cfg = build_typescript_function_cfg(func_node)
+        if cfg:
+            cfgs.append(cfg)
+
+    return cfgs
+
+
+def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
+    """Build CFG for a single TypeScript function using AST traversal.
+
+    This properly traverses the AST instead of using string matching.
+    """
+    blocks = []
+    edges = []
+    block_counter = [0]  # Mutable counter for closures
+
+    def get_next_block_id():
+        block_counter[0] += 1
+        return block_counter[0]
+
+    # Extract function name
+    func_name = 'anonymous'
+    name_node = func_node.get('name')
+    if isinstance(name_node, dict):
+        func_name = name_node.get('text', 'anonymous')
+    elif isinstance(name_node, str):
+        func_name = name_node
+
+    # Entry block
+    entry_id = get_next_block_id()
+    start_line = func_node.get('line', 1)
+
+    blocks.append({
+        'id': entry_id,
+        'type': 'entry',
+        'start_line': start_line,
+        'end_line': start_line,
+        'statements': []
+    })
+
+    # Find function body in children
+    body_node = None
+    for child in func_node.get('children', []):
+        if isinstance(child, dict) and child.get('kind') in ['Block', 'BlockStatement']:
+            body_node = child
+            break
+
+    if not body_node:
+        # No body found - might be abstract or interface method
+        return None
+
+    # Process function body
+    exit_id = get_next_block_id()
+
+    # Process all statements in body
+    def process_node(node, current_id, depth=0):
+        """Process a node and build CFG blocks."""
+        if depth > 50 or not isinstance(node, dict):
+            return current_id
+
+        kind = node.get('kind', '')
+        line = node.get('line', start_line)
+
+        if kind == 'IfStatement':
+            # Create condition block
+            cond_id = get_next_block_id()
+            blocks.append({
+                'id': cond_id,
+                'type': 'condition',
+                'start_line': line,
+                'end_line': line,
+                'condition': extract_condition_text(node),
+                'statements': [{'type': 'if', 'line': line}]
+            })
+            edges.append({'source': current_id, 'target': cond_id, 'type': 'normal'})
+
+            # Process then branch
+            then_id = get_next_block_id()
+            blocks.append({
+                'id': then_id,
+                'type': 'basic',
+                'start_line': line,
+                'end_line': line,
+                'statements': []
+            })
+            edges.append({'source': cond_id, 'target': then_id, 'type': 'true'})
+
+            # Process then body
+            then_stmt = get_child_by_kind(node, 'Block')
+            if then_stmt:
+                then_id = process_children(then_stmt, then_id, depth + 1)
+
+            # Process else branch if exists
+            else_stmt = None
+            for i, child in enumerate(node.get('children', [])):
+                if i > 0 and child.get('kind') == 'Block':
+                    # Second Block is else
+                    else_stmt = child
+                    break
+                elif child.get('kind') == 'IfStatement':
+                    # else if
+                    else_stmt = child
+                    break
+
+            if else_stmt:
+                else_id = get_next_block_id()
+                blocks.append({
+                    'id': else_id,
+                    'type': 'basic',
+                    'start_line': else_stmt.get('line', line),
+                    'end_line': else_stmt.get('line', line),
+                    'statements': []
+                })
+                edges.append({'source': cond_id, 'target': else_id, 'type': 'false'})
+
+                if else_stmt.get('kind') == 'IfStatement':
+                    # else if - process as nested if
+                    else_id = process_node(else_stmt, else_id, depth + 1)
+                else:
+                    # else block
+                    else_id = process_children(else_stmt, else_id, depth + 1)
+
+                # Merge point
+                merge_id = get_next_block_id()
+                blocks.append({
+                    'id': merge_id,
+                    'type': 'merge',
+                    'start_line': line,
+                    'end_line': line,
+                    'statements': []
+                })
+                edges.append({'source': then_id, 'target': merge_id, 'type': 'normal'})
+                edges.append({'source': else_id, 'target': merge_id, 'type': 'normal'})
+                return merge_id
+            else:
+                # No else - false goes to next
+                merge_id = get_next_block_id()
+                blocks.append({
+                    'id': merge_id,
+                    'type': 'merge',
+                    'start_line': line,
+                    'end_line': line,
+                    'statements': []
+                })
+                edges.append({'source': cond_id, 'target': merge_id, 'type': 'false'})
+                edges.append({'source': then_id, 'target': merge_id, 'type': 'normal'})
+                return merge_id
+
+        elif kind in ['ForStatement', 'ForInStatement', 'ForOfStatement', 'WhileStatement', 'DoWhileStatement']:
+            # Create loop condition block
+            loop_id = get_next_block_id()
+            blocks.append({
+                'id': loop_id,
+                'type': 'loop_condition',
+                'start_line': line,
+                'end_line': line,
+                'condition': extract_condition_text(node),
+                'statements': [{'type': 'loop', 'line': line}]
+            })
+            edges.append({'source': current_id, 'target': loop_id, 'type': 'normal'})
+
+            # Create loop body block
+            body_id = get_next_block_id()
+            blocks.append({
+                'id': body_id,
+                'type': 'loop_body',
+                'start_line': line,
+                'end_line': line,
+                'statements': []
+            })
+            edges.append({'source': loop_id, 'target': body_id, 'type': 'true'})
+
+            # Process loop body
+            loop_body = get_child_by_kind(node, 'Block')
+            if loop_body:
+                body_id = process_children(loop_body, body_id, depth + 1)
+
+            # Back edge to condition
+            edges.append({'source': body_id, 'target': loop_id, 'type': 'back_edge'})
+
+            # Exit from loop
+            exit_loop_id = get_next_block_id()
+            blocks.append({
+                'id': exit_loop_id,
+                'type': 'merge',
+                'start_line': line,
+                'end_line': line,
+                'statements': []
+            })
+            edges.append({'source': loop_id, 'target': exit_loop_id, 'type': 'false'})
+
+            return exit_loop_id
+
+        elif kind == 'ReturnStatement':
+            # Create return block linking to exit
+            ret_id = get_next_block_id()
+            blocks.append({
+                'id': ret_id,
+                'type': 'return',
+                'start_line': line,
+                'end_line': line,
+                'statements': [{'type': 'return', 'line': line}]
+            })
+            edges.append({'source': current_id, 'target': ret_id, 'type': 'normal'})
+            edges.append({'source': ret_id, 'target': exit_id, 'type': 'normal'})
+            return None  # No successor
+
+        elif kind == 'TryStatement':
+            # Create try block
+            try_id = get_next_block_id()
+            blocks.append({
+                'id': try_id,
+                'type': 'try',
+                'start_line': line,
+                'end_line': line,
+                'statements': [{'type': 'try', 'line': line}]
+            })
+            edges.append({'source': current_id, 'target': try_id, 'type': 'normal'})
+
+            # Process try body
+            try_body = get_child_by_kind(node, 'Block')
+            if try_body:
+                try_id = process_children(try_body, try_id, depth + 1)
+
+            # Process catch block
+            catch_block = None
+            for child in node.get('children', []):
+                if child.get('kind') == 'CatchClause':
+                    catch_block = child
+                    break
+
+            if catch_block:
+                catch_id = get_next_block_id()
+                blocks.append({
+                    'id': catch_id,
+                    'type': 'except',
+                    'start_line': catch_block.get('line', line),
+                    'end_line': catch_block.get('line', line),
+                    'statements': [{'type': 'catch', 'line': catch_block.get('line', line)}]
+                })
+                edges.append({'source': try_id, 'target': catch_id, 'type': 'exception'})
+
+                # Process catch body
+                catch_body = get_child_by_kind(catch_block, 'Block')
+                if catch_body:
+                    catch_id = process_children(catch_body, catch_id, depth + 1)
+
+                # Merge after try-catch
+                merge_id = get_next_block_id()
+                blocks.append({
+                    'id': merge_id,
+                    'type': 'merge',
+                    'start_line': line,
+                    'end_line': line,
+                    'statements': []
+                })
+                edges.append({'source': try_id, 'target': merge_id, 'type': 'normal'})
+                edges.append({'source': catch_id, 'target': merge_id, 'type': 'normal'})
+
+                return merge_id
+
+            return try_id
+
+        elif kind == 'SwitchStatement':
+            # Create switch condition block
+            switch_id = get_next_block_id()
+            blocks.append({
+                'id': switch_id,
+                'type': 'condition',
+                'start_line': line,
+                'end_line': line,
+                'condition': 'switch',
+                'statements': [{'type': 'switch', 'line': line}]
+            })
+            edges.append({'source': current_id, 'target': switch_id, 'type': 'normal'})
+
+            # Process cases
+            case_ids = []
+            for child in node.get('children', []):
+                if child.get('kind') in ['CaseClause', 'DefaultClause']:
+                    case_id = get_next_block_id()
+                    blocks.append({
+                        'id': case_id,
+                        'type': 'basic',
+                        'start_line': child.get('line', line),
+                        'end_line': child.get('line', line),
+                        'statements': []
+                    })
+                    edges.append({'source': switch_id, 'target': case_id, 'type': 'case'})
+
+                    # Process case statements
+                    case_id = process_children(child, case_id, depth + 1)
+                    case_ids.append(case_id)
+
+            # Merge after switch
+            merge_id = get_next_block_id()
+            blocks.append({
+                'id': merge_id,
+                'type': 'merge',
+                'start_line': line,
+                'end_line': line,
+                'statements': []
+            })
+
+            for case_id in case_ids:
+                if case_id:  # Could be None if has return
+                    edges.append({'source': case_id, 'target': merge_id, 'type': 'normal'})
+
+            return merge_id
+
+        # Default: not a control flow statement
+        return current_id
+
+    def process_children(parent_node, current_id, depth):
+        """Process all children of a node."""
+        for child in parent_node.get('children', []):
+            new_id = process_node(child, current_id, depth)
+            if new_id is not None:
+                current_id = new_id
+        return current_id
+
+    def get_child_by_kind(node, kind):
+        """Get first child with specified kind."""
+        for child in node.get('children', []):
+            if child.get('kind') == kind:
+                return child
+        return None
+
+    def extract_condition_text(node):
+        """Extract condition text from control flow node."""
+        # Try to find the condition/test expression
+        for child in node.get('children', []):
+            if child.get('kind') in ['BinaryExpression', 'UnaryExpression', 'Identifier',
+                                     'CallExpression', 'MemberExpression', 'PropertyAccessExpression']:
+                return child.get('text', 'condition')
+        return 'condition'
+
+    # Start processing from entry
+    current_id = entry_id
+    current_id = process_children(body_node, current_id, 0)
+
+    # Add exit block
+    blocks.append({
+        'id': exit_id,
+        'type': 'exit',
+        'start_line': func_node.get('endLine', start_line),
+        'end_line': func_node.get('endLine', start_line),
+        'statements': []
+    })
+
+    # Connect last block to exit if not already connected
+    if current_id:
+        edges.append({'source': current_id, 'target': exit_id, 'type': 'normal'})
+
+    return {
+        'function_name': func_name,
+        'blocks': blocks,
+        'edges': edges
+    }
