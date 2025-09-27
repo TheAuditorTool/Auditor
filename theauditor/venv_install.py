@@ -572,23 +572,36 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
         except Exception as e:
             print(f"    ⚠ Could not update versions: {e}")
         
-        # Install linters AND ast tools from pyproject.toml
-        # AST tools (tree-sitter) are CRITICAL for proper pattern detection
+        # Install linters AND ast tools as separate packages (not extras)
+        # This avoids version conflicts with already-installed TheAuditor
         try:
             print("  Installing linters and AST tools from pyproject.toml...", flush=True)
+
+            # Install linters first
+            linter_packages = [
+                "ruff==0.13.2",
+                "mypy==1.18.2",
+                "black==25.9.0",
+                "bandit==1.8.6",
+                "pylint==3.3.8",
+                "sqlparse==0.5.3",
+                "dockerfile-parse==2.0.1"
+            ]
+
             stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                 str(target_dir), "pip_linters"
             )
-            
+
             with open(stdout_path, 'w+', encoding='utf-8') as stdout_fp, \
                  open(stderr_path, 'w+', encoding='utf-8') as stderr_fp:
-                
+
+                # Install linters as separate packages
                 result = subprocess.run(
-                    [str(python_exe), "-m", "pip", "install", "-e", f"{theauditor_root}[linters,ast]"],
+                    [str(python_exe), "-m", "pip", "install"] + linter_packages,
                     stdout=stdout_fp,
                     stderr=stderr_fp,
                     text=True,
-                    timeout=300  # Increased to 5 minutes for slower systems and compilation
+                    timeout=300  # Increased to 5 minutes for slower systems
                 )
             
             with open(stdout_path, 'r', encoding='utf-8') as f:
@@ -605,13 +618,54 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             
             if result.returncode == 0:
                 check_mark = "[OK]" if IS_WINDOWS else "✓"
-                print(f"    {check_mark} Python tools installed:")
-                print(f"        - Linters: ruff, mypy, black, bandit, pylint")
-                print(f"        - AST analysis: tree-sitter (Python/JS/TS), sqlparse, dockerfile-parse")
+                print(f"    {check_mark} Python linters installed")
+
+                # Now install tree-sitter packages separately
+                print("  Installing tree-sitter AST tools...", flush=True)
+                ast_packages = [
+                    "tree-sitter==0.23.2",  # Must match tree-sitter-language-pack requirement
+                    "tree-sitter-language-pack==0.9.1"
+                ]
+
+                stdout_path2, stderr_path2 = TempManager.create_temp_files_for_subprocess(
+                    str(target_dir), "pip_ast"
+                )
+
+                with open(stdout_path2, 'w+', encoding='utf-8') as stdout_fp, \
+                     open(stderr_path2, 'w+', encoding='utf-8') as stderr_fp:
+
+                    result2 = subprocess.run(
+                        [str(python_exe), "-m", "pip", "install"] + ast_packages,
+                        stdout=stdout_fp,
+                        stderr=stderr_fp,
+                        text=True,
+                        timeout=300
+                    )
+
+                with open(stdout_path2, 'r', encoding='utf-8') as f:
+                    result2.stdout = f.read()
+                with open(stderr_path2, 'r', encoding='utf-8') as f:
+                    result2.stderr = f.read()
+
+                # Clean up temp files
+                try:
+                    Path(stdout_path2).unlink()
+                    Path(stderr_path2).unlink()
+                except (OSError, PermissionError):
+                    pass
+
+                if result2.returncode == 0:
+                    print(f"    {check_mark} AST tools installed")
+                    print(f"    {check_mark} All Python tools ready:")
+                    print(f"        - Linters: ruff, mypy, black, bandit, pylint")
+                    print(f"        - Parsers: sqlparse, dockerfile-parse")
+                    print(f"        - AST analysis: tree-sitter (Python/JS/TS)")
+                else:
+                    print(f"    ⚠ Tree-sitter installation failed: {result2.stderr[:200]}")
             else:
-                print(f"    ⚠ Some tools failed to install: {result.stderr[:200]}")
+                print(f"    ⚠ Some linters failed to install: {result.stderr[:200]}")
         except Exception as e:
-            print(f"    ⚠ Error installing linters: {e}")
+            print(f"    ⚠ Error installing tools: {e}")
         
         # ALWAYS install JavaScript tools in SANDBOXED location
         # These are core TheAuditor tools needed for any project analysis
@@ -663,7 +717,19 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             print(f"    {check_mark} ESLint v9 flat config copied to sandbox")
         else:
             print(f"    ⚠ ESLint config not found at {eslint_config_source}")
-        
+
+        # Copy Python linter config from TheAuditor source
+        python_config_source = theauditor_root / "theauditor" / "linters" / "pyproject.toml"
+        python_config_dest = sandbox_dir / "pyproject.toml"
+
+        if python_config_source.exists():
+            # Copy the Python linter config file
+            shutil.copy2(str(python_config_source), str(python_config_dest))
+            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            print(f"    {check_mark} Python linter config (pyproject.toml) copied to sandbox")
+        else:
+            print(f"    ⚠ Python config not found at {python_config_source}")
+
         # Create strict TypeScript configuration for sandboxed tools
         tsconfig = sandbox_dir / "tsconfig.json"
         tsconfig_data = {

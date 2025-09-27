@@ -499,8 +499,24 @@ def run_full_pipeline(
                 # Generic description for any new commands
                 description = f"{phase_num}. Run {cmd_name.replace('-', ' ')}"
             
-            # Build command array - use python module directly
-            command_array = [sys.executable, "-m", "theauditor.cli", cmd_name] + extra_args
+            # Build command array - use project's sandboxed aud if available
+            # CRITICAL: Use project's sandbox to ensure complete isolation
+            venv_dir = Path(root) / ".auditor_venv"
+            if platform.system() == "Windows":
+                venv_aud = venv_dir / "Scripts" / "aud.exe"
+            else:
+                venv_aud = venv_dir / "bin" / "aud"
+
+            if venv_aud.exists():
+                # Use sandboxed aud executable for complete isolation
+                command_array = [str(venv_aud), cmd_name] + extra_args
+            else:
+                # No sandbox found - this is a setup error
+                log_output(f"[ERROR] Sandbox not found at {venv_aud}")
+                log_output(f"[ERROR] Run 'aud setup-claude --target .' to create sandbox")
+                # Still try with system Python as emergency fallback (will likely fail)
+                command_array = [sys.executable, "-m", "theauditor.cli", cmd_name] + extra_args
+
             commands.append((description, command_array))
         else:
             # Command not available, log warning but continue (resilient)

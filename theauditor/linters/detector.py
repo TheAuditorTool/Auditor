@@ -82,7 +82,7 @@ def detect_linters(root_path: str, auto_fix: bool = False) -> dict[str, list[str
         
         if not bundled_node.exists():
             # No bundled Node.js, skip JavaScript tool detection
-            print("    ⚠ Bundled Node.js not found. Run 'aud setup-claude' to install.")
+            print("    WARNING: Bundled Node.js not found. Run 'aud setup-claude --target .' to install.")
             sandbox_dir = None  # Disable JS tool detection
         
     if js_files_exist and sandbox_dir and sandbox_dir.exists():
@@ -141,80 +141,99 @@ def detect_linters(root_path: str, auto_fix: bool = False) -> dict[str, list[str
     # and ensure consistent, reproducible results across all environments.
     # If sandboxed tools are not available, user must run 'aud setup-claude'
 
-    # Python linters - check if ANY Python files exist
+    # Python linters - STRICT SANDBOX ONLY (like JavaScript)
     # Use a generator to avoid materializing the entire list for performance
     python_files_exist = any(root.glob("**/*.py"))
     if python_files_exist:
-        # Check for ruff (always try if Python files exist)
-        try:
-            result = run_subprocess_safe(["ruff", "--version"])
-            if result.returncode == 0:
-                # Use focused ruff configuration for high-signal output
-                # Only report bugs, security issues, and critical errors
-                ruff_rules = [
-                    "--select", "E,F,I,S",  # E: pycodestyle Errors, F: Pyflakes, I: isort, S: bandit security
-                    "--ignore", "D,ANN,T20",  # Ignore docs, type annotations, and print
-                ]
-                # AUTO-FIX DEPRECATED: Always run in check-only mode
-                # if auto_fix:
-                #     linters["ruff"] = ["ruff", "check", "--fix", "--output-format", "concise"] + ruff_rules
-                # else:
-                linters["ruff"] = ["ruff", "check", "--output-format", "concise"] + ruff_rules
-        except (subprocess.SubprocessError, FileNotFoundError, OSError):
-            pass
+        # Check for sandboxed Python tools in .auditor_venv
+        # ONLY use TheAuditor's dedicated sandbox environment - no contamination from global Python
+        venv_dir = root / ".auditor_venv"
+        if not venv_dir.exists():
+            print("    WARNING: Python sandbox not found. Run 'aud setup-claude --target .' to install.")
+            # Return empty - no fallback to global tools
+            return linters
 
-        # flake8 removed - using ruff as the primary Python linter
+        # Platform-specific binary directory
+        if IS_WINDOWS:
+            venv_bin = venv_dir / "Scripts"
+        else:
+            venv_bin = venv_dir / "bin"
 
-        # Check for mypy
-        try:
-            result = run_subprocess_safe(["mypy", "--version"])
-            if result.returncode == 0:
-                # CRITICAL: Use strict mypy configuration
-                linters["mypy"] = [
-                    "mypy", 
-                    "--strict",  # Enable all strict checks
-                    "--warn-return-any",
-                    "--warn-unused-configs",
-                    "--disallow-untyped-defs",
-                    "--disallow-any-unimported",
-                    "--no-implicit-optional",
-                    "--warn-redundant-casts",
-                    "--warn-unused-ignores",
-                    "--warn-unreachable",
-                    "--no-error-summary", 
-                    "--no-pretty"
-                ]
-        except (subprocess.SubprocessError, FileNotFoundError, OSError):
-            pass
+        if not venv_bin.exists():
+            print("    WARNING: Python sandbox is corrupted (missing bin/Scripts). Run 'aud setup-claude --target . --sync' to repair.")
+            return linters
 
-        # Check for black
-        try:
-            result = run_subprocess_safe(["black", "--version"])
-            if result.returncode == 0:
-                # AUTO-FIX DEPRECATED: Always run in check-only mode
-                # if auto_fix:
-                #     # In fix mode, run black to format files
-                #     linters["black"] = ["black", "--quiet"]
-                # else:
-                # In check mode, use --check and --diff to report issues
-                linters["black"] = ["black", "--check", "--diff", "--quiet"]
-        except (subprocess.SubprocessError, FileNotFoundError, OSError):
-            pass
-        
-        # Check for bandit (Python security linter)
-        try:
-            result = run_subprocess_safe(["bandit", "--version"])
-            if result.returncode == 0:
-                # Run bandit with high confidence and severity
-                linters["bandit"] = [
-                    "bandit", 
-                    # NO -r flag! Runner.py provides explicit file list
-                    "-f", "json",  # JSON output for parsing
-                    "-ll",  # Only medium and high severity
-                    "-i",  # Only medium and high confidence
-                ]
-        except (subprocess.SubprocessError, FileNotFoundError, OSError):
-            pass
+        # Check for ruff in SANDBOX ONLY
+        ruff_exe = "ruff.exe" if IS_WINDOWS else "ruff"
+        sandbox_ruff = venv_bin / ruff_exe
+        if sandbox_ruff.exists():
+            try:
+                # Verify it actually works
+                result = run_subprocess_safe([str(sandbox_ruff), "--version"])
+                if result.returncode == 0:
+                    # Use config file from sandbox tools directory
+                    config_path = venv_dir / ".theauditor_tools" / "pyproject.toml"
+                    if config_path.exists():
+                        linters["ruff"] = [str(sandbox_ruff), "check", "--config", str(config_path), "--output-format", "concise"]
+                    else:
+                        print(f"    WARNING: Python config not found at {config_path}. Run 'aud setup-claude --target . --sync' to repair.")
+            except (subprocess.SubprocessError, FileNotFoundError, OSError):
+                print(f"    WARNING: Sandbox ruff exists but failed to execute. Run 'aud setup-claude --target . --sync' to repair.")
+
+        # Check for mypy in SANDBOX ONLY
+        mypy_exe = "mypy.exe" if IS_WINDOWS else "mypy"
+        sandbox_mypy = venv_bin / mypy_exe
+        if sandbox_mypy.exists():
+            try:
+                result = run_subprocess_safe([str(sandbox_mypy), "--version"])
+                if result.returncode == 0:
+                    # Use config file for all mypy settings
+                    config_path = venv_dir / ".theauditor_tools" / "pyproject.toml"
+                    if config_path.exists():
+                        linters["mypy"] = [str(sandbox_mypy), "--config-file", str(config_path)]
+                    else:
+                        print(f"    WARNING: Python config not found at {config_path}. Run 'aud setup-claude --target . --sync' to repair.")
+            except (subprocess.SubprocessError, FileNotFoundError, OSError):
+                print(f"    WARNING: Sandbox mypy exists but failed to execute. Run 'aud setup-claude --target . --sync' to repair.")
+
+        # Check for black in SANDBOX ONLY
+        black_exe = "black.exe" if IS_WINDOWS else "black"
+        sandbox_black = venv_bin / black_exe
+        if sandbox_black.exists():
+            try:
+                result = run_subprocess_safe([str(sandbox_black), "--version"])
+                if result.returncode == 0:
+                    # Black will read config from pyproject.toml
+                    config_path = venv_dir / ".theauditor_tools" / "pyproject.toml"
+                    if config_path.exists():
+                        linters["black"] = [str(sandbox_black), "--check", "--diff", "--quiet", "--config", str(config_path)]
+                    else:
+                        print(f"    WARNING: Python config not found at {config_path}. Run 'aud setup-claude --target . --sync' to repair.")
+            except (subprocess.SubprocessError, FileNotFoundError, OSError):
+                print(f"    WARNING: Sandbox black exists but failed to execute. Run 'aud setup-claude --target . --sync' to repair.")
+
+        # Check for bandit in SANDBOX ONLY
+        bandit_exe = "bandit.exe" if IS_WINDOWS else "bandit"
+        sandbox_bandit = venv_bin / bandit_exe
+        if sandbox_bandit.exists():
+            try:
+                result = run_subprocess_safe([str(sandbox_bandit), "--version"])
+                if result.returncode == 0:
+                    # Use config file for comprehensive security scanning
+                    config_path = venv_dir / ".theauditor_tools" / "pyproject.toml"
+                    if config_path.exists():
+                        linters["bandit"] = [
+                            str(sandbox_bandit),
+                            "-f", "json",  # JSON output for parsing
+                            "--configfile", str(config_path)
+                            # Config file controls severity/confidence levels
+                        ]
+                    else:
+                        print(f"    WARNING: Python config not found at {config_path}. Run 'aud setup-claude --target . --sync' to repair.")
+            except (subprocess.SubprocessError, FileNotFoundError, OSError):
+                print(f"    WARNING: Sandbox bandit exists but failed to execute. Run 'aud setup-claude --target . --sync' to repair.")
+
+        # NO FALLBACK TO GLOBAL TOOLS - Sandbox or nothing!
 
     # Go linters
     if (root / "go.mod").exists():
