@@ -9,7 +9,41 @@ from theauditor.config_runtime import load_runtime_config
 @click.group()
 @click.help_option("-h", "--help")
 def graph():
-    """Cross-project dependency and call graph analysis."""
+    """Analyze code structure through dependency and call graphs.
+
+    Build and analyze import/call graphs to understand your codebase's
+    architecture, detect cycles, find hotspots, and measure change impact.
+    Supports Python, JavaScript/TypeScript, and Go.
+
+    Subcommands:
+      build    - Construct import and call graphs from code
+      analyze  - Find cycles, hotspots, and architectural issues
+      query    - Interactive graph relationship queries
+      viz      - Generate visual graph representations
+
+    Typical Workflow:
+      1. aud graph build              # Build graphs from codebase
+      2. aud graph analyze            # Detect issues and hotspots
+      3. aud graph query --uses auth  # Query specific relationships
+      4. aud graph viz --format dot   # Generate visualizations
+
+    The graphs reveal:
+      - Circular dependencies (import cycles)
+      - Architectural hotspots (highly connected modules)
+      - Change impact radius (what breaks if X changes)
+      - Hidden dependencies and coupling
+
+    Examples:
+      aud graph build                        # Build complete graphs
+      aud graph build --workset workset.json # Build for specific files
+      aud graph analyze --workset            # Analyze change impact
+      aud graph query --uses database.py     # Who depends on database.py?
+      aud graph query --calls api.send_email # What does send_email call?
+
+    Output:
+      .pf/graphs.db                   # SQLite database with graphs
+      .pf/raw/graph_analysis.json     # Cycles, hotspots, metrics
+      .pf/raw/graph_summary.json      # AI-readable summary"""
     pass
 
 
@@ -22,7 +56,29 @@ def graph():
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
 @click.option("--out-json", default="./.pf/raw/", help="JSON output directory")
 def graph_build(root, langs, workset, batch_size, resume, db, out_json):
-    """Build import and call graphs for project."""
+    """Build import and call graphs from your codebase.
+
+    Constructs two types of graphs:
+    1. Import Graph: Shows module/file dependencies (who imports what)
+    2. Call Graph: Shows function relationships (who calls what)
+
+    These graphs are the foundation for architectural analysis,
+    cycle detection, and impact measurement.
+
+    Examples:
+      aud graph build                         # Full codebase
+      aud graph build --langs python          # Python only
+      aud graph build --workset workset.json  # Specific files
+      aud graph build --resume                # Resume interrupted build
+
+    Output:
+      .pf/graphs.db - SQLite database containing:
+        - import_nodes: Files and modules
+        - import_edges: Import relationships
+        - call_nodes: Functions and methods
+        - call_edges: Call relationships
+
+    Note: Must run 'aud index' first to build manifest."""
     from theauditor.graph.builder import XGraphBuilder
     from theauditor.graph.store import XGraphStore
     

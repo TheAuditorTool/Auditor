@@ -27,32 +27,113 @@ import click
 @click.option("--print-summary", is_flag=True,
               help="Print summary to console")
 def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summary: bool) -> None:
-    """Run optional insights analysis on existing audit data.
-    
-    This command generates interpretive analysis and predictions based on
-    the raw facts collected by the audit pipeline. All insights are optional
-    and separate from the core truth data.
-    
-    Available insights modules:
-    - ml: Machine learning risk predictions and root cause analysis
-    - graph: Graph health metrics and architectural scoring
-    - taint: Severity scoring for taint analysis paths
-    - impact: Impact radius and blast zone analysis
-    - all: Run all available insights
-    
+    """Add interpretive scoring and predictions to raw audit facts.
+
+    The Insights system is TheAuditor's optional interpretation layer that
+    sits ON TOP of factual data. While core modules report facts ("XSS found
+    at line 42"), insights add interpretation ("This is CRITICAL severity").
+
+    CRITICAL UNDERSTANDING - Two-Layer Architecture:
+      1. Truth Couriers (Core): Report facts without judgment
+         - "Data flows from req.body to res.send"
+         - "Function complexity is 47"
+         - "17 circular dependencies detected"
+
+      2. Insights (Optional): Add scoring and interpretation
+         - "This is HIGH severity XSS"
+         - "Health score: 35/100 - Needs refactoring"
+         - "Risk prediction: 87% chance of vulnerabilities"
+
+    Available Insights Modules:
+
+      ML (Machine Learning) - Requires pip install -e ".[ml]"
+        - Trains on historical patterns in your codebase
+        - Predicts which files likely contain vulnerabilities
+        - Identifies root cause patterns
+        - Suggests prioritized review order
+
+      Graph (Architecture Health)
+        - Calculates health score (0-100) with letter grades
+        - Identifies architectural anti-patterns
+        - Ranks hotspots by connectivity and churn
+        - Generates refactoring recommendations
+
+      Taint (Security Severity)
+        - Adds CVSS-like severity scores to taint paths
+        - Classifies vulnerability types (XSS, SQLi, etc.)
+        - Calculates risk scores based on exploitability
+        - Prioritizes critical security issues
+
+      Impact (Blast Radius)
+        - Analyzes change propagation patterns
+        - Calculates affected file counts
+        - Identifies high-risk modification points
+        - Maps dependency chains
+
+    How It Works:
+      1. Reads raw facts from .pf/raw/ (immutable truth)
+      2. Applies scoring algorithms and ML models
+      3. Outputs insights to .pf/insights/ (interpretations)
+      4. Raw facts remain unchanged - insights are additive
+
     Examples:
-        # Run all insights
-        aud insights
-        
-        # Only ML predictions
-        aud insights --mode ml
-        
-        # Train ML first, then predict
-        aud insights --mode ml --ml-train
-        
-        # Graph health only with summary
-        aud insights --mode graph --print-summary
-    """
+      # Run all insights with summary
+      aud insights --print-summary
+
+      # ML predictions only (top 20 risky files)
+      aud insights --mode ml --topk 20
+
+      # Train ML model first, then predict
+      aud insights --mode ml --ml-train
+
+      # Graph health with custom output
+      aud insights --mode graph --output-dir ./reports/insights
+
+      # Taint severity scoring only
+      aud insights --mode taint --print-summary
+
+    Output Files:
+      .pf/insights/
+        ├── unified_insights.json    # Aggregated summary
+        ├── ml_suggestions.json      # ML predictions
+        ├── graph_health.json        # Architecture metrics
+        ├── taint_severity.json      # Security scoring
+        └── impact_analysis.json     # Change impact
+
+    Severity Levels (Taint Module):
+      CRITICAL - Exploitable with high impact
+      HIGH     - Exploitable with moderate impact
+      MEDIUM   - Requires specific conditions
+      LOW      - Minimal security impact
+      INFO     - Informational only
+
+    Health Grades (Graph Module):
+      A (90-100) - Excellent architecture
+      B (80-89)  - Good, minor issues
+      C (70-79)  - Acceptable, needs work
+      D (60-69)  - Poor, significant issues
+      F (0-59)   - Critical problems
+
+    ML Risk Scores:
+      0.8-1.0 - Very high risk, review immediately
+      0.6-0.8 - High risk, review soon
+      0.4-0.6 - Medium risk, schedule review
+      0.2-0.4 - Low risk, review if time permits
+      0.0-0.2 - Very low risk
+
+    Prerequisites:
+      - Run 'aud full' first to generate raw data
+      - For ML: pip install -e ".[ml]" (scikit-learn, numpy)
+      - For Graph: pip install -e ".[all]" (networkx)
+
+    Philosophy Note:
+      Insights are INTERPRETATIONS, not facts. Different organizations
+      may have different risk tolerances. Use insights as guidance but
+      always review the raw facts in .pf/raw/ for ground truth.
+
+    Exit Codes:
+      0 - All requested insights generated successfully
+      1 - One or more insights failed (see errors)"""
     
     # Ensure we have raw data to analyze
     pf_dir = Path(".pf")

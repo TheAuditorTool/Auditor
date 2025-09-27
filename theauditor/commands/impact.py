@@ -17,17 +17,58 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--verbose", is_flag=True, help="Show detailed dependency information")
 @click.option("--trace-to-backend", is_flag=True, help="Trace frontend API calls to backend endpoints (cross-stack analysis)")
 def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
-    """
-    Analyze the impact radius of changing code at a specific location.
-    
-    This command traces both upstream dependencies (who calls this code)
-    and downstream dependencies (what this code calls) to help understand
-    the blast radius of potential changes.
-    
-    Example:
-        aud impact --file src/auth.py --line 42
-        aud impact --file theauditor/indexer.py --line 100 --verbose
-    """
+    """Analyze the blast radius of code changes.
+
+    Maps the complete impact of changing a specific function or class by
+    tracing both upstream (who depends on this) and downstream (what this
+    depends on) dependencies. Essential for understanding risk before
+    refactoring or making changes.
+
+    Impact Analysis Reveals:
+      - Upstream: All code that calls or imports this function/class
+      - Downstream: All code that this function/class depends on
+      - Transitive: Multi-hop dependencies (A→B→C)
+      - Cross-stack: Frontend API calls traced to backend endpoints
+
+    Risk Levels:
+      Low Impact:    < 5 affected files
+      Medium Impact: 5-20 affected files
+      High Impact:   > 20 affected files (exit code 1)
+
+    Examples:
+      aud impact --file src/auth.py --line 42
+      aud impact --file api/user.py --line 100 --verbose
+      aud impact --file src/utils.js --line 50 --trace-to-backend
+      aud impact --file database.py --line 200 --max-depth 3
+
+    Common Use Cases:
+      Before refactoring:
+        aud impact --file old_module.py --line 1
+
+      Evaluating API changes:
+        aud impact --file api/endpoints.py --line 150 --trace-to-backend
+
+      Finding dead code:
+        aud impact --file utils.py --line 300
+        # If upstream is empty, code might be unused
+
+    Output:
+      Default: Human-readable impact report
+      --json:  Machine-readable JSON for CI/CD integration
+
+    Report Includes:
+      - Direct callers and callees
+      - Affected test files
+      - Total impact radius
+      - Risk assessment
+      - File-level summary
+
+    Exit Codes:
+      0 = Low impact change
+      1 = High impact change (>20 files)
+      3 = Analysis error
+
+    Note: Requires 'aud index' to be run first."""
     from theauditor.impact_analyzer import analyze_impact, format_impact_report
     from theauditor.config_runtime import load_runtime_config
     import json as json_lib

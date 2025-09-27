@@ -16,7 +16,84 @@ from theauditor.utils.helpers import get_self_exclusion_patterns
 @click.option("--with-frameworks/--no-frameworks", default=True, help="Enable framework detection and framework-specific patterns")
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
 def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, print_stats, with_ast, with_frameworks, exclude_self):
-    """Detect universal runtime, DB, and logic patterns in code."""
+    """Detect security vulnerabilities and code quality issues.
+
+    Runs 100+ security pattern rules across your codebase using both
+    regex and AST-based detection. Covers OWASP Top 10, CWE Top 25,
+    and framework-specific vulnerabilities.
+
+    Pattern Categories:
+      Authentication:
+        - Hardcoded credentials and API keys
+        - Weak password validation
+        - Missing authentication checks
+        - Insecure session management
+
+      Injection Attacks:
+        - SQL injection vulnerabilities
+        - Command injection risks
+        - XSS (Cross-Site Scripting)
+        - Template injection
+        - LDAP/NoSQL injection
+
+      Data Security:
+        - Exposed sensitive data
+        - Insecure cryptography
+        - Weak random number generation
+        - Missing encryption
+
+      Infrastructure:
+        - Debug mode in production
+        - Insecure CORS configuration
+        - Missing security headers
+        - Exposed admin interfaces
+
+      Code Quality:
+        - Race conditions
+        - Resource leaks
+        - Infinite loops
+        - Dead code blocks
+
+    Detection Methods:
+      1. Pattern Matching: Fast regex-based detection
+      2. AST Analysis: Semantic understanding of code structure
+      3. Framework Detection: Django, Flask, React-specific rules
+
+    Examples:
+      aud detect-patterns                           # Run all patterns
+      aud detect-patterns --patterns auth_issues    # Specific category
+      aud detect-patterns --file-filter "*.py"      # Python files only
+      aud detect-patterns --no-ast                  # Regex only (faster)
+      aud detect-patterns --exclude-self            # Skip TheAuditor files
+
+    Output:
+      .pf/raw/patterns.json       # All findings in JSON
+      .pf/readthis/patterns_*.json # AI-optimized chunks
+
+    Finding Format:
+      {
+        "file": "src/auth.py",
+        "line": 42,
+        "pattern": "hardcoded_secret",
+        "severity": "critical",
+        "message": "Hardcoded API key detected",
+        "code_snippet": "api_key = 'sk_live_...'",
+        "cwe": "CWE-798"
+      }
+
+    Severity Levels:
+      critical - Immediate security risk
+      high     - Serious vulnerability
+      medium   - Potential issue
+      low      - Code quality concern
+
+    Performance:
+      Small project:  < 30 seconds
+      Large project:  2-5 minutes
+      With AST:       2-3x slower but more accurate
+
+    Note: Use --with-ast for comprehensive analysis (default).
+    Disable with --no-ast for quick scans."""
     from theauditor.pattern_loader import PatternLoader
     from theauditor.universal_detector import UniversalPatternDetector
     

@@ -15,7 +15,37 @@ from theauditor.utils.helpers import get_self_exclusion_patterns
 @click.option("--follow-symlinks", is_flag=True, help="Follow symbolic links (default: skip)")
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
 def index(root, manifest, db, print_stats, dry_run, follow_symlinks, exclude_self):
-    """Build language-agnostic manifest and SQLite index of repository."""
+    """Build comprehensive code inventory and symbol database.
+
+    Creates a complete inventory of your codebase including all functions,
+    classes, imports, and their relationships. This is the foundation for
+    all other analysis commands - you MUST run index first.
+
+    The index contains:
+      - Every function, class, method, and variable
+      - Import relationships and dependencies
+      - File metadata (size, language, lines of code)
+      - AST cache for performance optimization
+
+    Examples:
+      aud index                           # Index current directory
+      aud index --exclude-self            # Exclude TheAuditor's own files
+      aud index --print-stats             # Show detailed statistics
+      aud index --dry-run --print-stats  # Preview what would be indexed
+
+    Output Files:
+      .pf/repo_index.db    # SQLite database with all symbols
+      .pf/manifest.json    # File inventory with metadata
+      .pf/.ast_cache/      # Cached AST trees for performance
+
+    Database Tables:
+      files       - All source files with metadata
+      symbols     - Functions, classes, variables
+      imports     - Import statements and dependencies
+      patterns    - Detected security patterns
+
+    Note: Most commands require index to be run first. The database
+    is used by taint-analyze, graph, impact, and many other commands."""
     from theauditor.indexer import build_index
     from theauditor.config_runtime import load_runtime_config
     

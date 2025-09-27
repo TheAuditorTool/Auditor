@@ -233,7 +233,68 @@ def lint_command(
 # AUTO-FIX DEPRECATED: Hidden flag kept for backward compatibility
 @click.option("--fix", is_flag=True, hidden=True, help="[DEPRECATED] No longer functional")
 def lint(root, workset, workset_path, manifest, timeout, print_plan, fix):
-    """Run linters and normalize output to evidence format."""
+    """Run code quality checks with industry-standard linters.
+
+    Automatically detects and runs available linters in your project,
+    normalizing all output into a unified format for analysis. Supports
+    both full codebase and targeted workset analysis.
+
+    Supported Linters (Auto-Detected):
+      Python:
+        - ruff       # Fast, comprehensive Python linter
+        - mypy       # Static type checker
+        - black      # Code formatter (check mode)
+        - pylint     # Classic Python linter
+        - bandit     # Security-focused linter
+
+      JavaScript/TypeScript:
+        - eslint     # Pluggable JS/TS linter
+        - prettier   # Code formatter (check mode)
+        - tsc        # TypeScript compiler (type checking)
+
+      Go:
+        - golangci-lint  # Meta-linter for Go
+        - go vet         # Go static analyzer
+
+      Docker:
+        - hadolint   # Dockerfile linter
+
+    Examples:
+      aud lint                        # Lint entire codebase
+      aud lint --workset              # Lint only changed files
+      aud lint --print-plan           # Preview what would run
+      aud lint --timeout 600          # Increase timeout for large projects
+
+    Common Workflows:
+      After changes:  aud workset --diff HEAD~1 && aud lint --workset
+      PR review:      aud workset --diff main && aud lint --workset
+      CI pipeline:    aud lint || exit 1
+
+    Output:
+      .pf/raw/lint.json               # Normalized findings
+      .pf/raw/ast_cache/eslint/*.json # Cached ASTs from ESLint
+
+    Finding Format:
+      {
+        "file": "src/auth.py",
+        "line": 42,
+        "column": 10,
+        "severity": "error",      # error | warning | info
+        "rule": "undefined-var",
+        "message": "Variable 'user' is not defined",
+        "tool": "eslint"
+      }
+
+    Exit Behavior:
+      - Always exits with code 0 (findings don't fail the command)
+      - Check stats['errors'] in output to determine CI/CD failure
+
+    Note: Install linters in your project for best results:
+      npm install --save-dev eslint prettier
+      pip install ruff mypy black pylint bandit
+
+    Auto-fix is deprecated - use native linter fix commands instead:
+      eslint --fix, ruff --fix, prettier --write, black ."""
     from theauditor.config_runtime import load_runtime_config
     
     # Load configuration
