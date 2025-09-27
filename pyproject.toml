@@ -13,8 +13,8 @@ authors = [
     {name = "TheAuditor Team"}
 ]
 dependencies = [
-    "click==8.2.1",
-    "PyYAML==6.0.2",
+    "click==8.3.0",
+    "PyYAML==6.0.3",
     "jsonschema==4.25.1",
     "ijson==3.4.0",
     "json5==0.12.1",
@@ -23,13 +23,13 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.4.2",
-    "ruff==0.13.0",
-    "black==25.1.0",
+    "ruff==0.13.2",
+    "black==25.9.0",
 ]
 linters = [
-    "ruff==0.13.0",
-    "mypy==1.18.1",
-    "black==25.1.0",
+    "ruff==0.13.2",
+    "mypy==1.18.2",
+    "black==25.9.0",
     "bandit==1.8.6",
     "pylint==3.3.8",
 ]
@@ -40,8 +40,8 @@ ml = [
     "joblib==1.5.2",
 ]
 ast = [
-    "tree-sitter==0.25.1",
-    "tree-sitter-language-pack==0.9.0",
+    "tree-sitter==0.25.2",  # Downgrade to match tree-sitter-language-pack requirement
+    "tree-sitter-language-pack==0.9.1",
     "sqlparse==0.5.3",
     "dockerfile-parse==2.0.1",
 ]
@@ -49,9 +49,9 @@ all = [
     # Dev tools
     "pytest==8.4.2",
     # Linters
-    "ruff==0.13.0",
-    "mypy==1.18.1",
-    "black==25.1.0",
+    "ruff==0.13.2",
+    "mypy==1.18.2",
+    "black==25.9.0",
     "bandit==1.8.6",
     "pylint==3.3.8",
     # ML features
@@ -60,8 +60,8 @@ all = [
     "scipy==1.16.2",
     "joblib==1.5.2",
     # AST parsing
-    "tree-sitter==0.25.1",
-    "tree-sitter-language-pack==0.9.0",
+    "tree-sitter==0.23.2",  # Downgrade to match tree-sitter-language-pack requirement
+    "tree-sitter-language-pack==0.9.1",
     # SQL parsing
     "sqlparse==0.5.3",
     # Docker parsing
