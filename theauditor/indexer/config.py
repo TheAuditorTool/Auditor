@@ -89,6 +89,35 @@ SQL_QUERY_PATTERNS = [
     re.compile(r'\.raw\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE),
 ]
 
+# JWT-specific patterns for enhanced extraction
+JWT_SIGN_PATTERN = re.compile(
+    r'(?:jwt|jsonwebtoken)\.sign\s*\(\s*'
+    r'([^,)]+)\s*,\s*'       # arg0: payload
+    r'([^,)]+)\s*'            # arg1: secret
+    r'(?:,\s*([^)]+))?\s*\)', # arg2: options (optional)
+    re.DOTALL
+)
+
+JWT_VERIFY_PATTERN = re.compile(
+    r'(?:jwt|jsonwebtoken)\.verify\s*\(\s*'
+    r'([^,)]+)\s*,\s*'        # arg0: token
+    r'([^,)]+)\s*'            # arg1: secret
+    r'(?:,\s*([^)]+))?\s*\)', # arg2: options (optional)
+    re.DOTALL
+)
+
+JWT_DECODE_PATTERN = re.compile(
+    r'(?:jwt|jsonwebtoken)\.decode\s*\(\s*([^)]+)\s*\)',
+    re.DOTALL
+)
+
+# Patterns for detecting JWT configuration
+JWT_SECRET_PATTERNS = [
+    re.compile(r'JWT_SECRET\s*=\s*["\']([^"\']+)["\']'),
+    re.compile(r'jwtSecret\s*=\s*["\']([^"\']+)["\']'),
+    re.compile(r'secret:\s*["\']([^"\']+)["\']'),
+]
+
 # Default batch size for database operations
 DEFAULT_BATCH_SIZE = 200
 MAX_BATCH_SIZE = 1000

@@ -3,7 +3,11 @@
 Analyzes Next.js applications for security vulnerabilities using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-This replaces nextjs_analyzer.py with a faster, cleaner implementation.
+Follows golden standard patterns from compose_analyze.py:
+- Frozensets for all patterns
+- Table existence checks
+- Graceful degradation
+- Proper confidence levels
 """
 
 import sqlite3
@@ -13,67 +17,161 @@ from pathlib import Path
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
 
 
+# ============================================================================
+# SECURITY PATTERNS (Golden Standard: Use Frozensets)
+# ============================================================================
+
+# Response functions that send data to client
+RESPONSE_FUNCTIONS = frozenset([
+    'res.json', 'res.send', 'NextResponse.json',
+    'NextResponse.redirect', 'NextResponse.rewrite'
+])
+
+# Redirect functions that could cause open redirect
+REDIRECT_FUNCTIONS = frozenset([
+    'router.push', 'router.replace', 'redirect',
+    'permanentRedirect', 'NextResponse.redirect'
+])
+
+# User input sources
+USER_INPUT_SOURCES = frozenset([
+    'query', 'params', 'searchParams', 'req.query',
+    'req.body', 'req.params', 'formData'
+])
+
+# Sensitive environment variable patterns
+SENSITIVE_ENV_PATTERNS = frozenset([
+    'SECRET', 'PRIVATE', 'KEY', 'TOKEN',
+    'PASSWORD', 'API_KEY', 'CREDENTIAL', 'AUTH'
+])
+
+# SSR/SSG functions
+SSR_FUNCTIONS = frozenset([
+    'getServerSideProps', 'getStaticProps', 'getInitialProps',
+    'generateStaticParams', 'generateMetadata'
+])
+
+# Sanitization functions
+SANITIZATION_FUNCTIONS = frozenset([
+    'escape', 'sanitize', 'validate', 'DOMPurify',
+    'escapeHtml', 'sanitizeHtml', 'xss'
+])
+
+# Validation libraries
+VALIDATION_LIBRARIES = frozenset([
+    'zod', 'yup', 'joi', 'validator', 'express-validator',
+    'class-validator', 'superstruct'
+])
+
+# Rate limiting libraries
+RATE_LIMIT_LIBRARIES = frozenset([
+    'rate-limiter', 'express-rate-limit', 'next-rate-limit',
+    'rate-limiter-flexible', 'slowDown'
+])
+
+# CSRF protection indicators
+CSRF_INDICATORS = frozenset([
+    'csrf', 'CSRF', 'csrfToken', 'X-CSRF-Token',
+    'next-csrf', 'csurf'
+])
+
+
+# ============================================================================
+# MAIN RULE FUNCTION (Orchestrator Entry Point)
+# ============================================================================
+
 def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Next.js security vulnerabilities using indexed data.
-    
-    Detects:
+
+    Detects (from database):
     - API route secret exposure
     - Open redirect vulnerabilities
-    - Server-side rendering injection
+    - Server-side rendering injection risks
     - NEXT_PUBLIC sensitive data exposure
     - Missing CSRF in API routes
-    - Server Actions without validation
     - Exposed error details in production
-    - Insecure cookies configuration
-    
+    - Dangerous HTML serialization without sanitization
+    - Missing rate limiting on API routes
+
+    Known Limitations (requires AST/runtime analysis):
+    - Cannot detect "use server" directives (string literals not indexed)
+    - Cannot reliably detect Server Actions (Next.js 13+ feature)
+    - Cannot detect middleware order or configuration
+    - Cannot analyze Next.js config files (next.config.js)
+
+    Args:
+        context: Standardized rule context with database path
+
     Returns:
-        List of security findings
+        List of StandardFinding objects for detected issues
     """
     findings = []
-    
+
     if not context.db_path:
         return findings
-    
+
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
-    
+
     try:
-        # First, verify this is a Next.js project
+        # Check if required tables exist
         cursor.execute("""
-            SELECT DISTINCT file FROM refs
-            WHERE value IN ('next', 'next/router', 'next/navigation', 'next/server')
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name IN (
+                'refs', 'function_call_args', 'api_endpoints',
+                'assignments', 'files', 'symbols'
+            )
         """)
-        nextjs_files = cursor.fetchall()
-        
-        if not nextjs_files:
-            # Also check for Next.js specific patterns in file paths
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        # Minimum required tables for any analysis
+        if 'function_call_args' not in existing_tables:
+            return findings  # Can't analyze without function calls
+
+        # Verify this is a Next.js project
+        is_nextjs = False
+
+        if 'refs' in existing_tables:
             cursor.execute("""
-                SELECT DISTINCT path FROM files
+                SELECT DISTINCT file FROM refs
+                WHERE value IN ('next', 'next/router', 'next/navigation', 'next/server')
+                LIMIT 1
+            """)
+            is_nextjs = cursor.fetchone() is not None
+
+        if not is_nextjs and 'files' in existing_tables:
+            # Check for Next.js specific paths as fallback
+            cursor.execute("""
+                SELECT path FROM files
                 WHERE path LIKE '%pages/api/%'
                    OR path LIKE '%app/api/%'
                    OR path LIKE '%next.config%'
                 LIMIT 1
             """)
-            nextjs_files = cursor.fetchall()
-            
-            if not nextjs_files:
-                return findings  # Not a Next.js project
-        
+            is_nextjs = cursor.fetchone() is not None
+
+        if not is_nextjs:
+            return findings  # Not a Next.js project
+
         # ========================================================
         # CHECK 1: API Route Secret Exposure
         # ========================================================
-        cursor.execute("""
+        # Build SQL for response functions
+        response_funcs_list = list(RESPONSE_FUNCTIONS)
+        placeholders = ','.join('?' * len(response_funcs_list))
+
+        cursor.execute(f"""
             SELECT f.file, f.line, f.argument_expr
             FROM function_call_args f
-            WHERE (f.callee_function IN ('res.json', 'res.send', 'NextResponse.json')
-                   AND f.argument_expr LIKE '%process.env%')
-               AND (f.file LIKE '%pages/api/%' OR f.file LIKE '%app/api/%')
+            WHERE f.callee_function IN ({placeholders})
+              AND f.argument_expr LIKE '%process.env%'
+              AND (f.file LIKE '%pages/api/%' OR f.file LIKE '%app/api/%')
             ORDER BY f.file, f.line
-        """)
-        
+        """, response_funcs_list)
+
         for file, line, response_data in cursor.fetchall():
             # Check if it's exposing non-public env vars
-            if 'NEXT_PUBLIC' not in response_data:
+            if response_data and 'NEXT_PUBLIC' not in response_data:
                 findings.append(StandardFinding(
                     rule_name='nextjs-api-secret-exposure',
                     message='Server-side environment variables exposed in API route response',
@@ -82,202 +180,180 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='security',
                     confidence=Confidence.HIGH,
-                    snippet=response_data[:100] if len(response_data) > 100 else response_data,
                     fix_suggestion='Never expose process.env directly in API responses',
                     cwe_id='CWE-200'
                 ))
-        
+
         # ========================================================
         # CHECK 2: Open Redirect Vulnerabilities
         # ========================================================
-        cursor.execute("""
-            SELECT f.file, f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN ('router.push', 'router.replace', 'redirect')
-              AND (f.argument_expr LIKE '%query%'
-                   OR f.argument_expr LIKE '%params%'
-                   OR f.argument_expr LIKE '%searchParams%')
-            ORDER BY f.file, f.line
-        """)
-        
-        for file, line, redirect_arg in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='nextjs-open-redirect',
-                message='Unvalidated user input in redirect - open redirect vulnerability',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='security',
-                confidence=Confidence.HIGH,
-                snippet=redirect_arg[:100] if len(redirect_arg) > 100 else redirect_arg,
-                fix_suggestion='Validate redirect URLs against a whitelist',
-                cwe_id='CWE-601'
-            ))
-        
-        # ========================================================
-        # CHECK 3: SSR Injection Risks
-        # ========================================================
-        cursor.execute("""
+        redirect_funcs_list = list(REDIRECT_FUNCTIONS)
+        placeholders = ','.join('?' * len(redirect_funcs_list))
+
+        cursor.execute(f"""
             SELECT f.file, f.line, f.callee_function, f.argument_expr
             FROM function_call_args f
-            WHERE f.callee_function IN ('getServerSideProps', 'getStaticProps', 'getInitialProps')
-               OR f.caller_function IN ('getServerSideProps', 'getStaticProps', 'getInitialProps')
+            WHERE f.callee_function IN ({placeholders})
             ORDER BY f.file, f.line
-        """)
-        
-        ssr_files = set()
-        for file, line, func, args in cursor.fetchall():
-            ssr_files.add(file)
-        
-        # Check if these SSR files have user input without sanitization
-        for file in ssr_files:
-            cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND (argument_expr LIKE '%req.query%' 
-                       OR argument_expr LIKE '%req.body%'
-                       OR argument_expr LIKE '%params%')
-                  AND callee_function NOT IN ('escape', 'sanitize', 'validate')
-            """, (file,))
-            
-            has_unsanitized_input = cursor.fetchone()[0] > 0
-            
-            if has_unsanitized_input:
+        """, redirect_funcs_list)
+
+        for file, line, func, redirect_arg in cursor.fetchall():
+            # Check if using user input
+            if redirect_arg and any(source in redirect_arg for source in USER_INPUT_SOURCES):
                 findings.append(StandardFinding(
-                    rule_name='nextjs-ssr-injection',
-                    message='Server-side rendering with unvalidated user input',
+                    rule_name='nextjs-open-redirect',
+                    message=f'Unvalidated user input in {func} - open redirect vulnerability',
                     file_path=file,
-                    line=1,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    confidence=Confidence.MEDIUM,
-                    fix_suggestion='Sanitize user input before using in SSR functions',
-                    cwe_id='CWE-79'
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category='security',
+                    confidence=Confidence.HIGH,
+                    fix_suggestion='Validate redirect URLs against a whitelist',
+                    cwe_id='CWE-601'
                 ))
-        
+
+        # ========================================================
+        # CHECK 3: SSR Injection Risks (DEGRADED)
+        # ========================================================
+        # Note: Complex correlation, reduced confidence
+        if 'api_endpoints' in existing_tables:
+            # Find files with SSR functions
+            ssr_funcs_list = list(SSR_FUNCTIONS)
+            placeholders = ','.join('?' * len(ssr_funcs_list))
+
+            cursor.execute(f"""
+                SELECT DISTINCT f.file
+                FROM function_call_args f
+                WHERE f.callee_function IN ({placeholders})
+                   OR f.caller_function IN ({placeholders})
+            """, ssr_funcs_list + ssr_funcs_list)
+
+            ssr_files = {row[0] for row in cursor.fetchall()}
+
+            # Check these files for unsanitized user input
+            for file in ssr_files:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM function_call_args
+                    WHERE file = ?
+                      AND (argument_expr LIKE '%req.query%'
+                           OR argument_expr LIKE '%req.body%'
+                           OR argument_expr LIKE '%params%')
+                """, (file,))
+
+                has_user_input = cursor.fetchone()[0] > 0
+
+                if has_user_input:
+                    # Check for sanitization
+                    sanitize_list = list(SANITIZATION_FUNCTIONS)
+                    placeholders = ','.join('?' * len(sanitize_list))
+
+                    cursor.execute(f"""
+                        SELECT COUNT(*) FROM function_call_args
+                        WHERE file = ?
+                          AND callee_function IN ({placeholders})
+                    """, [file] + sanitize_list)
+
+                    has_sanitization = cursor.fetchone()[0] > 0
+
+                    if not has_sanitization:
+                        findings.append(StandardFinding(
+                            rule_name='nextjs-ssr-injection',
+                            message='Server-side rendering with potentially unvalidated user input',
+                            file_path=file,
+                            line=1,
+                            severity=Severity.HIGH,
+                            category='injection',
+                            confidence=Confidence.LOW,  # Low due to correlation complexity
+                            fix_suggestion='Sanitize user input before using in SSR functions',
+                            cwe_id='CWE-79'
+                        ))
+
         # ========================================================
         # CHECK 4: NEXT_PUBLIC Sensitive Data Exposure
         # ========================================================
-        cursor.execute("""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE a.target_var LIKE 'NEXT_PUBLIC_%'
-              AND (a.target_var LIKE '%SECRET%'
-                   OR a.target_var LIKE '%PRIVATE%'
-                   OR a.target_var LIKE '%KEY%'
-                   OR a.target_var LIKE '%TOKEN%'
-                   OR a.target_var LIKE '%PASSWORD%'
-                   OR a.target_var LIKE '%API_KEY%')
-            ORDER BY a.file, a.line
-        """)
-        
-        for file, line, var_name, value in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='nextjs-public-env-exposure',
-                message=f'Sensitive data in {var_name} - exposed to client-side code',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='security',
-                confidence=Confidence.HIGH,
-                snippet=f'{var_name} = {value[:50]}...' if len(value) > 50 else f'{var_name} = {value}',
-                fix_suggestion='Remove NEXT_PUBLIC_ prefix for sensitive variables',
-                cwe_id='CWE-200'
-            ))
-        
+        if 'assignments' in existing_tables:
+            # Build query for sensitive patterns
+            sensitive_patterns = ['%' + pattern + '%' for pattern in SENSITIVE_ENV_PATTERNS]
+            conditions = ' OR '.join(['a.target_var LIKE ?' for _ in sensitive_patterns])
+
+            cursor.execute(f"""
+                SELECT a.file, a.line, a.target_var, a.source_expr
+                FROM assignments a
+                WHERE a.target_var LIKE 'NEXT_PUBLIC_%'
+                  AND ({conditions})
+                ORDER BY a.file, a.line
+            """, sensitive_patterns)
+
+            for file, line, var_name, value in cursor.fetchall():
+                findings.append(StandardFinding(
+                    rule_name='nextjs-public-env-exposure',
+                    message=f'Sensitive data in {var_name} - exposed to client-side code',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='security',
+                    confidence=Confidence.HIGH,
+                    fix_suggestion='Remove NEXT_PUBLIC_ prefix for sensitive variables',
+                    cwe_id='CWE-200'
+                ))
+
         # ========================================================
         # CHECK 5: Missing CSRF in API Routes
         # ========================================================
-        cursor.execute("""
-            SELECT DISTINCT e.file, e.method
-            FROM api_endpoints e
-            WHERE (e.file LIKE '%pages/api/%' OR e.file LIKE '%app/api/%')
-              AND e.method IN ('POST', 'PUT', 'DELETE', 'PATCH')
-        """)
-        
-        for file, method in cursor.fetchall():
-            # Check if CSRF protection exists
+        if 'api_endpoints' in existing_tables:
             cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND (callee_function LIKE '%csrf%' 
-                       OR callee_function LIKE '%CSRF%'
-                       OR argument_expr LIKE '%csrf%')
-            """, (file,))
-            
-            has_csrf = cursor.fetchone()[0] > 0
-            
-            if not has_csrf:
-                findings.append(StandardFinding(
-                    rule_name='nextjs-api-csrf-missing',
-                    message=f'API route handling {method} without CSRF protection',
-                    file_path=file,
-                    line=1,
-                    severity=Severity.HIGH,
-                    category='csrf',
-                    confidence=Confidence.MEDIUM,
-                    fix_suggestion='Implement CSRF protection using tokens or double-submit cookies',
-                    cwe_id='CWE-352'
-                ))
-        
-        # ========================================================
-        # CHECK 6: Server Actions Without Validation (Next.js 13+)
-        # ========================================================
-        cursor.execute("""
-            SELECT DISTINCT f.file, f.line
-            FROM function_call_args f
-            WHERE f.file LIKE '%app/%'
-              AND (f.callee_function = 'formData.get'
-                   OR f.callee_function = 'searchParams.get')
-        """)
-        
-        for file, line in cursor.fetchall():
-            # Check if validation libraries are used
-            cursor.execute("""
-                SELECT COUNT(*) FROM refs
-                WHERE src = ?
-                  AND value IN ('zod', 'yup', 'joi', 'validator')
-            """, (file,))
-            
-            has_validation = cursor.fetchone()[0] > 0
-            
-            if not has_validation:
-                # Check for "use server" directive (indicates Server Action)
-                cursor.execute("""
-                    SELECT COUNT(*) FROM symbols
-                    WHERE path = ?
-                      AND name LIKE '%use server%'
-                """, (file,))
-                
-                is_server_action = cursor.fetchone()[0] > 0
-                
-                if is_server_action:
+                SELECT DISTINCT e.file, e.method
+                FROM api_endpoints e
+                WHERE (e.file LIKE '%pages/api/%' OR e.file LIKE '%app/api/%')
+                  AND e.method IN ('POST', 'PUT', 'DELETE', 'PATCH')
+            """)
+
+            for file, method in cursor.fetchall():
+                # Check if CSRF protection exists
+                csrf_list = list(CSRF_INDICATORS)
+                conditions = ' OR '.join(['callee_function LIKE ?' for _ in csrf_list])
+                conditions += ' OR ' + ' OR '.join(['argument_expr LIKE ?' for _ in csrf_list])
+
+                params = ['%' + indicator + '%' for indicator in csrf_list] * 2
+
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM function_call_args
+                    WHERE file = ?
+                      AND ({conditions})
+                """, [file] + params)
+
+                has_csrf = cursor.fetchone()[0] > 0
+
+                if not has_csrf:
                     findings.append(StandardFinding(
-                        rule_name='nextjs-server-action-no-validation',
-                        message='Server Action without input validation - injection risk',
+                        rule_name='nextjs-api-csrf-missing',
+                        message=f'API route handling {method} without CSRF protection',
                         file_path=file,
-                        line=line,
+                        line=1,
                         severity=Severity.HIGH,
-                        category='validation',
+                        category='csrf',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Use zod, yup, or joi to validate Server Action inputs',
-                        cwe_id='CWE-20'
+                        fix_suggestion='Implement CSRF protection using tokens or double-submit cookies',
+                        cwe_id='CWE-352'
                     ))
-        
+
         # ========================================================
-        # CHECK 7: Exposed Error Details in Production
+        # CHECK 6: Exposed Error Details in Production
         # ========================================================
-        cursor.execute("""
+        response_funcs_list = list(RESPONSE_FUNCTIONS)
+        placeholders = ','.join('?' * len(response_funcs_list))
+
+        cursor.execute(f"""
             SELECT f.file, f.line, f.argument_expr
             FROM function_call_args f
-            WHERE (f.callee_function IN ('res.json', 'res.send', 'NextResponse.json')
-                   AND (f.argument_expr LIKE '%error.stack%'
-                        OR f.argument_expr LIKE '%err.stack%'
-                        OR f.argument_expr LIKE '%error.message%'))
-               AND (f.file LIKE '%pages/%' OR f.file LIKE '%app/%')
+            WHERE f.callee_function IN ({placeholders})
+              AND (f.argument_expr LIKE '%error.stack%'
+                   OR f.argument_expr LIKE '%err.stack%'
+                   OR f.argument_expr LIKE '%error.message%')
+              AND (f.file LIKE '%pages/%' OR f.file LIKE '%app/%')
             ORDER BY f.file, f.line
-        """)
-        
+        """, response_funcs_list)
+
         for file, line, error_data in cursor.fetchall():
             findings.append(StandardFinding(
                 rule_name='nextjs-error-details-exposed',
@@ -287,50 +363,12 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category='information-disclosure',
                 confidence=Confidence.HIGH,
-                snippet=error_data[:100] if len(error_data) > 100 else error_data,
                 fix_suggestion='Log errors server-side, return generic error messages to client',
                 cwe_id='CWE-209'
             ))
-        
+
         # ========================================================
-        # CHECK 8: Insecure Cookie Configuration
-        # ========================================================
-        cursor.execute("""
-            SELECT f.file, f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN ('res.setHeader', 'cookies.set')
-              AND f.argument_expr LIKE '%Set-Cookie%'
-              AND (f.argument_expr NOT LIKE '%Secure%'
-                   OR f.argument_expr NOT LIKE '%HttpOnly%'
-                   OR f.argument_expr NOT LIKE '%SameSite%')
-            ORDER BY f.file, f.line
-        """)
-        
-        for file, line, cookie_config in cursor.fetchall():
-            issues = []
-            if 'Secure' not in cookie_config:
-                issues.append('missing Secure flag')
-            if 'HttpOnly' not in cookie_config:
-                issues.append('missing HttpOnly flag')
-            if 'SameSite' not in cookie_config:
-                issues.append('missing SameSite attribute')
-            
-            if issues:
-                findings.append(StandardFinding(
-                    rule_name='nextjs-insecure-cookie',
-                    message=f'Insecure cookie configuration: {", ".join(issues)}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='session',
-                    confidence=Confidence.HIGH,
-                    snippet=cookie_config[:100] if len(cookie_config) > 100 else cookie_config,
-                    fix_suggestion='Set Secure, HttpOnly, and SameSite=Strict for cookies',
-                    cwe_id='CWE-614'
-                ))
-        
-        # ========================================================
-        # CHECK 9: Dangerous HTML Serialization
+        # CHECK 7: Dangerous HTML Serialization
         # ========================================================
         cursor.execute("""
             SELECT f.file, f.line, f.argument_expr
@@ -339,20 +377,21 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                OR f.argument_expr LIKE '%dangerouslySetInnerHTML%'
             ORDER BY f.file, f.line
         """)
-        
+
         for file, line, html_content in cursor.fetchall():
             # Check if sanitization is nearby
-            cursor.execute("""
+            sanitize_list = list(SANITIZATION_FUNCTIONS)
+            placeholders = ','.join('?' * len(sanitize_list))
+
+            cursor.execute(f"""
                 SELECT COUNT(*) FROM function_call_args
                 WHERE file = ?
                   AND line BETWEEN ? AND ?
-                  AND (callee_function LIKE '%sanitize%'
-                       OR callee_function LIKE '%DOMPurify%'
-                       OR callee_function LIKE '%escape%')
-            """, (file, line - 10, line + 10))
-            
+                  AND callee_function IN ({placeholders})
+            """, [file, line - 10, line + 10] + sanitize_list)
+
             has_sanitization = cursor.fetchone()[0] > 0
-            
+
             if not has_sanitization:
                 findings.append(StandardFinding(
                     rule_name='nextjs-dangerous-html',
@@ -362,85 +401,82 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='xss',
                     confidence=Confidence.HIGH,
-                    snippet=html_content[:100] if len(html_content) > 100 else html_content,
                     fix_suggestion='Sanitize HTML with DOMPurify before using dangerouslySetInnerHTML',
                     cwe_id='CWE-79'
                 ))
-        
+
         # ========================================================
-        # CHECK 10: API Routes Without Rate Limiting
+        # CHECK 8: API Routes Without Rate Limiting (DEGRADED)
         # ========================================================
-        cursor.execute("""
-            SELECT COUNT(*) FROM api_endpoints
-            WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
-        """)
-        has_api_routes = cursor.fetchone()[0] > 0
-        
-        if has_api_routes:
+        # Note: Global check, not per-route - reduced confidence
+        if 'api_endpoints' in existing_tables:
             cursor.execute("""
-                SELECT COUNT(*) FROM refs
-                WHERE value IN ('rate-limiter', 'express-rate-limit', 'next-rate-limit')
+                SELECT COUNT(DISTINCT file) FROM api_endpoints
+                WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
             """)
-            has_rate_limiting = cursor.fetchone()[0] > 0
-            
-            if not has_rate_limiting:
-                cursor.execute("""
-                    SELECT DISTINCT file FROM api_endpoints
-                    WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
-                    LIMIT 1
-                """)
-                api_file = cursor.fetchone()
-                
-                if api_file:
-                    findings.append(StandardFinding(
-                        rule_name='nextjs-missing-rate-limit',
-                        message='API routes without rate limiting - vulnerable to abuse',
-                        file_path=api_file[0],
-                        line=1,
-                        severity=Severity.MEDIUM,
-                        category='security',
-                        confidence=Confidence.MEDIUM,
-                        fix_suggestion='Implement rate limiting using next-rate-limit or similar',
-                        cwe_id='CWE-307'
-                    ))
-    
+            api_route_count = cursor.fetchone()[0]
+
+            if api_route_count > 0 and 'refs' in existing_tables:
+                # Check for rate limiting libraries
+                rate_limit_list = list(RATE_LIMIT_LIBRARIES)
+                placeholders = ','.join('?' * len(rate_limit_list))
+
+                cursor.execute(f"""
+                    SELECT COUNT(*) FROM refs
+                    WHERE value IN ({placeholders})
+                """, rate_limit_list)
+
+                has_rate_limiting = cursor.fetchone()[0] > 0
+
+                if not has_rate_limiting and api_route_count >= 3:  # Only flag if multiple API routes
+                    cursor.execute("""
+                        SELECT file FROM api_endpoints
+                        WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
+                        LIMIT 1
+                    """)
+
+                    api_file = cursor.fetchone()
+                    if api_file:
+                        findings.append(StandardFinding(
+                            rule_name='nextjs-missing-rate-limit',
+                            message='Multiple API routes without rate limiting - vulnerable to abuse',
+                            file_path=api_file[0],
+                            line=1,
+                            severity=Severity.MEDIUM,
+                            category='security',
+                            confidence=Confidence.LOW,  # Low because it's a broad check
+                            fix_suggestion='Consider implementing rate limiting for public API routes',
+                            cwe_id='CWE-307'
+                        ))
+
     finally:
         conn.close()
-    
+
     return findings
 
 
 def register_taint_patterns(taint_registry):
     """Register Next.js-specific taint patterns.
-    
+
     This function is called by the orchestrator to register
     framework-specific sources and sinks for taint analysis.
-    
+
     Args:
         taint_registry: TaintRegistry instance
     """
     # Next.js response sinks
-    NEXTJS_RESPONSE_SINKS = [
-        'NextResponse.json', 'NextResponse.redirect', 'res.json', 'res.send',
-        'router.push', 'router.replace', 'redirect', 'revalidatePath', 'revalidateTag'
-    ]
-    
-    for pattern in NEXTJS_RESPONSE_SINKS:
+    for pattern in RESPONSE_FUNCTIONS | REDIRECT_FUNCTIONS:
         taint_registry.register_sink(pattern, 'nextjs', 'javascript')
-    
+
     # Next.js input sources
-    NEXTJS_INPUT_SOURCES = [
-        'req.query', 'req.body', 'searchParams', 'params',
-        'cookies', 'headers', 'formData'
-    ]
-    
-    for pattern in NEXTJS_INPUT_SOURCES:
+    for pattern in USER_INPUT_SOURCES:
         taint_registry.register_source(pattern, 'user_input', 'javascript')
-    
-    # Next.js-specific dangerous sinks
-    NEXTJS_DANGEROUS_SINKS = [
-        'dangerouslySetInnerHTML', 'eval', 'Function', 'setTimeout', 'setInterval'
-    ]
-    
-    for pattern in NEXTJS_DANGEROUS_SINKS:
+
+    # Dangerous sinks
+    DANGEROUS_SINKS = frozenset([
+        'dangerouslySetInnerHTML', 'eval', 'Function',
+        'setTimeout', 'setInterval'
+    ])
+
+    for pattern in DANGEROUS_SINKS:
         taint_registry.register_sink(pattern, 'code_execution', 'javascript')
