@@ -52,6 +52,9 @@ class DatabaseManager:
         self.cfg_blocks_batch = []
         self.cfg_edges_batch = []
         self.cfg_statements_batch = []
+        self.react_components_batch = []
+        self.react_hooks_batch = []
+        self.variable_usage_batch = []
 
     def begin_transaction(self):
         """Start a new transaction."""
@@ -335,6 +338,69 @@ class DatabaseManager:
         """
         )
 
+        # React-specific tables for enhanced hooks analysis
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_components (
+                file TEXT NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                start_line INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                has_jsx BOOLEAN DEFAULT 0,
+                hooks_used TEXT,
+                props_type TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_hooks (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                component_name TEXT NOT NULL,
+                hook_name TEXT NOT NULL,
+                dependency_array TEXT,
+                dependency_vars TEXT,
+                callback_body TEXT,
+                has_cleanup BOOLEAN DEFAULT 0,
+                cleanup_type TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS variable_usage (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                variable_name TEXT NOT NULL,
+                usage_type TEXT NOT NULL,
+                in_component TEXT,
+                in_hook TEXT,
+                scope_level INTEGER,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Enhance function_returns table for React (handle existing columns gracefully)
+        try:
+            cursor.execute("ALTER TABLE function_returns ADD COLUMN has_jsx BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE function_returns ADD COLUMN returns_component BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE function_returns ADD COLUMN cleanup_operations TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoints_file ON api_endpoints(file)")
@@ -372,6 +438,16 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_edges_target ON cfg_edges(target_block_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_statements_block ON cfg_block_statements(block_id)")
 
+        # Indexes for React tables
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_components_file ON react_components(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_components_name ON react_components(name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_hooks_file ON react_hooks(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_hooks_component ON react_hooks(component_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_hooks_name ON react_hooks(hook_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_file ON variable_usage(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_component ON variable_usage(in_component)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_var ON variable_usage(variable_name)")
+
         self.conn.commit()
 
     def clear_tables(self):
@@ -397,6 +473,9 @@ class DatabaseManager:
             cursor.execute("DELETE FROM cfg_blocks")
             cursor.execute("DELETE FROM cfg_edges")
             cursor.execute("DELETE FROM cfg_block_statements")
+            cursor.execute("DELETE FROM react_components")
+            cursor.execute("DELETE FROM react_hooks")
+            cursor.execute("DELETE FROM variable_usage")
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
@@ -523,6 +602,38 @@ class DatabaseManager:
                          statement_text: Optional[str] = None):
         """Add a CFG block statement to the batch."""
         self.cfg_statements_batch.append((block_id, statement_type, line, statement_text))
+
+    def add_react_component(self, file_path: str, name: str, component_type: str,
+                           start_line: int, end_line: int, has_jsx: bool,
+                           hooks_used: Optional[List[str]] = None,
+                           props_type: Optional[str] = None):
+        """Add a React component to the batch."""
+        hooks_json = json.dumps(hooks_used) if hooks_used else None
+        self.react_components_batch.append((file_path, name, component_type,
+                                           start_line, end_line, has_jsx,
+                                           hooks_json, props_type))
+
+    def add_react_hook(self, file_path: str, line: int, component_name: str,
+                      hook_name: str, dependency_array: Optional[List[str]] = None,
+                      dependency_vars: Optional[List[str]] = None,
+                      callback_body: Optional[str] = None, has_cleanup: bool = False,
+                      cleanup_type: Optional[str] = None):
+        """Add a React hook usage to the batch."""
+        deps_array_json = json.dumps(dependency_array) if dependency_array is not None else None
+        deps_vars_json = json.dumps(dependency_vars) if dependency_vars else None
+        # Limit callback body to 500 chars
+        if callback_body and len(callback_body) > 500:
+            callback_body = callback_body[:497] + '...'
+        self.react_hooks_batch.append((file_path, line, component_name, hook_name,
+                                      deps_array_json, deps_vars_json, callback_body,
+                                      has_cleanup, cleanup_type))
+
+    def add_variable_usage(self, file_path: str, line: int, variable_name: str,
+                          usage_type: str, in_component: Optional[str] = None,
+                          in_hook: Optional[str] = None, scope_level: int = 0):
+        """Add a variable usage record to the batch."""
+        self.variable_usage_batch.append((file_path, line, variable_name, usage_type,
+                                         in_component or '', in_hook or '', scope_level))
 
     def flush_batch(self, batch_idx: Optional[int] = None):
         """Execute all pending batch inserts."""
@@ -698,7 +809,36 @@ class DatabaseManager:
                         updated_statements
                     )
                     self.cfg_statements_batch = []
-            
+
+            # Handle React data batches
+            if self.react_components_batch:
+                cursor.executemany(
+                    """INSERT INTO react_components
+                       (file, name, type, start_line, end_line, has_jsx, hooks_used, props_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.react_components_batch
+                )
+                self.react_components_batch = []
+
+            if self.react_hooks_batch:
+                cursor.executemany(
+                    """INSERT INTO react_hooks
+                       (file, line, component_name, hook_name, dependency_array, dependency_vars,
+                        callback_body, has_cleanup, cleanup_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.react_hooks_batch
+                )
+                self.react_hooks_batch = []
+
+            if self.variable_usage_batch:
+                cursor.executemany(
+                    """INSERT INTO variable_usage
+                       (file, line, variable_name, usage_type, in_component, in_hook, scope_level)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    self.variable_usage_batch
+                )
+                self.variable_usage_batch = []
+
             # Handle edges and statements without blocks (shouldn't happen, but be safe)
             elif self.cfg_edges_batch:
                 cursor.executemany(
@@ -755,7 +895,10 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.cfg_blocks_batch = []
     manager.cfg_edges_batch = []
     manager.cfg_statements_batch = []
-    
+    manager.react_components_batch = []
+    manager.react_hooks_batch = []
+    manager.variable_usage_batch = []
+
     # Create the schema using the existing connection
     manager.create_schema()
     # Don't close - let caller handle connection lifecycle

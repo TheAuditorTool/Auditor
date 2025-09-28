@@ -1,114 +1,270 @@
 """Hardcoded Secrets Analyzer - Hybrid Database/Pattern Approach.
 
-This rule demonstrates a HYBRID approach because:
-1. Secret detection requires entropy calculation (not in database)
-2. Base64 decoding and verification (computational, not indexed)
-3. Pattern matching for secret formats (regex-based analysis)
+This rule demonstrates a JUSTIFIED HYBRID approach because:
+1. Entropy calculation is computational, not indexed
+2. Base64 decoding and verification requires runtime processing
+3. Pattern matching for secret formats needs regex evaluation
+4. Sequential/keyboard pattern detection is algorithmic
 
-Therefore, this rule uses:
-- Database queries for variable assignments and string literals
-- Pattern matching and entropy analysis for secret detection
-
-This is a legitimate exception similar to bundle_analyze.py - the database
-doesn't index entropy values or decoded Base64 content.
+Follows golden standard patterns from compose_analyze.py:
+- Frozensets for all patterns
+- Table existence checks
+- Graceful degradation
+- Proper confidence levels
 """
 
 import sqlite3
 import re
 import base64
 import math
-from typing import List, Set
+from typing import List, Optional
 from pathlib import Path
 from collections import Counter
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
 
+
+# ============================================================================
+# PATTERN DEFINITIONS (Golden Standard: Use Frozensets)
+# ============================================================================
+
+# Security-related variable name keywords
+SECRET_KEYWORDS = frozenset([
+    'secret', 'token', 'password', 'passwd', 'pwd',
+    'api_key', 'apikey', 'auth_token', 'credential',
+    'private_key', 'privatekey', 'access_token', 'refresh_token',
+    'client_secret', 'client_id', 'bearer', 'oauth', 'jwt',
+    'aws_secret', 'aws_access', 'azure_key', 'gcp_key',
+    'stripe_key', 'github_token', 'gitlab_token',
+    'encryption_key', 'decrypt_key', 'cipher_key',
+    'session_key', 'signing_key', 'hmac_key'
+])
+
+# Weak/default passwords to detect
+WEAK_PASSWORDS = frozenset([
+    'password', 'admin', '123456', 'changeme', 'default',
+    'test', 'demo', 'sample', 'example', 'password123',
+    'admin123', 'root', 'toor', 'pass', 'secret',
+    'qwerty', 'letmein', 'welcome', 'monkey', 'dragon'
+])
+
+# Placeholder values that are not real secrets
+PLACEHOLDER_VALUES = frozenset([
+    'placeholder', 'changeme', 'your_password_here',
+    'YOUR_API_KEY', 'API_KEY_HERE', '<password>',
+    '${PASSWORD}', '{{PASSWORD}}', 'xxx', 'TODO',
+    'FIXME', 'CHANGE_ME', 'INSERT_HERE', 'dummy'
+])
+
+# Common non-secret values
+NON_SECRET_VALUES = frozenset([
+    'true', 'false', 'none', 'null', 'undefined',
+    'development', 'production', 'test', 'staging',
+    'localhost', '127.0.0.1', '0.0.0.0', 'example.com'
+])
+
+# URL protocols to skip
+URL_PROTOCOLS = frozenset([
+    'http://', 'https://', 'ftp://', 'sftp://',
+    'ssh://', 'git://', 'file://', 'data://'
+])
+
+# Database protocols for connection strings
+DB_PROTOCOLS = frozenset([
+    'mongodb://', 'postgres://', 'postgresql://',
+    'mysql://', 'redis://', 'amqp://', 'rabbitmq://',
+    'cassandra://', 'couchdb://', 'elasticsearch://'
+])
+
+# High-confidence secret patterns (provider-specific)
+HIGH_CONFIDENCE_PATTERNS = frozenset([
+    (r'AKIA[0-9A-Z]{16}', 'AWS Access Key'),
+    (r'(?i)aws_secret_access_key\s*=\s*["\']([^"\']+)["\']', 'AWS Secret Key'),
+    (r'sk_live_[a-zA-Z0-9]{24,}', 'Stripe Live Key'),
+    (r'sk_test_[a-zA-Z0-9]{24,}', 'Stripe Test Key'),
+    (r'ghp_[a-zA-Z0-9]{36}', 'GitHub Personal Token'),
+    (r'gho_[a-zA-Z0-9]{36}', 'GitHub OAuth Token'),
+    (r'glpat-[a-zA-Z0-9\-_]{20,}', 'GitLab Token'),
+    (r'xox[baprs]-[a-zA-Z0-9\-]+', 'Slack Token'),
+    (r'-----BEGIN (RSA |EC )?PRIVATE KEY-----', 'Private Key'),
+    (r'AIza[0-9A-Za-z\-_]{35}', 'Google API Key'),
+    (r'ya29\.[0-9A-Za-z\-_]+', 'Google OAuth Token'),
+    (r'AAAA[A-Za-z0-9]{31}', 'Dropbox Token'),
+    (r'sq0csp-[0-9A-Za-z\-_]{43}', 'Square Access Token'),
+    (r'sqOatp-[0-9A-Za-z\-_]{22}', 'Square OAuth Secret')
+])
+
+# Generic secret patterns (high entropy)
+GENERIC_SECRET_PATTERNS = frozenset([
+    r'^[a-fA-F0-9]{32,}$',  # Hex strings (MD5, SHA, etc.)
+    r'^[A-Z0-9]{20,}$',  # All caps alphanumeric
+    r'^[a-zA-Z0-9]{40}$',  # Generic 40-char token
+    r'^[A-Za-z0-9+/]{20,}={0,2}$',  # Base64
+    r'^[a-zA-Z0-9_\-]{32,}$'  # Generic token with safe chars
+])
+
+# Sequential patterns to exclude
+SEQUENTIAL_PATTERNS = frozenset([
+    'abcdefghijklmnopqrstuvwxyz',
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+    '0123456789',
+    'qwertyuiop',
+    'asdfghjkl',
+    'zxcvbnm'
+])
+
+# Keyboard walk patterns to exclude
+KEYBOARD_PATTERNS = frozenset([
+    'qwerty', 'asdfgh', 'zxcvbn',
+    '12345', '098765',
+    'qazwsx', 'qweasd',
+    'qwertyuiop', 'asdfghjkl'
+])
+
+
+# ============================================================================
+# MAIN RULE FUNCTION (Orchestrator Entry Point)
+# ============================================================================
 
 def find_hardcoded_secrets(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect hardcoded secrets using hybrid approach.
-    
+
     Detects:
     - API keys and tokens in code
     - Hardcoded passwords
     - Private keys and certificates
     - AWS/Azure/GCP credentials
     - Database connection strings with passwords
-    
+    - Environment variable fallbacks
+
     This is a HYBRID rule that uses:
     - Database for finding string assignments
-    - Entropy calculation and pattern matching (not in DB)
+    - Pattern matching and entropy calculation (computational)
+
+    Args:
+        context: Standardized rule context with database path
+
+    Returns:
+        List of hardcoded secret findings
     """
     findings = []
-    
+
     if not context.db_path:
         return findings
-    
+
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
-    
+
     try:
+        # Check if required tables exist (Golden Standard)
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name IN (
+                'assignments', 'function_call_args', 'symbols', 'files'
+            )
+        """)
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        # Minimum required table for secrets analysis
+        if 'assignments' not in existing_tables:
+            return findings  # Can't analyze without assignment data
+
+        # Track which tables are available for graceful degradation
+        has_assignments = 'assignments' in existing_tables
+        has_function_calls = 'function_call_args' in existing_tables
+        has_symbols = 'symbols' in existing_tables
+        has_files = 'files' in existing_tables
+
         # ========================================================
-        # PART 1: Find suspicious variable assignments from database
+        # DATABASE-BASED CHECKS
         # ========================================================
-        findings.extend(_find_secret_assignments(cursor))
-        findings.extend(_find_connection_strings(cursor))
-        findings.extend(_find_env_fallbacks(cursor))
-        findings.extend(_find_api_keys_in_urls(cursor))
-        
+        if has_assignments:
+            findings.extend(_find_secret_assignments(cursor))
+            findings.extend(_find_connection_strings(cursor))
+            findings.extend(_find_env_fallbacks(cursor))
+            findings.extend(_find_dict_secrets(cursor))
+
+        if has_function_calls:
+            findings.extend(_find_api_keys_in_urls(cursor))
+
         # ========================================================
-        # PART 2: Pattern-based detection (requires file content)
+        # PATTERN-BASED CHECKS (Justified Hybrid)
         # ========================================================
         # For files with high secret probability, do targeted pattern matching
-        suspicious_files = _get_suspicious_files(cursor)
-        
-        for file_path in suspicious_files:
-            full_path = context.project_path / file_path
-            if full_path.exists():
-                pattern_findings = _scan_file_patterns(full_path, file_path)
-                findings.extend(pattern_findings)
-        
+        # This is necessary because entropy and patterns are computational
+        if has_symbols and has_files:
+            suspicious_files = _get_suspicious_files(cursor)
+
+            for file_path in suspicious_files:
+                # Ensure file is within project
+                try:
+                    full_path = context.project_path / file_path
+                    if full_path.exists() and full_path.is_relative_to(context.project_path):
+                        pattern_findings = _scan_file_patterns(full_path, file_path)
+                        findings.extend(pattern_findings)
+                except (ValueError, OSError):
+                    # File outside project or can't be read
+                    continue
+
     finally:
         conn.close()
-    
+
     return findings
 
 
 # ============================================================================
-# DATABASE-BASED CHECKS
+# DATABASE-BASED DETECTION FUNCTIONS
 # ============================================================================
 
 def _find_secret_assignments(cursor) -> List[StandardFinding]:
     """Find variable assignments that look like secrets."""
     findings = []
-    
-    # Security-related variable names
-    secret_keywords = [
-        'secret', 'token', 'password', 'passwd', 'pwd',
-        'api_key', 'apikey', 'auth_token', 'credential', 
-        'private_key', 'privatekey', 'access_token', 'refresh_token',
-        'client_secret', 'client_id', 'bearer', 'oauth', 'jwt',
-        'aws_secret', 'aws_access', 'azure_key', 'gcp_key',
-        'stripe_key', 'github_token', 'gitlab_token'
-    ]
-    
-    # Build query for suspicious variable names
-    conditions = ' OR '.join([f'a.target_var LIKE "%{kw}%"' for kw in secret_keywords])
-    
+
+    # Build parameterized query for security keywords
+    keywords_list = list(SECRET_KEYWORDS)
+    placeholders = ' OR '.join(['target_var LIKE ?' for _ in keywords_list])
+    params = [f'%{kw}%' for kw in keywords_list]
+
     cursor.execute(f"""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE ({conditions})
-          AND a.source_expr NOT LIKE '%process.env%'
-          AND a.source_expr NOT LIKE '%import.meta.env%'
-          AND a.source_expr NOT LIKE '%os.environ%'
-          AND a.source_expr NOT LIKE '%getenv%'
-          AND LENGTH(a.source_expr) > 10
-        ORDER BY a.file, a.line
-    """)
-    
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE ({placeholders})
+          AND source_expr NOT LIKE '%process.env%'
+          AND source_expr NOT LIKE '%import.meta.env%'
+          AND source_expr NOT LIKE '%os.environ%'
+          AND source_expr NOT LIKE '%getenv%'
+          AND LENGTH(source_expr) > 10
+        ORDER BY file, line
+    """, params)
+
     for file, line, var, value in cursor.fetchall():
+        # Clean the value
+        clean_value = value.strip().strip('\'"')
+
+        # Check for weak passwords first
+        if var.lower() in ['password', 'passwd', 'pwd'] and clean_value.lower() in WEAK_PASSWORDS:
+            findings.append(StandardFinding(
+                rule_name='secret-weak-password',
+                message=f'Weak/default password in variable "{var}"',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='security',
+                confidence=Confidence.HIGH,
+                fix_suggestion='Use strong passwords from environment variables',
+                cwe_id='CWE-521'  # Weak Password Requirements
+            ))
         # Check if value looks like a secret
-        if _is_likely_secret(value):
+        elif _is_likely_secret(clean_value):
+            # Determine confidence based on variable name
+            var_lower = var.lower()
+            if any(kw in var_lower for kw in ['password', 'secret', 'api_key', 'private_key']):
+                confidence = Confidence.HIGH
+            elif any(kw in var_lower for kw in SECRET_KEYWORDS):
+                confidence = Confidence.MEDIUM
+            else:
+                confidence = Confidence.LOW
+
             findings.append(StandardFinding(
                 rule_name='secret-hardcoded-assignment',
                 message=f'Hardcoded secret in variable "{var}"',
@@ -116,48 +272,31 @@ def _find_secret_assignments(cursor) -> List[StandardFinding]:
                 line=line,
                 severity=Severity.CRITICAL,
                 category='security',
-                snippet=f'{var} = {"*" * 20}...',
+                confidence=confidence,
                 fix_suggestion=f'Move {var} to environment variables or secure vault',
                 cwe_id='CWE-798'  # Use of Hard-coded Credentials
             ))
-        # Check for weak/default passwords
-        elif var.lower() in ['password', 'passwd', 'pwd'] and value in [
-            '"password"', '"admin"', '"123456"', '"changeme"', '"default"',
-            "'password'", "'admin'", "'123456'", "'changeme'", "'default'"
-        ]:
-            findings.append(StandardFinding(
-                rule_name='secret-weak-password',
-                message=f'Weak/default password in "{var}"',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='security',
-                snippet=f'{var} = {value}',
-                fix_suggestion='Use strong passwords from environment variables',
-                cwe_id='CWE-521'  # Weak Password Requirements
-            ))
-    
+
     return findings
 
 
 def _find_connection_strings(cursor) -> List[StandardFinding]:
     """Find database connection strings with embedded passwords."""
     findings = []
-    
-    # Find assignments that look like connection strings
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.source_expr LIKE '%mongodb://%'
-               OR a.source_expr LIKE '%postgres://%'
-               OR a.source_expr LIKE '%mysql://%'
-               OR a.source_expr LIKE '%redis://%'
-               OR a.source_expr LIKE '%amqp://%'
-               OR a.source_expr LIKE '%postgresql://%')
-          AND a.source_expr LIKE '%@%'
-        ORDER BY a.file, a.line
-    """)
-    
+
+    # Build query for DB protocols
+    protocols_list = list(DB_PROTOCOLS)
+    protocol_conditions = ' OR '.join([f'source_expr LIKE ?' for _ in protocols_list])
+    protocol_params = [f'%{proto}%' for proto in protocols_list]
+
+    cursor.execute(f"""
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE ({protocol_conditions})
+          AND source_expr LIKE '%@%'
+        ORDER BY file, line
+    """, protocol_params)
+
     for file, line, var, conn_str in cursor.fetchall():
         # Check if connection string has password
         # Pattern: protocol://user:password@host
@@ -167,7 +306,7 @@ def _find_connection_strings(cursor) -> List[StandardFinding]:
             if match:
                 password = match.group(1)
                 # Check if it's not a placeholder
-                if password not in ['password', 'changeme', '<password>', '${PASSWORD}']:
+                if password not in PLACEHOLDER_VALUES:
                     findings.append(StandardFinding(
                         rule_name='secret-connection-string',
                         message=f'Database connection string with embedded password',
@@ -175,97 +314,143 @@ def _find_connection_strings(cursor) -> List[StandardFinding]:
                         line=line,
                         severity=Severity.CRITICAL,
                         category='security',
-                        snippet=f'{var} = "...://user:***@host..."',
+                        confidence=Confidence.HIGH,
                         fix_suggestion='Use environment variables for database passwords',
                         cwe_id='CWE-798'
                     ))
-    
+
     return findings
 
 
 def _find_env_fallbacks(cursor) -> List[StandardFinding]:
     """Find environment variable fallbacks with hardcoded secrets."""
     findings = []
-    
+
     # Find patterns like: process.env.SECRET || "hardcoded"
     cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.source_expr LIKE '%process.env%||%'
-               OR a.source_expr LIKE '%os.environ.get%'
-               OR a.source_expr LIKE '%getenv%||%'
-               OR a.source_expr LIKE '%??%')
-          AND (a.target_var LIKE '%secret%'
-               OR a.target_var LIKE '%key%'
-               OR a.target_var LIKE '%token%'
-               OR a.target_var LIKE '%password%')
-        ORDER BY a.file, a.line
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE (source_expr LIKE '%process.env%||%'
+               OR source_expr LIKE '%os.environ.get%'
+               OR source_expr LIKE '%getenv%||%'
+               OR source_expr LIKE '%??%'
+               OR source_expr LIKE '%or %')
+          AND (target_var LIKE '%secret%'
+               OR target_var LIKE '%key%'
+               OR target_var LIKE '%token%'
+               OR target_var LIKE '%password%'
+               OR target_var LIKE '%credential%')
+        ORDER BY file, line
     """)
-    
+
     for file, line, var, expr in cursor.fetchall():
         # Extract the fallback value
-        fallback_match = re.search(r'\|\|\s*["\']([^"\']+)["\']', expr) or \
-                        re.search(r'\?\?\s*["\']([^"\']+)["\']', expr) or \
-                        re.search(r',\s*["\']([^"\']+)["\']', expr)
-        
+        fallback_match = (re.search(r'\|\|\s*["\']([^"\']+)["\']', expr) or
+                         re.search(r'\?\?\s*["\']([^"\']+)["\']', expr) or
+                         re.search(r',\s*["\']([^"\']+)["\']', expr) or
+                         re.search(r' or ["\']([^"\']+)["\']', expr))
+
         if fallback_match:
             fallback = fallback_match.group(1)
-            if len(fallback) > 10 and fallback not in ['default', 'changeme', 'placeholder']:
-                if _is_likely_secret(fallback):
+            if fallback not in PLACEHOLDER_VALUES and _is_likely_secret(fallback):
+                findings.append(StandardFinding(
+                    rule_name='secret-env-fallback',
+                    message=f'Hardcoded secret as environment variable fallback in "{var}"',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='security',
+                    confidence=Confidence.MEDIUM,
+                    fix_suggestion='Use secure defaults or fail if environment variable is missing',
+                    cwe_id='CWE-798'
+                ))
+
+    return findings
+
+
+def _find_dict_secrets(cursor) -> List[StandardFinding]:
+    """Find secrets in dictionary/object literals."""
+    findings = []
+
+    # Look for patterns like {"password": "...", "api_key": "..."}
+    keywords_list = list(SECRET_KEYWORDS)
+
+    for keyword in keywords_list:
+        cursor.execute("""
+            SELECT file, line, source_expr
+            FROM assignments
+            WHERE (source_expr LIKE ? OR source_expr LIKE ?)
+              AND source_expr NOT LIKE '%process.env%'
+              AND source_expr NOT LIKE '%os.environ%'
+            LIMIT 100
+        """, (f'%"{keyword}":%', f"%'{keyword}':%"))
+
+        for file, line, expr in cursor.fetchall():
+            # Extract the value for this key
+            pattern = rf'["\']?{keyword}["\']?\s*:\s*["\']([^"\']+)["\']'
+            match = re.search(pattern, expr, re.IGNORECASE)
+
+            if match:
+                value = match.group(1)
+                if value not in PLACEHOLDER_VALUES and _is_likely_secret(value):
                     findings.append(StandardFinding(
-                        rule_name='secret-env-fallback',
-                        message=f'Hardcoded secret as environment variable fallback',
+                        rule_name='secret-dict-literal',
+                        message=f'Hardcoded secret in dictionary key "{keyword}"',
                         file_path=file,
                         line=line,
-                        severity=Severity.HIGH,
+                        severity=Severity.CRITICAL,
                         category='security',
-                        snippet=f'{var} = process.env.X || "***"',
-                        fix_suggestion='Use secure defaults or fail if environment variable is missing',
+                        confidence=Confidence.MEDIUM,
+                        fix_suggestion=f'Move secret value for "{keyword}" to environment variables',
                         cwe_id='CWE-798'
                     ))
-    
+
     return findings
 
 
 def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
     """Find API keys embedded in URLs."""
     findings = []
-    
+
     # Find URL constructions with API keys
     cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function IN ('fetch', 'axios', 'request', 'get', 'post')
-               OR f.callee_function LIKE '%.get' 
-               OR f.callee_function LIKE '%.post')
-          AND (f.argument_expr LIKE '%api_key=%'
-               OR f.argument_expr LIKE '%apikey=%'
-               OR f.argument_expr LIKE '%token=%'
-               OR f.argument_expr LIKE '%key=%'
-               OR f.argument_expr LIKE '%secret=%')
-        ORDER BY f.file, f.line
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE (callee_function IN ('fetch', 'axios', 'request', 'get', 'post')
+               OR callee_function LIKE '%.get'
+               OR callee_function LIKE '%.post')
+          AND (argument_expr LIKE '%api_key=%'
+               OR argument_expr LIKE '%apikey=%'
+               OR argument_expr LIKE '%token=%'
+               OR argument_expr LIKE '%key=%'
+               OR argument_expr LIKE '%secret=%'
+               OR argument_expr LIKE '%password=%')
+        ORDER BY file, line
     """)
-    
+
     for file, line, func, args in cursor.fetchall():
-        # Check if the API key looks hardcoded
-        key_match = re.search(r'(api_key|apikey|token|key)=([^&\s]+)', args, re.IGNORECASE)
+        # Check if the key looks hardcoded
+        key_match = re.search(r'(api_key|apikey|token|key|secret|password)=([^&\s]+)', args, re.IGNORECASE)
         if key_match:
             key_value = key_match.group(2)
-            # Skip if it's a variable reference
-            if not key_value.startswith('${') and not key_value.startswith('process.'):
-                if len(key_value) > 10 and key_value not in ['YOUR_API_KEY', 'API_KEY_HERE']:
+            # Skip if it's a variable reference or placeholder
+            if (not key_value.startswith('${') and
+                not key_value.startswith('process.') and
+                key_value not in PLACEHOLDER_VALUES):
+
+                if len(key_value) > 10 and _is_likely_secret(key_value):
                     findings.append(StandardFinding(
                         rule_name='secret-api-key-in-url',
-                        message='API key hardcoded in URL',
+                        message=f'API key hardcoded in URL parameter',
                         file_path=file,
                         line=line,
                         severity=Severity.CRITICAL,
                         category='security',
-                        snippet=f'{func}("...?api_key=***")',
-                        fix_suggestion='Pass API keys in headers, not URLs',
+                        confidence=Confidence.HIGH,
+                        fix_suggestion='Pass API keys in headers, not URL parameters',
                         cwe_id='CWE-598'  # Information Exposure Through Query Strings
                     ))
-    
+
     return findings
 
 
@@ -276,174 +461,271 @@ def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
 def _get_suspicious_files(cursor) -> List[str]:
     """Get list of files likely to contain secrets."""
     suspicious_files = []
-    
+
     # Find files with many secret-related symbols
     cursor.execute("""
-        SELECT DISTINCT s.path
-        FROM symbols s
-        WHERE s.name LIKE '%secret%'
-           OR s.name LIKE '%token%'
-           OR s.name LIKE '%password%'
-           OR s.name LIKE '%api_key%'
-           OR s.name LIKE '%credential%'
-        GROUP BY s.path
+        SELECT DISTINCT path
+        FROM symbols
+        WHERE name LIKE '%secret%'
+           OR name LIKE '%token%'
+           OR name LIKE '%password%'
+           OR name LIKE '%api_key%'
+           OR name LIKE '%credential%'
+           OR name LIKE '%private_key%'
+        GROUP BY path
         HAVING COUNT(*) > 3
+        LIMIT 50
     """)
-    
+
     suspicious_files.extend([row[0] for row in cursor.fetchall()])
-    
-    # Find config files
+
+    # Find config/settings files
     cursor.execute("""
-        SELECT f.path
-        FROM files f
-        WHERE f.path LIKE '%config%'
-           OR f.path LIKE '%settings%'
-           OR f.path LIKE '%env%'
+        SELECT path
+        FROM files
+        WHERE (path LIKE '%config%'
+               OR path LIKE '%settings%'
+               OR path LIKE '%env.%'
+               OR path LIKE '%.env%')
+          AND path NOT LIKE '%.env.example'
+          AND path NOT LIKE '%.env.template'
+        LIMIT 20
     """)
-    
+
     suspicious_files.extend([row[0] for row in cursor.fetchall()])
-    
+
+    # Return unique files
     return list(set(suspicious_files))
 
 
 def _is_likely_secret(value: str) -> bool:
-    """Check if a string value is likely a secret."""
-    # Clean the value
-    value = value.strip().strip('\'"')
-    
+    """Check if a string value is likely a secret.
+
+    This function performs computational analysis that cannot be
+    pre-indexed in the database (entropy calculation).
+    """
     # Skip short strings
-    if len(value) < 20:
+    if len(value) < 16:
         return False
-    
+
     # Skip obvious non-secrets
-    if value.lower() in ['true', 'false', 'none', 'null', 'undefined', 
-                         'development', 'production', 'test', 'staging']:
+    if value.lower() in NON_SECRET_VALUES:
         return False
-    
+
     # Skip URLs and paths
-    if value.startswith(('http://', 'https://', '/', './', '../')):
+    if any(value.startswith(proto) for proto in URL_PROTOCOLS):
         return False
-    
+
+    if value.startswith(('/', './', '../')):
+        return False
+
+    # Skip UUIDs (common false positive)
+    uuid_pattern = r'^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$'
+    if re.match(uuid_pattern, value):
+        return False
+
     # Check for high entropy (randomness)
     entropy = _calculate_entropy(value)
-    if entropy > 4.0:
-        # Additional checks to reduce false positives
-        if not _is_sequential(value) and not _is_keyboard_walk(value):
+
+    # Check for sequential or keyboard patterns
+    if _is_sequential(value) or _is_keyboard_walk(value):
+        return False
+
+    # High entropy indicates a secret
+    if entropy > 4.5:
+        return True
+
+    # Medium entropy with mixed characters
+    if entropy > 3.5:
+        has_upper = any(c.isupper() for c in value)
+        has_lower = any(c.islower() for c in value)
+        has_digit = any(c.isdigit() for c in value)
+        has_special = any(not c.isalnum() for c in value)
+
+        # Likely a secret if diverse character set
+        if sum([has_upper, has_lower, has_digit, has_special]) >= 3:
             return True
-    
+
     # Check for common secret patterns
-    secret_patterns = [
-        r'^[a-fA-F0-9]{32,}$',  # Hex strings
-        r'^[A-Z0-9]{20,}$',  # All caps alphanumeric
-        r'^sk_[a-zA-Z0-9]{24,}$',  # Stripe keys
-        r'^[a-zA-Z0-9]{40}$',  # GitHub tokens
-        r'^AKIA[0-9A-Z]{16}$',  # AWS keys
-        r'^[A-Za-z0-9+/]{20,}={0,2}$',  # Base64
-    ]
-    
-    for pattern in secret_patterns:
+    for pattern in GENERIC_SECRET_PATTERNS:
         if re.match(pattern, value):
-            return True
-    
+            # Additional check for minimum unique characters
+            unique_chars = len(set(value))
+            if unique_chars >= 5:  # Avoid repetitive strings
+                return True
+
+    # Check for Base64 that decodes to high entropy
+    if _is_base64_secret(value):
+        return True
+
     return False
 
 
 def _calculate_entropy(s: str) -> float:
-    """Calculate Shannon entropy of a string."""
+    """Calculate Shannon entropy of a string.
+
+    This is a computational property that cannot be pre-indexed.
+    """
     if not s:
-        return 0
-    
+        return 0.0
+
     # Count character frequencies
     freq = Counter(s)
     length = len(s)
-    
+
     # Calculate entropy
-    entropy = 0
+    entropy = 0.0
     for count in freq.values():
         probability = count / length
         if probability > 0:
             entropy -= probability * math.log2(probability)
-    
+
     return entropy
 
 
 def _is_sequential(s: str) -> bool:
     """Check if string contains sequential characters."""
-    sequential_patterns = [
-        'abcdefghijklmnopqrstuvwxyz',
-        'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-        '0123456789',
-        'qwertyuiop',
-        'asdfghjkl',
-        'zxcvbnm'
-    ]
-    
     s_lower = s.lower()
-    for pattern in sequential_patterns:
+
+    for pattern in SEQUENTIAL_PATTERNS:
+        # Check for substrings of length 5+
         for i in range(len(pattern) - 4):
             if pattern[i:i+5] in s_lower:
-                return True
-    
+                # Check what percentage of the string is sequential
+                if len(s) <= 10 or pattern[i:i+5] * 2 in s_lower:
+                    return True
+
     return False
 
 
 def _is_keyboard_walk(s: str) -> bool:
     """Check if string is a keyboard walk pattern."""
-    keyboard_patterns = [
-        'qwerty', 'asdfgh', 'zxcvbn',
-        '12345', '098765',
-        'qazwsx', 'qweasd'
-    ]
-    
     s_lower = s.lower()
-    for pattern in keyboard_patterns:
+
+    for pattern in KEYBOARD_PATTERNS:
         if pattern in s_lower:
-            return True
-    
+            # Check what percentage is keyboard walk
+            if len(s) <= 10 or s_lower.count(pattern) * len(pattern) > len(s) / 2:
+                return True
+
     return False
 
 
+def _is_base64_secret(value: str) -> bool:
+    """Check if a Base64 string decodes to a secret.
+
+    This requires runtime decoding and entropy calculation.
+    """
+    # Check if it looks like Base64
+    base64_pattern = r'^[A-Za-z0-9+/]{20,}={0,2}$'
+    if not re.match(base64_pattern, value):
+        return False
+
+    try:
+        # Attempt to decode
+        decoded = base64.b64decode(value, validate=True)
+
+        # Convert bytes to string for entropy calculation
+        try:
+            decoded_str = decoded.decode('utf-8', errors='ignore')
+        except:
+            # If can't decode to string, check byte entropy
+            decoded_str = str(decoded)
+
+        # Check entropy of decoded content
+        entropy = _calculate_entropy(decoded_str)
+
+        # High entropy decoded content indicates encoded secret
+        return entropy > 4.0
+
+    except Exception:
+        # Not valid Base64
+        return False
+
+
 def _scan_file_patterns(file_path: Path, relative_path: str) -> List[StandardFinding]:
-    """Scan file content for secret patterns (justified file I/O).
-    
-    This is necessary because the database doesn't store:
-    - Full file content for pattern matching
-    - Entropy calculations
-    - Decoded Base64 values
+    """Scan file content for secret patterns.
+
+    This is justified file I/O because:
+    1. The database doesn't store full file content
+    2. Pattern matching requires regex evaluation on actual content
+    3. We only scan files identified as suspicious
     """
     findings = []
-    
+
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
-        
-        # Specific patterns that indicate secrets
-        high_confidence_patterns = [
-            (r'AKIA[0-9A-Z]{16}', 'AWS Access Key'),
-            (r'(?i)aws_secret_access_key\s*=\s*["\']([^"\']+)["\']', 'AWS Secret Key'),
-            (r'sk_live_[a-zA-Z0-9]{24,}', 'Stripe Live Key'),
-            (r'ghp_[a-zA-Z0-9]{36}', 'GitHub Personal Token'),
-            (r'glpat-[a-zA-Z0-9\-_]{20,}', 'GitLab Token'),
-            (r'xox[baprs]-[a-zA-Z0-9\-]+', 'Slack Token'),
-            (r'-----BEGIN (RSA |EC )?PRIVATE KEY-----', 'Private Key'),
-        ]
-        
+
+        # Limit to first 5000 lines for performance
+        lines = lines[:5000]
+
         for i, line in enumerate(lines, 1):
-            for pattern, description in high_confidence_patterns:
-                if re.search(pattern, line):
-                    findings.append(StandardFinding(
-                        rule_name='secret-pattern-match',
-                        message=f'{description} detected',
-                        file_path=relative_path,
-                        line=i,
-                        severity=Severity.CRITICAL,
-                        category='security',
-                        snippet='',
-                        fix_suggestion='Remove secret and rotate immediately',
-                        cwe_id='CWE-798'
-                    ))
-    
-    except OSError:
-        pass  # File reading failed
-    
+            # Skip comments
+            if line.strip().startswith(('#', '//', '/*', '*')):
+                continue
+
+            # Check high-confidence patterns
+            for pattern, description in HIGH_CONFIDENCE_PATTERNS:
+                match = re.search(pattern, line)
+                if match:
+                    # Verify it's not in a comment
+                    comment_pos = max(line.find('#'), line.find('//'))
+                    if comment_pos == -1 or match.start() < comment_pos:
+                        findings.append(StandardFinding(
+                            rule_name='secret-pattern-match',
+                            message=f'{description} detected',
+                            file_path=relative_path,
+                            line=i,
+                            severity=Severity.CRITICAL,
+                            category='security',
+                            confidence=Confidence.HIGH,
+                            fix_suggestion='Remove secret and rotate immediately',
+                            cwe_id='CWE-798'
+                        ))
+
+            # Check for generic high-entropy strings in assignments
+            assignment_match = re.search(r'(\w+)\s*=\s*["\']([^"\']{20,})["\']', line)
+            if assignment_match:
+                var_name = assignment_match.group(1)
+                value = assignment_match.group(2)
+
+                if any(kw in var_name.lower() for kw in SECRET_KEYWORDS):
+                    if _is_likely_secret(value):
+                        findings.append(StandardFinding(
+                            rule_name='secret-high-entropy',
+                            message=f'High-entropy string in variable "{var_name}"',
+                            file_path=relative_path,
+                            line=i,
+                            severity=Severity.HIGH,
+                            category='security',
+                            confidence=Confidence.MEDIUM,
+                            fix_suggestion=f'Move {var_name} to environment variables',
+                            cwe_id='CWE-798'
+                        ))
+
+    except (OSError, UnicodeDecodeError):
+        # File reading failed - graceful degradation
+        pass
+
     return findings
+
+
+def register_taint_patterns(taint_registry):
+    """Register secret-related taint patterns.
+
+    Args:
+        taint_registry: TaintRegistry instance
+    """
+    # Register secret sources
+    for keyword in SECRET_KEYWORDS:
+        taint_registry.register_source(keyword, 'secret', 'all')
+
+    # Register sinks where secrets shouldn't go
+    UNSAFE_SINKS = frozenset([
+        'console.log', 'print', 'logger.info', 'logger.debug',
+        'response.write', 'res.send', 'res.json'
+    ])
+
+    for sink in UNSAFE_SINKS:
+        taint_registry.register_sink(sink, 'logging', 'all')

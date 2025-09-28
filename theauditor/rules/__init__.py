@@ -6,7 +6,7 @@ security vulnerabilities, code quality issues, and anti-patterns.
 
 from .secrets import find_hardcoded_secrets
 from .xss import find_xss_vulnerabilities  
-from .node import find_node_runtime_issues
+from .node import analyze as find_node_runtime_issues
 from .typescript import find_typescript_type_issues
 from .sql.sql_injection_analyzer import find_sql_injection
 from .security.api_auth_detector import find_missing_api_authentication
