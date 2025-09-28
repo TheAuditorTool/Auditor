@@ -798,54 +798,139 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
 
 
 def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
-    """Extract return statements from TypeScript semantic AST.
-    
-    CRITICAL FIX: Now uses line-based scope mapping for accurate function context.
+    """Extract ALL return statements from TypeScript semantic AST, including JSX.
+
+    CRITICAL FIXES:
+    - Uses line-based scope mapping for accurate function context
+    - Tracks multiple returns per function (early returns, conditionals)
+    - Properly detects and preserves JSX returns for React components
     """
     returns = []
-    
+
     # Check if parsing was successful - handle nested structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
         return returns
-    
+
     # CRITICAL FIX: Build scope map FIRST!
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
-    
+
+    # Track return index per function for multiple returns
+    function_return_counts = {}
+
     # Traverse AST looking for return statements
     def traverse(node, depth=0):  # No more current_function parameter!
         if depth > 100 or not isinstance(node, dict):
             return
-        
+
         kind = node.get("kind")
-        
+
         # ReturnStatement
         if kind == "ReturnStatement":
             line = node.get("line", 0)
-            
+
             # CRITICAL FIX: Get function from scope map
             current_function = scope_map.get(line, "global")
-            
+
+            # Track multiple returns per function
+            if current_function not in function_return_counts:
+                function_return_counts[current_function] = 0
+            function_return_counts[current_function] += 1
+            return_index = function_return_counts[current_function]
+
+            # ENHANCED: Better extraction of return expression
             expr_node = node.get("expression", {})
+            return_expr = ""
+            has_jsx = False
+            returns_component = False
+
             if isinstance(expr_node, dict):
+                # CRITICAL: Preserve the FULL text, including JSX
                 return_expr = expr_node.get("text", "")
+
+                # If text is missing, try to reconstruct from children
+                if not return_expr and expr_node.get("children"):
+                    # Try to get text from first child
+                    first_child = expr_node.get("children", [{}])[0]
+                    if isinstance(first_child, dict):
+                        return_expr = first_child.get("text", "")
+
+                # Check expr_node kind for JSX detection
+                expr_kind = expr_node.get("kind", "")
+
+                # Detect JSX/React patterns
+                if expr_kind in ["JsxElement", "JsxSelfClosingElement", "JsxFragment", "JsxExpression"]:
+                    has_jsx = True
+                    returns_component = True
+                elif expr_kind == "ParenthesizedExpression":
+                    # Often wraps JSX: return ( <div>...</div> )
+                    # Check children for JSX
+                    for child in expr_node.get("children", []):
+                        if isinstance(child, dict):
+                            child_kind = child.get("kind", "")
+                            if "Jsx" in child_kind:
+                                has_jsx = True
+                                returns_component = True
+                                break
+
+                # Pattern-based JSX detection as fallback
+                if not has_jsx and return_expr:
+                    # Check for JSX patterns in the text
+                    jsx_indicators = [
+                        '<',  # JSX element opening
+                        'React.createElement',
+                        'jsx(',
+                        '_jsx(',
+                        'React.Fragment',
+                        'Fragment',
+                        '</','/>',  # JSX closing tags
+                    ]
+                    for indicator in jsx_indicators:
+                        if indicator in return_expr:
+                            has_jsx = True
+                            # Check if it's a component (starts with capital)
+                            if return_expr.strip().startswith('<'):
+                                # Extract component name
+                                import re
+                                match = re.match(r'<([A-Z]\w*)', return_expr.strip())
+                                if match:
+                                    returns_component = True
+                            break
             else:
+                # Non-dict expression
                 return_expr = str(expr_node) if expr_node else "undefined"
-            
+                # Check for null/undefined (common React returns)
+                if return_expr in ["null", "undefined", "false"]:
+                    # These are valid React returns for conditional rendering
+                    has_jsx = False
+                    returns_component = False
+
             returns.append({
                 "function_name": current_function,  # NOW ACCURATE!
                 "line": line,
                 "return_expr": return_expr,
-                "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
+                "return_vars": extract_vars_from_tree_sitter_expr(return_expr),
+                "has_jsx": has_jsx,  # NEW: Track JSX returns
+                "returns_component": returns_component,  # NEW: Track if returning a component
+                "return_index": return_index  # NEW: Track multiple returns per function
             })
-        
+
         # Recurse through children
         for child in node.get("children", []):
             traverse(child, depth + 1)
-    
+
     # Start traversal
     traverse(ast_root)
+
+    # Debug output for JSX detection
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        import sys
+        jsx_returns = [r for r in returns if r.get("has_jsx")]
+        print(f"[DEBUG] Found {len(returns)} total returns, {len(jsx_returns)} with JSX", file=sys.stderr)
+        if jsx_returns and len(jsx_returns) < 5:
+            for r in jsx_returns[:3]:
+                print(f"[DEBUG]   JSX return in {r['function_name']} at line {r['line']}: {r['return_expr'][:50]}...", file=sys.stderr)
 
     return returns
 

@@ -184,7 +184,10 @@ class JavaScriptExtractor(BaseExtractor):
         if self._is_react_file(file_info, content):
             result['react_components'] = self._extract_react_components(tree, content)
             result['react_hooks'] = self._extract_react_hooks(tree, content)
-            result['variable_usage'] = self._extract_variable_usage(tree, content)
+
+        # CRITICAL FIX: Extract variable usage for ALL JavaScript files, not just React
+        # This is essential for complete taint analysis and dead code detection
+        result['variable_usage'] = self._extract_comprehensive_variable_usage(tree, content)
 
         return result
     
@@ -508,6 +511,132 @@ class JavaScriptExtractor(BaseExtractor):
             pass
 
         return usage
+
+    def _extract_comprehensive_variable_usage(self, tree: Dict[str, Any], content: str) -> List[Dict]:
+        """Extract ALL variable usage for complete data flow analysis.
+
+        This is critical for taint analysis, dead code detection, and
+        understanding the complete data flow in JavaScript/TypeScript code.
+
+        Args:
+            tree: Parsed AST tree
+            content: File content
+
+        Returns:
+            List of all variable usage records with read/write operations
+        """
+        usage = []
+
+        if not tree or not self.ast_parser:
+            return usage
+
+        try:
+            # Import scope builder for accurate function context
+            from theauditor.ast_extractors.typescript_impl import build_scope_map
+
+            # Build scope map for accurate function context
+            # Handle different tree structures
+            ast_root = None
+            if tree.get("type") == "semantic_ast" and tree.get("tree"):
+                ast_root = tree["tree"].get("ast", {})
+            elif tree.get("type") == "tree_sitter":
+                # Tree-sitter doesn't have nested structure
+                ast_root = tree.get("tree", {})
+            else:
+                ast_root = tree.get("ast", {})
+
+            scope_map = {}
+            if ast_root:
+                scope_map = build_scope_map(ast_root)
+
+            # 1. Extract all WRITE operations from assignments
+            assignments = self.ast_parser.extract_assignments(tree)
+            for assign in assignments:
+                line = assign.get('line', 0)
+                if line > 0:  # Valid line number
+                    usage.append({
+                        'line': line,
+                        'variable_name': assign.get('target_var', ''),
+                        'usage_type': 'write',
+                        'in_component': scope_map.get(line, assign.get('in_function', 'global')),
+                        'in_hook': '',  # Could be enhanced to detect if in hook
+                        'scope_level': 0 if scope_map.get(line, 'global') == 'global' else 1
+                    })
+
+            # 2. Extract all READ operations from symbols and properties
+            symbols = self.ast_parser.extract_calls(tree) or []
+            properties = []
+            if hasattr(self.ast_parser, 'extract_properties'):
+                properties = self.ast_parser.extract_properties(tree) or []
+
+            # Combine all symbol references
+            all_refs = symbols + properties
+
+            for ref in all_refs:
+                name = ref.get('name', '')
+                line = ref.get('line', 0)
+                ref_type = ref.get('type', '')
+
+                # Skip empty names or invalid lines
+                if not name or line < 1:
+                    continue
+
+                # Skip pure function calls (they're not variable usage)
+                # But keep property accesses like req.body (they ARE variable usage)
+                if ref_type == 'call' and '.' not in name:
+                    continue
+
+                # This is a variable reference (read operation)
+                usage.append({
+                    'line': line,
+                    'variable_name': name,
+                    'usage_type': 'read',
+                    'in_component': scope_map.get(line, 'global'),
+                    'in_hook': '',
+                    'scope_level': 0 if scope_map.get(line, 'global') == 'global' else 1
+                })
+
+            # 3. Extract variable usage from function parameters
+            # These are implicit reads when the function is called
+            function_params = self.ast_parser._extract_function_parameters(tree) if hasattr(self.ast_parser, '_extract_function_parameters') else {}
+            for func_name, params in function_params.items():
+                # Find the function's line number
+                functions = self.ast_parser.extract_functions(tree) or []
+                for func in functions:
+                    if func.get('name') == func_name:
+                        func_line = func.get('line', 0)
+                        # Add each parameter as a variable usage
+                        for param in params:
+                            if param and func_line > 0:
+                                usage.append({
+                                    'line': func_line,
+                                    'variable_name': param,
+                                    'usage_type': 'param',  # Special type for parameters
+                                    'in_component': func_name,
+                                    'in_hook': '',
+                                    'scope_level': 1  # Function scope
+                                })
+                        break
+
+            # 4. Deduplicate while preserving order
+            # Use a set to track seen (line, var, type) combinations
+            seen = set()
+            deduped_usage = []
+            for use in usage:
+                key = (use['line'], use['variable_name'], use['usage_type'])
+                if key not in seen:
+                    seen.add(key)
+                    deduped_usage.append(use)
+
+            return deduped_usage
+
+        except Exception as e:
+            # Log error but don't fail the extraction
+            import os
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                import sys
+                print(f"[DEBUG] Error in comprehensive variable extraction: {e}", file=sys.stderr)
+            return usage
 
     def _parse_dependency_array(self, expr: str) -> Optional[List[str]]:
         """Parse dependency array from hook arguments."""
