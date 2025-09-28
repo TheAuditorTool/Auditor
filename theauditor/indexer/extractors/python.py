@@ -40,6 +40,7 @@ class PythonExtractor(BaseExtractor):
             'assignments': [],
             'function_calls': [],
             'returns': [],
+            'variable_usage': [],  # CRITICAL: Track all variable usage for complete analysis
             'cfg': []  # Control flow graph data
         }
         
@@ -131,6 +132,11 @@ class PythonExtractor(BaseExtractor):
         # Extract JWT patterns (Python also uses JWT libraries like PyJWT)
         result['jwt_patterns'] = self.extract_jwt_patterns(content)
 
+        # CRITICAL FIX: Extract variable usage for ALL Python files
+        # This is essential for complete taint analysis and dead code detection
+        if tree and self.ast_parser:
+            result['variable_usage'] = self._extract_variable_usage(tree, content)
+
         return result
     
     def _extract_routes_ast(self, tree: Dict[str, Any], file_path: str) -> List[tuple]:
@@ -194,5 +200,161 @@ class PythonExtractor(BaseExtractor):
                 # If we found a route, add it with its security decorators
                 if route_info:
                     routes.append((route_info[0], route_info[1], decorators))
-        
+
         return routes
+
+    def _extract_variable_usage(self, tree: Dict[str, Any], content: str) -> List[Dict]:
+        """Extract ALL variable usage for complete data flow analysis.
+
+        This is critical for taint analysis, dead code detection, and
+        understanding the complete data flow in Python code.
+
+        Args:
+            tree: Parsed AST tree dictionary
+            content: File content
+
+        Returns:
+            List of all variable usage records with read/write/delete operations
+        """
+        usage = []
+        actual_tree = tree.get("tree")
+
+        if not actual_tree or not isinstance(actual_tree, ast.Module):
+            return usage
+
+        try:
+            # Build function ranges for accurate scope mapping
+            function_ranges = {}
+            class_ranges = {}
+
+            # First pass: Map all functions and classes
+            for node in ast.walk(actual_tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+                        function_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+                elif isinstance(node, ast.ClassDef):
+                    if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+                        class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+
+            # Helper to determine scope for a line number
+            def get_scope(line_no):
+                # Check if in a function
+                for fname, (start, end) in function_ranges.items():
+                    if start <= line_no <= end:
+                        # Check if this function is inside a class
+                        for cname, (cstart, cend) in class_ranges.items():
+                            if cstart <= start <= cend:
+                                return f"{cname}.{fname}"
+                        return fname
+
+                # Check if in a class (but not in a method)
+                for cname, (start, end) in class_ranges.items():
+                    if start <= line_no <= end:
+                        return cname
+
+                return "global"
+
+            # Second pass: Extract all variable usage
+            for node in ast.walk(actual_tree):
+                if isinstance(node, ast.Name) and hasattr(node, 'lineno'):
+                    # Determine usage type based on context
+                    usage_type = "read"
+                    if isinstance(node.ctx, ast.Store):
+                        usage_type = "write"
+                    elif isinstance(node.ctx, ast.Del):
+                        usage_type = "delete"
+                    elif isinstance(node.ctx, ast.AugStore):
+                        usage_type = "augmented_write"  # +=, -=, etc.
+                    elif isinstance(node.ctx, ast.Param):
+                        usage_type = "param"  # Function parameter
+
+                    scope = get_scope(node.lineno)
+
+                    usage.append({
+                        'line': node.lineno,
+                        'variable_name': node.id,
+                        'usage_type': usage_type,
+                        'in_component': scope,  # In Python, this is the function/class name
+                        'in_hook': '',  # Python doesn't have hooks
+                        'scope_level': 0 if scope == "global" else (2 if "." in scope else 1)
+                    })
+
+                # Also track attribute access (e.g., self.var, obj.attr)
+                elif isinstance(node, ast.Attribute) and hasattr(node, 'lineno'):
+                    # Build the full attribute chain
+                    attr_chain = []
+                    current = node
+                    while isinstance(current, ast.Attribute):
+                        attr_chain.append(current.attr)
+                        current = current.value
+
+                    # Add the base
+                    if isinstance(current, ast.Name):
+                        attr_chain.append(current.id)
+
+                    # Reverse to get correct order
+                    full_name = ".".join(reversed(attr_chain))
+
+                    # Determine usage type
+                    usage_type = "read"
+                    if isinstance(node.ctx, ast.Store):
+                        usage_type = "write"
+                    elif isinstance(node.ctx, ast.Del):
+                        usage_type = "delete"
+
+                    scope = get_scope(node.lineno)
+
+                    usage.append({
+                        'line': node.lineno,
+                        'variable_name': full_name,
+                        'usage_type': usage_type,
+                        'in_component': scope,
+                        'in_hook': '',
+                        'scope_level': 0 if scope == "global" else (2 if "." in scope else 1)
+                    })
+
+                # Track function/method calls as variable usage (the function name is "read")
+                elif isinstance(node, ast.Call) and hasattr(node, 'lineno'):
+                    func_name = None
+                    if isinstance(node.func, ast.Name):
+                        func_name = node.func.id
+                    elif isinstance(node.func, ast.Attribute):
+                        # Build the call chain
+                        attr_chain = []
+                        current = node.func
+                        while isinstance(current, ast.Attribute):
+                            attr_chain.append(current.attr)
+                            current = current.value
+                        if isinstance(current, ast.Name):
+                            attr_chain.append(current.id)
+                        func_name = ".".join(reversed(attr_chain))
+
+                    if func_name:
+                        scope = get_scope(node.lineno)
+                        usage.append({
+                            'line': node.lineno,
+                            'variable_name': func_name,
+                            'usage_type': 'call',  # Special type for function calls
+                            'in_component': scope,
+                            'in_hook': '',
+                            'scope_level': 0 if scope == "global" else (2 if "." in scope else 1)
+                        })
+
+            # Deduplicate while preserving order
+            seen = set()
+            deduped_usage = []
+            for use in usage:
+                key = (use['line'], use['variable_name'], use['usage_type'])
+                if key not in seen:
+                    seen.add(key)
+                    deduped_usage.append(use)
+
+            return deduped_usage
+
+        except Exception as e:
+            # Log error but don't fail the extraction
+            import os
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                import sys
+                print(f"[DEBUG] Error in Python variable extraction: {e}", file=sys.stderr)
+            return usage
