@@ -10,7 +10,7 @@ Handles extraction of JavaScript and TypeScript specific elements including:
 import re
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from . import BaseExtractor
 from ..config import (
@@ -179,6 +179,12 @@ class JavaScriptExtractor(BaseExtractor):
 
         # Extract JWT patterns with metadata
         result['jwt_patterns'] = self.extract_jwt_patterns(content)
+
+        # Extract React-specific data if this is a React file
+        if self._is_react_file(file_info, content):
+            result['react_components'] = self._extract_react_components(tree, content)
+            result['react_hooks'] = self._extract_react_hooks(tree, content)
+            result['variable_usage'] = self._extract_variable_usage(tree, content)
 
         return result
     
@@ -350,3 +356,276 @@ class JavaScriptExtractor(BaseExtractor):
         elif method in TYPEORM_QB_METHODS:
             return 'typeorm_qb'
         return 'unknown'
+
+    def _is_react_file(self, file_info: Dict[str, Any], content: str) -> bool:
+        """Check if this is a React file based on extension and content."""
+        # Check file extension
+        if file_info['ext'] in ['.jsx', '.tsx']:
+            return True
+
+        # Check for React imports or usage
+        if 'react' in content.lower() or 'React' in content:
+            return True
+
+        # Check for component patterns
+        if any(pattern in content for pattern in ['useState', 'useEffect', 'Component', 'render()']):
+            return True
+
+        return False
+
+    def _extract_react_components(self, tree: Dict[str, Any], content: str) -> List[Dict]:
+        """Extract React component definitions."""
+        components = []
+
+        if not tree or not self.ast_parser:
+            return components
+
+        try:
+            # Get all functions from the tree
+            functions = self.ast_parser.extract_functions(tree)
+
+            for func in functions:
+                # Check if it's likely a React component
+                name = func.get('name', '')
+                if not name:
+                    continue
+
+                # React components typically start with capital letter
+                is_component = name[0].isupper() if name else False
+
+                # Check for hooks usage
+                hooks_used = self._get_hooks_used(func, tree, content)
+                if hooks_used:
+                    is_component = True
+
+                # Check for JSX return (simplified check)
+                has_jsx = self._has_jsx_return(func, content)
+                if has_jsx:
+                    is_component = True
+
+                if is_component:
+                    components.append({
+                        'name': name,
+                        'type': func.get('type', 'function'),
+                        'start_line': func.get('line', 0),
+                        'end_line': func.get('end_line', func.get('line', 0) + 10),
+                        'has_jsx': has_jsx,
+                        'hooks_used': hooks_used,
+                        'props_type': None  # TODO: Extract TypeScript/PropTypes
+                    })
+        except Exception:
+            # Silently fail component extraction
+            pass
+
+        return components
+
+    def _extract_react_hooks(self, tree: Dict[str, Any], content: str) -> List[Dict]:
+        """Extract React hooks with full metadata."""
+        hooks = []
+
+        if not tree or not self.ast_parser:
+            return hooks
+
+        try:
+            # Get all function calls
+            calls = self.ast_parser.extract_function_calls_with_args(tree)
+
+            for call in calls:
+                callee = call.get('callee_function', '')
+
+                # Check if it's a React hook (starts with 'use')
+                if callee.startswith('use'):
+                    hook_data = {
+                        'line': call.get('line', 0),
+                        'component_name': call.get('caller_function', 'global'),
+                        'hook_name': callee,
+                        'dependency_array': None,
+                        'dependency_vars': [],
+                        'callback_body': None,
+                        'has_cleanup': False,
+                        'cleanup_type': None
+                    }
+
+                    # Special handling for hooks with dependency arrays
+                    if callee in ['useEffect', 'useCallback', 'useMemo']:
+                        arg_expr = call.get('argument_expr', '')
+
+                        # Parse dependency array
+                        deps = self._parse_dependency_array(arg_expr)
+                        hook_data['dependency_array'] = deps
+
+                        # Extract variables referenced in callback
+                        hook_data['dependency_vars'] = self._extract_callback_vars(arg_expr)
+
+                        # Store first 500 chars of callback
+                        if arg_expr:
+                            hook_data['callback_body'] = arg_expr[:500]
+
+                        # Check for cleanup in useEffect
+                        if callee == 'useEffect':
+                            has_cleanup, cleanup_type = self._check_cleanup(arg_expr)
+                            hook_data['has_cleanup'] = has_cleanup
+                            hook_data['cleanup_type'] = cleanup_type
+
+                    hooks.append(hook_data)
+        except Exception:
+            # Silently fail hook extraction
+            pass
+
+        return hooks
+
+    def _extract_variable_usage(self, tree: Dict[str, Any], content: str) -> List[Dict]:
+        """Track variable usage for dependency analysis."""
+        usage = []
+
+        if not tree or not self.ast_parser:
+            return usage
+
+        try:
+            # Extract all symbols
+            symbols = self.ast_parser.extract_calls(tree)
+
+            # Also extract property accesses
+            if hasattr(self.ast_parser, 'extract_properties'):
+                properties = self.ast_parser.extract_properties(tree)
+                symbols.extend(properties)
+
+            # Track variable usage
+            for symbol in symbols:
+                # Focus on common React variables
+                name = symbol.get('name', '')
+                if any(var in name for var in ['props', 'state', 'setState', 'dispatch', 'ref']):
+                    usage.append({
+                        'line': symbol.get('line', 0),
+                        'variable_name': name,
+                        'usage_type': 'read',  # Simplified for now
+                        'in_component': '',  # TODO: Track component context
+                        'in_hook': '',  # TODO: Track hook context
+                        'scope_level': 1  # Default to component level
+                    })
+        except Exception:
+            # Silently fail variable tracking
+            pass
+
+        return usage
+
+    def _parse_dependency_array(self, expr: str) -> Optional[List[str]]:
+        """Parse dependency array from hook arguments."""
+        import re
+
+        if not expr:
+            return None
+
+        # Look for the last array in the expression (the deps)
+        # Pattern: ..., [deps]) or ..., [])
+        match = re.search(r',\s*\[([^\]]*)\]\s*\)?\s*$', expr)
+        if match:
+            deps_str = match.group(1).strip()
+            if not deps_str:  # Empty array
+                return []
+
+            # Split on commas, handling nested structures
+            deps = []
+            current = ''
+            depth = 0
+
+            for char in deps_str:
+                if char in '({[':
+                    depth += 1
+                elif char in ')}]':
+                    depth -= 1
+                elif char == ',' and depth == 0:
+                    if current.strip():
+                        deps.append(current.strip())
+                    current = ''
+                    continue
+                current += char
+
+            if current.strip():
+                deps.append(current.strip())
+
+            return deps
+
+        return None
+
+    def _extract_callback_vars(self, expr: str) -> List[str]:
+        """Extract variables referenced in a callback function."""
+        vars_found = []
+
+        if not expr:
+            return vars_found
+
+        # Look for common React patterns
+        import re
+
+        # Find state/props references
+        for match in re.finditer(r'\b(props|state|setState|dispatch)\b\.?\w*', expr):
+            vars_found.append(match.group(0))
+
+        # Find variable names (simplified)
+        for match in re.finditer(r'\b([a-zA-Z_]\w*)\b', expr):
+            var = match.group(1)
+            # Filter out keywords and common functions
+            if var not in ['function', 'return', 'if', 'else', 'for', 'while', 'const', 'let', 'var',
+                          'true', 'false', 'null', 'undefined', 'async', 'await', 'new', 'this']:
+                if var not in vars_found:
+                    vars_found.append(var)
+
+        return vars_found[:20]  # Limit to 20 variables
+
+    def _check_cleanup(self, expr: str) -> Tuple[bool, Optional[str]]:
+        """Check if useEffect has cleanup and what type."""
+        if not expr:
+            return False, None
+
+        # Check for return statement
+        if 'return' in expr:
+            # Check for common cleanup patterns
+            if 'clearInterval' in expr or 'clearTimeout' in expr:
+                return True, 'timer_cleanup'
+            if 'removeEventListener' in expr:
+                return True, 'event_cleanup'
+            if 'unsubscribe' in expr:
+                return True, 'subscription_cleanup'
+            if 'abort' in expr or 'AbortController' in expr:
+                return True, 'abort_controller'
+            if 'return ()' in expr or 'return function' in expr:
+                return True, 'cleanup_function'
+
+        return False, None
+
+    def _has_jsx_return(self, func: Dict, content: str) -> bool:
+        """Check if function returns JSX."""
+        # Simplified check - look for JSX patterns near the function
+        func_line = func.get('line', 0)
+        if func_line > 0 and func_line <= len(content.split('\n')):
+            # Get function context (next 20 lines)
+            lines = content.split('\n')
+            func_context = '\n'.join(lines[func_line-1:func_line+19])
+
+            # Look for JSX patterns
+            if any(pattern in func_context for pattern in ['<div', '<span', '<button', '<Component', '<Fragment', 'return (']):
+                return True
+
+        return False
+
+    def _get_hooks_used(self, func: Dict, tree: Dict, content: str) -> List[str]:
+        """Get list of hooks used in a function."""
+        hooks = []
+
+        # Get function context
+        func_line = func.get('line', 0)
+        end_line = func.get('end_line', func_line + 20)
+
+        if func_line > 0 and func_line <= len(content.split('\n')):
+            lines = content.split('\n')
+            func_context = '\n'.join(lines[func_line-1:end_line])
+
+            # Find hook calls
+            import re
+            for match in re.finditer(r'\buse[A-Z]\w*\b', func_context):
+                hook = match.group(0)
+                if hook not in hooks:
+                    hooks.append(hook)
+
+        return hooks

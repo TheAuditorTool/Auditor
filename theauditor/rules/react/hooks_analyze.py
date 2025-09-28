@@ -1,749 +1,525 @@
-"""React Hooks Analyzer - Pure Database Implementation.
+"""React Hooks Analyzer - Database-Driven Implementation.
 
-This module detects React Hooks violations using ONLY indexed database data.
-NO AST TRAVERSAL. NO FILE I/O. Just efficient SQL queries.
+Detects React hooks violations and anti-patterns using REAL DATA from
+react_hooks, react_components, and variable_usage tables.
 
-Detects:
-- Missing dependencies in useEffect, useCallback, useMemo
-- Memory leaks from missing cleanup functions
-- Hooks called conditionally (rules of hooks violation)
-- Excessive re-renders from incorrect dependencies
-- Stale closure issues
-- Custom hooks violations
-- Performance anti-patterns
+No more broken heuristics - this uses actual parsed dependency arrays,
+cleanup detection, and component boundaries from the database.
 """
 
 import sqlite3
-from typing import List
-from pathlib import Path
+import json
+from typing import List, Set, Dict, Any, Optional
+from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
 
 
-def find_react_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]:
-    """Detect React Hooks issues using indexed database data.
-    
-    Returns:
-        List of React Hooks violations and issues
-    """
-    findings = []
-    
-    if not context.db_path:
-        return findings
-    
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-    
-    try:
-        # First, verify this is a React project
-        cursor.execute("""
-            SELECT DISTINCT f.path
-            FROM files f
-            WHERE (f.ext IN ('.jsx', '.tsx')
-                   OR (f.ext IN ('.js', '.ts') AND EXISTS (
-                       SELECT 1 FROM refs r 
-                       WHERE r.src = f.path 
-                         AND r.value LIKE '%react%'
-                   )))
-            ORDER BY f.path
+# ============================================================================
+# PATTERN DEFINITIONS (Golden Standard: Frozen Dataclass)
+# ============================================================================
+
+@dataclass(frozen=True)
+class ReactHooksPatterns:
+    """Immutable pattern definitions for React hooks violations."""
+
+    # Hooks that require dependency arrays
+    HOOKS_WITH_DEPS = frozenset([
+        'useEffect', 'useCallback', 'useMemo', 'useLayoutEffect', 'useImperativeHandle'
+    ])
+
+    # Hooks that should NOT have dependency arrays
+    HOOKS_WITHOUT_DEPS = frozenset([
+        'useState', 'useReducer', 'useRef', 'useContext', 'useId', 'useDebugValue'
+    ])
+
+    # Functions that create subscriptions/timers requiring cleanup
+    CLEANUP_REQUIRED = frozenset([
+        'addEventListener', 'setInterval', 'setTimeout', 'requestAnimationFrame',
+        'subscribe', 'on', 'addListener', 'observe', 'observeIntersection',
+        'WebSocket', 'EventSource', 'MutationObserver', 'ResizeObserver'
+    ])
+
+    # Cleanup functions
+    CLEANUP_FUNCTIONS = frozenset([
+        'removeEventListener', 'clearInterval', 'clearTimeout', 'cancelAnimationFrame',
+        'unsubscribe', 'off', 'removeListener', 'disconnect', 'close', 'abort'
+    ])
+
+    # Hooks that must be called at top level
+    TOP_LEVEL_HOOKS = frozenset([
+        'useState', 'useEffect', 'useContext', 'useReducer', 'useCallback',
+        'useMemo', 'useRef', 'useLayoutEffect', 'useImperativeHandle', 'useDebugValue'
+    ])
+
+    # State setters that indicate potential issues
+    DANGEROUS_SETTERS = frozenset([
+        'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse'
+    ])
+
+
+# ============================================================================
+# ANALYZER CLASS (Golden Standard)
+# ============================================================================
+
+class ReactHooksAnalyzer:
+    """Analyzer for React hooks violations and best practices."""
+
+    def __init__(self, context: StandardRuleContext):
+        """Initialize analyzer with database context.
+
+        Args:
+            context: Rule context containing database path
+        """
+        self.context = context
+        self.patterns = ReactHooksPatterns()
+        self.findings = []
+        self.existing_tables = set()
+
+    def analyze(self) -> List[StandardFinding]:
+        """Main analysis entry point.
+
+        Returns:
+            List of React hooks violations found
+        """
+        if not self.context.db_path:
+            return []
+
+        conn = sqlite3.connect(self.context.db_path)
+        self.cursor = conn.cursor()
+
+        try:
+            # Check available tables
+            self._check_table_availability()
+
+            # Must have react_hooks table for any analysis
+            if 'react_hooks' not in self.existing_tables:
+                return []
+
+            # Run all checks with REAL DATA
+            self._check_missing_dependencies()
+            self._check_memory_leaks()
+            self._check_conditional_hooks()
+            self._check_exhaustive_deps()
+            self._check_async_useeffect()
+            self._check_stale_closures()
+            self._check_cleanup_consistency()
+            self._check_hook_order()
+            self._check_custom_hook_violations()
+            self._check_effect_race_conditions()
+
+        finally:
+            conn.close()
+
+        return self.findings
+
+    def _check_table_availability(self):
+        """Check which tables exist for graceful degradation."""
+        self.cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name IN (
+                'react_hooks', 'react_components', 'variable_usage',
+                'function_call_args', 'cfg_blocks', 'function_returns'
+            )
         """)
-        
-        react_files = [row[0] for row in cursor.fetchall()]
-        
-        if not react_files:
-            return findings  # Not a React project
-        
-        # Run all React Hooks checks
-        findings.extend(_find_conditional_hooks(cursor, react_files))
-        findings.extend(_find_missing_deps(cursor, react_files))
-        findings.extend(_find_async_useeffect(cursor, react_files))
-        findings.extend(_find_memory_leaks(cursor, react_files))
-        findings.extend(_find_stale_closures(cursor, react_files))
-        findings.extend(_find_custom_hook_violations(cursor, react_files))
-        findings.extend(_find_excessive_rerenders(cursor, react_files))
-        findings.extend(_find_hooks_after_return(cursor, react_files))
-        findings.extend(_find_multiple_state_updates(cursor, react_files))
-        findings.extend(_find_missing_usememo(cursor, react_files))
-        findings.extend(_find_unsafe_refs(cursor, react_files))
-        findings.extend(_find_effect_race_conditions(cursor, react_files))
-        
-    finally:
-        conn.close()
-    
-    return findings
+        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
 
+    def _check_missing_dependencies(self):
+        """Check for missing dependencies in hooks - NOW WITH REAL DATA!"""
+        self.cursor.execute("""
+            SELECT file, line, hook_name, component_name,
+                   dependency_array, dependency_vars
+            FROM react_hooks
+            WHERE hook_name IN ('useEffect', 'useCallback', 'useMemo')
+              AND dependency_array IS NOT NULL
+              AND dependency_vars IS NOT NULL
+        """)
 
-# ============================================================================
-# CHECK 1: Conditional Hooks (Rules of Hooks Violation)
-# ============================================================================
+        for row in self.cursor.fetchall():
+            file, line, hook_name, component, deps_array_json, deps_vars_json = row
 
-def _find_conditional_hooks(cursor, react_files) -> List[StandardFinding]:
-    """Find hooks called conditionally (violates Rules of Hooks)."""
-    findings = []
-    
-    for file in react_files:
-        # Find hook calls inside conditional blocks
-        cursor.execute("""
-            SELECT DISTINCT f.line, f.callee_function
-            FROM function_call_args f
-            JOIN cfg_blocks cb ON f.file = cb.file
-            WHERE f.file = ?
-              AND f.callee_function LIKE 'use%'
-              AND cb.block_type IN ('condition', 'loop')
-              AND f.line >= cb.start_line
-              AND f.line <= cb.end_line
-            ORDER BY f.line
-        """, [file])
-        
-        for line, hook in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-conditional-hook',
-                message=f'React Hook "{hook}" called conditionally (violates Rules of Hooks)',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='react',
-                snippet=f'if (...) {{ {hook}() }}',
-                fix_suggestion='Move hook call outside conditional block',
-                cwe_id='CWE-670'
-            ))
-        
-        # Also check for early returns before hooks
-        cursor.execute("""
-            SELECT f.line, f.callee_function
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.callee_function LIKE 'use%'
-              AND EXISTS (
-                  SELECT 1 FROM function_returns r
-                  WHERE r.file = f.file
-                    AND r.function_name = f.caller_function
-                    AND r.line < f.line
-              )
-            ORDER BY f.line
-        """, [file])
-        
-        for line, hook in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-hook-after-return',
-                message=f'React Hook "{hook}" potentially called after early return',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='react',
-                snippet=f'{hook}() after conditional return',
-                fix_suggestion='Move all hooks before any conditional returns',
-                cwe_id='CWE-670'
-            ))
-    
-    return findings
+            # Parse JSON arrays
+            try:
+                declared_deps = json.loads(deps_array_json) if deps_array_json else []
+                used_vars = json.loads(deps_vars_json) if deps_vars_json else []
+            except json.JSONDecodeError:
+                continue
 
+            # Skip if empty deps array (handled by exhaustive deps check)
+            if declared_deps == []:
+                continue
 
-# ============================================================================
-# CHECK 2: Missing Dependencies
-# ============================================================================
+            # Find missing dependencies
+            missing = []
+            for var in used_vars:
+                # Clean up variable name
+                var_clean = var.split('.')[0] if '.' in var else var
 
-def _find_missing_deps(cursor, react_files) -> List[StandardFinding]:
-    """Find hooks with missing dependencies using database analysis."""
-    findings = []
-    
-    for file in react_files:
-        # Find useEffect/useCallback/useMemo with empty deps but using variables
-        cursor.execute("""
-            SELECT f.line, f.callee_function, f.argument_expr, f.caller_function
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.callee_function IN ('useEffect', 'useCallback', 'useMemo')
-              AND f.argument_expr LIKE '%[]%'
-            ORDER BY f.line
-        """, [file])
-        
-        for line, hook, args, caller_func in cursor.fetchall():
-            # Check for variables used within proximity of the hook
-            cursor.execute("""
-                SELECT DISTINCT s.name
-                FROM symbols s
-                WHERE s.path = ?
-                  AND s.line >= ?
-                  AND s.line <= ? + 10
-                  AND s.type IN ('variable', 'property')
-                  AND s.name NOT LIKE 'use%'
-                  AND s.name NOT IN ('console', 'window', 'document', 'Math')
-                LIMIT 10
-            """, [file, line, line])
-            
-            used_vars = [row[0] for row in cursor.fetchall()]
-            
-            if len(used_vars) > 2:
-                findings.append(StandardFinding(
-                    rule_name='react-missing-dependencies',
-                    message=f'{hook} has empty deps but uses: {", ".join(used_vars[:3])}...',
+                # Check if it's in declared deps
+                if var_clean and var_clean not in declared_deps:
+                    # Filter out common false positives
+                    if var_clean not in ['console', 'window', 'document', 'Math',
+                                         'JSON', 'Object', 'Array', 'undefined', 'null']:
+                        missing.append(var_clean)
+
+            if missing:
+                self.findings.append(StandardFinding(
+                    rule_name='react-missing-dependency',
+                    message=f'{hook_name} is missing dependencies: {", ".join(missing[:5])}',
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
-                    category='react',
-                    snippet=f'{hook}(() => {{...}}, [])',
-                    fix_suggestion=f'Add dependencies: [{", ".join(used_vars[:3])}]',
+                    category='react-hooks',
+                    snippet=f'{hook_name}(..., [{", ".join(declared_deps)}])',
+                    confidence=Confidence.HIGH,
+                    fix_suggestion=f'Add missing dependencies to the array: [{", ".join(declared_deps + missing[:3])}]',
                     cwe_id='CWE-670'
                 ))
-        
-        # Check for props/state usage without deps
-        cursor.execute("""
-            SELECT f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.callee_function IN ('useEffect', 'useCallback', 'useMemo')
-              AND (f.argument_expr LIKE '%props.%' 
-                   OR f.argument_expr LIKE '%state.%'
-                   OR f.argument_expr LIKE '%setState%')
-              AND f.argument_expr LIKE '%[]%'
-            ORDER BY f.line
-        """, [file])
-        
-        for line, hook, args in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-props-state-no-deps',
-                message=f'{hook} uses props/state but has empty dependency array',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='react',
-                snippet=f'{hook}(...props/state..., [])',
-                fix_suggestion='Add props/state to dependency array',
-                cwe_id='CWE-670'
-            ))
-    
-    return findings
 
+    def _check_memory_leaks(self):
+        """Check for potential memory leaks - NOW WITH CLEANUP DETECTION!"""
+        self.cursor.execute("""
+            SELECT file, line, hook_name, component_name,
+                   callback_body, has_cleanup, cleanup_type
+            FROM react_hooks
+            WHERE hook_name = 'useEffect'
+              AND callback_body IS NOT NULL
+        """)
 
-# ============================================================================
-# CHECK 3: Async useEffect
-# ============================================================================
+        for row in self.cursor.fetchall():
+            file, line, hook, component, callback, has_cleanup, cleanup_type = row
 
-def _find_async_useeffect(cursor, react_files) -> List[StandardFinding]:
-    """Find async functions passed directly to useEffect."""
-    findings = []
-    
-    for file in react_files:
-        cursor.execute("""
-            SELECT f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.callee_function = 'useEffect'
-              AND (f.argument_expr LIKE '%async%=>%'
-                   OR f.argument_expr LIKE '%async function%'
-                   OR f.argument_expr LIKE '%async ()%')
-            ORDER BY f.line
-        """, [file])
-        
-        for line, args in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-async-useeffect',
-                message='useEffect cannot directly accept async functions',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='react',
-                snippet='useEffect(async () => {...})',
-                fix_suggestion='Create async function inside useEffect and call it',
-                cwe_id='CWE-670'
-            ))
-    
-    return findings
+            # Check if callback contains subscription patterns
+            needs_cleanup = False
+            subscription_type = None
 
+            for pattern in self.patterns.CLEANUP_REQUIRED:
+                if pattern in callback:
+                    needs_cleanup = True
+                    subscription_type = pattern
+                    break
 
-# ============================================================================
-# CHECK 4: Memory Leaks
-# ============================================================================
-
-def _find_memory_leaks(cursor, react_files) -> List[StandardFinding]:
-    """Find potential memory leaks from missing cleanup functions."""
-    findings = []
-    
-    for file in react_files:
-        # Find useEffect with subscriptions but no cleanup
-        cursor.execute("""
-            SELECT DISTINCT f1.line, f1.caller_function
-            FROM function_call_args f1
-            WHERE f1.file = ?
-              AND f1.callee_function = 'useEffect'
-              AND EXISTS (
-                  -- Has subscription patterns
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.line > f1.line
-                    AND f2.line <= f1.line + 20
-                    AND f2.callee_function IN (
-                        'addEventListener', 'setInterval', 'setTimeout',
-                        'subscribe', 'on', 'WebSocket', 'EventSource'
-                    )
-              )
-              AND NOT EXISTS (
-                  -- But no return statement
-                  SELECT 1 FROM function_returns r
-                  WHERE r.file = f1.file
-                    AND r.line > f1.line
-                    AND r.line <= f1.line + 20
-                    AND r.function_name = f1.caller_function
-              )
-            ORDER BY f1.line
-        """, [file])
-        
-        for line, func in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-memory-leak',
-                message='useEffect creates subscriptions but lacks cleanup function',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='react',
-                snippet='useEffect with addEventListener/setInterval but no return',
-                fix_suggestion='Return a cleanup function to remove listeners/clear timers',
-                cwe_id='CWE-401'
-            ))
-        
-        # Check for fetch without AbortController
-        cursor.execute("""
-            SELECT f1.line
-            FROM function_call_args f1
-            WHERE f1.file = ?
-              AND f1.callee_function = 'useEffect'
-              AND EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.line > f1.line
-                    AND f2.line <= f1.line + 20
-                    AND f2.callee_function IN ('fetch', 'axios')
-              )
-              AND NOT EXISTS (
-                  SELECT 1 FROM symbols s
-                  WHERE s.path = f1.file
-                    AND s.line >= f1.line
-                    AND s.line <= f1.line + 20
-                    AND s.name LIKE '%AbortController%'
-              )
-            ORDER BY f1.line
-        """, [file])
-        
-        for (line,) in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-fetch-no-abort',
-                message='Fetch in useEffect without AbortController',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react',
-                snippet='useEffect with fetch but no AbortController',
-                fix_suggestion='Use AbortController to cancel requests on unmount',
-                cwe_id='CWE-401'
-            ))
-    
-    return findings
-
-
-# ============================================================================
-# CHECK 5: Stale Closures
-# ============================================================================
-
-def _find_stale_closures(cursor, react_files) -> List[StandardFinding]:
-    """Find potential stale closure issues."""
-    findings = []
-    
-    for file in react_files:
-        # Find setInterval/setTimeout in useEffect with state references
-        cursor.execute("""
-            SELECT DISTINCT f1.line, f1.callee_function
-            FROM function_call_args f1
-            WHERE f1.file = ?
-              AND f1.callee_function IN ('setInterval', 'setTimeout')
-              AND EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.callee_function = 'useEffect'
-                    AND f1.line > f2.line
-                    AND f1.line <= f2.line + 20
-              )
-              AND EXISTS (
-                  SELECT 1 FROM symbols s
-                  WHERE s.path = f1.file
-                    AND s.line >= f1.line - 5
-                    AND s.line <= f1.line + 5
-                    AND (s.name LIKE '%state%' OR s.name LIKE '%State')
-              )
-            ORDER BY f1.line
-        """, [file])
-        
-        for line, func in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-stale-closure',
-                message=f'{func} with state reference may cause stale closure',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='react',
-                snippet=f'{func}(() => {{...state...}})',
-                fix_suggestion='Use functional state updates or useRef for latest values',
-                cwe_id='CWE-667'
-            ))
-    
-    return findings
-
-
-# ============================================================================
-# CHECK 6: Custom Hook Violations
-# ============================================================================
-
-def _find_custom_hook_violations(cursor, react_files) -> List[StandardFinding]:
-    """Find custom hooks that violate naming conventions or patterns."""
-    findings = []
-    
-    for file in react_files:
-        # Find functions starting with 'use' that don't call other hooks
-        cursor.execute("""
-            SELECT DISTINCT s.name, s.line
-            FROM symbols s
-            WHERE s.path = ?
-              AND s.type = 'function'
-              AND s.name LIKE 'use%'
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f
-                  WHERE f.file = s.path
-                    AND f.caller_function = s.name
-                    AND f.callee_function LIKE 'use%'
-              )
-            ORDER BY s.line
-        """, [file])
-        
-        for name, line in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-invalid-custom-hook',
-                message=f'Function "{name}" starts with "use" but doesn\'t call hooks',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react',
-                snippet=f'function {name}() {{...}}',
-                fix_suggestion='Rename function or ensure it calls React hooks',
-                cwe_id='CWE-1061'
-            ))
-        
-        # Find hooks called outside components/custom hooks
-        cursor.execute("""
-            SELECT f.line, f.callee_function, f.caller_function
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.callee_function LIKE 'use%'
-              AND f.caller_function NOT LIKE 'use%'
-              AND f.caller_function NOT LIKE '%Component'
-              AND f.caller_function NOT IN (
-                  SELECT s.name FROM symbols s
-                  WHERE s.path = f.file
-                    AND s.type = 'function'
-                    AND (s.name LIKE 'use%' OR s.name LIKE '%Component')
-              )
-            ORDER BY f.line
-        """, [file])
-        
-        for line, hook, caller in cursor.fetchall():
-            if caller and not caller.startswith('_'):  # Ignore private functions
-                findings.append(StandardFinding(
-                    rule_name='react-hook-outside-component',
-                    message=f'Hook "{hook}" called outside React component/hook',
+            # If needs cleanup but doesn't have it
+            if needs_cleanup and not has_cleanup:
+                self.findings.append(StandardFinding(
+                    rule_name='react-memory-leak',
+                    message=f'useEffect with {subscription_type} is missing cleanup function',
                     file_path=file,
                     line=line,
-                    severity=Severity.CRITICAL,
-                    category='react',
-                    snippet=f'{hook}() in {caller}()',
-                    fix_suggestion='Only call hooks from React components or custom hooks',
-                    cwe_id='CWE-670'
+                    severity=Severity.HIGH,
+                    category='react-hooks',
+                    snippet=f'useEffect with {subscription_type}',
+                    confidence=Confidence.HIGH,
+                    fix_suggestion='Return a cleanup function that removes the subscription/timer',
+                    cwe_id='CWE-401'
                 ))
-    
-    return findings
 
+            # Check for inconsistent cleanup
+            elif has_cleanup and cleanup_type and not needs_cleanup:
+                # Has cleanup but might not need it
+                if cleanup_type not in ['cleanup_function', 'unknown']:
+                    self.findings.append(StandardFinding(
+                        rule_name='react-unnecessary-cleanup',
+                        message=f'useEffect has {cleanup_type} but no subscription detected',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.LOW,
+                        category='react-hooks',
+                        snippet=f'useEffect with {cleanup_type}',
+                        confidence=Confidence.LOW,
+                        fix_suggestion='Verify if cleanup is needed or remove unnecessary cleanup',
+                        cwe_id='CWE-398'
+                    ))
 
-# ============================================================================
-# CHECK 7: Excessive Re-renders
-# ============================================================================
+    def _check_conditional_hooks(self):
+        """Check for hooks called conditionally - USING CFG DATA!"""
+        if 'cfg_blocks' not in self.existing_tables:
+            return
 
-def _find_excessive_rerenders(cursor, react_files) -> List[StandardFinding]:
-    """Find patterns that cause excessive re-renders."""
-    findings = []
-    
-    for file in react_files:
-        # Find inline object/array literals in dependency arrays
-        cursor.execute("""
-            SELECT f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.callee_function IN ('useEffect', 'useCallback', 'useMemo')
-              AND (f.argument_expr LIKE '%[{%' 
-                   OR f.argument_expr LIKE '%[[%'
-                   OR f.argument_expr LIKE '%() => {%')
-            ORDER BY f.line
-        """, [file])
-        
-        for line, hook, args in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-inline-dependency',
-                message=f'{hook} has inline object/function in dependency array',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='react',
-                snippet=f'{hook}(..., [{{}}])',
-                fix_suggestion='Extract object/function outside component or memoize',
-                cwe_id='CWE-1050'
-            ))
-        
-        # Find setState in render phase
-        cursor.execute("""
-            SELECT f.line, f.callee_function
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND (f.callee_function LIKE '%setState%' 
-                   OR f.callee_function LIKE '%dispatch%')
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND f2.callee_function IN ('useEffect', 'useLayoutEffect')
-                    AND f.line > f2.line
-                    AND f.line <= f2.line + 20
-              )
-            ORDER BY f.line
-            LIMIT 5
-        """, [file])
-        
-        for line, func in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-setstate-in-render',
-                message=f'{func} called during render phase',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='react',
-                snippet=f'{func}() outside useEffect',
-                fix_suggestion='Move state updates to event handlers or effects',
-                cwe_id='CWE-670'
-            ))
-    
-    return findings
+        self.cursor.execute("""
+            SELECT DISTINCT h.file, h.line, h.hook_name, h.component_name,
+                   b.block_type, b.condition_expr
+            FROM react_hooks h
+            JOIN cfg_blocks b ON h.file = b.file
+            WHERE b.block_type IN ('condition', 'loop')
+              AND h.line BETWEEN b.start_line AND b.end_line
+              AND h.hook_name IN ('useState', 'useEffect', 'useContext', 'useReducer',
+                                  'useCallback', 'useMemo', 'useRef')
+        """)
 
+        for row in self.cursor.fetchall():
+            file, line, hook, component, block_type, condition = row
 
-# ============================================================================
-# CHECK 8: Hooks After Return
-# ============================================================================
-
-def _find_hooks_after_return(cursor, react_files) -> List[StandardFinding]:
-    """Find hooks that might not be called consistently."""
-    findings = []
-    
-    for file in react_files:
-        cursor.execute("""
-            SELECT DISTINCT f.line, f.callee_function, f.caller_function
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.callee_function LIKE 'use%'
-              AND EXISTS (
-                  SELECT 1 FROM cfg_blocks cb
-                  WHERE cb.file = f.file
-                    AND cb.function_name = f.caller_function
-                    AND cb.block_type = 'unreachable'
-                    AND f.line >= cb.start_line
-                    AND f.line <= cb.end_line
-              )
-            ORDER BY f.line
-        """, [file])
-        
-        for line, hook, func in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-unreachable-hook',
-                message=f'Hook "{hook}" in unreachable code',
+            self.findings.append(StandardFinding(
+                rule_name='react-conditional-hook',
+                message=f'{hook} is called inside a {block_type} block',
                 file_path=file,
                 line=line,
                 severity=Severity.CRITICAL,
-                category='react',
-                snippet=f'{hook}() after return/throw',
-                fix_suggestion='Remove unreachable hook call',
-                cwe_id='CWE-561'
-            ))
-    
-    return findings
-
-
-# ============================================================================
-# CHECK 9: Multiple State Updates
-# ============================================================================
-
-def _find_multiple_state_updates(cursor, react_files) -> List[StandardFinding]:
-    """Find multiple state updates that should be batched."""
-    findings = []
-    
-    for file in react_files:
-        cursor.execute("""
-            SELECT f1.line, f1.caller_function, COUNT(*) as update_count
-            FROM function_call_args f1
-            WHERE f1.file = ?
-              AND f1.callee_function LIKE '%setState%'
-              AND EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.callee_function LIKE '%setState%'
-                    AND f2.caller_function = f1.caller_function
-                    AND ABS(f2.line - f1.line) <= 5
-                    AND f2.line != f1.line
-              )
-            GROUP BY f1.caller_function, f1.line
-            HAVING COUNT(*) > 1
-            ORDER BY f1.line
-        """, [file])
-        
-        for line, func, count in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-multiple-setstate',
-                message=f'Multiple setState calls should be batched',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react',
-                snippet=f'{count} setState calls in {func}',
-                fix_suggestion='Combine state updates or use useReducer',
-                cwe_id='CWE-1050'
-            ))
-    
-    return findings
-
-
-# ============================================================================
-# CHECK 10: Missing useMemo
-# ============================================================================
-
-def _find_missing_usememo(cursor, react_files) -> List[StandardFinding]:
-    """Find expensive computations that should be memoized."""
-    findings = []
-    
-    for file in react_files:
-        # Find complex computations in render (multiple operations)
-        cursor.execute("""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE a.file = ?
-              AND (a.source_expr LIKE '%.map(%'
-                   OR a.source_expr LIKE '%.filter(%'
-                   OR a.source_expr LIKE '%.reduce(%'
-                   OR a.source_expr LIKE '%.sort(%')
-              AND EXISTS (
-                  SELECT 1 FROM function_call_args f
-                  WHERE f.file = a.file
-                    AND f.callee_function LIKE 'use%'
-                    AND ABS(f.line - a.line) <= 20
-              )
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = a.file
-                    AND f2.callee_function = 'useMemo'
-                    AND ABS(f2.line - a.line) <= 5
-              )
-            ORDER BY a.line
-            LIMIT 5
-        """, [file])
-        
-        for file_path, line, var, expr in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-expensive-computation',
-                message=f'Expensive computation "{var}" should be memoized',
-                file_path=file_path,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react',
-                snippet=expr[:50] + '...' if len(expr) > 50 else expr,
-                fix_suggestion='Wrap in useMemo() to prevent recalculation',
-                cwe_id='CWE-1050'
-            ))
-    
-    return findings
-
-
-# ============================================================================
-# CHECK 11: Unsafe Refs
-# ============================================================================
-
-def _find_unsafe_refs(cursor, react_files) -> List[StandardFinding]:
-    """Find unsafe usage of refs."""
-    findings = []
-    
-    for file in react_files:
-        # Find refs accessed during render
-        cursor.execute("""
-            SELECT s.line, s.name
-            FROM symbols s
-            WHERE s.path = ?
-              AND s.name LIKE '%.current%'
-              AND s.type = 'property'
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f
-                  WHERE f.file = s.path
-                    AND f.callee_function IN ('useEffect', 'useLayoutEffect')
-                    AND s.line > f.line
-                    AND s.line <= f.line + 20
-              )
-            ORDER BY s.line
-            LIMIT 5
-        """, [file])
-        
-        for line, ref_access in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-ref-during-render',
-                message=f'Ref "{ref_access}" accessed during render',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react',
-                snippet=ref_access,
-                fix_suggestion='Access refs in effects or event handlers only',
+                category='react-hooks',
+                snippet=f'{hook} inside {block_type}',
+                confidence=Confidence.HIGH,
+                fix_suggestion=f'Move {hook} to the top level of the component, outside any conditions or loops',
                 cwe_id='CWE-670'
             ))
-    
-    return findings
 
+    def _check_exhaustive_deps(self):
+        """Check for effects with empty dependencies that should have some."""
+        self.cursor.execute("""
+            SELECT file, line, hook_name, component_name,
+                   dependency_array, dependency_vars, callback_body
+            FROM react_hooks
+            WHERE hook_name IN ('useEffect', 'useCallback', 'useMemo')
+              AND dependency_array = '[]'
+              AND dependency_vars IS NOT NULL
+        """)
 
-# ============================================================================
-# CHECK 12: Effect Race Conditions
-# ============================================================================
+        for row in self.cursor.fetchall():
+            file, line, hook, component, deps_array, deps_vars_json, callback = row
 
-def _find_effect_race_conditions(cursor, react_files) -> List[StandardFinding]:
-    """Find potential race conditions in effects."""
-    findings = []
-    
-    for file in react_files:
-        # Find multiple async operations without proper handling
-        cursor.execute("""
-            SELECT f1.line, f1.callee_function
-            FROM function_call_args f1
-            WHERE f1.file = ?
-              AND f1.callee_function = 'useEffect'
-              AND EXISTS (
-                  SELECT COUNT(*) FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.callee_function IN ('fetch', 'axios', 'Promise.all')
-                    AND f2.line > f1.line
-                    AND f2.line <= f1.line + 20
-                  GROUP BY f2.caller_function
-                  HAVING COUNT(*) > 1
-              )
-            ORDER BY f1.line
-        """, [file])
-        
-        for line, _ in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='react-effect-race-condition',
-                message='Multiple async operations in useEffect may race',
+            # Parse variables used
+            try:
+                used_vars = json.loads(deps_vars_json) if deps_vars_json else []
+            except json.JSONDecodeError:
+                continue
+
+            # Filter out globals and built-ins
+            local_vars = [v for v in used_vars
+                         if v not in ['console', 'window', 'document', 'Math',
+                                     'JSON', 'Object', 'Array', 'undefined', 'null']]
+
+            if local_vars:
+                self.findings.append(StandardFinding(
+                    rule_name='react-exhaustive-deps',
+                    message=f'{hook} has empty dependency array but uses: {", ".join(local_vars[:3])}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category='react-hooks',
+                    snippet=f'{hook}(..., [])',
+                    confidence=Confidence.MEDIUM,
+                    fix_suggestion='Either add dependencies or verify the empty array is intentional',
+                    cwe_id='CWE-670'
+                ))
+
+    def _check_async_useeffect(self):
+        """Check for async functions passed directly to useEffect."""
+        self.cursor.execute("""
+            SELECT file, line, component_name, callback_body
+            FROM react_hooks
+            WHERE hook_name = 'useEffect'
+              AND (callback_body LIKE '%async%' OR callback_body LIKE '%await%')
+        """)
+
+        for row in self.cursor.fetchall():
+            file, line, component, callback = row
+
+            # Check if async is at the beginning (direct async function)
+            if callback and callback.strip().startswith('async'):
+                self.findings.append(StandardFinding(
+                    rule_name='react-async-useeffect',
+                    message='useEffect cannot accept async functions directly',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='react-hooks',
+                    snippet='useEffect(async () => {...})',
+                    confidence=Confidence.HIGH,
+                    fix_suggestion='Create an async function inside the effect and call it',
+                    cwe_id='CWE-670'
+                ))
+
+    def _check_stale_closures(self):
+        """Check for potential stale closure issues."""
+        self.cursor.execute("""
+            SELECT file, line, hook_name, component_name,
+                   dependency_array, callback_body
+            FROM react_hooks
+            WHERE hook_name = 'useCallback'
+              AND dependency_array = '[]'
+              AND callback_body LIKE '%setState%'
+        """)
+
+        for row in self.cursor.fetchall():
+            file, line, hook, component, deps, callback = row
+
+            self.findings.append(StandardFinding(
+                rule_name='react-stale-closure',
+                message='useCallback with setState and empty deps may cause stale closures',
                 file_path=file,
                 line=line,
-                severity=Severity.HIGH,
-                category='react',
-                snippet='useEffect with multiple fetch/axios calls',
-                fix_suggestion='Use AbortController or track mounted state',
-                cwe_id='CWE-362'
+                severity=Severity.MEDIUM,
+                category='react-hooks',
+                snippet='useCallback with setState and []',
+                confidence=Confidence.MEDIUM,
+                fix_suggestion='Use functional setState or add dependencies',
+                cwe_id='CWE-367'
             ))
-    
-    return findings
+
+    def _check_cleanup_consistency(self):
+        """Check for inconsistent cleanup patterns."""
+        self.cursor.execute("""
+            SELECT file, component_name,
+                   COUNT(*) as total,
+                   SUM(has_cleanup) as with_cleanup
+            FROM react_hooks
+            WHERE hook_name = 'useEffect'
+            GROUP BY file, component_name
+            HAVING total > 1 AND with_cleanup > 0 AND with_cleanup < total
+        """)
+
+        for row in self.cursor.fetchall():
+            file, component, total, with_cleanup = row
+
+            self.findings.append(StandardFinding(
+                rule_name='react-inconsistent-cleanup',
+                message=f'Component has {with_cleanup}/{total} effects with cleanup - inconsistent pattern',
+                file_path=file,
+                line=1,
+                severity=Severity.LOW,
+                category='react-hooks',
+                snippet=f'{component}: mixed cleanup pattern',
+                confidence=Confidence.LOW,
+                fix_suggestion='Review all effects and ensure cleanup is used consistently',
+                cwe_id='CWE-398'
+            ))
+
+    def _check_hook_order(self):
+        """Check for hooks called in inconsistent order."""
+        if 'react_components' not in self.existing_tables:
+            return
+
+        self.cursor.execute("""
+            SELECT h.file, h.component_name, h.hook_name, h.line
+            FROM react_hooks h
+            JOIN react_components c ON h.file = c.file
+              AND h.component_name = c.name
+            WHERE h.line BETWEEN c.start_line AND c.end_line
+            ORDER BY h.file, h.component_name, h.line
+        """)
+
+        current_component = None
+        hooks_order = []
+
+        for row in self.cursor.fetchall():
+            file, component, hook, line = row
+
+            # New component
+            if component != current_component:
+                # Check previous component's hook order
+                if hooks_order and self._has_order_issue(hooks_order):
+                    self.findings.append(StandardFinding(
+                        rule_name='react-hooks-order',
+                        message=f'Hooks called in inconsistent order in {current_component}',
+                        file_path=file,
+                        line=hooks_order[0][1],  # First hook's line
+                        severity=Severity.MEDIUM,
+                        category='react-hooks',
+                        snippet=f'Hook order: {", ".join([h[0] for h in hooks_order[:5]])}',
+                        confidence=Confidence.MEDIUM,
+                        fix_suggestion='Call hooks in the same order on every render',
+                        cwe_id='CWE-670'
+                    ))
+
+                # Reset for new component
+                current_component = component
+                hooks_order = []
+
+            hooks_order.append((hook, line))
+
+    def _has_order_issue(self, hooks: List[tuple]) -> bool:
+        """Check if hooks have order issues."""
+        # Simplified check: state hooks should come before effect hooks
+        state_seen = False
+        effect_seen = False
+
+        for hook, _ in hooks:
+            if hook in ['useState', 'useReducer', 'useRef']:
+                if effect_seen:
+                    return True  # State hook after effect
+                state_seen = True
+            elif hook in ['useEffect', 'useLayoutEffect']:
+                effect_seen = True
+
+        return False
+
+    def _check_custom_hook_violations(self):
+        """Check custom hooks for violations."""
+        self.cursor.execute("""
+            SELECT DISTINCT file, hook_name, component_name, line
+            FROM react_hooks
+            WHERE hook_name LIKE 'use%'
+              AND hook_name NOT IN ('useState', 'useEffect', 'useContext',
+                                    'useReducer', 'useCallback', 'useMemo',
+                                    'useRef', 'useLayoutEffect', 'useImperativeHandle',
+                                    'useDebugValue', 'useId', 'useTransition',
+                                    'useDeferredValue', 'useSyncExternalStore')
+        """)
+
+        for row in self.cursor.fetchall():
+            file, hook, component, line = row
+
+            # Check if it starts with lowercase after 'use'
+            if len(hook) > 3 and hook[3].islower():
+                self.findings.append(StandardFinding(
+                    rule_name='react-custom-hook-naming',
+                    message=f'Custom hook {hook} should use PascalCase after "use"',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.LOW,
+                    category='react-hooks',
+                    snippet=f'{hook}()',
+                    confidence=Confidence.HIGH,
+                    fix_suggestion=f'Rename to use{hook[3].upper()}{hook[4:]}',
+                    cwe_id='CWE-1078'
+                ))
+
+    def _check_effect_race_conditions(self):
+        """Check for potential race conditions in effects."""
+        self.cursor.execute("""
+            SELECT file, component_name, COUNT(*) as effect_count,
+                   GROUP_CONCAT(dependency_array) as all_deps
+            FROM react_hooks
+            WHERE hook_name = 'useEffect'
+              AND dependency_array IS NOT NULL
+            GROUP BY file, component_name
+            HAVING effect_count > 2
+        """)
+
+        for row in self.cursor.fetchall():
+            file, component, count, all_deps = row
+
+            # Check if multiple effects have overlapping dependencies
+            if all_deps and all_deps.count('[id]') > 1:
+                self.findings.append(StandardFinding(
+                    rule_name='react-effect-race',
+                    message=f'Component has {count} effects that may race - consider combining',
+                    file_path=file,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category='react-hooks',
+                    snippet=f'{component}: {count} useEffect calls',
+                    confidence=Confidence.LOW,
+                    fix_suggestion='Combine related effects or ensure proper cleanup',
+                    cwe_id='CWE-362'
+                ))
+
+
+# ============================================================================
+# MAIN RULE FUNCTION (Orchestrator Entry Point)
+# ============================================================================
+
+def find_react_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]:
+    """Detect React hooks violations and anti-patterns.
+
+    Uses real data from react_hooks, react_components, and variable_usage
+    tables for accurate detection instead of broken heuristics.
+
+    Args:
+        context: Standardized rule context with database path
+
+    Returns:
+        List of React hooks violations found
+    """
+    analyzer = ReactHooksAnalyzer(context)
+    return analyzer.analyze()

@@ -76,7 +76,9 @@ class IndexerOrchestrator:
             "sql_queries": 0,
             "symbols": 0,
             "docker": 0,
-            "orm": 0
+            "orm": 0,
+            "react_components": 0,
+            "react_hooks": 0
         }
     
     def index(self) -> Tuple[Dict[str, int], Dict[str, Any]]:
@@ -146,13 +148,17 @@ class IndexerOrchestrator:
         base_msg = (f"[Indexer] Indexed {self.counts['files']} files, "
                    f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
                    f"{self.counts['routes']} routes")
-        
+
         # Add config counts if present
         if self.counts.get('compose', 0) > 0:
             base_msg += f", {self.counts['compose']} compose services"
         if self.counts.get('nginx', 0) > 0:
             base_msg += f", {self.counts['nginx']} nginx blocks"
-        
+        if self.counts.get('react_components', 0) > 0:
+            base_msg += f", {self.counts['react_components']} React components"
+        if self.counts.get('react_hooks', 0) > 0:
+            base_msg += f", {self.counts['react_hooks']} React hooks"
+
         print(base_msg)
         print(f"[Indexer] Database updated: {self.db_manager.db_path}")
         
@@ -511,6 +517,48 @@ class IndexerOrchestrator:
             # if 'webpack' in extracted['config_data']:
             #     webpack_data = extracted['config_data']['webpack']
             #     # TODO: Add webpack-specific storage when database table is created
+
+        # Store React-specific data
+        if 'react_components' in extracted:
+            for component in extracted['react_components']:
+                self.db_manager.add_react_component(
+                    file_path,
+                    component['name'],
+                    component['type'],
+                    component['start_line'],
+                    component['end_line'],
+                    component['has_jsx'],
+                    component.get('hooks_used'),
+                    component.get('props_type')
+                )
+                self.counts['react_components'] += 1
+
+        if 'react_hooks' in extracted:
+            for hook in extracted['react_hooks']:
+                self.db_manager.add_react_hook(
+                    file_path,
+                    hook['line'],
+                    hook['component_name'],
+                    hook['hook_name'],
+                    hook.get('dependency_array'),
+                    hook.get('dependency_vars'),
+                    hook.get('callback_body'),
+                    hook.get('has_cleanup', False),
+                    hook.get('cleanup_type')
+                )
+                self.counts['react_hooks'] += 1
+
+        if 'variable_usage' in extracted:
+            for var in extracted['variable_usage']:
+                self.db_manager.add_variable_usage(
+                    file_path,
+                    var['line'],
+                    var['variable_name'],
+                    var['usage_type'],
+                    var.get('in_component'),
+                    var.get('in_hook'),
+                    var.get('scope_level', 0)
+                )
 
 
 # Import backward compatibility functions from the compat module
