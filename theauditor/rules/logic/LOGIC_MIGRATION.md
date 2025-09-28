@@ -1,5 +1,9 @@
 # Logic Rules Migration Report
 
+## Migration Status: CORRECTED (2025-09-28)
+**Previous Issues**: Missing golden standard patterns (no frozensets, no table checks, broken context detection)
+**Current Status**: Fixed to follow golden standard patterns with proper implementation
+
 ## Migration Summary: general_logic_analyzer.py → general_logic_analyze.py
 
 ### ✅ Successfully Migrated (12/10 patterns + 2 new)
@@ -32,10 +36,18 @@
 ### 📊 Code Metrics
 
 - **Old**: 608 lines (complex AST traversal for Python + JavaScript)
-- **New**: 414 lines (clean SQL queries)
-- **Reduction**: 32% fewer lines
+- **New**: 630+ lines (with golden standard patterns)
+- **Increase**: +3% (added frozensets and proper checks)
 - **Performance**: ~20x faster (SQL vs AST traversal)
 - **Coverage**: 100% of patterns + 2 new additions
+
+### 🔧 Key Fixes Applied (2025-09-28)
+
+1. **Added 18 Frozensets**: All patterns now use immutable frozensets (golden standard)
+2. **Table Existence Checks**: Checks all required tables before queries
+3. **Fixed Context Detection**: Now checks cfg_blocks for try/finally, not symbols
+4. **Graceful Degradation**: Each check wrapped in table availability conditions
+5. **Confidence Adjustment**: Lower confidence when context tables missing
 
 ### 🔴 Missing Database Features Needed
 

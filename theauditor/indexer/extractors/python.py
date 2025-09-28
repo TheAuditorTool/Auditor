@@ -127,7 +127,10 @@ class PythonExtractor(BaseExtractor):
         
         # Extract SQL queries embedded in Python code
         result['sql_queries'] = self.extract_sql_queries(content)
-        
+
+        # Extract JWT patterns (Python also uses JWT libraries like PyJWT)
+        result['jwt_patterns'] = self.extract_jwt_patterns(content)
+
         return result
     
     def _extract_routes_ast(self, tree: Dict[str, Any], file_path: str) -> List[tuple]:

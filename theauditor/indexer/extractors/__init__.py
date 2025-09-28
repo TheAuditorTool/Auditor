@@ -6,13 +6,15 @@ for dynamic discovery and registration of language-specific extractors.
 
 import os
 import re
+import json
 import importlib
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
 from ..config import (
-    IMPORT_PATTERNS, ROUTE_PATTERNS, SQL_PATTERNS, SQL_QUERY_PATTERNS
+    IMPORT_PATTERNS, ROUTE_PATTERNS, SQL_PATTERNS, SQL_QUERY_PATTERNS,
+    JWT_SIGN_PATTERN, JWT_VERIFY_PATTERN, JWT_DECODE_PATTERN, JWT_SECRET_PATTERNS
 )
 
 # Optional SQL parsing support
@@ -213,6 +215,113 @@ class BaseExtractor(ABC):
                     continue
         
         return queries
+
+    def extract_jwt_patterns(self, content: str) -> List[Dict]:
+        """Extract JWT patterns with metadata parsing.
+
+        Args:
+            content: File content
+
+        Returns:
+            List of JWT pattern dictionaries with categorized metadata
+        """
+        patterns = []
+
+        # Find jwt.sign calls and categorize
+        for match in JWT_SIGN_PATTERN.finditer(content):
+            line = content[:match.start()].count('\n') + 1
+            payload = match.group(1).strip()
+            secret = match.group(2).strip()
+            options = match.group(3).strip() if match.group(3) else '{}'
+
+            # Categorize secret type
+            secret_type = 'unknown'
+            secret_value = ''
+            if 'process.env' in secret:
+                secret_type = 'environment'
+                env_match = re.search(r'process\.env\.(\w+)', secret)
+                secret_value = env_match.group(1) if env_match else 'UNKNOWN_ENV'
+            elif 'config.' in secret or 'secrets.' in secret:
+                secret_type = 'config'
+                secret_value = secret.split('.')[-1]
+            elif secret.startswith('"') or secret.startswith("'"):
+                secret_type = 'hardcoded'
+                secret_value = secret.strip('"\'')[:32]  # First 32 chars only
+            else:
+                secret_type = 'variable'
+                secret_value = secret
+
+            # Extract algorithm
+            algorithm = 'HS256'  # Default per JWT spec
+            if 'algorithm' in options:
+                algo_match = re.search(r'algorithm["\']?\s*:\s*["\']([\w\d]+)', options)
+                if algo_match:
+                    algorithm = algo_match.group(1)
+
+            # Check for expiration
+            has_expiry = any(exp in options for exp in ['expiresIn', 'exp', 'notBefore', 'maxAge'])
+
+            # Check for sensitive data in payload
+            sensitive_fields = []
+            for field in ['password', 'secret', 'creditCard', 'ssn', 'apiKey']:
+                if field.lower() in payload.lower():
+                    sensitive_fields.append(field)
+
+            patterns.append({
+                'type': 'jwt_sign',
+                'line': line,
+                'secret_type': secret_type,
+                'secret_value': secret_value,
+                'algorithm': algorithm,
+                'has_expiry': has_expiry,
+                'sensitive_fields': sensitive_fields,
+                'full_match': match.group(0)[:500]  # Limit for storage
+            })
+
+        # Find jwt.verify calls
+        for match in JWT_VERIFY_PATTERN.finditer(content):
+            line = content[:match.start()].count('\n') + 1
+            token = match.group(1).strip()
+            secret = match.group(2).strip()
+            options = match.group(3).strip() if match.group(3) else '{}'
+
+            # Check for dangerous 'none' algorithm
+            allows_none = False
+            if 'algorithms' in options:
+                if 'none' in options.lower() or '"none"' in options.lower():
+                    allows_none = True
+
+            # Check for algorithm confusion (both symmetric and asymmetric)
+            algorithms_found = []
+            for algo in ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'PS256']:
+                if algo in options:
+                    algorithms_found.append(algo)
+
+            has_confusion = False
+            if algorithms_found:
+                has_symmetric = any(a.startswith('HS') for a in algorithms_found)
+                has_asymmetric = any(a.startswith(('RS', 'ES', 'PS')) for a in algorithms_found)
+                has_confusion = has_symmetric and has_asymmetric
+
+            patterns.append({
+                'type': 'jwt_verify',
+                'line': line,
+                'allows_none': allows_none,
+                'has_confusion': has_confusion,
+                'algorithms': algorithms_found,
+                'full_match': match.group(0)[:500]
+            })
+
+        # Find jwt.decode calls (often vulnerable)
+        for match in JWT_DECODE_PATTERN.finditer(content):
+            line = content[:match.start()].count('\n') + 1
+            patterns.append({
+                'type': 'jwt_decode',
+                'line': line,
+                'full_match': match.group(0)[:200]
+            })
+
+        return patterns
 
 
 class ExtractorRegistry:

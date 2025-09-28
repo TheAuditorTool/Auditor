@@ -10,23 +10,38 @@ Successfully migrated 6 framework analyzers from AST/regex parsing to SQL-based 
 
 ## FastAPI Migration (fastapi_analyzer.py → fastapi_analyze.py)
 
-### ✅ Successfully Migrated (11/12 patterns)
-1. **Sync operations in async routes** - Using function_call_args + symbols (checking async functions)
-2. **Direct DB access** - Using function_call_args + api_endpoints
-3. **Missing CORS** - Using refs table for imports
-4. **Blocking file ops** - Using function_call_args + symbols
-5. **Raw SQL in routes** - Using sql_queries + api_endpoints
-6. **Background tasks** - Using function_call_args (partial - error handling detection limited)
-7. **WebSocket auth** - Using api_endpoints + function_call_args
-8. **Debug endpoints** - Using api_endpoints table
-9. **Form data injection** - Using function_call_args joins
-10. **Missing timeout** - Using refs + function_call_args
-11. **Exception handlers** - Using function_call_args + api_endpoints
+### Migration Status: CORRECTED (2025-09-28)
+**Previous Issues**: Initial migration had critical errors querying wrong tables and assuming non-existent data
+**Current Status**: Fixed to follow golden standard patterns with proper graceful degradation
 
-### ❌ Lost/Degraded Functionality
+### ✅ Successfully Migrated (8/12 patterns)
+1. **Direct DB access** - Using function_call_args + api_endpoints
+2. **Missing CORS** - Using refs table for imports
+3. **Raw SQL in routes** - Using sql_queries + api_endpoints
+4. **WebSocket auth** - Using api_endpoints + function_call_args
+5. **Debug endpoints** - Using api_endpoints table with frozensets
+6. **Form data injection** - Using function_call_args joins
+7. **Missing timeout** - Using refs + function_call_args
+8. **Exception handlers** - Using function_call_args + api_endpoints
+
+### ⚠️ Degraded Functionality (2/12 patterns)
+1. **Sync operations in routes** - DEGRADED: Cannot detect if function is async (metadata not in DB)
+   - Workaround: Check for sync ops in ANY route file with reduced confidence
+2. **Blocking file ops** - DEGRADED: Cannot detect async context
+   - Workaround: Check for file ops without aiofiles with reduced confidence
+
+### ❌ Lost Functionality (4/12 patterns)
 1. **Unvalidated path parameters** - Requires type hint analysis (not in database)
 2. **Missing Pydantic validation** - Requires type information and model analysis
 3. **Middleware order issues** - Requires line-by-line order analysis
+4. **Background task error handling** - PARTIALLY WORKING: Uses cfg_blocks when available
+
+### Key Implementation Changes
+1. **Frozensets for patterns**: All pattern lists converted to immutable frozensets (golden standard)
+2. **Table existence checks**: All queries check if required tables exist first
+3. **Graceful degradation**: Continues analysis even if some tables missing
+4. **Proper CFG usage**: Error handling detection uses cfg_blocks.block_type not symbols
+5. **Reduced confidence**: Degraded checks use LOW confidence to reflect uncertainty
 
 ### 📊 Metrics
 - **Old**: 375 lines with regex/content parsing
@@ -64,23 +79,39 @@ Successfully migrated 6 framework analyzers from AST/regex parsing to SQL-based 
 
 ## Next.js Migration (nextjs_analyzer.py → nextjs_analyze.py)
 
-### ✅ Successfully Migrated (6/6 patterns + 4 new)
-1. **API route secret exposure** - Using function_call_args
-2. **Open redirect** - Using function_call_args
-3. **SSR injection** - Using function_call_args with context
-4. **NEXT_PUBLIC sensitive data** - Using assignments table
-5. **Missing CSRF** - Using api_endpoints
-6. **Server Actions validation** - Using function_call_args + refs
-7. **Error details exposed** *(NEW)* - Using function_call_args
-8. **Insecure cookies** *(NEW)* - Using function_call_args
-9. **dangerouslySetInnerHTML** *(NEW)* - Using function_call_args
-10. **Missing rate limiting** *(NEW)* - Using refs + api_endpoints
+### Migration Status: CORRECTED (2025-09-28)
+**Previous Issues**: Initial migration had SQL logic errors, missing patterns, and impossible detections
+**Current Status**: Rewritten following golden standard patterns with proper degradation
+
+### ✅ Successfully Migrated (5/6 patterns)
+1. **API route secret exposure** - Using function_call_args with frozensets
+2. **Open redirect** - Using function_call_args with USER_INPUT_SOURCES check
+3. **NEXT_PUBLIC sensitive data** - Using assignments table with SENSITIVE_ENV_PATTERNS
+4. **Missing CSRF** - Using api_endpoints + CSRF_INDICATORS frozenset
+5. **Error details exposed** - Using function_call_args with RESPONSE_FUNCTIONS
+
+### ⚠️ Degraded Functionality (1/6 patterns)
+1. **SSR injection** - Complex correlation with LOW confidence (requires context understanding)
+
+### ❌ Lost Functionality
+1. **Server Actions validation** - Cannot detect "use server" directives (string literals not indexed)
+
+### ✅ New Patterns Added
+1. **dangerouslySetInnerHTML without sanitization** - Using function_call_args
+2. **Missing rate limiting** - Using refs + api_endpoints (degraded - LOW confidence)
+
+### Key Implementation Changes
+1. **All patterns as frozensets**: Following golden standard from compose_analyze.py
+2. **Table existence checks**: Every query checks required tables first
+3. **Graceful degradation**: Continues with available data
+4. **Removed impossible checks**: No "use server" detection, no cookie logic errors
+5. **Proper confidence levels**: LOW for degraded checks, HIGH for reliable ones
 
 ### 📊 Metrics
 - **Old**: 182 lines
-- **New**: 436 lines (more comprehensive)
+- **New**: 482 lines (complete rewrite)
 - **Performance**: ~10x faster
-- **Coverage**: 100% + improvements
+- **Coverage**: 80% original + 2 new patterns
 
 ---
 
@@ -112,27 +143,36 @@ Successfully migrated 6 framework analyzers from AST/regex parsing to SQL-based 
 
 ## Vue.js Migration (vue_analyzer.py → vue_analyze.py)
 
-### ✅ Successfully Migrated (9/9 patterns + 2 new)
-1. **v-html directive** - Using assignments table
-2. **v-bind:innerHTML** - Using assignments table
-3. **eval in templates** - Using function_call_args
-4. **Exposed API keys** - Using assignments table
-5. **Unescaped interpolation** - Using assignments table (triple mustache)
-6. **Dynamic component injection** - Using assignments table
-7. **Unsafe target="_blank"** - Using assignments table
-8. **Direct DOM manipulation** - Using function_call_args
-9. **Missing prop validation** - Degraded (requires Vue option parsing)
-10. **Vuex sensitive data** *(NEW)* - Using assignments table
-11. **localStorage security** *(NEW)* - Using function_call_args
+### Migration Status: CORRECTED (2025-09-28)
+**Previous Issues**: Initial migration was 902 lines with 25 checks, violated golden standard
+**Current Status**: Rewritten to 488 lines following golden standard patterns
 
-### ❌ Partial/Degraded
-- **Missing prop validation** - Requires Vue component option parsing
+### ✅ Successfully Migrated (8/9 patterns)
+1. **v-html directive** - Using assignments table with VUE_XSS_DIRECTIVES frozenset
+2. **v-bind:innerHTML** - Using assignments table
+3. **eval in templates** - Using function_call_args with Vue file detection
+4. **Exposed API keys** - Using assignments with VUE_ENV_PREFIXES + SENSITIVE_PATTERNS
+5. **Unescaped interpolation {{{ }}}** - Using assignments table
+6. **Dynamic component injection** - Using assignments table
+7. **Unsafe target blank** - Using assignments table
+8. **Direct DOM manipulation** - Using function_call_args for $refs
+9. **localStorage security** *(ADDED)* - Using function_call_args
+
+### ❌ Dropped Functionality
+1. **Missing prop validation** - Not a security issue, requires Vue AST parsing
+
+### Key Implementation Changes
+1. **All patterns as frozensets**: 6 frozensets for patterns (golden standard)
+2. **Table existence checks**: Checks all required tables before queries
+3. **Graceful degradation**: Works with available tables
+4. **Focused scope**: Only Vue-specific security issues, not generic web
+5. **Proper size**: 488 lines vs 902 lines bloated version
 
 ### 📊 Metrics
 - **Old**: 367 lines
-- **New**: 438 lines
-- **Performance**: ~10x faster
-- **Coverage**: 89% full, 11% degraded
+- **New**: 488 lines (proper size)
+- **Performance**: ~10x faster than AST
+- **Coverage**: 8/9 patterns (dropped non-security prop validation)
 
 ---
 

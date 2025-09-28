@@ -176,7 +176,10 @@ class JavaScriptExtractor(BaseExtractor):
         
         # Extract SQL queries embedded in JavaScript code
         result['sql_queries'] = self.extract_sql_queries(content)
-        
+
+        # Extract JWT patterns with metadata
+        result['jwt_patterns'] = self.extract_jwt_patterns(content)
+
         return result
     
     def _extract_routes_ast(self, tree: Dict[str, Any], content: str) -> List[tuple]:

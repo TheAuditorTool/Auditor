@@ -361,6 +361,28 @@ class IndexerOrchestrator:
         
         if 'function_calls' in extracted:
             for call in extracted['function_calls']:
+                callee = call['callee_function']
+
+                # JWT Categorization Enhancement
+                if 'jwt' in callee.lower() or 'jsonwebtoken' in callee.lower():
+                    if '.sign' in callee:
+                        # Check secret type from arg1
+                        if call.get('argument_index') == 1:
+                            arg_expr = call.get('argument_expr', '')
+                            if 'process.env' in arg_expr:
+                                call['callee_function'] = 'JWT_SIGN_ENV'
+                            elif '"' in arg_expr or "'" in arg_expr:
+                                call['callee_function'] = 'JWT_SIGN_HARDCODED'
+                            else:
+                                call['callee_function'] = 'JWT_SIGN_VAR'
+                        else:
+                            # Keep original for other args but mark
+                            call['callee_function'] = f'JWT_SIGN#{call["callee_function"]}'
+                    elif '.verify' in callee:
+                        call['callee_function'] = f'JWT_VERIFY#{callee}'
+                    elif '.decode' in callee:
+                        call['callee_function'] = f'JWT_DECODE#{callee}'
+
                 self.db_manager.add_function_call_arg(
                     file_path, call['line'], call['caller_function'],
                     call['callee_function'], call['argument_index'],
@@ -460,7 +482,31 @@ class IndexerOrchestrator:
                         if 'nginx' not in self.counts:
                             self.counts['nginx'] = 0
                         self.counts['nginx'] += 1
-            
+
+            # Store dedicated JWT patterns
+            if 'jwt_patterns' in extracted:
+                for pattern in extracted['jwt_patterns']:
+                    # Store in sql_queries table with special command type
+                    command = f"JWT_{pattern['type'].upper()}_{pattern.get('secret_type', 'UNKNOWN').upper()}"
+
+                    # Pack metadata into JSON for tables column
+                    metadata = {
+                        'algorithm': pattern.get('algorithm'),
+                        'has_expiry': pattern.get('has_expiry'),
+                        'allows_none': pattern.get('allows_none'),
+                        'has_confusion': pattern.get('has_confusion'),
+                        'sensitive_fields': pattern.get('sensitive_fields', [])
+                    }
+
+                    self.db_manager.add_sql_query(
+                        file_path,
+                        pattern['line'],
+                        pattern['full_match'],
+                        command,
+                        [json.dumps(metadata)]  # Store metadata in tables column
+                    )
+                    self.counts['jwt'] = self.counts.get('jwt', 0) + 1
+
             # Store Webpack configuration (future implementation)
             # if 'webpack' in extracted['config_data']:
             #     webpack_data = extracted['config_data']['webpack']

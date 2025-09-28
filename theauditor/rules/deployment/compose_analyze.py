@@ -1,392 +1,451 @@
-"""Golden Standard Docker Compose Security Analyzer.
+"""Docker Compose Security Analyzer - Database-First Approach.
 
-Detects security misconfigurations in Docker Compose services via database analysis.
-Demonstrates database-aware rule pattern for TheAuditor.
+Detects security misconfigurations in Docker Compose services.
+Uses pre-extracted data from compose_services table - NO FILE I/O.
 
-MIGRATION STATUS: Golden Standard Reference [2024-12-13]
-Signature: context: StandardRuleContext -> List[StandardFinding]
+This rule requires the compose_services table populated by the indexer
+with Docker Compose configuration data.
+
+Migration Status: Database-First Architecture
 """
 
 import json
 import sqlite3
 from typing import List, Dict, Any, Set, Optional
-from dataclasses import dataclass
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 
 # ============================================================================
-# CONSTANTS & CONFIGURATION
+# SECURITY PATTERNS
 # ============================================================================
 
-@dataclass(frozen=True)
-class ComposePatterns:
-    """Configuration for Docker Compose security patterns."""
-    
-    # Sensitive environment variable patterns
-    SENSITIVE_ENV_PATTERNS = frozenset([
-        'PASSWORD', 'PASS', 'PWD', 'SECRET', 'TOKEN', 'KEY',
-        'API_KEY', 'ACCESS_KEY', 'PRIVATE', 'CREDENTIAL',
-        'AUTH', 'MYSQL_ROOT_PASSWORD', 'POSTGRES_PASSWORD',
-        'MONGO_INITDB_ROOT_PASSWORD', 'REDIS_PASSWORD',
-        'RABBITMQ_DEFAULT_PASS', 'ELASTIC_PASSWORD'
-    ])
-    
-    # Common weak passwords
-    WEAK_PASSWORDS = frozenset([
-        'password', '123456', 'admin', 'root', 'test', 'demo',
-        'secret', 'changeme', 'password123', 'admin123',
-        'letmein', 'welcome', 'monkey', 'dragon', 'master',
-        'qwerty', 'abc123', 'iloveyou', 'password1', 'sunshine'
-    ])
-    
-    # Database ports and their services
-    DATABASE_PORTS = {
-        '3306': 'MySQL',
-        '5432': 'PostgreSQL',
-        '27017': 'MongoDB',
-        '6379': 'Redis',
-        '5984': 'CouchDB',
-        '8086': 'InfluxDB',
-        '9042': 'Cassandra',
-        '7000': 'Cassandra',
-        '7001': 'Cassandra',
-        '9200': 'Elasticsearch',
-        '9300': 'Elasticsearch',
-        '2181': 'Zookeeper',
-        '9092': 'Kafka',
-        '1433': 'SQL Server',
-        '1521': 'Oracle',
-        '3307': 'MariaDB',
-        '5601': 'Kibana',
-        '15672': 'RabbitMQ Management'
-    }
-    
-    # Risky volume mounts
-    DANGEROUS_MOUNTS = frozenset([
-        'docker.sock',
-        '/var/run/docker.sock',
-        '/etc/shadow',
-        '/etc/passwd',
-        '/root',
-        '/.ssh',
-        '/proc',
-        '/sys'
-    ])
+# Sensitive environment variable patterns
+SENSITIVE_ENV_PATTERNS = frozenset([
+    'PASSWORD', 'PASS', 'PWD', 'SECRET', 'TOKEN', 'KEY',
+    'API_KEY', 'ACCESS_KEY', 'PRIVATE', 'CREDENTIAL',
+    'AUTH', 'MYSQL_ROOT_PASSWORD', 'POSTGRES_PASSWORD',
+    'MONGO_INITDB_ROOT_PASSWORD', 'REDIS_PASSWORD',
+    'RABBITMQ_DEFAULT_PASS', 'ELASTIC_PASSWORD'
+])
+
+# Common weak passwords to detect
+WEAK_PASSWORDS = frozenset([
+    'password', '123456', 'admin', 'root', 'test', 'demo',
+    'secret', 'changeme', 'password123', 'admin123',
+    'letmein', 'welcome', 'monkey', 'dragon', 'master',
+    'qwerty', 'abc123', 'iloveyou', 'password1', 'sunshine'
+])
+
+# Database ports that shouldn't be exposed externally
+DATABASE_PORTS = {
+    '3306': 'MySQL',
+    '5432': 'PostgreSQL',
+    '27017': 'MongoDB',
+    '6379': 'Redis',
+    '5984': 'CouchDB',
+    '8086': 'InfluxDB',
+    '9042': 'Cassandra',
+    '7000': 'Cassandra Inter-node',
+    '7001': 'Cassandra TLS',
+    '9200': 'Elasticsearch',
+    '9300': 'Elasticsearch Transport',
+    '2181': 'Zookeeper',
+    '9092': 'Kafka',
+    '1433': 'SQL Server',
+    '1521': 'Oracle',
+    '3307': 'MariaDB',
+    '5601': 'Kibana',
+    '15672': 'RabbitMQ Management',
+    '5672': 'RabbitMQ',
+    '8529': 'ArangoDB',
+    '28015': 'RethinkDB'
+}
+
+# Administrative ports that shouldn't be exposed
+ADMIN_PORTS = {
+    '8080': 'Admin Panel',
+    '8081': 'Admin Interface',
+    '9090': 'Prometheus',
+    '3000': 'Grafana',
+    '15672': 'RabbitMQ Management',
+    '5601': 'Kibana',
+    '8161': 'ActiveMQ Admin',
+    '7077': 'Spark Master',
+    '8088': 'YARN ResourceManager',
+    '9870': 'HDFS NameNode',
+    '16010': 'HBase Master'
+}
+
+# Dangerous volume mounts that enable container escape
+DANGEROUS_MOUNTS = frozenset([
+    'docker.sock',
+    '/var/run/docker.sock',
+    '/etc/shadow',
+    '/etc/passwd',
+    '/root',
+    '/.ssh',
+    '/proc',
+    '/sys',
+    '/dev'
+])
+
+# Known vulnerable or deprecated images
+VULNERABLE_IMAGES = {
+    'elasticsearch:2': 'EOL - upgrade to 7.x or 8.x',
+    'elasticsearch:5': 'EOL - upgrade to 7.x or 8.x',
+    'mysql:5.6': 'EOL - upgrade to 8.0',
+    'postgres:9': 'EOL - upgrade to 14+',
+    'mongo:3': 'EOL - upgrade to 5.0+',
+    'redis:3': 'EOL - upgrade to 7.0+',
+    'node:8': 'EOL - upgrade to 18+',
+    'node:10': 'EOL - upgrade to 18+',
+    'node:12': 'EOL - upgrade to 18+',
+    'python:2': 'EOL - upgrade to Python 3.9+',
+    'ruby:2.4': 'EOL - upgrade to 3.0+',
+    'php:5': 'EOL - upgrade to 8.0+',
+    'php:7.0': 'EOL - upgrade to 8.0+',
+    'php:7.1': 'EOL - upgrade to 8.0+',
+    'php:7.2': 'EOL - upgrade to 8.0+'
+}
 
 
 # ============================================================================
-# MAIN RULE FUNCTION (Standardized Interface)
+# MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
 def find_compose_issues(context: StandardRuleContext) -> List[StandardFinding]:
-    """Detect Docker Compose security misconfigurations.
-    
+    """Detect Docker Compose security misconfigurations using indexed data.
+
     Analyzes compose_services table for:
-    - Docker socket mounting (container escape)
+    - Docker socket mounting (container escape risk)
     - Privileged containers
     - Host network mode
     - Weak/hardcoded passwords
-    - Exposed database ports
-    - Unpinned image versions
-    
+    - Exposed database and admin ports
+    - Unpinned or vulnerable image versions
+    - Dangerous volume mounts
+    - Insecure capabilities
+
+    All data comes from pre-indexed compose_services table.
+
     Args:
         context: Standardized rule context with database path
-        
+
     Returns:
         List of StandardFinding objects for detected issues
     """
-    analyzer = ComposeAnalyzer(context)
-    return analyzer.analyze()
+    findings = []
+
+    if not context.db_path:
+        return findings
+
+    conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
+
+    try:
+        # Check if compose_services table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='compose_services'
+        """)
+
+        if not cursor.fetchone():
+            # Table doesn't exist - indexer hasn't extracted compose data yet
+            return findings
+
+        # Load all compose services
+        cursor.execute("""
+            SELECT file_path, service_name, image, ports, volumes,
+                   environment, is_privileged, network_mode
+            FROM compose_services
+            ORDER BY file_path, service_name
+        """)
+
+        for row in cursor.fetchall():
+            service_findings = analyze_service(row)
+            findings.extend(service_findings)
+
+    finally:
+        conn.close()
+
+    return findings
 
 
 # ============================================================================
-# COMPOSE ANALYZER CLASS
+# SERVICE ANALYSIS
 # ============================================================================
 
-class ComposeAnalyzer:
-    """Main analyzer for Docker Compose configurations."""
-    
-    def __init__(self, context: StandardRuleContext):
-        self.context = context
-        self.patterns = ComposePatterns()
-        self.findings: List[StandardFinding] = []
-        self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
-    
-    def analyze(self) -> List[StandardFinding]:
-        """Run complete Docker Compose analysis."""
-        services = self._load_compose_services()
-        
-        for service in services:
-            self._analyze_service(service)
-        
-        return self.findings
-    
-    def _load_compose_services(self) -> List['ComposeService']:
-        """Load compose services from database."""
-        services = []
-        
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT file_path, service_name, image, ports, volumes, 
-                       environment, is_privileged, network_mode
-                FROM compose_services
-            """)
-            
-            for row in cursor.fetchall():
-                service = ComposeService.from_db_row(row)
-                if service:
-                    services.append(service)
-            
-            conn.close()
-            
-        except (sqlite3.Error, Exception):
-            # Return empty list if database unavailable
-            pass
-        
-        return services
-    
-    def _analyze_service(self, service: 'ComposeService') -> None:
-        """Analyze a single Docker Compose service."""
-        # Check for dangerous volume mounts
-        self._check_dangerous_volumes(service)
-        
-        # Check for privileged mode
-        self._check_privileged_mode(service)
-        
-        # Check for host network mode
-        self._check_host_network(service)
-        
-        # Check for weak/hardcoded secrets
-        self._check_environment_secrets(service)
-        
-        # Check for exposed database ports
-        self._check_exposed_ports(service)
-        
-        # Check for unpinned images
-        self._check_unpinned_images(service)
-    
-    def _check_dangerous_volumes(self, service: 'ComposeService') -> None:
-        """Check for dangerous volume mounts."""
-        for volume in service.volumes:
-            # Check for Docker socket mounting
-            if any(mount in volume for mount in self.patterns.DANGEROUS_MOUNTS):
-                if 'docker.sock' in volume:
-                    self._add_docker_socket_finding(service, volume)
-                else:
-                    self._add_dangerous_mount_finding(service, volume)
-    
-    def _check_privileged_mode(self, service: 'ComposeService') -> None:
-        """Check for privileged container mode."""
-        if service.is_privileged:
-            self.findings.append(StandardFinding(
-                rule_name='compose-privileged-container',
-                message=f'Service "{service.name}" runs in privileged mode',
-                file_path=service.file_path,
-                line=1,
-                severity=Severity.CRITICAL,
-                category='security',
-                snippet=f'{service.name}: privileged: true',
-                fix_suggestion='Remove privileged mode and use specific capabilities instead'
-            ))
-    
-    def _check_host_network(self, service: 'ComposeService') -> None:
-        """Check for host network mode."""
-        if service.network_mode == 'host':
-            self.findings.append(StandardFinding(
-                rule_name='compose-host-network',
-                message=f'Service "{service.name}" uses host network mode',
-                file_path=service.file_path,
-                line=1,
-                severity=Severity.HIGH,
-                category='security',
-                snippet=f'{service.name}: network_mode: host',
-                fix_suggestion='Use bridge or custom network instead of host network'
-            ))
-    
-    def _check_environment_secrets(self, service: 'ComposeService') -> None:
-        """Check for weak or hardcoded secrets in environment."""
-        for key, value in service.environment.items():
-            if self._is_sensitive_env(key) and value and not value.startswith('$'):
-                if value.lower() in self.patterns.WEAK_PASSWORDS:
-                    self._add_weak_password_finding(service, key, value)
-                else:
-                    self._add_hardcoded_secret_finding(service, key)
-    
-    def _check_exposed_ports(self, service: 'ComposeService') -> None:
-        """Check for exposed database ports."""
-        for port_mapping in service.ports:
-            port_info = self._parse_port_mapping(port_mapping)
-            if port_info:
-                self._check_database_port_exposure(service, port_info)
-    
-    def _check_unpinned_images(self, service: 'ComposeService') -> None:
-        """Check for unpinned image versions."""
-        if service.image and (':latest' in service.image or ':' not in service.image):
-            self.findings.append(StandardFinding(
-                rule_name='compose-unpinned-image',
-                message=f'Service "{service.name}" uses unpinned image version',
-                file_path=service.file_path,
-                line=1,
-                severity=Severity.MEDIUM,
-                category='security',
-                snippet=f'image: {service.image}',
-                fix_suggestion='Pin to specific version tag (e.g., nginx:1.21.6)'
-            ))
-    
-    def _is_sensitive_env(self, key: str) -> bool:
-        """Check if environment variable is sensitive."""
-        key_upper = key.upper()
-        return any(pattern in key_upper for pattern in self.patterns.SENSITIVE_ENV_PATTERNS)
-    
-    def _parse_port_mapping(self, port_mapping: str) -> Optional[Dict[str, str]]:
-        """Parse port mapping string."""
-        if not isinstance(port_mapping, str) or ':' not in port_mapping:
-            return None
-        
-        parts = port_mapping.split(':')
-        if len(parts) >= 2:
-            host_part = parts[0] if len(parts) == 2 else parts[-2]
-            container_port = parts[-1].split('/')[0]  # Remove protocol
-            
-            # Determine if bound to all interfaces
-            is_exposed = not any(host_part.startswith(prefix) 
-                                for prefix in ['127.0.0.1:', 'localhost:'])
-            
-            return {
-                'host_part': host_part,
-                'container_port': container_port,
-                'is_exposed': is_exposed
-            }
-        
-        return None
-    
-    def _check_database_port_exposure(self, service: 'ComposeService', port_info: Dict[str, str]) -> None:
-        """Check if database port is exposed externally."""
-        container_port = port_info['container_port']
-        
-        if container_port in self.patterns.DATABASE_PORTS and port_info['is_exposed']:
-            db_type = self.patterns.DATABASE_PORTS[container_port]
-            
-            self.findings.append(StandardFinding(
-                rule_name='compose-database-exposed',
-                message=f'Service "{service.name}" exposes {db_type} port to all interfaces',
-                file_path=service.file_path,
-                line=1,
-                severity=Severity.HIGH,
-                category='security',
-                snippet=f'ports: {port_info["host_part"]}:{container_port}',
-                fix_suggestion=f'Bind to localhost only: 127.0.0.1:{container_port}:{container_port}'
-            ))
-    
-    def _add_docker_socket_finding(self, service: 'ComposeService', volume: str) -> None:
-        """Add finding for Docker socket mounting."""
-        self.findings.append(StandardFinding(
-            rule_name='compose-docker-socket',
-            message=f'Service "{service.name}" mounts Docker socket - container escape risk',
-            file_path=service.file_path,
+def analyze_service(row: tuple) -> List[StandardFinding]:
+    """Analyze a single Docker Compose service for security issues.
+
+    Args:
+        row: Database row with service data
+
+    Returns:
+        List of findings for this service
+    """
+    findings = []
+
+    # Parse database row
+    try:
+        file_path = row[0]
+        service_name = row[1]
+        image = row[2]
+        ports_json = row[3]
+        volumes_json = row[4]
+        env_json = row[5]
+        is_privileged = bool(row[6])
+        network_mode = row[7]
+
+        # Parse JSON fields
+        ports = json.loads(ports_json) if ports_json else []
+        volumes = json.loads(volumes_json) if volumes_json else []
+        environment = json.loads(env_json) if env_json else {}
+
+    except (json.JSONDecodeError, IndexError, TypeError):
+        return findings
+
+    # Check for privileged mode
+    if is_privileged:
+        findings.append(StandardFinding(
+            rule_name='compose-privileged-container',
+            message=f'Service "{service_name}" runs in privileged mode',
+            file_path=file_path,
             line=1,
             severity=Severity.CRITICAL,
             category='security',
-            snippet=f'volumes: {volume}',
-            fix_suggestion='Remove docker.sock mount or use Docker-in-Docker (DinD) instead'
+            snippet=f'{service_name}:\n  privileged: true',
+            fix_suggestion='Remove privileged mode and use specific capabilities instead',
+            cwe_id='CWE-250'
         ))
-    
-    def _add_dangerous_mount_finding(self, service: 'ComposeService', volume: str) -> None:
-        """Add finding for other dangerous mounts."""
-        self.findings.append(StandardFinding(
-            rule_name='compose-dangerous-mount',
-            message=f'Service "{service.name}" mounts sensitive host path',
-            file_path=service.file_path,
+
+    # Check for host network mode
+    if network_mode == 'host':
+        findings.append(StandardFinding(
+            rule_name='compose-host-network',
+            message=f'Service "{service_name}" uses host network mode',
+            file_path=file_path,
             line=1,
             severity=Severity.HIGH,
             category='security',
-            snippet=f'volumes: {volume}',
-            fix_suggestion='Avoid mounting sensitive host paths like /etc, /root, /proc'
+            snippet=f'{service_name}:\n  network_mode: host',
+            fix_suggestion='Use bridge or custom network instead of host network',
+            cwe_id='CWE-668'
         ))
-    
-    def _add_weak_password_finding(self, service: 'ComposeService', key: str, value: str) -> None:
-        """Add finding for weak password."""
-        # Truncate value for security
-        display_value = value[:3] + '***' if len(value) > 3 else '***'
-        
-        self.findings.append(StandardFinding(
-            rule_name='compose-weak-password',
-            message=f'Service "{service.name}" has weak password in environment',
-            file_path=service.file_path,
+
+    # Check dangerous volume mounts
+    for volume in volumes:
+        if isinstance(volume, str):
+            for dangerous_mount in DANGEROUS_MOUNTS:
+                if dangerous_mount in volume:
+                    if 'docker.sock' in volume:
+                        findings.append(StandardFinding(
+                            rule_name='compose-docker-socket',
+                            message=f'Service "{service_name}" mounts Docker socket - container escape risk',
+                            file_path=file_path,
+                            line=1,
+                            severity=Severity.CRITICAL,
+                            category='security',
+                            snippet=f'volumes:\n  - {volume}',
+                            fix_suggestion='Remove docker.sock mount or use Docker-in-Docker (DinD) instead',
+                            cwe_id='CWE-552'
+                        ))
+                    else:
+                        findings.append(StandardFinding(
+                            rule_name='compose-dangerous-mount',
+                            message=f'Service "{service_name}" mounts sensitive host path: {dangerous_mount}',
+                            file_path=file_path,
+                            line=1,
+                            severity=Severity.HIGH,
+                            category='security',
+                            snippet=f'volumes:\n  - {volume}',
+                            fix_suggestion='Avoid mounting sensitive host paths',
+                            cwe_id='CWE-552'
+                        ))
+                    break
+
+    # Check environment variables for secrets
+    if isinstance(environment, dict):
+        for key, value in environment.items():
+            if value and isinstance(value, str):
+                key_upper = key.upper()
+
+                # Check if it's a sensitive variable
+                is_sensitive = any(pattern in key_upper for pattern in SENSITIVE_ENV_PATTERNS)
+
+                if is_sensitive:
+                    # Check if value is not using env var substitution
+                    if not value.startswith('${') and not value.startswith('$'):
+                        # Check for weak passwords
+                        if value.lower() in WEAK_PASSWORDS:
+                            findings.append(StandardFinding(
+                                rule_name='compose-weak-password',
+                                message=f'Service "{service_name}" uses weak password in {key}',
+                                file_path=file_path,
+                                line=1,
+                                severity=Severity.CRITICAL,
+                                category='security',
+                                snippet=f'{key}=***',
+                                fix_suggestion='Use strong password and store in .env file',
+                                cwe_id='CWE-521'
+                            ))
+                        else:
+                            findings.append(StandardFinding(
+                                rule_name='compose-hardcoded-secret',
+                                message=f'Service "{service_name}" has hardcoded secret: {key}',
+                                file_path=file_path,
+                                line=1,
+                                severity=Severity.HIGH,
+                                category='security',
+                                snippet=f'{key}=***',
+                                fix_suggestion=f'Use environment variable: ${{{key}}}',
+                                cwe_id='CWE-798'
+                            ))
+
+    # Check exposed ports
+    if isinstance(ports, list):
+        for port_mapping in ports:
+            if isinstance(port_mapping, str) and ':' in port_mapping:
+                findings.extend(check_port_exposure(
+                    file_path, service_name, port_mapping
+                ))
+
+    # Check image versions
+    if image:
+        findings.extend(check_image_security(
+            file_path, service_name, image
+        ))
+
+    return findings
+
+
+def check_port_exposure(file_path: str, service_name: str, port_mapping: str) -> List[StandardFinding]:
+    """Check if sensitive ports are exposed externally.
+
+    Args:
+        file_path: Path to compose file
+        service_name: Name of the service
+        port_mapping: Port mapping string (e.g., "0.0.0.0:3306:3306")
+
+    Returns:
+        List of findings for port exposure issues
+    """
+    findings = []
+
+    # Parse port mapping
+    parts = port_mapping.split(':')
+    if len(parts) >= 2:
+        # Determine host binding
+        if len(parts) == 2:
+            # Format: "host:container"
+            host_part = parts[0]
+            container_port = parts[1].split('/')[0]  # Remove protocol if present
+        else:
+            # Format: "ip:host:container" or "host:container:protocol"
+            host_part = ':'.join(parts[:-1])
+            container_port = parts[-1].split('/')[0]
+
+        # Check if exposed to all interfaces
+        is_exposed = not any(host_part.startswith(prefix)
+                            for prefix in ['127.0.0.1:', 'localhost:', '::1:'])
+
+        if is_exposed:
+            # Check for database ports
+            if container_port in DATABASE_PORTS:
+                db_type = DATABASE_PORTS[container_port]
+                findings.append(StandardFinding(
+                    rule_name='compose-database-exposed',
+                    message=f'Service "{service_name}" exposes {db_type} port {container_port} to all interfaces',
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.HIGH,
+                    category='security',
+                    snippet=f'ports:\n  - {port_mapping}',
+                    fix_suggestion=f'Bind to localhost only: 127.0.0.1:{container_port}:{container_port}',
+                    cwe_id='CWE-668'
+                ))
+
+            # Check for admin ports
+            elif container_port in ADMIN_PORTS:
+                admin_type = ADMIN_PORTS[container_port]
+                findings.append(StandardFinding(
+                    rule_name='compose-admin-exposed',
+                    message=f'Service "{service_name}" exposes {admin_type} port {container_port} externally',
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.HIGH,
+                    category='security',
+                    snippet=f'ports:\n  - {port_mapping}',
+                    fix_suggestion=f'Bind to localhost or use reverse proxy',
+                    cwe_id='CWE-668'
+                ))
+
+    return findings
+
+
+def check_image_security(file_path: str, service_name: str, image: str) -> List[StandardFinding]:
+    """Check Docker image for security issues.
+
+    Args:
+        file_path: Path to compose file
+        service_name: Name of the service
+        image: Docker image string
+
+    Returns:
+        List of findings for image issues
+    """
+    findings = []
+
+    # Check for unpinned versions
+    if ':latest' in image or (':' not in image and '/' in image):
+        findings.append(StandardFinding(
+            rule_name='compose-unpinned-image',
+            message=f'Service "{service_name}" uses unpinned image version',
+            file_path=file_path,
             line=1,
-            severity=Severity.CRITICAL,
+            severity=Severity.MEDIUM,
             category='security',
-            snippet=f'{key}={display_value}',
-            fix_suggestion='Use strong passwords and store in .env file or secrets manager'
-        ))
-    
-    def _add_hardcoded_secret_finding(self, service: 'ComposeService', key: str) -> None:
-        """Add finding for hardcoded secret."""
-        self.findings.append(StandardFinding(
-            rule_name='compose-hardcoded-secret',
-            message=f'Service "{service.name}" has hardcoded secret in environment',
-            file_path=service.file_path,
-            line=1,
-            severity=Severity.HIGH,
-            category='security',
-            snippet=f'{key}=***',
-            fix_suggestion=f'Use environment variable: ${{{key}}}'
+            snippet=f'image: {image}',
+            fix_suggestion='Pin to specific version tag for reproducibility',
+            cwe_id='CWE-330'
         ))
 
-
-# ============================================================================
-# DATA MODEL
-# ============================================================================
-
-@dataclass
-class ComposeService:
-    """Represents a Docker Compose service from database."""
-    
-    file_path: str
-    name: str
-    image: Optional[str]
-    ports: List[str]
-    volumes: List[str]
-    environment: Dict[str, str]
-    is_privileged: bool
-    network_mode: Optional[str]
-    
-    @classmethod
-    def from_db_row(cls, row: tuple) -> Optional['ComposeService']:
-        """Create ComposeService from database row."""
-        try:
-            file_path = row[0]
-            service_name = row[1]
-            image = row[2]
-            ports_json = row[3]
-            volumes_json = row[4]
-            env_json = row[5]
-            is_privileged = bool(row[6])
-            network_mode = row[7]
-            
-            # Parse JSON fields safely
-            try:
-                ports = json.loads(ports_json) if ports_json else []
-                volumes = json.loads(volumes_json) if volumes_json else []
-                environment = json.loads(env_json) if env_json else {}
-            except json.JSONDecodeError:
-                return None
-            
-            return cls(
+    # Check for known vulnerable images
+    for vuln_pattern, upgrade_msg in VULNERABLE_IMAGES.items():
+        if image.startswith(vuln_pattern):
+            findings.append(StandardFinding(
+                rule_name='compose-vulnerable-image',
+                message=f'Service "{service_name}" uses deprecated/vulnerable image: {vuln_pattern}',
                 file_path=file_path,
-                name=service_name,
-                image=image,
-                ports=ports if isinstance(ports, list) else [],
-                volumes=volumes if isinstance(volumes, list) else [],
-                environment=environment if isinstance(environment, dict) else {},
-                is_privileged=is_privileged,
-                network_mode=network_mode
-            )
-            
-        except (IndexError, TypeError):
-            return None
+                line=1,
+                severity=Severity.HIGH,
+                category='security',
+                snippet=f'image: {image}',
+                fix_suggestion=upgrade_msg,
+                cwe_id='CWE-937'
+            ))
+            break
+
+    # Check for images without namespace (potential typosquatting)
+    if ':' in image:
+        image_name = image.split(':')[0]
+    else:
+        image_name = image
+
+    if '/' not in image_name and image_name not in ['alpine', 'ubuntu', 'debian', 'centos',
+                                                     'fedora', 'busybox', 'scratch']:
+        findings.append(StandardFinding(
+            rule_name='compose-unofficial-image',
+            message=f'Service "{service_name}" uses potentially unofficial image without namespace',
+            file_path=file_path,
+            line=1,
+            severity=Severity.LOW,
+            category='security',
+            snippet=f'image: {image}',
+            fix_suggestion='Use official images with namespace (e.g., library/nginx or nginx)',
+            cwe_id='CWE-494'
+        ))
+
+    return findings
