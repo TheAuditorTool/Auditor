@@ -179,18 +179,25 @@ def _get_vue_files(cursor, existing_tables: Set[str]) -> Set[str]:
     """Get all Vue-related files from the database."""
     vue_files = set()
 
-    if 'files' in existing_tables:
+    # First check the vue_components table if it exists
+    if 'vue_components' in existing_tables:
+        cursor.execute("""
+            SELECT DISTINCT file
+            FROM vue_components
+        """)
+        vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Fallback to file extension check if no Vue components found
+    if not vue_files and 'files' in existing_tables:
         cursor.execute("""
             SELECT DISTINCT file_path
             FROM files
             WHERE file_path LIKE '%.vue'
-               OR file_path LIKE '%.jsx'
-               OR file_path LIKE '%.tsx'
         """)
         vue_files.update(row[0] for row in cursor.fetchall())
 
-    # Also check JavaScript files that import Vue
-    if 'symbols' in existing_tables:
+    # Also check JavaScript files that import Vue (if still no Vue files found)
+    if not vue_files and 'symbols' in existing_tables:
         cursor.execute("""
             SELECT DISTINCT path
             FROM symbols
@@ -247,6 +254,35 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
     """Find v-for loops without :key attribute."""
     findings = []
 
+    # First try the vue_directives table if it exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vue_directives'")
+    if cursor.fetchone():
+        placeholders = ','.join('?' * len(vue_files))
+
+        cursor.execute(f"""
+            SELECT file, line, expression
+            FROM vue_directives
+            WHERE file IN ({placeholders})
+              AND directive_name = 'v-for'
+              AND has_key = 0
+            ORDER BY file, line
+        """, list(vue_files))
+
+        for file, line, expression in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='vue-missing-vfor-key',
+                message=f'v-for directive without :key attribute: "{expression}"',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='vue-performance',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-704'
+            ))
+
+        return findings
+
+    # Fallback to pattern search in symbols table
     placeholders = ','.join('?' * len(vue_files))
 
     # Look for v-for patterns without adjacent key

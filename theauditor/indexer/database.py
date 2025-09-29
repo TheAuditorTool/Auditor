@@ -64,6 +64,15 @@ class DatabaseManager:
         self.assignments_jsx_batch = []
         self.function_call_args_jsx_batch = []
 
+        # Vue-specific batch lists for framework analysis
+        self.vue_components_batch = []
+        self.vue_hooks_batch = []
+        self.vue_directives_batch = []
+        self.vue_provide_inject_batch = []
+
+        # TypeScript type annotation batch list
+        self.type_annotations_batch = []
+
     def begin_transaction(self):
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -552,6 +561,102 @@ class DatabaseManager:
         """
         )
 
+        # ========================================================
+        # VUE-SPECIFIC TABLES FOR FRAMEWORK ANALYSIS
+        # ========================================================
+        # These tables store Vue component data and patterns
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vue_components (
+                file TEXT NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                start_line INTEGER NOT NULL,
+                end_line INTEGER NOT NULL,
+                has_template BOOLEAN DEFAULT 0,
+                has_style BOOLEAN DEFAULT 0,
+                composition_api_used BOOLEAN DEFAULT 0,
+                props_definition TEXT,
+                emits_definition TEXT,
+                setup_return TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vue_hooks (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                component_name TEXT NOT NULL,
+                hook_name TEXT NOT NULL,
+                hook_type TEXT NOT NULL,
+                dependencies TEXT,
+                return_value TEXT,
+                is_async BOOLEAN DEFAULT 0,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vue_directives (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                directive_name TEXT NOT NULL,
+                expression TEXT,
+                in_component TEXT,
+                has_key BOOLEAN DEFAULT 0,
+                modifiers TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # ========================================================
+        # TYPESCRIPT TYPE ANNOTATIONS TABLE
+        # ========================================================
+        # Store TypeScript type information extracted by compiler
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS type_annotations (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                column INTEGER,
+                symbol_name TEXT NOT NULL,
+                symbol_kind TEXT NOT NULL,
+                type_annotation TEXT,
+                is_any BOOLEAN DEFAULT 0,
+                is_unknown BOOLEAN DEFAULT 0,
+                is_generic BOOLEAN DEFAULT 0,
+                has_type_params BOOLEAN DEFAULT 0,
+                type_params TEXT,
+                return_type TEXT,
+                extends_type TEXT,
+                PRIMARY KEY (file, line, column, symbol_name),
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS vue_provide_inject (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                component_name TEXT NOT NULL,
+                operation_type TEXT NOT NULL,
+                key_name TEXT NOT NULL,
+                value_expr TEXT,
+                is_reactive BOOLEAN DEFAULT 0,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoints_file ON api_endpoints(file)")
@@ -610,6 +715,33 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_calls_caller ON function_call_args_jsx(caller_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_metadata_status ON extraction_metadata(status)")
 
+        # Indexes for Vue tables
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_components_file ON vue_components(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_components_name ON vue_components(name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_components_type ON vue_components(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_hooks_file ON vue_hooks(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_hooks_component ON vue_hooks(component_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_hooks_type ON vue_hooks(hook_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_directives_file ON vue_directives(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_directives_name ON vue_directives(directive_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_provide_inject_file ON vue_provide_inject(file)")
+
+        # Indexes for TypeScript type annotations
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_type_annotations_file ON type_annotations(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_type_annotations_any ON type_annotations(file, is_any)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_type_annotations_unknown ON type_annotations(file, is_unknown)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_type_annotations_generic ON type_annotations(file, is_generic)")
+
+        # Migration: Add type_annotation column to symbols table if it doesn't exist
+        try:
+            cursor.execute("ALTER TABLE symbols ADD COLUMN type_annotation TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE symbols ADD COLUMN is_typed BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         self.conn.commit()
 
     def clear_tables(self):
@@ -644,6 +776,13 @@ class DatabaseManager:
             cursor.execute("DELETE FROM assignments_jsx")
             cursor.execute("DELETE FROM function_call_args_jsx")
             cursor.execute("DELETE FROM extraction_metadata")
+            # Also clear Vue tables
+            cursor.execute("DELETE FROM vue_components")
+            cursor.execute("DELETE FROM vue_hooks")
+            cursor.execute("DELETE FROM vue_directives")
+            cursor.execute("DELETE FROM vue_provide_inject")
+            # Also clear type annotations
+            cursor.execute("DELETE FROM type_annotations")
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
@@ -836,6 +975,57 @@ class DatabaseManager:
         """Add a JSX function call argument record for preserved JSX extraction."""
         self.function_call_args_jsx_batch.append((file_path, line, caller_function, callee_function,
                                                   arg_index, arg_expr, param_name, jsx_mode, extraction_pass))
+
+    # ========================================================
+    # VUE-SPECIFIC BATCH METHODS FOR FRAMEWORK ANALYSIS
+    # ========================================================
+
+    def add_vue_component(self, file_path: str, name: str, component_type: str,
+                         start_line: int, end_line: int, has_template: bool = False,
+                         has_style: bool = False, composition_api_used: bool = False,
+                         props_definition: Optional[Dict] = None,
+                         emits_definition: Optional[Dict] = None,
+                         setup_return: Optional[str] = None):
+        """Add a Vue component to the batch."""
+        props_json = json.dumps(props_definition) if props_definition else None
+        emits_json = json.dumps(emits_definition) if emits_definition else None
+        self.vue_components_batch.append((file_path, name, component_type,
+                                         start_line, end_line, has_template, has_style,
+                                         composition_api_used, props_json, emits_json,
+                                         setup_return))
+
+    def add_vue_hook(self, file_path: str, line: int, component_name: str,
+                    hook_name: str, hook_type: str, dependencies: Optional[List[str]] = None,
+                    return_value: Optional[str] = None, is_async: bool = False):
+        """Add a Vue hook/reactivity usage to the batch."""
+        deps_json = json.dumps(dependencies) if dependencies else None
+        self.vue_hooks_batch.append((file_path, line, component_name, hook_name,
+                                    hook_type, deps_json, return_value, is_async))
+
+    def add_vue_directive(self, file_path: str, line: int, directive_name: str,
+                         expression: str, in_component: str, has_key: bool = False,
+                         modifiers: Optional[List[str]] = None):
+        """Add a Vue directive usage to the batch."""
+        modifiers_json = json.dumps(modifiers) if modifiers else None
+        self.vue_directives_batch.append((file_path, line, directive_name, expression,
+                                         in_component, has_key, modifiers_json))
+
+    def add_vue_provide_inject(self, file_path: str, line: int, component_name: str,
+                              operation_type: str, key_name: str, value_expr: Optional[str] = None,
+                              is_reactive: bool = False):
+        """Add a Vue provide/inject operation to the batch."""
+        self.vue_provide_inject_batch.append((file_path, line, component_name,
+                                             operation_type, key_name, value_expr, is_reactive))
+
+    def add_type_annotation(self, file_path: str, line: int, column: int, symbol_name: str,
+                           symbol_kind: str, type_annotation: str = None, is_any: bool = False,
+                           is_unknown: bool = False, is_generic: bool = False,
+                           has_type_params: bool = False, type_params: str = None,
+                           return_type: str = None, extends_type: str = None):
+        """Add a TypeScript type annotation record to the batch."""
+        self.type_annotations_batch.append((file_path, line, column, symbol_name, symbol_kind,
+                                           type_annotation, is_any, is_unknown, is_generic,
+                                           has_type_params, type_params, return_type, extends_type))
 
     def add_framework(self, name, version, language, path, source, is_primary=False):
         """Add framework to batch."""
@@ -1102,6 +1292,57 @@ class DatabaseManager:
                 )
                 self.function_call_args_jsx_batch = []
 
+            # Handle Vue-specific batches for framework analysis
+            if self.vue_components_batch:
+                cursor.executemany(
+                    """INSERT INTO vue_components
+                       (file, name, type, start_line, end_line, has_template, has_style,
+                        composition_api_used, props_definition, emits_definition, setup_return)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.vue_components_batch
+                )
+                self.vue_components_batch = []
+
+            if self.vue_hooks_batch:
+                cursor.executemany(
+                    """INSERT INTO vue_hooks
+                       (file, line, component_name, hook_name, hook_type, dependencies,
+                        return_value, is_async)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.vue_hooks_batch
+                )
+                self.vue_hooks_batch = []
+
+            if self.vue_directives_batch:
+                cursor.executemany(
+                    """INSERT INTO vue_directives
+                       (file, line, directive_name, expression, in_component, has_key, modifiers)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    self.vue_directives_batch
+                )
+                self.vue_directives_batch = []
+
+            if self.vue_provide_inject_batch:
+                cursor.executemany(
+                    """INSERT INTO vue_provide_inject
+                       (file, line, component_name, operation_type, key_name, value_expr, is_reactive)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    self.vue_provide_inject_batch
+                )
+                self.vue_provide_inject_batch = []
+
+            # Handle TypeScript type annotations
+            if self.type_annotations_batch:
+                cursor.executemany(
+                    """INSERT OR REPLACE INTO type_annotations
+                       (file, line, column, symbol_name, symbol_kind, type_annotation,
+                        is_any, is_unknown, is_generic, has_type_params, type_params,
+                        return_type, extends_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.type_annotations_batch
+                )
+                self.type_annotations_batch = []
+
             # Framework detection tables
             if self.frameworks_batch:
                 cursor.executemany(
@@ -1182,6 +1423,11 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.symbols_jsx_batch = []
     manager.assignments_jsx_batch = []
     manager.function_call_args_jsx_batch = []
+    manager.vue_components_batch = []
+    manager.vue_hooks_batch = []
+    manager.vue_directives_batch = []
+    manager.vue_provide_inject_batch = []
+    manager.type_annotations_batch = []
 
     # Create the schema using the existing connection
     manager.create_schema()

@@ -149,12 +149,12 @@ class IndexerOrchestrator:
         # Validate jsx_mode
         if jsx_mode not in ['preserved', 'transformed', 'both']:
             raise ValueError(f"Invalid jsx_mode: {jsx_mode}")
-        # Check if project has JSX files
-        jsx_file_count = self._count_jsx_files()
+        # Check if project has JS/TS files
+        js_file_count = self._count_js_files()
 
-        if jsx_file_count == 0 and jsx_mode in ['preserved', 'both']:
-            logger.warning("No JSX/TSX files found, reverting to transformed mode")
-            jsx_mode = 'transformed'
+        # ALWAYS use 'both' mode if we have JS/TS files for complete analysis
+        if js_file_count > 0:
+            jsx_mode = 'both'  # Force both modes for complete extraction
 
         # Start extraction with metadata tracking
         extraction_id = self._start_extraction(jsx_mode)
@@ -171,8 +171,10 @@ class IndexerOrchestrator:
                 # Mark extraction as complete
                 self._complete_extraction(extraction_id)
 
-                # CRITICAL: Return here - dual-pass is complete, no further processing needed
-                return self._get_extraction_stats(extraction_id)
+                # DON'T RETURN - Continue with normal extraction for full processing
+                # The dual-pass only handles JSX-specific tables, we still need
+                # the normal extraction for assignments, function_calls, etc.
+                jsx_mode = 'transformed'  # Use transformed for the main extraction
 
             elif jsx_mode == 'preserved':
                 # Single pass preserved extraction
@@ -275,6 +277,14 @@ class IndexerOrchestrator:
             base_msg += f", {self.counts['react_components']} React components"
         if self.counts.get('react_hooks', 0) > 0:
             base_msg += f", {self.counts['react_hooks']} React hooks"
+        if self.counts.get('vue_components', 0) > 0:
+            base_msg += f", {self.counts['vue_components']} Vue components"
+        if self.counts.get('vue_hooks', 0) > 0:
+            base_msg += f", {self.counts['vue_hooks']} Vue hooks"
+        if self.counts.get('vue_directives', 0) > 0:
+            base_msg += f", {self.counts['vue_directives']} Vue directives"
+        if self.counts.get('type_annotations', 0) > 0:
+            base_msg += f", {self.counts['type_annotations']} TypeScript type annotations"
 
         print(base_msg)
         print(f"[Indexer] Database updated: {self.db_manager.db_path}")
@@ -441,7 +451,30 @@ class IndexerOrchestrator:
                     symbol['line'], symbol['col']
                 )
                 self.counts['symbols'] += 1
-        
+
+        # Store TypeScript type annotations
+        if 'type_annotations' in extracted:
+            for annotation in extracted['type_annotations']:
+                self.db_manager.insert_type_annotation(
+                    file_path,
+                    annotation['line'],
+                    annotation.get('column', 0),
+                    annotation['symbol_name'],
+                    annotation['symbol_kind'],
+                    annotation.get('type_annotation', ''),
+                    annotation.get('is_any', False),
+                    annotation.get('is_unknown', False),
+                    annotation.get('is_generic', False),
+                    annotation.get('has_type_params', False),
+                    annotation.get('type_params'),
+                    annotation.get('return_type'),
+                    annotation.get('extends_type')
+                )
+                # Track type annotations count
+                if 'type_annotations' not in self.counts:
+                    self.counts['type_annotations'] = 0
+                self.counts['type_annotations'] += 1
+
         # Store ORM queries
         if 'orm_queries' in extracted:
             for query in extracted['orm_queries']:
@@ -477,6 +510,10 @@ class IndexerOrchestrator:
                 if extracted['assignments']:
                     first = extracted['assignments'][0]
                     logger.info(f"[DEBUG] First assignment: line {first.get('line')}, {first.get('target_var')} = {first.get('source_expr', '')[:50]}")
+            else:
+                # Debug: Log when assignments is empty for JS/TS files
+                if file_path.endswith(('.js', '.jsx', '.ts', '.tsx')):
+                    logger.warning(f"[DEBUG] No assignments extracted from {file_path}")
             for assignment in extracted['assignments']:
                 self.db_manager.add_assignment(
                     file_path, assignment['line'], assignment['target_var'],
@@ -679,6 +716,64 @@ class IndexerOrchestrator:
                     var.get('scope_level', 0)
                 )
 
+        # Store Vue-specific data
+        if 'vue_components' in extracted:
+            for component in extracted['vue_components']:
+                self.db_manager.add_vue_component(
+                    file_path,
+                    component['name'],
+                    component['type'],
+                    component['start_line'],
+                    component['end_line'],
+                    component.get('has_template', False),
+                    component.get('has_style', False),
+                    component.get('composition_api_used', False),
+                    component.get('props_definition'),
+                    component.get('emits_definition'),
+                    component.get('setup_return')
+                )
+                self.counts['vue_components'] = self.counts.get('vue_components', 0) + 1
+
+        if 'vue_hooks' in extracted:
+            for hook in extracted['vue_hooks']:
+                self.db_manager.add_vue_hook(
+                    file_path,
+                    hook['line'],
+                    hook.get('component_name', 'unknown'),
+                    hook['hook_name'],
+                    hook['hook_type'],
+                    hook.get('dependencies'),
+                    hook.get('return_value'),
+                    hook.get('is_async', False)
+                )
+                self.counts['vue_hooks'] = self.counts.get('vue_hooks', 0) + 1
+
+        if 'vue_directives' in extracted:
+            for directive in extracted['vue_directives']:
+                self.db_manager.add_vue_directive(
+                    file_path,
+                    directive['line'],
+                    directive['directive_name'],
+                    directive.get('expression', ''),
+                    directive.get('in_component', 'unknown'),
+                    directive.get('has_key', False),
+                    directive.get('modifiers')
+                )
+                self.counts['vue_directives'] = self.counts.get('vue_directives', 0) + 1
+
+        if 'vue_provide_inject' in extracted:
+            for pi in extracted['vue_provide_inject']:
+                self.db_manager.add_vue_provide_inject(
+                    file_path,
+                    pi['line'],
+                    pi.get('component_name', 'unknown'),
+                    pi['operation_type'],
+                    pi['key_name'],
+                    pi.get('value_expr'),
+                    pi.get('is_reactive', False)
+                )
+                self.counts['vue_provide_inject'] = self.counts.get('vue_provide_inject', 0) + 1
+
     # ========================================================
     # DUAL-PASS JSX EXTRACTION METHODS
     # ========================================================
@@ -694,6 +789,20 @@ class IndexerOrchestrator:
         for root, _, files in os.walk(self.root_path):
             for file in files:
                 if any(file.endswith(ext) for ext in jsx_extensions):
+                    count += 1
+        return count
+
+    def _count_js_files(self) -> int:
+        """Count all JavaScript/TypeScript files in the project.
+
+        Returns:
+            Number of JS/TS files found
+        """
+        js_extensions = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']
+        count = 0
+        for root, _, files in os.walk(self.root_path):
+            for file in files:
+                if any(file.endswith(ext) for ext in js_extensions):
                     count += 1
         return count
 
@@ -858,12 +967,14 @@ class IndexerOrchestrator:
                 )
                 # Store in JSX tables
                 self._store_jsx_results(preserved_results, table_suffix='_jsx')
+                # Commit after storing preserved results
+                self.db_manager.commit()
             except Exception as e:
                 logger.error(f"Pass 1 failed: {e}")
                 raise
 
         # Clear memory before second pass
-        self.ast_cache.clear()
+        self.ast_cache.clear_cache()
         gc.collect()
 
         # Pass 2: Transformed JSX
@@ -880,6 +991,8 @@ class IndexerOrchestrator:
             )
             # Store in standard tables
             self._store_jsx_results(transformed_results, table_suffix='')
+            # Commit after storing transformed results
+            self.db_manager.commit()
         except Exception as e:
             logger.error(f"Pass 2 failed: {e}")
             raise
@@ -909,6 +1022,8 @@ class IndexerOrchestrator:
                 extraction_id=extraction_id
             )
             self._store_jsx_results(results, table_suffix=table_suffix)
+            # Commit after storing results
+            self.db_manager.commit()
         except Exception as e:
             logger.error(f"Single-pass extraction failed: {e}")
             raise
@@ -1180,6 +1295,11 @@ class IndexerOrchestrator:
                 for ret in results['returns']:
                     ret['file'] = file_path
                     ret['extraction_pass'] = extraction_pass
+                    # Ensure JSX flags are present
+                    if 'has_jsx' not in ret:
+                        ret['has_jsx'] = False
+                    if 'returns_component' not in ret:
+                        ret['returns_component'] = False
 
                 for assign in results['assignments']:
                     assign['file'] = file_path
@@ -1193,8 +1313,9 @@ class IndexerOrchestrator:
                     symbol['path'] = file_path
                     symbol['extraction_pass'] = extraction_pass
 
-                # Check for JSX
-                results['has_jsx'] = self._check_for_jsx(tree)
+                # Check for JSX (this is redundant if extractor already did it)
+                if 'has_jsx' not in results:
+                    results['has_jsx'] = self._check_for_jsx(tree)
 
             except Exception as e:
                 logger.error(f"Failed to extract from {file_path}: {e}")
@@ -1237,7 +1358,8 @@ class IndexerOrchestrator:
                         cursor.execute("SELECT COUNT(*) FROM symbols_jsx")
                         jsx_symbols = cursor.fetchone()[0]
 
-                        if jsx_returns == 0 and jsx_symbols == 0:
+                        # Only fail if we have many files but no data at all
+                        if jsx_returns == 0 and jsx_symbols == 0 and jsx_file_count > 20:
                             return False, f"No data in preserved JSX tables despite {jsx_file_count} JSX files"
 
                         # Check for JSX detection

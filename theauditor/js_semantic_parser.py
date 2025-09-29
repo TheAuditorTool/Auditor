@@ -299,7 +299,7 @@ class JSSemanticParser:
         batch_helper_path.write_text(batch_helper_content, encoding='utf-8')
         return batch_helper_path
     
-    def get_semantic_ast_batch(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_semantic_ast_batch(self, file_paths: List[str], jsx_mode: str = 'transformed') -> Dict[str, Dict[str, Any]]:
         """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
         
         This dramatically improves performance by reusing the TypeScript program
@@ -354,7 +354,8 @@ class JSSemanticParser:
             # Create batch request
             batch_request = {
                 "files": valid_files,
-                "projectRoot": str(self.project_root)
+                "projectRoot": str(self.project_root),
+                "jsxMode": jsx_mode
             }
             
             # Write batch request to temp file
@@ -889,7 +890,7 @@ class JSSemanticParser:
 
 
 # Module-level function for direct usage
-def get_semantic_ast(file_path: str, project_root: str = None) -> Dict[str, Any]:
+def get_semantic_ast(file_path: str, project_root: str = None, jsx_mode: str = 'transformed') -> Dict[str, Any]:
     """Get semantic AST for a JavaScript/TypeScript file.
 
     This is a convenience function that creates or reuses a cached parser instance
@@ -898,6 +899,7 @@ def get_semantic_ast(file_path: str, project_root: str = None) -> Dict[str, Any]
     Args:
         file_path: Path to the JavaScript or TypeScript file to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
+        jsx_mode: JSX parsing mode ('preserved' or 'transformed')
 
     Returns:
         Dictionary containing the semantic AST and metadata
@@ -915,10 +917,10 @@ def get_semantic_ast(file_path: str, project_root: str = None) -> Dict[str, Any]
         if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
             print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
     parser = _parser_cache[cache_key]
-    return parser.get_semantic_ast(file_path)
+    return parser.get_semantic_ast(file_path, jsx_mode)
 
 
-def get_semantic_ast_batch(file_paths: List[str], project_root: str = None) -> Dict[str, Dict[str, Any]]:
+def get_semantic_ast_batch(file_paths: List[str], project_root: str = None, jsx_mode: str = 'transformed') -> Dict[str, Dict[str, Any]]:
     """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
 
     This is a convenience function that creates or reuses a cached parser instance
@@ -944,4 +946,4 @@ def get_semantic_ast_batch(file_paths: List[str], project_root: str = None) -> D
         if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
             print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
     parser = _parser_cache[cache_key]
-    return parser.get_semantic_ast_batch(file_paths)
+    return parser.get_semantic_ast_batch(file_paths, jsx_mode)

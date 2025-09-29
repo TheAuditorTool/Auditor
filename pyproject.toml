@@ -40,7 +40,7 @@ ml = [
     "joblib==1.5.2",
 ]
 ast = [
-    "tree-sitter==0.25.2",  # Downgrade to match tree-sitter-language-pack requirement
+    "tree-sitter==0.23.2",  # Downgrade to match tree-sitter-language-pack requirement
     "tree-sitter-language-pack==0.9.1",
     "sqlparse==0.5.3",
     "dockerfile-parse==2.0.1",
