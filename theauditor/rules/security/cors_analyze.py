@@ -227,7 +227,6 @@ class CORSAnalyzer:
                     confidence=Confidence.HIGH,
                     category='security',
                     snippet=f'{func}(origin: "*", credentials: true)',
-                    fix_suggestion='Never use wildcard origin with credentials. Use explicit origin whitelist.',
                     cwe_id='CWE-942'  # Permissive Cross-domain Policy
                 ))
 
@@ -268,7 +267,6 @@ class CORSAnalyzer:
                         confidence=Confidence.HIGH,
                         category='security',
                         snippet=f'{var} = {expr[:100]}',
-                        fix_suggestion='List specific subdomains instead of using wildcards. Monitor for subdomain takeovers.',
                         cwe_id='CWE-942'
                     ))
                     break
@@ -321,7 +319,6 @@ class CORSAnalyzer:
                         confidence=Confidence.HIGH,
                         category='security',
                         snippet='origin: [..., "null", ...]',
-                        fix_suggestion='Never allow "null" origin. It can be exploited via data: URIs and sandboxed iframes.',
                         cwe_id='CWE-346'  # Origin Validation Error
                     ))
 
@@ -371,7 +368,6 @@ class CORSAnalyzer:
                     confidence=Confidence.HIGH,
                     category='security',
                     snippet=f'{var} = {expr}',
-                    fix_suggestion='Always validate origin against whitelist before reflecting. Never trust user input.',
                     cwe_id='CWE-346'
                 ))
 
@@ -418,7 +414,6 @@ class CORSAnalyzer:
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{var} = {expr[:100]}',
-                    fix_suggestion='Escape dots, use anchors (^ and $), consider case-insensitive matching.',
                     cwe_id='CWE-185'  # Incorrect Regular Expression
                 ))
 
@@ -466,7 +461,6 @@ class CORSAnalyzer:
                     confidence=Confidence.HIGH,
                     category='security',
                     snippet='origin: "http://..."',
-                    fix_suggestion='Use HTTPS origins only. HTTP is vulnerable to MITM attacks.',
                     cwe_id='CWE-757'  # Selection of Less-Secure Algorithm
                 ))
 
@@ -503,7 +497,6 @@ class CORSAnalyzer:
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{var} = {expr[:100]}',
-                    fix_suggestion='Be explicit about allowed ports. Different ports are different origins.',
                     cwe_id='CWE-942'
                 ))
 
@@ -547,7 +540,6 @@ class CORSAnalyzer:
                     confidence=Confidence.LOW,
                     category='security',
                     snippet=f'{func}(...origin...)',
-                    fix_suggestion='Normalize case before comparing origins. Use toLowerCase() on both values.',
                     cwe_id='CWE-178'  # Improper Handling of Case Sensitivity
                 ))
 
@@ -596,7 +588,6 @@ class CORSAnalyzer:
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet='Access-Control-Allow-Origin without Vary: Origin',
-                    fix_suggestion='Always set "Vary: Origin" when origin is dynamic to prevent cache poisoning.',
                     cwe_id='CWE-524'  # Use of Cache Containing Sensitive Information
                 ))
 
@@ -634,7 +625,6 @@ class CORSAnalyzer:
                         confidence=Confidence.HIGH,
                         category='security',
                         snippet=f'Access-Control-Max-Age: {max_age}',
-                        fix_suggestion='Use reasonable Max-Age (3600-7200 seconds). Long cache prevents security updates.',
                         cwe_id='CWE-942'
                     ))
 
@@ -679,7 +669,6 @@ class CORSAnalyzer:
                     confidence=Confidence.LOW,
                     category='security',
                     snippet=f'{func}("connection", ...)',
-                    fix_suggestion='Validate origin in WebSocket handshake. WebSockets don\'t follow CORS.',
                     cwe_id='CWE-346'
                 ))
 
@@ -725,7 +714,6 @@ class CORSAnalyzer:
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{var} = function(...)',
-                    fix_suggestion='Ensure dynamic validators properly reject invalid origins. No wildcard fallbacks.',
                     cwe_id='CWE-942'
                 ))
 
@@ -760,7 +748,6 @@ class CORSAnalyzer:
                     confidence=Confidence.HIGH,
                     category='security',
                     snippet=f'{var} = ... ? ... : "*"',
-                    fix_suggestion='Never fall back to wildcard. Use safe default or reject invalid origins.',
                     cwe_id='CWE-942'
                 ))
 
@@ -795,7 +782,6 @@ class CORSAnalyzer:
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{var} = NODE_ENV === "development" ? "*" : ...',
-                    fix_suggestion='Use environment-specific config files. Never use wildcards even in development.',
                     cwe_id='CWE-489'  # Active Debug Code
                 ))
 
@@ -840,7 +826,6 @@ class CORSAnalyzer:
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{func}(cors()) // After route definitions',
-                    fix_suggestion='Apply CORS middleware before defining routes. Order matters in Express.',
                     cwe_id='CWE-696'  # Incorrect Behavior Order
                 ))
 
@@ -865,7 +850,6 @@ class CORSAnalyzer:
                     confidence=Confidence.HIGH,
                     category='security',
                     snippet='CORS(app, resources="/*", supports_credentials=True)',
-                    fix_suggestion='Specify exact resource paths when using credentials in Flask-CORS.',
                     cwe_id='CWE-942'
                 ))
 

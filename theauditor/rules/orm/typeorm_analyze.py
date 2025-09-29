@@ -164,7 +164,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.HIGH if method_name in QUERYBUILDER_MANY else Severity.MEDIUM,
                         category='orm-performance',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Add take/skip options or limit() for pagination',
                         cwe_id='CWE-400'
                     ))
 
@@ -209,7 +208,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                                 severity=Severity.HIGH,
                                 category='orm-performance',
                                 confidence=Confidence.MEDIUM,
-                                fix_suggestion='Use relations option or leftJoinAndSelect to fetch related data',
                                 cwe_id='CWE-400'
                             ))
                             break
@@ -265,7 +263,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                                 severity=Severity.HIGH,
                                 category='orm-data-integrity',
                                 confidence=Confidence.HIGH if not has_cfg_blocks else Confidence.MEDIUM,
-                                fix_suggestion='Use EntityManager.transaction() or QueryRunner for atomicity',
                                 cwe_id='CWE-662'
                             ))
                             break
@@ -304,7 +301,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.CRITICAL,
                             category='orm-security',
                             confidence=Confidence.HIGH if 'query' in func else Confidence.MEDIUM,
-                            fix_suggestion='Use parameterized queries with :param or $1 syntax',
                             cwe_id='CWE-89'
                         ))
 
@@ -342,7 +338,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.HIGH,
                         category='orm-performance',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Add .limit() or .take() before executing query',
                         cwe_id='CWE-400'
                     ))
 
@@ -367,7 +362,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='orm-data-integrity',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use specific cascade options: ["insert", "update"]',
                     cwe_id='CWE-672'
                 ))
 
@@ -394,7 +388,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='orm-security',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Set synchronize: false and use migrations',
                     cwe_id='CWE-665'
                 ))
 
@@ -450,7 +443,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                                 severity=Severity.MEDIUM,
                                 category='orm-performance',
                                 confidence=Confidence.MEDIUM,
-                                fix_suggestion=f'Add @Index() decorator to {field} field',
                                 cwe_id='CWE-400'
                             ))
 
@@ -498,7 +490,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.HIGH,
                             category='orm-performance',
                             confidence=Confidence.MEDIUM,
-                            fix_suggestion='Add pagination to complex queries with multiple joins',
                             cwe_id='CWE-400'
                         ))
 
@@ -535,7 +526,6 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.LOW,
                         category='orm-architecture',
                         confidence=Confidence.LOW,
-                        fix_suggestion='Use Repository pattern for better separation of concerns',
                         cwe_id='CWE-1061'
                     ))
 

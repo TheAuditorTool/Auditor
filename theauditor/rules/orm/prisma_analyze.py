@@ -143,7 +143,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='orm-performance',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Add pagination with take and skip parameters',
                     cwe_id='CWE-400'
                 ))
 
@@ -170,7 +169,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='orm-performance',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use include or select to eager load related data',
                     cwe_id='CWE-400'
                 ))
 
@@ -218,7 +216,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.HIGH,
                             category='orm-data-integrity',
                             confidence=Confidence.HIGH,
-                            fix_suggestion='Wrap multiple write operations in prisma.$transaction()',
                             cwe_id='CWE-662'
                         ))
                         break  # One finding per cluster
@@ -261,7 +258,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.LOW,
                         category='orm-error-handling',
                         confidence=Confidence.LOW if not has_cfg_blocks else Confidence.MEDIUM,
-                        fix_suggestion='Add try-catch block to handle potential errors',
                         cwe_id='CWE-755'
                     ))
 
@@ -301,7 +297,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.CRITICAL if is_unsafe else Severity.HIGH,
                         category='orm-security',
                         confidence=Confidence.HIGH if is_unsafe else Confidence.MEDIUM,
-                        fix_suggestion='Use parameterized queries with $queryRaw`` or Prisma query builder',
                         cwe_id='CWE-89'
                     ))
 
@@ -344,7 +339,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.MEDIUM,
                             category='orm-performance',
                             confidence=Confidence.MEDIUM,
-                            fix_suggestion='Add @index or @@index directives in schema.prisma for frequently queried fields',
                             cwe_id='CWE-400'
                         ))
 
@@ -384,7 +378,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.MEDIUM,
                             category='orm-configuration',
                             confidence=Confidence.MEDIUM,
-                            fix_suggestion='Add ?connection_limit=10 to DATABASE_URL to prevent pool exhaustion',
                             cwe_id='CWE-770'
                         ))
 
@@ -400,7 +393,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                                     severity=Severity.HIGH,
                                     category='orm-configuration',
                                     confidence=Confidence.HIGH,
-                                    fix_suggestion='Reduce connection_limit to 10-20 for typical applications',
                                     cwe_id='CWE-770'
                                 ))
                                 break
@@ -428,7 +420,6 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='orm-performance',
                     confidence=Confidence.HIGH,
-                    fix_suggestion=f'Add @unique or @@index([{field_name}]) to improve query performance',
                     cwe_id='CWE-400'
                 ))
 

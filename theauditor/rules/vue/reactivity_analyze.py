@@ -129,7 +129,6 @@ def _find_obvious_mutations_via_database(context: StandardRuleContext) -> List[S
                 severity=Severity.HIGH,
                 category='vue',
                 snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
-                fix_suggestion='Use local data property or emit event to parent',
                 confidence=0.7  # Lower confidence since we can't verify it's actually a prop
             ))
 
@@ -243,7 +242,6 @@ def _find_vue_issues_via_ast(tree: Any, file_path: str) -> List[StandardFinding]
                 category='vue',
                 confidence=0.90,
                 snippet=text[:100] if len(text) > 100 else text,
-                fix_suggestion=f'Use local data property or emit event to update parent state',
                 metadata={
                     'prop': mutated_prop,
                     'api_type': api_type
@@ -264,7 +262,6 @@ def _find_vue_issues_via_ast(tree: Any, file_path: str) -> List[StandardFinding]
                     category='vue',
                     confidence=0.85,
                     snippet=f'data() {{ return {{ {issue["property"]}: {issue["type"]} }} }}',
-                    fix_suggestion=f'Initialize {issue["type"]} in data() using factory function or return new instance',
                     metadata={
                         'property': issue['property'],
                         'type': issue['type']

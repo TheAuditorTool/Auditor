@@ -130,7 +130,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.MEDIUM,  # Reduced severity since we can't confirm async
                         category='performance',
                         confidence=Confidence.LOW,  # Low confidence without async detection
-                        fix_suggestion=f'If async route: use await asyncio.sleep() instead of time.sleep, httpx instead of requests, aiofiles for file ops',
                         cwe_id='CWE-407'
                     ))
         
@@ -162,7 +161,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category='architecture',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Use FastAPI dependency injection: def get_db() -> Session: ...',
                 cwe_id='CWE-1061'
             ))
         
@@ -190,7 +188,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category='security',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Add CORSMiddleware: from fastapi.middleware.cors import CORSMiddleware',
                 cwe_id='CWE-346'
             ))
         
@@ -220,7 +217,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,  # Reduced severity
                     category='performance',
                     confidence=Confidence.LOW,  # Low confidence without async detection
-                    fix_suggestion='If async route: use aiofiles - async with aiofiles.open(...) as f:',
                     cwe_id='CWE-407'
                 ))
         
@@ -245,7 +241,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='architecture',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use SQLAlchemy ORM or repository pattern for database operations',
                     cwe_id='CWE-89'
                 ))
         
@@ -283,7 +278,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='error-handling',
                     confidence=Confidence.MEDIUM if 'cfg_blocks' in existing_tables else Confidence.LOW,
-                    fix_suggestion='Wrap background task code in try/except to handle errors',
                     cwe_id='CWE-248'
                 ))
         
@@ -319,7 +313,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.CRITICAL,
                         category='security',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Add authentication check for WebSocket connections',
                         cwe_id='CWE-306'
                     ))
         
@@ -347,7 +340,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='security',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Remove debug endpoints or protect with authentication',
                     cwe_id='CWE-489'
                 ))
         
@@ -374,7 +366,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='injection',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Validate and sanitize file paths, use safe_join or pathlib',
                 cwe_id='CWE-22'
             ))
         
@@ -404,7 +395,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='availability',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Add request timeout middleware to prevent slowloris attacks',
                     cwe_id='CWE-400'
                 ))
         
@@ -434,7 +424,6 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category='error-handling',
                 confidence=Confidence.LOW,
-                fix_suggestion='Add exception handlers: @app.exception_handler(Exception)',
                 cwe_id='CWE-209'
             ))
     

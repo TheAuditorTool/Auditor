@@ -218,7 +218,6 @@ class AsyncConcurrencyAnalyzer:
                             category='async',
                             confidence=Confidence.MEDIUM,
                             snippet=f'{callee}(...)',
-                            fix_suggestion='Add await or handle with .then()/.catch()'
                         ))
 
             conn.close()
@@ -256,7 +255,6 @@ class AsyncConcurrencyAnalyzer:
                     category='error-handling',
                     confidence=Confidence.HIGH,
                     snippet=method,
-                    fix_suggestion='Add .catch() to handle promise rejections'
                 ))
 
             conn.close()
@@ -293,7 +291,6 @@ class AsyncConcurrencyAnalyzer:
                     category='error-handling',
                     confidence=Confidence.HIGH,
                     snippet='Promise.all(...)',
-                    fix_suggestion='Add .catch() to handle any promise rejection'
                 ))
 
             conn.close()
@@ -332,7 +329,6 @@ class AsyncConcurrencyAnalyzer:
                         category='concurrency',
                         confidence=Confidence.HIGH,
                         snippet=args[:100] if len(args) > 100 else args,
-                        fix_suggestion='Use sequential operations or database transactions'
                     ))
 
             conn.close()
@@ -372,7 +368,6 @@ class AsyncConcurrencyAnalyzer:
                         category='concurrency',
                         confidence=Confidence.MEDIUM,
                         snippet=f'{target} = ...',
-                        fix_suggestion='Use locks, mutexes, or immutable updates'
                     ))
 
             conn.close()
@@ -427,7 +422,6 @@ class AsyncConcurrencyAnalyzer:
                             category='concurrency',
                             confidence=Confidence.MEDIUM,
                             snippet=expr,
-                            fix_suggestion='Use Atomics API or synchronization'
                         ))
 
             conn.close()
@@ -460,7 +454,6 @@ class AsyncConcurrencyAnalyzer:
                     category='performance',
                     confidence=Confidence.MEDIUM,
                     snippet=func,
-                    fix_suggestion='Use async/await with Promise-based delays'
                 ))
 
             # Check by proximity to loop keywords
@@ -487,7 +480,6 @@ class AsyncConcurrencyAnalyzer:
                     category='performance',
                     confidence=Confidence.HIGH,
                     snippet=func,
-                    fix_suggestion='Move timer outside loop or use async iteration'
                 ))
 
             conn.close()
@@ -550,7 +542,6 @@ class AsyncConcurrencyAnalyzer:
                                 category='resource-management',
                                 confidence=Confidence.MEDIUM,
                                 snippet=func,
-                                fix_suggestion='Ensure cleanup with terminate() or disconnect()'
                             ))
 
             conn.close()
@@ -605,7 +596,6 @@ class AsyncConcurrencyAnalyzer:
                             category='resource-management',
                             confidence=Confidence.MEDIUM,
                             snippet=func,
-                            fix_suggestion='Add error and close handlers'
                         ))
 
             conn.close()
@@ -652,7 +642,6 @@ class AsyncConcurrencyAnalyzer:
                         category='race-condition',
                         confidence=Confidence.HIGH,
                         snippet=f'{check_func} -> {write_func}',
-                        fix_suggestion='Use atomic operations or locks'
                     ))
 
             conn.close()
@@ -692,7 +681,6 @@ class AsyncConcurrencyAnalyzer:
                     category='performance',
                     confidence=Confidence.LOW,
                     snippet=expr[:100] if len(expr) > 100 else expr,
-                    fix_suggestion='Implement exponential backoff: delay *= 2'
                 ))
 
             conn.close()
@@ -745,7 +733,6 @@ class AsyncConcurrencyAnalyzer:
                             category='concurrency',
                             confidence=Confidence.LOW,
                             snippet=var,
-                            fix_suggestion='Use double-checked locking'
                         ))
 
             conn.close()
@@ -786,7 +773,6 @@ class AsyncConcurrencyAnalyzer:
                     category='memory-leak',
                     confidence=Confidence.LOW,
                     snippet=func,
-                    fix_suggestion='Remove listeners when no longer needed'
                 ))
 
             conn.close()
@@ -830,7 +816,6 @@ class AsyncConcurrencyAnalyzer:
                         category='code-quality',
                         confidence=Confidence.MEDIUM,
                         snippet=args[:100] if len(args) > 100 else args,
-                        fix_suggestion='Refactor using async/await or Promises'
                     ))
 
             conn.close()

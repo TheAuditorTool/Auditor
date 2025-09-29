@@ -111,7 +111,6 @@ def _find_cross_tenant_data_leaks(cursor) -> List[StandardFinding]:
                     severity=severity,
                     category='security',
                     snippet=query[:100] + '...' if len(query) > 100 else query,
-                    fix_suggestion='Add tenant filtering: WHERE facility_id = ? or tenant_id = ?',
                     cwe_id='CWE-863'
                 ))
     
@@ -155,7 +154,6 @@ def _find_queries_without_tenant_filter(cursor) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='security',
                     snippet=query[:100] + '...' if len(query) > 100 else query,
-                    fix_suggestion='Consider adding tenant field (facility_id, tenant_id) to WHERE clause',
                     cwe_id='CWE-863'
                 ))
     
@@ -197,7 +195,6 @@ def _find_global_delete_operations(cursor) -> List[StandardFinding]:
                 severity=severity,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Add tenant filter to DELETE: WHERE facility_id = ? AND ...',
                 cwe_id='CWE-863'
             ))
     
@@ -229,7 +226,6 @@ def _find_missing_rls_policies(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion="Add USING (facility_id = current_setting('app.current_facility_id')::uuid)",
                 cwe_id='CWE-863'
             ))
         else:
@@ -243,7 +239,6 @@ def _find_missing_rls_policies(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=query[:100] + '...' if len(query) > 100 else query,
-                    fix_suggestion='Ensure USING clause checks facility_id or tenant_id',
                     cwe_id='CWE-863'
                 ))
     
@@ -282,7 +277,6 @@ def _find_direct_id_access(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Add tenant check: WHERE id = ? AND facility_id = ?',
                 cwe_id='CWE-863'
             ))
     
@@ -322,7 +316,6 @@ def _find_join_without_tenant(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=query[:100] + '...' if len(query) > 100 else query,
-                    fix_suggestion='Add tenant field to JOIN: ON a.id = b.id AND a.facility_id = b.facility_id',
                     cwe_id='CWE-863'
                 ))
     
@@ -365,7 +358,6 @@ def _find_bulk_operations(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Ensure tenant field is included in bulk operations',
                 cwe_id='CWE-863'
             ))
     
@@ -405,7 +397,6 @@ def _find_cross_tenant_joins(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Ensure both outer and inner queries filter by tenant field',
                 cwe_id='CWE-863'
             ))
     
@@ -448,7 +439,6 @@ def _find_tenant_issues_in_function_calls(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                    fix_suggestion='Add tenant field to WHERE clause',
                     cwe_id='CWE-863'
                 ))
     
@@ -512,7 +502,6 @@ def _find_missing_rls_context(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=f'{func}(...)',
-                fix_suggestion='Add SET LOCAL app.current_facility_id = ? at transaction start',
                 cwe_id='CWE-863'
             ))
     
@@ -551,7 +540,6 @@ def _find_bypass_rls_with_superuser(cursor) -> List[StandardFinding]:
                         severity=Severity.CRITICAL,
                         category='security',
                         snippet=f'{var} = "{superuser}"',
-                        fix_suggestion='Use a limited database user with RLS policies applied',
                         cwe_id='CWE-250'
                     ))
                     break
@@ -585,7 +573,6 @@ def _find_bypass_rls_with_superuser(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=name[:50],
-                fix_suggestion='Ensure database connections use limited users with RLS',
                 cwe_id='CWE-250'
             ))
     
@@ -625,7 +612,6 @@ def _find_missing_tenant_scopes(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=f'{func}({{ where: {{...}} }})',
-                    fix_suggestion='Add tenant field to WHERE clause or use scoped models',
                     cwe_id='CWE-863'
                 ))
     
@@ -660,7 +646,6 @@ def _find_missing_tenant_scopes(cursor) -> List[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category='security',
                 snippet=f'class {name} extends Model',
-                fix_suggestion='Consider adding defaultScope with facility_id filter',
                 cwe_id='CWE-863'
             ))
     

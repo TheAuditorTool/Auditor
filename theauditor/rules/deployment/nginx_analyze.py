@@ -247,7 +247,6 @@ class NginxAnalyzer:
                         severity=Severity.HIGH,
                         category='security',
                         snippet=f'proxy_pass {proxy.proxy_pass}',
-                        fix_suggestion='Add limit_req directive to protect against DoS attacks'
                     ))
 
     def _check_security_headers(self) -> None:
@@ -271,7 +270,6 @@ class NginxAnalyzer:
                         severity=Severity.MEDIUM,
                         category='security',
                         snippet=f'Missing: add_header {header_name}',
-                        fix_suggestion=f'Add "{header_name}" header for {description}'
                     ))
 
     def _check_exposed_paths(self) -> None:
@@ -293,7 +291,6 @@ class NginxAnalyzer:
                             severity=Severity.HIGH,
                             category='security',
                             snippet=f'location {location_pattern}',
-                            fix_suggestion='Add "deny all;" or "return 404;" to protect this path'
                         ))
 
     def _check_ssl_configurations(self) -> None:
@@ -321,7 +318,6 @@ class NginxAnalyzer:
                     severity=Severity.CRITICAL,
                     category='security',
                     snippet=f'ssl_protocols {config.protocols}',
-                    fix_suggestion='Use only TLSv1.2 and TLSv1.3: ssl_protocols TLSv1.2 TLSv1.3;'
                 ))
 
     def _check_ssl_ciphers(self, config: 'NginxSSLConfig') -> None:
@@ -338,7 +334,6 @@ class NginxAnalyzer:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=self._truncate_snippet(f'ssl_ciphers {config.ciphers}', 100),
-                    fix_suggestion='Use strong cipher suites: ssl_ciphers HIGH:!aNULL:!MD5;'
                 ))
 
     def _check_server_tokens(self) -> None:
@@ -353,7 +348,6 @@ class NginxAnalyzer:
                     severity=Severity.LOW,
                     category='security',
                     snippet=f'server_tokens {value}',
-                    fix_suggestion='Set "server_tokens off;" to hide Nginx version'
                 ))
 
     def _extract_location_pattern(self, context: str) -> str:

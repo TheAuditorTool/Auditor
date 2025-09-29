@@ -100,7 +100,6 @@ def _find_update_without_where(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,  # Not always critical
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Add WHERE clause to target specific rows. If updating all rows is intentional, add a comment',
                 cwe_id='CWE-89'
             ))
     
@@ -133,7 +132,6 @@ def _find_delete_without_where(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Add WHERE clause. Use TRUNCATE TABLE if you intend to delete all rows',
                 cwe_id='CWE-89'
             ))
     
@@ -170,7 +168,6 @@ def _find_select_star_queries(cursor) -> List[StandardFinding]:
                 severity=severity,
                 category='performance',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='List specific columns instead of * to reduce data transfer and improve query performance',
                 cwe_id='CWE-770'
             ))
     
@@ -214,7 +211,6 @@ def _find_unbounded_queries(cursor) -> List[StandardFinding]:
                 severity=severity,
                 category='performance',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Add LIMIT clause to prevent fetching entire tables. Use pagination for large result sets',
                 cwe_id='CWE-770'
             ))
     
@@ -274,7 +270,6 @@ def _find_large_in_clauses(cursor) -> List[StandardFinding]:
                     severity=severity,
                     category='performance',
                     snippet=query[:100] + '...' if len(query) > 100 else query,
-                    fix_suggestion=f'Consider using a temporary table or JOIN for {threshold} values in IN clause',
                     cwe_id='CWE-770'
                 ))
     
@@ -329,7 +324,6 @@ def _find_missing_transactions(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='reliability',
                 snippet=f'{dml_count} UPDATE/DELETE/INSERT operations',
-                fix_suggestion='Wrap related DML operations in transactions for atomicity',
                 cwe_id='CWE-667'
             ))
     
@@ -371,7 +365,6 @@ def _find_inefficient_joins(cursor) -> List[StandardFinding]:
             severity=severity,
             category='performance',
             snippet=query[:100] + '...' if len(query) > 100 else query,
-            fix_suggestion='Consider denormalizing, using materialized views, or breaking into multiple queries',
             cwe_id='CWE-770'
         ))
     
@@ -421,7 +414,6 @@ def _find_n_plus_one_queries(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='performance',
                     snippet=f'{count} SELECT queries on table: {tables}',
-                    fix_suggestion='Use JOIN or batch loading to avoid N+1 queries',
                     cwe_id='CWE-770'
                 ))
     
@@ -459,7 +451,6 @@ def _find_safety_issues_in_function_calls(cursor) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='security',
                     snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                    fix_suggestion='Add WHERE clause to UPDATE statement',
                     cwe_id='CWE-89'
                 ))
             elif 'DELETE' in args_upper and 'WHERE' not in args_upper:
@@ -471,7 +462,6 @@ def _find_safety_issues_in_function_calls(cursor) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='security',
                     snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                    fix_suggestion='Add WHERE clause to DELETE statement',
                     cwe_id='CWE-89'
                 ))
     
@@ -532,7 +522,6 @@ def _find_transactions_without_rollback(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='reliability',
                     snippet=f'{func}()',
-                    fix_suggestion='Add rollback in except/catch or finally block',
                     cwe_id='CWE-667'
                 ))
     
@@ -589,7 +578,6 @@ def _find_nested_transactions(cursor) -> List[StandardFinding]:
                         severity=Severity.HIGH,
                         category='reliability',
                         snippet=f'{func2}()',
-                        fix_suggestion='Use savepoints or restructure code to prevent deadlocks',
                         cwe_id='CWE-667'
                     ))
     
@@ -648,7 +636,6 @@ def _find_connection_leaks(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='reliability',
                     snippet=f'{func}()',
-                    fix_suggestion='Use connection pooling or ensure connections are closed in finally block',
                     cwe_id='CWE-404'
                 ))
     

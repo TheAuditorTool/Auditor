@@ -235,7 +235,6 @@ class InjectionAnalyzer:
                     severity=severity,
                     category='injection',
                     confidence=confidence,
-                    fix_suggestion='Use parameterized queries with ? or %s placeholders',
                     cwe_id='CWE-89'
                 ))
 
@@ -249,7 +248,6 @@ class InjectionAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Never use f-strings for SQL. Use parameterized queries',
                     cwe_id='CWE-89'
                 ))
 
@@ -285,7 +283,6 @@ class InjectionAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use shell=False and pass arguments as a list',
                     cwe_id='CWE-78'
                 ))
 
@@ -300,7 +297,6 @@ class InjectionAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     confidence=confidence,
-                    fix_suggestion='Use subprocess with shell=False and argument list',
                     cwe_id='CWE-78'
                 ))
 
@@ -334,7 +330,6 @@ class InjectionAnalyzer:
                 severity=severity,
                 category='injection',
                 confidence=confidence,
-                fix_suggestion=f'Avoid {method}(). Use ast.literal_eval() for data or specific parsers',
                 cwe_id='CWE-94'
             ))
 
@@ -363,7 +358,6 @@ class InjectionAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use render_template() with template files instead',
                     cwe_id='CWE-1336'
                 ))
 
@@ -376,7 +370,6 @@ class InjectionAnalyzer:
                     severity=Severity.HIGH,
                     category='injection',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Sanitize user input and use autoescape in templates',
                     cwe_id='CWE-1336'
                 ))
 
@@ -406,7 +399,6 @@ class InjectionAnalyzer:
                     severity=Severity.HIGH,
                     category='injection',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Escape LDAP special characters: ()\\*\\0',
                     cwe_id='CWE-90'
                 ))
 
@@ -439,7 +431,6 @@ class InjectionAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Avoid $where and $regex with user input',
                     cwe_id='CWE-943'
                 ))
 
@@ -452,7 +443,6 @@ class InjectionAnalyzer:
                     severity=Severity.HIGH,
                     category='injection',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Validate and sanitize user input for NoSQL queries',
                     cwe_id='CWE-943'
                 ))
 
@@ -481,7 +471,6 @@ class InjectionAnalyzer:
                     severity=Severity.HIGH,
                     category='injection',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use XPath variables or parameterized queries',
                     cwe_id='CWE-91'
                 ))
 
@@ -515,7 +504,6 @@ class InjectionAnalyzer:
                         severity=Severity.HIGH,
                         category='injection',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Use query builders or ORMs instead of string concatenation',
                         cwe_id='CWE-89'
                     ))
 

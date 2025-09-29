@@ -125,7 +125,6 @@ def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding
             severity=Severity.MEDIUM,
             category='type-safety',
             snippet=name[:100],
-            fix_suggestion="Replace 'any' with specific type or 'unknown' for better type safety",
             cwe_id='CWE-843'
         ))
     
@@ -150,7 +149,6 @@ def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding
             severity=Severity.MEDIUM,
             category='type-safety',
             snippet=f'{var}: any',
-            fix_suggestion="Avoid 'any' type - use specific types or 'unknown' with type guards",
             cwe_id='CWE-843'
         ))
     
@@ -186,7 +184,6 @@ def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFindi
                 severity=Severity.LOW,
                 category='type-safety',
                 snippet=f'function {name}(...)',
-                fix_suggestion='Add explicit return type annotation for better type safety',
                 cwe_id='CWE-843'
             ))
     
@@ -219,7 +216,6 @@ def _find_missing_parameter_types(cursor, ts_files: Set[str]) -> List[StandardFi
                     severity=Severity.MEDIUM,
                     category='type-safety',
                     snippet='function(param1, param2)',
-                    fix_suggestion='Add type annotations to all function parameters',
                     cwe_id='CWE-843'
                 ))
     
@@ -253,7 +249,6 @@ def _find_unsafe_type_assertions(cursor, ts_files: Set[str]) -> List[StandardFin
             severity=severity,
             category='type-safety',
             snippet=f'{var} = ... as any',
-            fix_suggestion='Type assertions bypass compiler checks. Use type guards or proper typing',
             cwe_id='CWE-843'
         ))
     
@@ -285,7 +280,6 @@ def _find_non_null_assertions(cursor, ts_files: Set[str]) -> List[StandardFindin
             severity=Severity.MEDIUM,
             category='type-safety',
             snippet='value!.property',
-            fix_suggestion='Non-null assertions can cause runtime errors. Use optional chaining (?.)',
             cwe_id='CWE-476'
         ))
     
@@ -296,13 +290,9 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFi
     """Find dangerous type patterns like Function, Object, {}."""
     findings = []
     
-    dangerous_types = [
-        ('Function', 'Use specific function signature like (arg: Type) => ReturnType'),
-        ('Object', 'Use specific interface or type instead of Object'),
-        ('{}', 'Empty object type accepts any non-null value - use Record<string, unknown> or specific type')
-    ]
-    
-    for dangerous_type, recommendation in dangerous_types:
+    dangerous_types = ['Function', 'Object', '{}']
+
+    for dangerous_type in dangerous_types:
         cursor.execute("""
             SELECT s.file, s.line, s.name
             FROM symbols s
@@ -324,7 +314,6 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFi
                 severity=Severity.MEDIUM,
                 category='type-safety',
                 snippet=f': {dangerous_type}',
-                fix_suggestion=recommendation,
                 cwe_id='CWE-843'
             ))
     
@@ -368,7 +357,6 @@ def _find_untyped_json_parse(cursor, ts_files: Set[str]) -> List[StandardFinding
                 severity=Severity.HIGH,
                 category='type-safety',
                 snippet='JSON.parse(data)',
-                fix_suggestion='JSON.parse returns any. Use schema validation (zod, joi) or type guards',
                 cwe_id='CWE-843'
             ))
     
@@ -415,7 +403,6 @@ def _find_untyped_api_responses(cursor, ts_files: Set[str]) -> List[StandardFind
                     severity=Severity.HIGH,
                     category='type-safety',
                     snippet=f'{pattern}(url)',
-                    fix_suggestion='Type API responses with interfaces or use libraries with TypeScript generics',
                     cwe_id='CWE-843'
                 ))
     
@@ -449,7 +436,6 @@ def _find_missing_interfaces(cursor, ts_files: Set[str]) -> List[StandardFinding
                 severity=Severity.LOW,
                 category='type-safety',
                 snippet=f'{var} = {{ ... }}',
-                fix_suggestion='Define an interface for complex objects to ensure type safety',
                 cwe_id='CWE-843'
             ))
     
@@ -486,7 +472,6 @@ def _find_type_suppression_comments(cursor, ts_files: Set[str]) -> List[Standard
                 severity=severity,
                 category='type-safety',
                 snippet=f'// {suppression}',
-                fix_suggestion=description,
                 cwe_id='CWE-843'
             ))
     
@@ -518,7 +503,6 @@ def _find_untyped_catch_blocks(cursor, ts_files: Set[str]) -> List[StandardFindi
                 severity=Severity.MEDIUM,
                 category='type-safety',
                 snippet='catch (error)',
-                fix_suggestion='In TypeScript 4.0+, use catch (error: unknown) and type guards',
                 cwe_id='CWE-843'
             ))
     
@@ -552,7 +536,6 @@ def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFind
                 severity=Severity.MEDIUM,
                 category='type-safety',
                 snippet=f': {generic}',
-                fix_suggestion=f'Specify type parameter: {generic}<Type> for better type safety',
                 cwe_id='CWE-843'
             ))
     
@@ -586,7 +569,6 @@ def _find_untyped_event_handlers(cursor, ts_files: Set[str]) -> List[StandardFin
                     severity=Severity.LOW,
                     category='type-safety',
                     snippet='(event) => {...}',
-                    fix_suggestion='Type event parameters: (event: MouseEvent), etc.',
                     cwe_id='CWE-843'
                 ))
     
@@ -618,7 +600,6 @@ def _find_type_mismatches(cursor, ts_files: Set[str]) -> List[StandardFinding]:
             severity=Severity.MEDIUM,
             category='type-safety',
             snippet=f'{var} = ...',
-            fix_suggestion='Ensure assignment matches declared type to prevent runtime errors',
             cwe_id='CWE-843'
         ))
     
@@ -650,7 +631,6 @@ def _find_unsafe_property_access(cursor, ts_files: Set[str]) -> List[StandardFin
                 severity=Severity.MEDIUM,
                 category='type-safety',
                 snippet='obj[dynamicKey]',
-                fix_suggestion='Use optional chaining (?.) or type guards when accessing dynamic properties',
                 cwe_id='CWE-843'
             ))
     

@@ -236,7 +236,6 @@ class ReactAnalyzer:
                         severity=Severity.HIGH,
                         category='xss',
                         snippet=html_content[:100] if len(html_content) > 100 else html_content,
-                        fix_suggestion='Sanitize HTML with DOMPurify before using dangerouslySetInnerHTML'
                     ))
 
             conn.close()
@@ -282,7 +281,6 @@ class ReactAnalyzer:
                             severity=Severity.HIGH,
                             category='security',
                             snippet=f'{var_name} = {value[:50]}...' if len(value) > 50 else f'{var_name} = {value}',
-                            fix_suggestion='Move sensitive keys to backend, use proxy endpoints'
                         ))
 
             conn.close()
@@ -316,7 +314,6 @@ class ReactAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     snippet=eval_content[:100] if len(eval_content) > 100 else eval_content,
-                    fix_suggestion='Never use eval() with JSX - use React.createElement or JSX directly'
                 ))
 
             conn.close()
@@ -350,7 +347,6 @@ class ReactAnalyzer:
                     severity=Severity.MEDIUM,
                     category='security',
                     snippet=link_code[:100] if len(link_code) > 100 else link_code,
-                    fix_suggestion='Add rel="noopener noreferrer" to all target="_blank" links'
                 ))
 
             conn.close()
@@ -382,7 +378,6 @@ class ReactAnalyzer:
                     severity=Severity.HIGH,
                     category='xss',
                     snippet=f'{target} = {content[:50]}...' if len(content) > 50 else f'{target} = {content}',
-                    fix_suggestion='Use React state and JSX instead of direct DOM manipulation'
                 ))
 
             # Also check for document.write
@@ -402,7 +397,6 @@ class ReactAnalyzer:
                     severity=Severity.HIGH,
                     category='xss',
                     snippet=write_content[:100] if len(write_content) > 100 else write_content,
-                    fix_suggestion='Use React state and JSX instead of document.write'
                 ))
 
             conn.close()
@@ -458,7 +452,6 @@ class ReactAnalyzer:
                         severity=Severity.CRITICAL,
                         category='security',
                         snippet=f'{var_name} = "..."',
-                        fix_suggestion='Move credentials to environment variables or backend'
                     ))
 
             conn.close()
@@ -501,7 +494,6 @@ class ReactAnalyzer:
                         severity=Severity.HIGH,
                         category='security',
                         snippet=data[:100] if len(data) > 100 else data,
-                        fix_suggestion='Use httpOnly cookies or secure backend sessions'
                     ))
 
             conn.close()
@@ -552,7 +544,6 @@ class ReactAnalyzer:
                         category='validation',
                         confidence=Confidence.LOW,
                         snippet='Form handler without validation',
-                        fix_suggestion='Add input validation using yup, joi, or zod'
                     ))
 
             conn.close()
@@ -586,7 +577,6 @@ class ReactAnalyzer:
                     category='performance',
                     confidence=Confidence.LOW,
                     snippet=effect_code[:100] if len(effect_code) > 100 else effect_code,
-                    fix_suggestion='Add cleanup function to cancel requests on unmount'
                 ))
 
             conn.close()
@@ -638,7 +628,6 @@ class ReactAnalyzer:
                         category='authorization',
                         confidence=Confidence.LOW,
                         snippet='Routes defined without auth guards',
-                        fix_suggestion='Implement route guards with authentication checks'
                     ))
 
             conn.close()
@@ -695,7 +684,6 @@ class ReactAnalyzer:
                                 severity=Severity.HIGH,
                                 category='csrf',
                                 snippet='Form with POST/PUT/DELETE without CSRF',
-                                fix_suggestion='Add CSRF token to form as hidden field or header'
                             ))
 
             conn.close()
@@ -762,7 +750,6 @@ class ReactAnalyzer:
                                 severity=Severity.HIGH,
                                 category='xss',
                                 snippet=jsx_content[:100] if len(jsx_content) > 100 else jsx_content,
-                                fix_suggestion=f'Sanitize {input_source} before rendering in JSX'
                             ))
 
             conn.close()

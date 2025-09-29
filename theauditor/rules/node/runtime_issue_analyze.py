@@ -208,7 +208,6 @@ class RuntimeAnalyzer:
                             category='runtime-security',
                             confidence=Confidence.HIGH,
                             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                            fix_suggestion='Use parameterized commands or validate/sanitize input'
                         ))
 
             # Check for template literals with user input
@@ -252,7 +251,6 @@ class RuntimeAnalyzer:
                             category='runtime-security',
                             confidence=Confidence.MEDIUM,
                             snippet=expr[:80] + '...' if len(expr) > 80 else expr,
-                            fix_suggestion='Use parameterized commands instead of template literals'
                         ))
 
             conn.close()
@@ -295,7 +293,6 @@ class RuntimeAnalyzer:
                             category='runtime-security',
                             confidence=Confidence.HIGH,
                             snippet='spawn(..., {shell: true})',
-                            fix_suggestion='Remove shell:true or validate/sanitize all inputs'
                         ))
 
             conn.close()
@@ -340,7 +337,6 @@ class RuntimeAnalyzer:
                                     category='runtime-security',
                                     confidence=Confidence.HIGH,
                                     snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                                    fix_suggestion='Validate object keys before merging'
                                 ))
                                 break
 
@@ -375,7 +371,6 @@ class RuntimeAnalyzer:
                         category='runtime-security',
                         confidence=Confidence.LOW,
                         snippet='for...in without hasOwnProperty check',
-                        fix_suggestion='Use Object.hasOwn() to validate keys'
                     ))
 
             # Check recursive merge patterns
@@ -422,7 +417,6 @@ class RuntimeAnalyzer:
                             category='runtime-security',
                             confidence=Confidence.MEDIUM,
                             snippet=f'function {func_name}(...) with recursion',
-                            fix_suggestion='Add key validation to prevent __proto__ pollution'
                         ))
 
             conn.close()
@@ -482,7 +476,6 @@ class RuntimeAnalyzer:
                             category='runtime-security',
                             confidence=Confidence.HIGH if found_source in str(self.patterns.USER_INPUT_SOURCES) else Confidence.MEDIUM,
                             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                            fix_suggestion='Never use eval() or Function() with user input'
                         ))
 
             conn.close()
@@ -535,7 +528,6 @@ class RuntimeAnalyzer:
                             category='runtime-security',
                             confidence=Confidence.MEDIUM,
                             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                            fix_suggestion='Use pre-defined regex patterns or validate input'
                         ))
 
             conn.close()
@@ -591,7 +583,6 @@ class RuntimeAnalyzer:
                                 category='runtime-security',
                                 confidence=Confidence.HIGH,
                                 snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                                fix_suggestion='Use path.join() or path.resolve() to normalize paths'
                             ))
 
             conn.close()

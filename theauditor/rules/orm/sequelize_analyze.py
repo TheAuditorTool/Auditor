@@ -176,7 +176,6 @@ class SequelizeAnalyzer:
                     category='orm-performance',
                     snippet=f'{method}({{ include: {{ all: true, nested: true }} }})',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Never use all:true with nested:true. Specify exact associations needed.',
                     cwe_id='CWE-400'
                 ))
 
@@ -215,7 +214,6 @@ class SequelizeAnalyzer:
                         category='orm-performance',
                         snippet=f'{method}() without eager loading',
                         confidence=Confidence.MEDIUM if confidence == 1 else Confidence.HIGH,
-                        fix_suggestion='Use include option to eager load associations and avoid N+1 queries',
                         cwe_id='CWE-400'
                     ))
 
@@ -268,7 +266,6 @@ class SequelizeAnalyzer:
                         category='orm-performance',
                         snippet=f'{func}() without pagination',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Add limit and offset options for pagination to prevent memory issues',
                         cwe_id='CWE-400'
                     ))
 
@@ -296,7 +293,6 @@ class SequelizeAnalyzer:
                         category='orm-concurrency',
                         snippet=f'{func}() outside transaction',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Wrap findOrCreate in sequelize.transaction() to prevent race conditions',
                         cwe_id='CWE-362'
                     ))
 
@@ -376,7 +372,6 @@ class SequelizeAnalyzer:
                             category='orm-data-integrity',
                             snippet=f"Multiple operations at lines {op1['line']} and {op2['line']}",
                             confidence=Confidence.HIGH,
-                            fix_suggestion='Wrap related write operations in sequelize.transaction() for atomicity',
                             cwe_id='CWE-662'
                         ))
                         break  # One finding per cluster
@@ -426,7 +421,6 @@ class SequelizeAnalyzer:
                         category='orm-security',
                         snippet=f'{func} with string concatenation',
                         confidence=Confidence.HIGH if is_literal else Confidence.MEDIUM,
-                        fix_suggestion='Use parameterized queries with replacements or bind parameters',
                         cwe_id='CWE-89'
                     ))
 
@@ -463,7 +457,6 @@ class SequelizeAnalyzer:
                     category='orm-performance',
                     snippet=f'{method} with {include_count} associations',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Reduce number of eager loaded associations or use separate queries',
                     cwe_id='CWE-400'
                 ))
 
@@ -478,7 +471,6 @@ class SequelizeAnalyzer:
                     category='orm-performance',
                     snippet=f'{method} with {bracket_depth} levels of nesting',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Flatten nested includes or use separate queries for deep relations',
                     cwe_id='CWE-400'
                 ))
 
@@ -503,7 +495,6 @@ class SequelizeAnalyzer:
                     category='orm-data-integrity',
                     snippet=f'{method}({{ paranoid: false }})',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Consider using soft deletes (paranoid:true) for data recovery',
                     cwe_id='CWE-471'
                 ))
             elif args and 'force: true' in str(args):
@@ -516,7 +507,6 @@ class SequelizeAnalyzer:
                     category='orm-data-integrity',
                     snippet=f'{method}({{ force: true }})',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Avoid force deletes unless absolutely necessary',
                     cwe_id='CWE-471'
                 ))
 
@@ -553,7 +543,6 @@ class SequelizeAnalyzer:
                 category='orm-consistency',
                 snippet=f'{command} query outside ORM',
                 confidence=Confidence.LOW,
-                fix_suggestion='Consider using Sequelize query builder instead of raw SQL',
                 cwe_id='CWE-213'
             ))
 

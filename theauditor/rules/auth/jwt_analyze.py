@@ -61,7 +61,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='cryptography',
                 snippet=secret_expr[:100] if len(secret_expr) > 100 else secret_expr,
-                fix_suggestion='Move secret to environment variable or secure configuration',
                 cwe_id='CWE-798'
             ))
 
@@ -93,7 +92,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='cryptography',
                     snippet=secret_expr,
-                    fix_suggestion='Use a cryptographically strong secret with 32+ random characters',
                     cwe_id='CWE-326'
                 ))
 
@@ -125,7 +123,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='authentication',
                 snippet=options[:100] if options and len(options) > 100 else options or 'No options provided',
-                fix_suggestion="Add 'expiresIn' option (e.g., { expiresIn: '1h' })",
                 cwe_id='CWE-613'
             ))
 
@@ -156,7 +153,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='authentication',
                     snippet=options[:200],
-                    fix_suggestion='Use only one algorithm type (symmetric OR asymmetric, not both)',
                     cwe_id='CWE-327'
                 ))
 
@@ -181,7 +177,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='authentication',
                 snippet=options[:100],
-                fix_suggestion='Never allow "none" algorithm in production',
                 cwe_id='CWE-347'
             ))
 
@@ -205,7 +200,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='authentication',
                 snippet='jwt.decode() call detected',
-                fix_suggestion='Use jwt.verify() instead of jwt.decode() to validate signatures',
                 cwe_id='CWE-347'
             ))
 
@@ -245,7 +239,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='data-exposure',
                     snippet=payload[:100],
-                    fix_suggestion='Never put sensitive data in JWT payloads - they are only base64 encoded',
                     cwe_id='CWE-312'
                 ))
 
@@ -275,7 +268,6 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='cryptography',
                     snippet=env_var,
-                    fix_suggestion='Ensure production uses strong JWT_SECRET environment variable',
                     cwe_id='CWE-326'
                 ))
 

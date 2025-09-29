@@ -106,7 +106,6 @@ def _find_string_concatenation_in_queries(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,  # Not always CRITICAL
                     category='security',
                     snippet=query[:100] + '...' if len(query) > 100 else query,
-                    fix_suggestion='Use parameterized queries with placeholders (?, :param, %s)',
                     cwe_id='CWE-89'
                 ))
     
@@ -138,7 +137,6 @@ def _find_format_string_in_queries(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Never use .format() or {} placeholders for SQL. Use parameterized queries',
                 cwe_id='CWE-89'
             ))
     
@@ -177,7 +175,6 @@ def _find_fstring_patterns_in_queries(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='F-strings in SQL are extremely dangerous. Use parameterized queries',
                 cwe_id='CWE-89'
             ))
     
@@ -210,7 +207,6 @@ def _find_dynamic_table_names(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=query[:100] + '...' if len(query) > 100 else query,
-            fix_suggestion='Use allowlisted table/column names, never user input',
             cwe_id='CWE-89'
         ))
     
@@ -253,7 +249,6 @@ def _find_unparameterized_user_input(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=query[:100] + '...' if len(query) > 100 else query,
-                fix_suggestion='Use parameterized queries: execute("SELECT * WHERE id = ?", [user_id])',
                 cwe_id='CWE-89'
             ))
     
@@ -284,7 +279,6 @@ def _find_order_by_injection(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=query[:100] + '...' if len(query) > 100 else query,
-            fix_suggestion='Use allowlisted column names for ORDER BY, never user input directly',
             cwe_id='CWE-89'
         ))
     
@@ -316,7 +310,6 @@ def _find_like_injection(cursor) -> List[StandardFinding]:
             severity=Severity.MEDIUM,
             category='security',
             snippet=query[:100] + '...' if len(query) > 100 else query,
-            fix_suggestion='Escape % and _ in user input or use ESCAPE clause',
             cwe_id='CWE-89'
         ))
     
@@ -356,7 +349,6 @@ def _find_sql_injection_in_function_calls(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                fix_suggestion='Use parameterized queries, not string operations',
                 cwe_id='CWE-89'
             ))
     
@@ -394,7 +386,6 @@ def _find_query_building_patterns(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=f'{var} = {expr[:50]}...' if len(expr) > 50 else f'{var} = {expr}',
-            fix_suggestion='Use query builders or ORMs with proper escaping',
             cwe_id='CWE-89'
         ))
     
@@ -418,7 +409,6 @@ def _find_query_building_patterns(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=f'{var} += ...',
-            fix_suggestion='Avoid building SQL incrementally. Use parameterized queries',
             cwe_id='CWE-89'
         ))
     
@@ -453,7 +443,6 @@ def _find_unsafe_orm_usage(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                fix_suggestion='Use bind parameters even in raw ORM queries',
                 cwe_id='CWE-89'
             ))
     
@@ -479,7 +468,6 @@ def _find_unsafe_orm_usage(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion=f'Use {func}("column = ?", [value]) with bindings',
             cwe_id='CWE-89'
         ))
     

@@ -148,10 +148,10 @@ class StandardFinding:
     snippet: str = ""
     
     # Additional context
-    fix_suggestion: Optional[str] = None
     references: Optional[List[str]] = None
     cwe_id: Optional[str] = None
-    
+    additional_info: Optional[Dict[str, Any]] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = {
@@ -165,15 +165,15 @@ class StandardFinding:
             "confidence": self.confidence.value if isinstance(self.confidence, Confidence) else self.confidence,
             "snippet": self.snippet,
         }
-        
+
         # Only include optional fields if set
-        if self.fix_suggestion:
-            result["fix_suggestion"] = self.fix_suggestion
         if self.references:
             result["references"] = self.references
         if self.cwe_id:
             result["cwe_id"] = self.cwe_id
-            
+        if self.additional_info:
+            result["additional_info"] = self.additional_info
+
         return result
 
 

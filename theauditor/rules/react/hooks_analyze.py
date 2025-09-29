@@ -172,7 +172,6 @@ class ReactHooksAnalyzer:
                     category='react-hooks',
                     snippet=f'{hook_name}(..., [{", ".join(declared_deps)}])',
                     confidence=Confidence.HIGH,
-                    fix_suggestion=f'Add missing dependencies to the array: [{", ".join(declared_deps + missing[:3])}]',
                     cwe_id='CWE-670'
                 ))
 
@@ -210,7 +209,6 @@ class ReactHooksAnalyzer:
                     category='react-hooks',
                     snippet=f'useEffect with {subscription_type}',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Return a cleanup function that removes the subscription/timer',
                     cwe_id='CWE-401'
                 ))
 
@@ -227,7 +225,6 @@ class ReactHooksAnalyzer:
                         category='react-hooks',
                         snippet=f'useEffect with {cleanup_type}',
                         confidence=Confidence.LOW,
-                        fix_suggestion='Verify if cleanup is needed or remove unnecessary cleanup',
                         cwe_id='CWE-398'
                     ))
 
@@ -259,7 +256,6 @@ class ReactHooksAnalyzer:
                 category='react-hooks',
                 snippet=f'{hook} inside {block_type}',
                 confidence=Confidence.HIGH,
-                fix_suggestion=f'Move {hook} to the top level of the component, outside any conditions or loops',
                 cwe_id='CWE-670'
             ))
 
@@ -298,7 +294,6 @@ class ReactHooksAnalyzer:
                     category='react-hooks',
                     snippet=f'{hook}(..., [])',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Either add dependencies or verify the empty array is intentional',
                     cwe_id='CWE-670'
                 ))
 
@@ -325,7 +320,6 @@ class ReactHooksAnalyzer:
                     category='react-hooks',
                     snippet='useEffect(async () => {...})',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Create an async function inside the effect and call it',
                     cwe_id='CWE-670'
                 ))
 
@@ -352,7 +346,6 @@ class ReactHooksAnalyzer:
                 category='react-hooks',
                 snippet='useCallback with setState and []',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Use functional setState or add dependencies',
                 cwe_id='CWE-367'
             ))
 
@@ -380,7 +373,6 @@ class ReactHooksAnalyzer:
                 category='react-hooks',
                 snippet=f'{component}: mixed cleanup pattern',
                 confidence=Confidence.LOW,
-                fix_suggestion='Review all effects and ensure cleanup is used consistently',
                 cwe_id='CWE-398'
             ))
 
@@ -417,7 +409,6 @@ class ReactHooksAnalyzer:
                         category='react-hooks',
                         snippet=f'Hook order: {", ".join([h[0] for h in hooks_order[:5]])}',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Call hooks in the same order on every render',
                         cwe_id='CWE-670'
                     ))
 
@@ -470,7 +461,6 @@ class ReactHooksAnalyzer:
                     category='react-hooks',
                     snippet=f'{hook}()',
                     confidence=Confidence.HIGH,
-                    fix_suggestion=f'Rename to use{hook[3].upper()}{hook[4:]}',
                     cwe_id='CWE-1078'
                 ))
 
@@ -500,7 +490,6 @@ class ReactHooksAnalyzer:
                     category='react-hooks',
                     snippet=f'{component}: {count} useEffect calls',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Combine related effects or ensure proper cleanup',
                     cwe_id='CWE-362'
                 ))
 

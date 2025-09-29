@@ -275,7 +275,6 @@ def _find_queries_in_loops(cursor, has_cfg_blocks: bool) -> List[StandardFinding
                 severity=severity,
                 category='performance',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Move query outside loop and use batch operations or JOINs',
                 cwe_id='CWE-1050'  # Excessive Platform Resource Consumption
             ))
 
@@ -306,7 +305,6 @@ def _find_queries_in_loops(cursor, has_cfg_blocks: bool) -> List[StandardFinding
             severity=Severity.HIGH,
             category='performance',
             confidence=Confidence.MEDIUM,
-            fix_suggestion='Fetch all data first, then process with array methods',
             cwe_id='CWE-1050'
         ))
 
@@ -346,23 +344,18 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
             if operation in ['sleep', 'time.sleep', 'execSync', 'spawnSync']:
                 severity = Severity.CRITICAL
                 message = f'Blocking operation "{operation}" in loop severely degrades performance'
-                suggestion = 'Use async/await or event-driven approach'
             elif operation in ['fetch', 'axios', 'request', 'http.get', 'https.get']:
                 severity = Severity.CRITICAL
                 message = f'HTTP request "{operation}" in loop causes severe performance issues'
-                suggestion = 'Use batch APIs, Promise.all(), or pagination'
             elif operation in ['readFile', 'writeFile', 'open']:
                 severity = Severity.HIGH
                 message = f'File I/O operation "{operation}" in loop is expensive'
-                suggestion = 'Batch file operations or use streaming'
             elif operation in ['bcrypt', 'pbkdf2', 'scrypt']:
                 severity = Severity.CRITICAL
                 message = f'CPU-intensive crypto "{operation}" in loop blocks execution'
-                suggestion = 'Process in batches or use worker threads'
             else:
                 severity = Severity.HIGH
                 message = f'Expensive operation "{operation}" in loop'
-                suggestion = 'Move operation outside loop or cache results'
 
             findings.append(StandardFinding(
                 rule_name='perf-expensive-in-loop',
@@ -372,7 +365,6 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
                 severity=severity,
                 category='performance',
                 confidence=Confidence.HIGH,
-                fix_suggestion=suggestion,
                 cwe_id='CWE-1050'
             ))
 
@@ -431,7 +423,6 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='performance',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use array.push() in loop, then array.join("") after loop for O(n)',
                     cwe_id='CWE-1050'
                 ))
 
@@ -477,20 +468,6 @@ def _find_synchronous_io_patterns(cursor, has_api_endpoints: bool) -> List[Stand
 
         severity = Severity.CRITICAL if is_async_context else Severity.HIGH
 
-        # Determine appropriate fix
-        if operation == 'readFileSync':
-            suggestion = 'Use fs.promises.readFile() or fs.readFile() with callback'
-        elif operation == 'writeFileSync':
-            suggestion = 'Use fs.promises.writeFile() or fs.writeFile() with callback'
-        elif operation == 'execSync':
-            suggestion = 'Use child_process.exec() with callback or promisify'
-        elif operation == 'time.sleep':
-            suggestion = 'Use asyncio.sleep() in async functions'
-        elif 'requests.' in operation:
-            suggestion = 'Use aiohttp or httpx for async HTTP requests'
-        else:
-            suggestion = 'Use asynchronous alternative'
-
         findings.append(StandardFinding(
             rule_name='perf-sync-io',
             message=f'Synchronous operation "{operation}" blocks event loop',
@@ -499,7 +476,6 @@ def _find_synchronous_io_patterns(cursor, has_api_endpoints: bool) -> List[Stand
             severity=severity,
             category='performance',
             confidence=confidence,
-            fix_suggestion=suggestion,
             cwe_id='CWE-1050'
         ))
 
@@ -538,7 +514,6 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='performance',
             confidence=Confidence.MEDIUM,
-            fix_suggestion='Add pagination with limit/offset or use cursor-based pagination',
             cwe_id='CWE-770'  # Allocation of Resources Without Limits
         ))
 
@@ -566,7 +541,6 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
             severity=Severity.MEDIUM,
             category='performance',
             confidence=Confidence.LOW,
-            fix_suggestion='Use streaming reads (createReadStream) or readline for large files',
             cwe_id='CWE-770'
         ))
 
@@ -596,7 +570,6 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
             severity=Severity.MEDIUM,
             category='performance',
             confidence=Confidence.LOW,
-            fix_suggestion='Consider streaming, chunking, or database-level operations',
             cwe_id='CWE-770'
         ))
 
@@ -623,11 +596,9 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
         if depth >= 4:
             severity = Severity.HIGH
             message = f'Very deep property chain "{prop_chain}" ({depth} levels)'
-            suggestion = 'Cache intermediate values or restructure data'
         elif depth == 3:
             severity = Severity.MEDIUM
             message = f'Deep property chain "{prop_chain}" impacts performance'
-            suggestion = 'Consider destructuring or caching'
         else:
             continue
 
@@ -639,7 +610,6 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
             severity=severity,
             category='performance',
             confidence=Confidence.MEDIUM,
-            fix_suggestion=suggestion,
             cwe_id='CWE-1050'
         ))
 
@@ -664,7 +634,6 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category='performance',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Cache property value in a local variable',
                 cwe_id='CWE-1050'
             ))
 
@@ -692,17 +661,14 @@ def _find_unoptimized_taint_flows(cursor) -> List[StandardFinding]:
         if 'req.body' in source and 'res.send' in sink:
             severity = Severity.CRITICAL
             message = 'Direct flow from req.body to res.send - potential XSS'
-            suggestion = 'Validate and sanitize input before sending response'
             cwe = 'CWE-79'  # Cross-site Scripting
         elif 'req.query' in source and 'res.render' in sink:
             severity = Severity.HIGH
             message = 'Query parameter passed to render - potential template injection'
-            suggestion = 'Validate query parameters and escape for templates'
             cwe = 'CWE-94'  # Code Injection
         elif 'req.params' in source and any(db in sink for db in ['query', 'find', 'execute']):
             severity = Severity.CRITICAL
             message = 'Request parameter in database query - potential SQL injection'
-            suggestion = 'Use parameterized queries or ORM methods'
             cwe = 'CWE-89'  # SQL Injection
         else:
             continue
@@ -715,7 +681,6 @@ def _find_unoptimized_taint_flows(cursor) -> List[StandardFinding]:
             severity=severity,
             category='performance-security',
             confidence=Confidence.MEDIUM,
-            fix_suggestion=suggestion,
             cwe_id=cwe
         ))
 
@@ -758,7 +723,6 @@ def _find_repeated_expensive_calls(cursor) -> List[StandardFinding]:
             severity=severity,
             category='performance',
             confidence=Confidence.HIGH,
-            fix_suggestion='Cache results or batch operations',
             cwe_id='CWE-1050'
         ))
 
@@ -798,7 +762,6 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
             severity=severity,
             category='performance',
             confidence=Confidence.LOW,
-            fix_suggestion='Consider streaming JSON parsing or chunking large data',
             cwe_id='CWE-770'
         ))
 
@@ -821,7 +784,6 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
             severity=Severity.LOW,
             category='performance',
             confidence=Confidence.LOW,
-            fix_suggestion='Consider using object references or lazy loading',
             cwe_id='CWE-770'
         ))
 

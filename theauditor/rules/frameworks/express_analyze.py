@@ -224,7 +224,6 @@ class ExpressAnalyzer:
                         category='error-handling',
                         confidence=Confidence.MEDIUM,
                         snippet='Route handler missing try/catch',
-                        fix_suggestion='Wrap route logic in try/catch or use async error middleware'
                     ))
 
             conn.close()
@@ -264,7 +263,6 @@ class ExpressAnalyzer:
                         severity=Severity.HIGH,
                         category='security',
                         snippet='Missing: app.use(helmet())',
-                        fix_suggestion='Install and use helmet: npm install helmet && app.use(helmet())'
                     ))
 
             except (sqlite3.Error, Exception):
@@ -299,7 +297,6 @@ class ExpressAnalyzer:
                     severity=Severity.HIGH,
                     category='performance',
                     snippet=f'{sync_op}(...) in {caller}',
-                    fix_suggestion=f'Replace {sync_op} with async version: {sync_op.replace("Sync", "")}'
                 ))
 
             conn.close()
@@ -351,7 +348,6 @@ class ExpressAnalyzer:
                             severity=Severity.CRITICAL,
                             category='xss',
                             snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
-                            fix_suggestion=f'Sanitize {input_source} before sending'
                         ))
 
             conn.close()
@@ -383,7 +379,6 @@ class ExpressAnalyzer:
                 severity=Severity.HIGH,
                 category='security',
                 snippet='Add express-rate-limit middleware',
-                fix_suggestion='Install express-rate-limit: npm install express-rate-limit'
             ))
 
     def _check_body_parser_limits(self) -> None:
@@ -412,7 +407,6 @@ class ExpressAnalyzer:
                         severity=Severity.LOW,
                         category='security',
                         snippet='Add limit option to bodyParser',
-                        fix_suggestion="Add size limit: bodyParser.json({ limit: '10mb' })"
                     ))
 
             conn.close()
@@ -455,7 +449,6 @@ class ExpressAnalyzer:
                         severity=Severity.MEDIUM,
                         category='architecture',
                         snippet=f'Move {db_method} to service/repository layer',
-                        fix_suggestion='Separate concerns: use service/repository pattern'
                     ))
 
             conn.close()
@@ -490,7 +483,6 @@ class ExpressAnalyzer:
                         severity=Severity.HIGH,
                         category='security',
                         snippet='CORS with origin: * or origin: true',
-                        fix_suggestion='Specify allowed origins explicitly instead of wildcard'
                     ))
 
             conn.close()
@@ -539,7 +531,6 @@ class ExpressAnalyzer:
                         severity=Severity.HIGH,
                         category='csrf',
                         snippet='POST/PUT/DELETE endpoints need CSRF tokens',
-                        fix_suggestion='Add csurf middleware: npm install csurf && app.use(csrf())'
                     ))
 
             except (sqlite3.Error, Exception):
@@ -586,7 +577,6 @@ class ExpressAnalyzer:
                         severity=Severity.MEDIUM,
                         category='security',
                         snippet='Session configuration issues',
-                        fix_suggestion='Use secure session config: httpOnly, secure, sameSite, strong secret'
                     ))
 
             conn.close()

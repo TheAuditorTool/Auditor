@@ -448,13 +448,20 @@ const __dirname = path.dirname(__filename);
 
 async function main() {{
     try {{
-        // Get file path, output path, and project root from command line
+        // Get file path, output path, project root, and jsx mode from command line
         const filePath = process.argv[2];
         const outputPath = process.argv[3];
         const projectRoot = process.argv[4] || path.resolve(__dirname, '..');  // Use provided projectRoot or fallback
+        const jsxMode = process.argv[5] || 'transformed';  // Default to transformed for backward compatibility
 
         if (!filePath || !outputPath || !projectRoot) {{
             console.error(JSON.stringify({{ error: "File path, output path, and project root required" }}));
+            process.exit(1);
+        }}
+
+        // Validate jsx_mode
+        if (jsxMode !== 'preserved' && jsxMode !== 'transformed') {{
+            console.error(JSON.stringify({{ error: `Invalid jsx_mode: ${{jsxMode}}. Must be 'preserved' or 'transformed'` }}));
             process.exit(1);
         }}
 
@@ -482,10 +489,15 @@ async function main() {{
         );
 
         // Create program for type checking
+        // CRITICAL: JSX mode determines how JSX is handled
+        // 'preserved' -> ts.JsxEmit.Preserve (keeps JSX syntax)
+        // 'transformed' -> ts.JsxEmit.React (converts to React.createElement)
+        const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+
         const program = ts.createProgram([filePath], {{
             target: ts.ScriptTarget.Latest,
             module: ts.ModuleKind.ESNext,
-            jsx: ts.JsxEmit.Preserve,
+            jsx: jsxEmitMode,
             allowJs: true,
             checkJs: false,
             noEmit: true,
@@ -526,7 +538,8 @@ async function main() {{
             diagnostics: diagnostics,
             symbols: symbols,
             nodeCount: countNodes(ast),
-            hasTypes: symbols.some(s => s.type && s.type !== 'any')
+            hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+            jsxMode: jsxMode  // Include JSX mode in result
         }};
 
         // Write output
@@ -566,13 +579,20 @@ const fs = require('fs');
 
 {COUNT_NODES}
 
-// Get file path, output path, and project root from command line
+// Get file path, output path, project root, and jsx mode from command line
 const filePath = process.argv[2];
 const outputPath = process.argv[3];
 const projectRoot = process.argv[4] || path.resolve(__dirname, '..');  // Use provided projectRoot or fallback
+const jsxMode = process.argv[5] || 'transformed';  // Default to transformed for backward compatibility
 
 if (!filePath || !outputPath || !projectRoot) {{
     console.error(JSON.stringify({{ error: "File path, output path, and project root required" }}));
+    process.exit(1);
+}}
+
+// Validate jsx_mode
+if (jsxMode !== 'preserved' && jsxMode !== 'transformed') {{
+    console.error(JSON.stringify({{ error: `Invalid jsx_mode: ${{jsxMode}}. Must be 'preserved' or 'transformed'` }}));
     process.exit(1);
 }}
 
@@ -599,10 +619,15 @@ try {{
     );
 
     // Create program for type checking
+    // CRITICAL: JSX mode determines how JSX is handled
+    // 'preserved' -> ts.JsxEmit.Preserve (keeps JSX syntax)
+    // 'transformed' -> ts.JsxEmit.React (converts to React.createElement)
+    const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+
     const program = ts.createProgram([filePath], {{
         target: ts.ScriptTarget.Latest,
         module: ts.ModuleKind.ESNext,
-        jsx: ts.JsxEmit.Preserve,
+        jsx: jsxEmitMode,
         allowJs: true,
         checkJs: false,
         noEmit: true,
@@ -643,7 +668,8 @@ try {{
         diagnostics: diagnostics,
         symbols: symbols,
         nodeCount: countNodes(ast),
-        hasTypes: symbols.some(s => s.type && s.type !== 'any')
+        hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+        jsxMode: jsxMode  // Include JSX mode in result
     }};
 
     // Write output
@@ -696,6 +722,7 @@ async function main() {{
         const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
         const filePaths = request.files || [];
         const projectRoot = request.projectRoot;
+        const jsxMode = request.jsxMode || 'transformed';  // Default to transformed for backward compatibility
 
         if (filePaths.length === 0) {{
             fs.writeFileSync(outputPath, JSON.stringify({{}}, 'utf8'));
@@ -739,7 +766,7 @@ async function main() {{
             program = ts.createProgram(filePaths, {{
                 target: ts.ScriptTarget.Latest,
                 module: ts.ModuleKind.ESNext,
-                jsx: ts.JsxEmit.Preserve,
+                jsx: jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React,
                 allowJs: true,
                 checkJs: false,
                 noEmit: true,
@@ -800,7 +827,8 @@ async function main() {{
                     diagnostics: diagnostics,
                     symbols: symbols,
                     nodeCount: countNodes(ast),
-                    hasTypes: symbols.some(s => s.type && s.type !== 'any')
+                    hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+                    jsxMode: jsxMode  // Include JSX mode in result
                 }};
 
             }} catch (error) {{
@@ -865,6 +893,7 @@ try {{
     const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
     const filePaths = request.files || [];
     const projectRoot = request.projectRoot;
+    const jsxMode = request.jsxMode || 'transformed';  // Default to transformed for backward compatibility
 
     if (filePaths.length === 0) {{
         fs.writeFileSync(outputPath, JSON.stringify({{}}, 'utf8'));
@@ -906,7 +935,7 @@ try {{
         program = ts.createProgram(filePaths, {{
             target: ts.ScriptTarget.Latest,
             module: ts.ModuleKind.ESNext,
-            jsx: ts.JsxEmit.Preserve,
+            jsx: jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React,
             allowJs: true,
             checkJs: false,
             noEmit: true,
@@ -967,7 +996,8 @@ try {{
                 diagnostics: diagnostics,
                 symbols: symbols,
                 nodeCount: countNodes(ast),
-                hasTypes: symbols.some(s => s.type && s.type !== 'any')
+                hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+                jsxMode: jsxMode  // Include JSX mode in result
             }};
 
         }} catch (error) {{
