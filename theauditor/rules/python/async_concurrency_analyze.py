@@ -235,7 +235,6 @@ class AsyncConcurrencyAnalyzer:
                 severity=Severity.CRITICAL,
                 category='concurrency',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use atomic operations or locks to prevent race conditions',
                 cwe_id='CWE-367'
             ))
 
@@ -270,7 +269,6 @@ class AsyncConcurrencyAnalyzer:
                     severity=Severity.HIGH,
                     category='concurrency',
                     confidence=confidence,
-                    fix_suggestion='Use threading.Lock() or asyncio.Lock() to protect concurrent modifications',
                     cwe_id='CWE-362'
                 ))
 
@@ -295,7 +293,6 @@ class AsyncConcurrencyAnalyzer:
                 severity=Severity.CRITICAL,
                 category='concurrency',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use locks to protect counter operations in concurrent code',
                 cwe_id='CWE-362'
             ))
 
@@ -360,7 +357,6 @@ class AsyncConcurrencyAnalyzer:
                     severity=Severity.HIGH,
                     category='concurrency',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Add "await" or use asyncio.create_task() for fire-and-forget',
                     cwe_id='CWE-667'
                 ))
 
@@ -391,7 +387,6 @@ class AsyncConcurrencyAnalyzer:
                     severity=Severity.CRITICAL,
                     category='concurrency',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use locks or transactions when performing parallel writes',
                     cwe_id='CWE-362'
                 ))
 
@@ -422,7 +417,6 @@ class AsyncConcurrencyAnalyzer:
                 severity=Severity.HIGH,
                 category='concurrency',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Ensure thread-safe operations or use locks in worker functions',
                 cwe_id='CWE-362'
             ))
 
@@ -453,7 +447,6 @@ class AsyncConcurrencyAnalyzer:
                 severity=Severity.HIGH,
                 category='concurrency',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Call join() to wait for thread completion or ensure proper cleanup',
                 cwe_id='CWE-404'
             ))
 
@@ -481,7 +474,6 @@ class AsyncConcurrencyAnalyzer:
                 severity=Severity.MEDIUM,
                 category='concurrency',
                 confidence=Confidence.LOW,
-                fix_suggestion='Ensure proper cleanup with close(), terminate() or context managers',
                 cwe_id='CWE-404'
             ))
 
@@ -512,7 +504,6 @@ class AsyncConcurrencyAnalyzer:
                 severity=Severity.MEDIUM,
                 category='performance',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Consider using async patterns or event-driven approaches',
                 cwe_id='CWE-1050'
             ))
 
@@ -558,7 +549,6 @@ class AsyncConcurrencyAnalyzer:
                         severity=Severity.MEDIUM,
                         category='performance',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Use exponential backoff (delay *= 2) to avoid overwhelming the system',
                         cwe_id='CWE-1050'
                     ))
 
@@ -626,7 +616,6 @@ class AsyncConcurrencyAnalyzer:
                     severity=Severity.HIGH,
                     category='concurrency',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use acquire(timeout=...) to prevent deadlocks',
                     cwe_id='CWE-667'
                 ))
 
@@ -649,7 +638,6 @@ class AsyncConcurrencyAnalyzer:
                     severity=Severity.CRITICAL,
                     category='concurrency',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Avoid nested locks or ensure consistent acquisition order',
                     cwe_id='CWE-833'
                 ))
 
@@ -678,7 +666,6 @@ class AsyncConcurrencyAnalyzer:
                     severity=Severity.CRITICAL,
                     category='concurrency',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use locks or thread-safe initialization (e.g., __new__ with lock)',
                     cwe_id='CWE-362'
                 ))
 

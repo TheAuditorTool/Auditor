@@ -201,7 +201,6 @@ class FlaskAnalyzer:
                     severity=Severity.CRITICAL if has_user_input else Severity.HIGH,
                     category='injection',
                     snippet=template_arg[:100] if len(template_arg) > 100 else template_arg,
-                    fix_suggestion='Use render_template() with static template files instead'
                 ))
 
             conn.close()
@@ -233,7 +232,6 @@ class FlaskAnalyzer:
                         severity=Severity.HIGH,
                         category='xss',
                         snippet=markup_content[:100] if len(markup_content) > 100 else markup_content,
-                        fix_suggestion='Sanitize user input before using Markup() or use escape()'
                     ))
 
             conn.close()
@@ -264,7 +262,6 @@ class FlaskAnalyzer:
                     severity=Severity.CRITICAL,
                     category='security',
                     snippet=args[:100] if len(args) > 100 else args,
-                    fix_suggestion='Set debug=False in production environments'
                 ))
 
             conn.close()
@@ -303,7 +300,6 @@ class FlaskAnalyzer:
                         severity=Severity.CRITICAL,
                         category='security',
                         snippet=f'{var_name} = {secret_value[:30]}...',
-                        fix_suggestion='Use environment variables and generate strong random secrets'
                     ))
 
             conn.close()
@@ -345,7 +341,6 @@ class FlaskAnalyzer:
                     severity=Severity.HIGH,
                     category='security',
                     snippet='request.files[...].save() without secure_filename()',
-                    fix_suggestion='Use secure_filename() and validate file extensions'
                 ))
 
             conn.close()
@@ -385,7 +380,6 @@ class FlaskAnalyzer:
                         severity=Severity.CRITICAL,
                         category='injection',
                         snippet=query[:100] if len(query) > 100 else query,
-                        fix_suggestion='Use parameterized queries with ? or :param placeholders'
                     ))
 
             conn.close()
@@ -418,7 +412,6 @@ class FlaskAnalyzer:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=redirect_arg[:100] if len(redirect_arg) > 100 else redirect_arg,
-                    fix_suggestion='Validate redirect URLs against a whitelist'
                 ))
 
             conn.close()
@@ -449,7 +442,6 @@ class FlaskAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     snippet=eval_arg[:100] if len(eval_arg) > 100 else eval_arg,
-                    fix_suggestion='Never use eval() with user input - use ast.literal_eval() for safe evaluation'
                 ))
 
             conn.close()
@@ -482,7 +474,6 @@ class FlaskAnalyzer:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=cors_config[:100] if len(cors_config) > 100 else cors_config,
-                    fix_suggestion='Specify explicit allowed origins instead of wildcard'
                 ))
 
             # Check function calls
@@ -503,7 +494,6 @@ class FlaskAnalyzer:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=cors_arg[:100] if len(cors_arg) > 100 else cors_arg,
-                    fix_suggestion='Specify explicit allowed origins instead of wildcard'
                 ))
 
             conn.close()
@@ -534,7 +524,6 @@ class FlaskAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     snippet=pickle_arg[:100] if len(pickle_arg) > 100 else pickle_arg,
-                    fix_suggestion='Never unpickle untrusted data - use JSON instead'
                 ))
 
             conn.close()
@@ -565,7 +554,6 @@ class FlaskAnalyzer:
                     severity=Severity.CRITICAL,
                     category='security',
                     snippet=f'{var} = {value[:50]}',
-                    fix_suggestion='Disable Werkzeug debugger in production'
                 ))
 
             conn.close()
@@ -609,7 +597,6 @@ class FlaskAnalyzer:
                             severity=Severity.HIGH,
                             category='security',
                             snippet='Missing CSRF protection for POST/PUT/DELETE/PATCH endpoints',
-                            fix_suggestion='Use Flask-WTF for CSRF protection: from flask_wtf.csrf import CSRFProtect'
                         ))
 
             conn.close()
@@ -643,7 +630,6 @@ class FlaskAnalyzer:
                     severity=Severity.HIGH,
                     category='session',
                     snippet=f'{var} = {config}',
-                    fix_suggestion='Set SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax"'
                 ))
 
             conn.close()

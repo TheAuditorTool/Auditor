@@ -139,7 +139,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     
     # Load framework data to enhance analysis
     frameworks = []
-    frameworks_path = Path(".pf/frameworks.json")
+    frameworks_path = Path(".pf/raw/frameworks.json")
     if frameworks_path.exists():
         try:
             with open(frameworks_path, 'r') as f:

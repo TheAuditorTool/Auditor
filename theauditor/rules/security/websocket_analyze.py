@@ -119,7 +119,6 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=f'{func}("connection", ...)',
-                fix_suggestion='Add authentication verification before accepting WebSocket connections',
                 cwe_id='CWE-862'
             ))
     
@@ -156,7 +155,6 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=f'def {name}(...)',
-                fix_suggestion='Verify authentication token or session before establishing WebSocket connection',
                 cwe_id='CWE-862'
             ))
     
@@ -210,7 +208,6 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=f'{func}("message", ...)',
-                fix_suggestion='Validate all incoming WebSocket messages before processing',
                 cwe_id='CWE-20'
             ))
     
@@ -247,7 +244,6 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet=f'def {name}(...)',
-                fix_suggestion='Implement schema validation for all incoming messages',
                 cwe_id='CWE-20'
             ))
     
@@ -319,7 +315,6 @@ def _find_websocket_no_rate_limit(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 snippet='on("message", handler)',
-                fix_suggestion='Implement rate limiting to prevent WebSocket abuse and DoS attacks',
                 cwe_id='CWE-770'
             ))
     
@@ -369,7 +364,6 @@ def _find_websocket_broadcast_sensitive(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 snippet=f'{func}(sensitive_data)',
-                fix_suggestion='Filter sensitive data before broadcasting to all clients',
                 cwe_id='CWE-200'
             ))
         else:
@@ -401,7 +395,6 @@ def _find_websocket_broadcast_sensitive(cursor) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='security',
                     snippet=f'{func}(variable)',
-                    fix_suggestion='Variable may contain sensitive information. Sanitize before broadcasting',
                     cwe_id='CWE-200'
                 ))
     
@@ -433,7 +426,6 @@ def _find_websocket_no_tls(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=f'{url[:50]}...' if len(url) > 50 else url,
-            fix_suggestion='Use wss:// instead of ws:// for encrypted WebSocket connections',
             cwe_id='CWE-319'
         ))
     
@@ -460,7 +452,6 @@ def _find_websocket_no_tls(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=f'{func}(...)',
-            fix_suggestion='Configure WebSocket server with TLS/SSL certificates for encrypted communication',
             cwe_id='CWE-319'
         ))
     

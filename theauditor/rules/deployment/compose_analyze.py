@@ -217,7 +217,6 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='security',
             snippet=f'{service_name}:\n  privileged: true',
-            fix_suggestion='Remove privileged mode and use specific capabilities instead',
             cwe_id='CWE-250'
         ))
 
@@ -231,7 +230,6 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             snippet=f'{service_name}:\n  network_mode: host',
-            fix_suggestion='Use bridge or custom network instead of host network',
             cwe_id='CWE-668'
         ))
 
@@ -249,7 +247,6 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
                             severity=Severity.CRITICAL,
                             category='security',
                             snippet=f'volumes:\n  - {volume}',
-                            fix_suggestion='Remove docker.sock mount or use Docker-in-Docker (DinD) instead',
                             cwe_id='CWE-552'
                         ))
                     else:
@@ -261,7 +258,6 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
                             severity=Severity.HIGH,
                             category='security',
                             snippet=f'volumes:\n  - {volume}',
-                            fix_suggestion='Avoid mounting sensitive host paths',
                             cwe_id='CWE-552'
                         ))
                     break
@@ -288,7 +284,6 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
                                 severity=Severity.CRITICAL,
                                 category='security',
                                 snippet=f'{key}=***',
-                                fix_suggestion='Use strong password and store in .env file',
                                 cwe_id='CWE-521'
                             ))
                         else:
@@ -300,7 +295,6 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
                                 severity=Severity.HIGH,
                                 category='security',
                                 snippet=f'{key}=***',
-                                fix_suggestion=f'Use environment variable: ${{{key}}}',
                                 cwe_id='CWE-798'
                             ))
 
@@ -363,7 +357,6 @@ def check_port_exposure(file_path: str, service_name: str, port_mapping: str) ->
                     severity=Severity.HIGH,
                     category='security',
                     snippet=f'ports:\n  - {port_mapping}',
-                    fix_suggestion=f'Bind to localhost only: 127.0.0.1:{container_port}:{container_port}',
                     cwe_id='CWE-668'
                 ))
 
@@ -378,7 +371,6 @@ def check_port_exposure(file_path: str, service_name: str, port_mapping: str) ->
                     severity=Severity.HIGH,
                     category='security',
                     snippet=f'ports:\n  - {port_mapping}',
-                    fix_suggestion=f'Bind to localhost or use reverse proxy',
                     cwe_id='CWE-668'
                 ))
 
@@ -408,7 +400,6 @@ def check_image_security(file_path: str, service_name: str, image: str) -> List[
             severity=Severity.MEDIUM,
             category='security',
             snippet=f'image: {image}',
-            fix_suggestion='Pin to specific version tag for reproducibility',
             cwe_id='CWE-330'
         ))
 
@@ -423,7 +414,6 @@ def check_image_security(file_path: str, service_name: str, image: str) -> List[
                 severity=Severity.HIGH,
                 category='security',
                 snippet=f'image: {image}',
-                fix_suggestion=upgrade_msg,
                 cwe_id='CWE-937'
             ))
             break
@@ -444,7 +434,6 @@ def check_image_security(file_path: str, service_name: str, image: str) -> List[
             severity=Severity.LOW,
             category='security',
             snippet=f'image: {image}',
-            fix_suggestion='Use official images with namespace (e.g., library/nginx or nginx)',
             cwe_id='CWE-494'
         ))
 

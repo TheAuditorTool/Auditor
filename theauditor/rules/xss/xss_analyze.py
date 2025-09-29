@@ -92,7 +92,6 @@ def _find_innerhtml_xss(cursor) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='xss',
             snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
-            fix_suggestion='Use textContent instead of innerHTML, or sanitize with DOMPurify',
             cwe_id='CWE-79'
         ))
     
@@ -119,7 +118,6 @@ def _find_innerhtml_xss(cursor) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='xss',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Sanitize user input before setting innerHTML',
             cwe_id='CWE-79'
         ))
     
@@ -156,7 +154,6 @@ def _find_document_write_xss(cursor) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='xss',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Never use document.write with user input. Use createElement and textContent',
             cwe_id='CWE-79'
         ))
     
@@ -197,7 +194,6 @@ def _find_response_xss(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Escape HTML entities before sending in response',
             cwe_id='CWE-79'
         ))
     
@@ -222,7 +218,6 @@ def _find_response_xss(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Ensure template engine auto-escapes or manually escape user input',
             cwe_id='CWE-79'
         ))
     
@@ -260,7 +255,6 @@ def _find_eval_xss(cursor) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='injection',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Never use eval() or Function() with user input',
             cwe_id='CWE-94'
         ))
     
@@ -298,7 +292,6 @@ def _find_react_dangerous_html(cursor) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='xss',
             snippet=source[:100] if len(source) > 100 else source,
-            fix_suggestion='Avoid dangerouslySetInnerHTML or sanitize with DOMPurify',
             cwe_id='CWE-79'
         ))
     
@@ -335,7 +328,6 @@ def _find_vue_vhtml(cursor) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='xss',
             snippet=source[:100] if len(source) > 100 else source,
-            fix_suggestion='Use v-text or {{ }} interpolation instead of v-html',
             cwe_id='CWE-79'
         ))
     
@@ -376,7 +368,6 @@ def _find_jquery_html_xss(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Use .text() instead of .html() or sanitize input',
             cwe_id='CWE-79'
         ))
     
@@ -411,7 +402,6 @@ def _find_template_injection(cursor) -> List[StandardFinding]:
             severity=Severity.CRITICAL,
             category='injection',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Never use user input directly in template strings',
             cwe_id='CWE-94'
         ))
     
@@ -439,7 +429,6 @@ def _find_template_injection(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=source[:100] if len(source) > 100 else source,
-            fix_suggestion='Escape user input in template literals',
             cwe_id='CWE-79'
         ))
     
@@ -477,7 +466,6 @@ def _find_url_parameter_xss(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
-            fix_suggestion='Validate and escape URL parameters before use',
             cwe_id='CWE-79'
         ))
     
@@ -510,7 +498,6 @@ def _find_cookie_xss(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
-            fix_suggestion='Cookies can contain malicious data - always escape',
             cwe_id='CWE-79'
         ))
     
@@ -545,7 +532,6 @@ def _find_unescaped_output(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=source[:100] if len(source) > 100 else source,
-            fix_suggestion='Remove |safe filter or ensure input is sanitized',
             cwe_id='CWE-79'
         ))
     
@@ -569,7 +555,6 @@ def _find_unescaped_output(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='xss',
             snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            fix_suggestion='Do not use mark_safe with user input',
             cwe_id='CWE-79'
         ))
     
@@ -613,7 +598,6 @@ def _find_dom_xss_sinks(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='xss',
                 snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                fix_suggestion=f'Sanitize input before using {sink}',
                 cwe_id='CWE-79'
             ))
     
@@ -657,7 +641,6 @@ def _find_dom_xss_sinks(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='xss',
                 snippet=f'setAttribute({attr}, user_input)',
-                fix_suggestion='Validate and escape attribute values, especially event handlers',
                 cwe_id='CWE-79'
             ))
     

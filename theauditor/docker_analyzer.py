@@ -49,7 +49,6 @@ def analyze_docker_images(db_path: str, check_vulnerabilities: bool = True) -> L
                         'severity': vuln.get('severity', 'medium'),
                         'file': 'Dockerfile',
                         'message': f"Base image {vuln.get('package', 'unknown')} has vulnerability: {vuln.get('title', 'Unknown vulnerability')}",
-                        'recommendation': vuln.get('recommendation', 'Update to latest secure version'),
                         'details': vuln
                     })
         
@@ -95,8 +94,7 @@ def _find_root_containers(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
                 'type': 'docker_root_user',
                 'severity': 'High',
                 'file': file_path,
-                'message': f"Container runs as root user (USER instruction {'not set' if docker_user is None else 'set to root'})",
-                'recommendation': "Add 'USER <non-root-user>' instruction to Dockerfile after installing dependencies"
+                'message': f"Container runs as root user (USER instruction {'not set' if docker_user is None else 'set to root'})"
             })
     
     return findings
@@ -172,7 +170,6 @@ def _find_exposed_secrets(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
                         'severity': 'Critical',
                         'file': file_path,
                         'message': f"Potential secret exposed in ENV instruction: {key}",
-                        'recommendation': "Use Docker secrets or mount secrets at runtime instead of ENV"
                     })
                     break
             
@@ -185,7 +182,6 @@ def _find_exposed_secrets(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
                             'severity': 'Critical',
                             'file': file_path,
                             'message': f"Detected secret pattern in ENV value for key: {key}",
-                            'recommendation': "Remove hardcoded secrets and use runtime secret injection"
                         })
                         break
                 
@@ -196,7 +192,6 @@ def _find_exposed_secrets(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
                         'severity': 'Medium',
                         'file': file_path,
                         'message': f"High entropy value in ENV {key} - possible secret",
-                        'recommendation': "Review if this is a secret and move to secure storage if so"
                     })
         
         # Check BUILD ARGs
@@ -209,7 +204,6 @@ def _find_exposed_secrets(conn: sqlite3.Connection) -> List[Dict[str, Any]]:
                         'severity': 'High',  # Slightly lower than ENV as ARGs are build-time only
                         'file': file_path,
                         'message': f"Potential secret exposed in ARG instruction: {key}",
-                        'recommendation': "Use --secret mount or BuildKit secrets instead of ARG for sensitive data"
                     })
                     break
     

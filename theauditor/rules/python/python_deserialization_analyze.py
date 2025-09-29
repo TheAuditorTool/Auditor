@@ -214,13 +214,10 @@ class DeserializationAnalyzer:
 
             if data_source == 'network':
                 message = f'CRITICAL: Pickle {method} with network data - remote code execution!'
-                fix = 'NEVER use pickle with untrusted data. Use JSON instead'
             elif data_source == 'file':
                 message = f'Pickle {method} with file data - code execution risk'
-                fix = 'Replace pickle with JSON or use cryptographic signatures'
             else:
                 message = f'Unsafe deserialization with {method}'
-                fix = 'Avoid pickle. Use JSON or other safe formats'
                 severity = Severity.HIGH
                 confidence = Confidence.MEDIUM
 
@@ -232,7 +229,6 @@ class DeserializationAnalyzer:
                 severity=severity,
                 category='deserialization',
                 confidence=confidence,
-                fix_suggestion=fix,
                 cwe_id='CWE-502'
             ))
 
@@ -265,7 +261,6 @@ class DeserializationAnalyzer:
                 severity=severity,
                 category='deserialization',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use yaml.safe_load() or specify Loader=SafeLoader',
                 cwe_id='CWE-502'
             ))
 
@@ -290,7 +285,6 @@ class DeserializationAnalyzer:
                 severity=Severity.HIGH,
                 category='deserialization',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Avoid marshal for untrusted data. Use JSON instead',
                 cwe_id='CWE-502'
             ))
 
@@ -313,7 +307,6 @@ class DeserializationAnalyzer:
                 severity=Severity.HIGH,
                 category='deserialization',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Replace shelve with a proper database or JSON storage',
                 cwe_id='CWE-502'
             ))
 
@@ -340,7 +333,6 @@ class DeserializationAnalyzer:
                     severity=Severity.MEDIUM,
                     category='deserialization',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Carefully validate object_hook function or avoid it',
                     cwe_id='CWE-502'
                 ))
 
@@ -366,7 +358,6 @@ class DeserializationAnalyzer:
                 severity=Severity.CRITICAL,
                 category='deserialization',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use JSONSerializer for Django sessions instead',
                 cwe_id='CWE-502'
             ))
 
@@ -390,7 +381,6 @@ class DeserializationAnalyzer:
                     severity=Severity.HIGH,
                     category='deserialization',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use secure session serialization with itsdangerous',
                     cwe_id='CWE-502'
                 ))
 
@@ -418,7 +408,6 @@ class DeserializationAnalyzer:
                 severity=Severity.HIGH,
                 category='deserialization',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use defusedxml or set resolve_entities=False',
                 cwe_id='CWE-611'
             ))
 
@@ -451,7 +440,6 @@ class DeserializationAnalyzer:
                 severity=Severity.CRITICAL,
                 category='deserialization',
                 confidence=Confidence.HIGH,
-                fix_suggestion='NEVER deserialize base64-encoded pickle from untrusted sources',
                 cwe_id='CWE-502'
             ))
 
@@ -524,7 +512,6 @@ class DeserializationAnalyzer:
                         severity=Severity.MEDIUM,
                         category='deserialization',
                         confidence=Confidence.LOW,
-                        fix_suggestion='Consider removing pickle import if unused, or replace with JSON',
                         cwe_id='CWE-502'
                     ))
 

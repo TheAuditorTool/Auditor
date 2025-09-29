@@ -137,7 +137,6 @@ class ReactComponentAnalyzer:
                 category='react-component',
                 snippet=f'{name}: {lines} lines (max: {self.patterns.MAX_COMPONENT_LINES})',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Break down into smaller sub-components',
                 cwe_id='CWE-1066'
             ))
 
@@ -165,7 +164,6 @@ class ReactComponentAnalyzer:
                 category='react-component',
                 snippet=f'Components: {", ".join(comp_list)}{"..." if count > 5 else ""}',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Split components into separate files',
                 cwe_id='CWE-1066'
             ))
 
@@ -216,7 +214,6 @@ class ReactComponentAnalyzer:
                     category='react-performance',
                     snippet=f'{comp_type} {name}',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Wrap component with React.memo() to prevent unnecessary re-renders',
                     cwe_id='CWE-1050'
                 ))
 
@@ -244,7 +241,6 @@ class ReactComponentAnalyzer:
                 category='react-component',
                 snippet=f'{child} inside {parent}',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Move component definition outside to prevent recreation on each render',
                 cwe_id='CWE-1050'
             ))
 
@@ -271,7 +267,6 @@ class ReactComponentAnalyzer:
                 category='react-component',
                 snippet=f'{comp_type} component: {name}',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Add displayName property for better debugging',
                 cwe_id='CWE-1078'
             ))
 
@@ -298,7 +293,6 @@ class ReactComponentAnalyzer:
                     category='react-component',
                     snippet=f'{name}',
                     confidence=Confidence.HIGH,
-                    fix_suggestion=f'Rename to {name[0].upper()}{name[1:]}',
                     cwe_id='CWE-1078'
                 ))
 
@@ -313,7 +307,6 @@ class ReactComponentAnalyzer:
                     category='react-component',
                     snippet=f'{name}',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use descriptive component names',
                     cwe_id='CWE-1078'
                 ))
 
@@ -338,7 +331,6 @@ class ReactComponentAnalyzer:
                 category='react-component',
                 snippet=f'{name}: no JSX detected',
                 confidence=Confidence.LOW,
-                fix_suggestion='Verify this is a valid React component',
                 cwe_id='CWE-1066'
             ))
 
@@ -372,7 +364,6 @@ class ReactComponentAnalyzer:
                 category='react-component',
                 snippet=f'Hooks: {", ".join(hook_list)}...',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Extract logic into custom hooks or split component',
                 cwe_id='CWE-1066'
             ))
 
@@ -401,7 +392,6 @@ class ReactComponentAnalyzer:
                     category='react-component',
                     snippet=f'{name}: ~{prop_count} props',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Consider using component composition or context',
                     cwe_id='CWE-1066'
                 ))
 
@@ -432,7 +422,6 @@ class ReactComponentAnalyzer:
                     category='react-component',
                     snippet=f'Pages: {pages}, Components: {components}',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Separate page components from reusable components',
                     cwe_id='CWE-1066'
                 ))
 

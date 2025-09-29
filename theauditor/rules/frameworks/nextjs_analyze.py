@@ -180,7 +180,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='security',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Never expose process.env directly in API responses',
                     cwe_id='CWE-200'
                 ))
 
@@ -208,7 +207,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='security',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Validate redirect URLs against a whitelist',
                     cwe_id='CWE-601'
                 ))
 
@@ -264,7 +262,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.HIGH,
                             category='injection',
                             confidence=Confidence.LOW,  # Low due to correlation complexity
-                            fix_suggestion='Sanitize user input before using in SSR functions',
                             cwe_id='CWE-79'
                         ))
 
@@ -293,7 +290,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='security',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Remove NEXT_PUBLIC_ prefix for sensitive variables',
                     cwe_id='CWE-200'
                 ))
 
@@ -333,7 +329,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.HIGH,
                         category='csrf',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Implement CSRF protection using tokens or double-submit cookies',
                         cwe_id='CWE-352'
                     ))
 
@@ -363,7 +358,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category='information-disclosure',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Log errors server-side, return generic error messages to client',
                 cwe_id='CWE-209'
             ))
 
@@ -401,7 +395,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='xss',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Sanitize HTML with DOMPurify before using dangerouslySetInnerHTML',
                     cwe_id='CWE-79'
                 ))
 
@@ -445,7 +438,6 @@ def find_nextjs_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.MEDIUM,
                             category='security',
                             confidence=Confidence.LOW,  # Low because it's a broad check
-                            fix_suggestion='Consider implementing rate limiting for public API routes',
                             cwe_id='CWE-307'
                         ))
 

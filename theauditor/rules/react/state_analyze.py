@@ -147,7 +147,6 @@ class ReactStateAnalyzer:
                 category='react-state',
                 snippet=f'{count} useState calls',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Consider using useReducer for complex state logic',
                 cwe_id='CWE-1066'
             ))
 
@@ -180,7 +179,6 @@ class ReactStateAnalyzer:
                 category='react-state',
                 snippet=f'{component}: {count} useState hooks',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='Use useReducer for better state management',
                 cwe_id='CWE-1066'
             ))
 
@@ -215,7 +213,6 @@ class ReactStateAnalyzer:
                         category='react-state',
                         snippet=f'const [{var_name}, ...] = useState',
                         confidence=Confidence.LOW,
-                        fix_suggestion=f'Rename to is{var_name[0].upper()}{var_name[1:]}',
                         cwe_id='CWE-1078'
                     ))
 
@@ -249,7 +246,6 @@ class ReactStateAnalyzer:
                     category='react-state',
                     snippet=f'{count} setState calls',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Batch state updates or use a single state object',
                     cwe_id='CWE-1050'
                 ))
 
@@ -279,7 +275,6 @@ class ReactStateAnalyzer:
                     category='react-state',
                     snippet=f'{prop} passed through {count} components',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Consider using Context API or state management library',
                     cwe_id='CWE-1066'
                 ))
 
@@ -314,7 +309,6 @@ class ReactStateAnalyzer:
                     category='react-state',
                     snippet=f'Used in: {", ".join(comp_list)}...',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Consider moving to Context or global state management',
                     cwe_id='CWE-1066'
                 ))
 
@@ -349,7 +343,6 @@ class ReactStateAnalyzer:
                 category='react-state',
                 snippet='useState followed by immediate useEffect',
                 confidence=Confidence.LOW,
-                fix_suggestion='Consider computing value during render instead',
                 cwe_id='CWE-1066'
             ))
 
@@ -380,7 +373,6 @@ class ReactStateAnalyzer:
                     category='react-state',
                     snippet='useState with expensive initialization',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use lazy initial state: useState(() => expensiveOperation())',
                     cwe_id='CWE-1050'
                 ))
 
@@ -411,7 +403,6 @@ class ReactStateAnalyzer:
                     category='react-state',
                     snippet=f'useState with {prop_count}+ properties',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Consider using useReducer for complex state',
                     cwe_id='CWE-1066'
                 ))
 
@@ -444,7 +435,6 @@ class ReactStateAnalyzer:
                 category='react-state',
                 snippet=f'{setter1}(); {setter2}()',
                 confidence=Confidence.MEDIUM,
-                fix_suggestion='React 18+ batches updates automatically, but consider combining state',
                 cwe_id='CWE-1050'
             ))
 

@@ -198,7 +198,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     category='business-logic',
                     confidence=Confidence.HIGH,
                     snippet=expr[:100] if len(expr) > 100 else expr,
-                    fix_suggestion='Use decimal/BigDecimal or integer cents for money calculations',
                     cwe_id='CWE-682'
                 ))
         
@@ -226,7 +225,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     category='business-logic',
                     confidence=Confidence.HIGH,
                     snippet=f'{func}({arg[:50]}...)' if len(arg) > 50 else f'{func}({arg})',
-                    fix_suggestion='Use decimal/BigDecimal or integer cents for money calculations',
                     cwe_id='CWE-682'
                 ))
         
@@ -257,7 +255,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     category='datetime',
                     confidence=Confidence.MEDIUM,
                     snippet=f'{datetime_func}({args[:30]}...)' if len(args) > 30 else f'{datetime_func}({args})',
-                    fix_suggestion='Always use timezone-aware datetime (UTC or specific timezone)',
                     cwe_id='CWE-20'
                 ))
         
@@ -285,7 +282,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 category='validation',
                 confidence=Confidence.HIGH,
                 snippet=pattern[:100] if len(pattern) > 100 else pattern,
-                fix_suggestion='Use email-validator (Python) or validator.js (JavaScript) instead',
                 cwe_id='CWE-20'
             ))
         
@@ -327,7 +323,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     category='error-handling',
                     confidence=Confidence.MEDIUM,
                     snippet=expr[:100] if len(expr) > 100 else expr,
-                    fix_suggestion='Add zero/null check before division operation',
                     cwe_id='CWE-369'
                 ))
         
@@ -388,7 +383,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         category='resource-management',
                         confidence=Confidence.MEDIUM if has_cfg_blocks else Confidence.LOW,
                         snippet=f'{open_func}(...) in {in_function}',
-                        fix_suggestion='Use with statement (Python) or try-finally to ensure file closure',
                         cwe_id='CWE-404'
                     ))
         
@@ -425,7 +419,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 category='resource-management',
                 confidence=Confidence.MEDIUM,
                 snippet=connect_func,
-                fix_suggestion='Always close database connections in finally block or use connection pooling',
                 cwe_id='CWE-404'
             ))
         
@@ -462,7 +455,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     category='database',
                     confidence=Confidence.MEDIUM,
                     snippet=trans_func,
-                    fix_suggestion='Always commit or rollback transactions, preferably in try-finally',
                     cwe_id='CWE-404'
                 ))
         
@@ -498,7 +490,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 category='resource-management',
                 confidence=Confidence.MEDIUM,
                 snippet=socket_func,
-                fix_suggestion='Always close sockets in finally block or on error',
                 cwe_id='CWE-404'
             ))
         
@@ -526,7 +517,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 category='calculation',
                 confidence=Confidence.HIGH,
                 snippet=expr[:100] if len(expr) > 100 else expr,
-                fix_suggestion='Use parentheses: (value / 100) * multiplier',
                 cwe_id='CWE-682'
             ))
         
@@ -562,7 +552,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 category='resource-management',
                 confidence=Confidence.MEDIUM,
                 snippet=stream_func,
-                fix_suggestion='Add error and close handlers to streams',
                 cwe_id='CWE-404'
             ))
         
@@ -596,7 +585,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 category='error-handling',
                 confidence=Confidence.LOW,
                 snippet=async_func,
-                fix_suggestion='Add .catch() handler or use try-catch with async/await',
                 cwe_id='CWE-248'
             ))
         
@@ -633,7 +621,6 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 category='concurrency',
                 confidence=Confidence.MEDIUM,
                 snippet=lock_func,
-                fix_suggestion='Always release locks in finally block',
                 cwe_id='CWE-667'
             ))
     

@@ -263,7 +263,6 @@ class ApiAuthAnalyzer:
                     severity=severity,
                     category='authentication',
                     confidence=confidence,
-                    fix_suggestion='Add authentication middleware or decorator to protect this endpoint',
                     cwe_id='CWE-306'  # Missing Authentication for Critical Function
                 ))
 
@@ -304,7 +303,6 @@ class ApiAuthAnalyzer:
                         severity=Severity.CRITICAL,
                         category='authentication',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Sensitive operations must have authentication',
                         cwe_id='CWE-306'
                     ))
 
@@ -338,7 +336,6 @@ class ApiAuthAnalyzer:
                         severity=Severity.HIGH,
                         category='authentication',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion='Add authentication to GraphQL mutations',
                         cwe_id='CWE-306'
                     ))
 
@@ -370,7 +367,6 @@ class ApiAuthAnalyzer:
                     severity=Severity.MEDIUM,
                     category='authentication',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use token-based authentication (JWT, OAuth2) instead of Basic Auth',
                     cwe_id='CWE-344'  # Use of Weak Authentication
                 ))
 
@@ -384,7 +380,6 @@ class ApiAuthAnalyzer:
                     severity=Severity.HIGH,
                     category='authentication',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Pass API keys in headers, not URL parameters',
                     cwe_id='CWE-598'  # Information Exposure Through Query Strings
                 ))
 
@@ -428,7 +423,6 @@ class ApiAuthAnalyzer:
                     severity=Severity.MEDIUM,
                     category='authentication',
                     confidence=Confidence.LOW,  # Low confidence as it might be an API
-                    fix_suggestion='Add CSRF token validation for state-changing operations',
                     cwe_id='CWE-352'  # Cross-Site Request Forgery
                 ))
 

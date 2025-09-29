@@ -172,7 +172,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='xss',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use v-text or {{ }} interpolation instead of v-html/innerHTML',
                     cwe_id='CWE-79'
                 ))
 
@@ -222,7 +221,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.CRITICAL,
                         category='injection',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Remove eval() - use computed properties or methods instead',
                         cwe_id='CWE-95'
                     ))
 
@@ -257,7 +255,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='security',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Move sensitive keys to backend, use proxy endpoints',
                     cwe_id='CWE-200'
                 ))
 
@@ -281,7 +278,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='xss',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use double mustache {{ }} for escaped interpolation',
                     cwe_id='CWE-79'
                 ))
 
@@ -310,7 +306,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='injection',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Validate and whitelist component names before dynamic loading',
                     cwe_id='CWE-470'
                 ))
 
@@ -337,7 +332,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category='security',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Add rel="noopener noreferrer" to all target="_blank" links',
                     cwe_id='CWE-1022'
                 ))
 
@@ -365,7 +359,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.HIGH,
                         category='xss',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Use Vue data binding instead of direct DOM manipulation',
                         cwe_id='CWE-79'
                     ))
 
@@ -399,7 +392,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                             severity=Severity.MEDIUM,
                             category='best-practice',
                             confidence=Confidence.MEDIUM,
-                            fix_suggestion='Use Vue refs, data binding, or directives instead',
                             cwe_id='CWE-1061'
                         ))
 
@@ -442,7 +434,6 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                         severity=Severity.HIGH,
                         category='security',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Use httpOnly cookies or secure backend sessions',
                         cwe_id='CWE-922'
                     ))
 

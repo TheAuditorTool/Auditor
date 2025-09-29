@@ -251,7 +251,6 @@ def _find_secret_assignments(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use strong passwords from environment variables',
                 cwe_id='CWE-521'  # Weak Password Requirements
             ))
         # Check if value looks like a secret
@@ -273,7 +272,6 @@ def _find_secret_assignments(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 confidence=confidence,
-                fix_suggestion=f'Move {var} to environment variables or secure vault',
                 cwe_id='CWE-798'  # Use of Hard-coded Credentials
             ))
 
@@ -315,7 +313,6 @@ def _find_connection_strings(cursor) -> List[StandardFinding]:
                         severity=Severity.CRITICAL,
                         category='security',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Use environment variables for database passwords',
                         cwe_id='CWE-798'
                     ))
 
@@ -361,7 +358,6 @@ def _find_env_fallbacks(cursor) -> List[StandardFinding]:
                     severity=Severity.HIGH,
                     category='security',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use secure defaults or fail if environment variable is missing',
                     cwe_id='CWE-798'
                 ))
 
@@ -401,7 +397,6 @@ def _find_dict_secrets(cursor) -> List[StandardFinding]:
                         severity=Severity.CRITICAL,
                         category='security',
                         confidence=Confidence.MEDIUM,
-                        fix_suggestion=f'Move secret value for "{keyword}" to environment variables',
                         cwe_id='CWE-798'
                     ))
 
@@ -447,7 +442,6 @@ def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
                         severity=Severity.CRITICAL,
                         category='security',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Pass API keys in headers, not URL parameters',
                         cwe_id='CWE-598'  # Information Exposure Through Query Strings
                     ))
 
@@ -680,7 +674,6 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> List[StandardFin
                             severity=Severity.CRITICAL,
                             category='security',
                             confidence=Confidence.HIGH,
-                            fix_suggestion='Remove secret and rotate immediately',
                             cwe_id='CWE-798'
                         ))
 
@@ -700,7 +693,6 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> List[StandardFin
                             severity=Severity.HIGH,
                             category='security',
                             confidence=Confidence.MEDIUM,
-                            fix_suggestion=f'Move {var_name} to environment variables',
                             cwe_id='CWE-798'
                         ))
 

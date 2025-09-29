@@ -467,12 +467,23 @@ class JSSemanticParser:
         
         return results
     
-    def get_semantic_ast(self, file_path: str) -> Dict[str, Any]:
+    def get_semantic_ast(self, file_path: str, jsx_mode: str = 'transformed') -> Dict[str, Any]:
         """Get semantic AST for a JavaScript/TypeScript file using the TypeScript compiler.
-        
+
+        CRITICAL JSX HANDLING:
+        This function operates differently based on jsx_mode parameter:
+        - 'preserved': Keeps JSX nodes like JsxElement, JsxOpeningElement
+                      Used for structural analysis (accessibility, prop validation)
+        - 'transformed': Converts JSX to React.createElement calls
+                        Used for data flow analysis (taint tracking)
+
+        The jsx_mode parameter is propagated from the indexer orchestration
+        layer and determines which database tables receive the extracted data.
+
         Args:
             file_path: Path to the JavaScript or TypeScript file to parse
-            
+            jsx_mode: Either 'preserved' or 'transformed' (default: 'transformed')
+
         Returns:
             Dictionary containing the semantic AST and metadata:
             - success: Boolean indicating if parsing was successful
@@ -481,8 +492,19 @@ class JSSemanticParser:
             - symbols: List of symbols with type information
             - nodeCount: Total number of AST nodes
             - hasTypes: Boolean indicating if type information is available
+            - jsx_mode: The JSX mode used for this extraction
             - error: Error message if parsing failed
         """
+        # Validate jsx_mode
+        if jsx_mode not in ['preserved', 'transformed']:
+            return {
+                "success": False,
+                "error": f"Invalid jsx_mode: {jsx_mode}. Must be 'preserved' or 'transformed'",
+                "ast": None,
+                "diagnostics": [],
+                "symbols": [],
+                "jsx_mode": jsx_mode
+            }
         # Validate file exists
         file = Path(file_path).resolve()
         if not file.exists():
@@ -491,7 +513,8 @@ class JSSemanticParser:
                 "error": f"File not found: {file_path}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         
         # Check if it's a JavaScript, TypeScript, or Vue file
@@ -501,7 +524,8 @@ class JSSemanticParser:
                 "error": f"Not a JavaScript/TypeScript file: {file_path}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         
         # CRITICAL: No fallbacks allowed - fail fast with clear error
@@ -511,7 +535,8 @@ class JSSemanticParser:
                 "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-claude' to install tools.",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         
         try:
@@ -535,6 +560,7 @@ class JSSemanticParser:
                         "ast": None,
                         "diagnostics": [],
                         "symbols": [],
+                        "jsx_mode": jsx_mode,
                         "vueMetadata": {
                             "hasTemplate": template_content is not None,
                             "hasScript": False
@@ -584,7 +610,8 @@ class JSSemanticParser:
                         "error": "Node.js runtime not found. Run 'aud setup-claude' to install tools.",
                         "ast": None,
                         "diagnostics": [],
-                        "symbols": []
+                        "symbols": [],
+                        "jsx_mode": jsx_mode
                     }
                 
                 # Convert paths for Windows node if needed
@@ -592,11 +619,11 @@ class JSSemanticParser:
                 file_path_converted = self._convert_path_for_node(Path(actual_file_to_parse).resolve())
                 output_path_converted = self._convert_path_for_node(Path(tmp_output_path))
                 
-                # Pass projectRoot as the fourth argument
+                # Pass projectRoot as the fourth argument and jsx_mode as fifth
                 project_root_converted = self._convert_path_for_node(self.project_root)
 
                 result = subprocess.run(
-                    [str(self.node_exe), helper_path_converted, file_path_converted, output_path_converted, project_root_converted],
+                    [str(self.node_exe), helper_path_converted, file_path_converted, output_path_converted, project_root_converted, jsx_mode],
                     capture_output=False,  # Don't capture stdout - writing to file instead
                     stderr=subprocess.PIPE,  # Still capture stderr for error messages
                     text=True,
@@ -640,7 +667,8 @@ class JSSemanticParser:
                         "error": error_msg,
                         "ast": None,
                         "diagnostics": [],
-                        "symbols": []
+                        "symbols": [],
+                        "jsx_mode": jsx_mode
                     }
                 else:
                     # Read output from file
@@ -650,7 +678,8 @@ class JSSemanticParser:
                             "error": "TypeScript compiler succeeded but output file was not created",
                             "ast": None,
                             "diagnostics": [],
-                            "symbols": []
+                            "symbols": [],
+                            "jsx_mode": jsx_mode
                         }
                     
                     try:
@@ -660,6 +689,8 @@ class JSSemanticParser:
                         # Add Vue metadata if this was a Vue file
                         if vue_metadata:
                             ast_data["vueMetadata"] = vue_metadata
+                        # Add jsx_mode to the response
+                        ast_data["jsx_mode"] = jsx_mode
                         return ast_data
                     except json.JSONDecodeError as e:
                         # Include file size in error for debugging
@@ -669,7 +700,8 @@ class JSSemanticParser:
                             "error": f"Failed to parse TypeScript AST output: {e}. Output file size: {file_size} bytes",
                             "ast": None,
                             "diagnostics": [],
-                            "symbols": []
+                            "symbols": [],
+                            "jsx_mode": jsx_mode
                         }
             finally:
                 # Clean up temporary output file
@@ -682,7 +714,8 @@ class JSSemanticParser:
                 "error": f"Timeout: File too large or complex to parse within {dynamic_timeout:.0f} seconds",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         except subprocess.SubprocessError as e:
             return {
@@ -690,7 +723,8 @@ class JSSemanticParser:
                 "error": f"Subprocess error: {e}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         except Exception as e:
             return {
@@ -698,7 +732,8 @@ class JSSemanticParser:
                 "error": f"Unexpected error: {e}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
     
     

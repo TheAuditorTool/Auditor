@@ -124,13 +124,154 @@ def extract_semantic_ast_symbols(node, depth=0):
     return symbols
 
 
+# ========================================================
+# COMPREHENSIVE JSX NODE TYPE DEFINITIONS
+# ========================================================
+# Complete enumeration of all JSX node types for proper detection
+
+JSX_NODE_KINDS = frozenset([
+    # Element nodes
+    "JsxElement",              # <div>...</div>
+    "JsxSelfClosingElement",   # <img />
+    "JsxFragment",             # <>...</>
+
+    # Structural nodes
+    "JsxOpeningElement",       # <div>
+    "JsxClosingElement",       # </div>
+    "JsxOpeningFragment",      # <>
+    "JsxClosingFragment",      # </>
+
+    # Content nodes
+    "JsxText",                 # Text between tags
+    "JsxExpression",           # {expression}
+    "JsxExpressionContainer",  # Container for expressions
+    "JsxSpreadChild",          # {...spread}
+
+    # Attribute nodes
+    "JsxAttribute",            # name="value"
+    "JsxAttributes",           # Collection of attributes
+    "JsxSpreadAttribute",      # {...props}
+
+    # Namespace nodes
+    "JsxNamespacedName",       # svg:path
+
+    # Edge cases
+    "JsxMemberExpression",     # Component.SubComponent
+    "JsxIdentifier",           # Component name identifier
+])
+
+
+def detect_jsx_in_node(node, depth=0):
+    """Comprehensively detect JSX in AST node.
+
+    This function handles both preserved and transformed JSX:
+    - Preserved mode: Detects actual JSX syntax nodes
+    - Transformed mode: Detects React.createElement patterns
+
+    Returns:
+        Tuple of (has_jsx, returns_component)
+    """
+    if depth > 50 or not isinstance(node, dict):
+        return False, False
+
+    kind = node.get('kind', '')
+
+    # Direct JSX node - check against complete set
+    if kind in JSX_NODE_KINDS:
+        # Check if it's a component (capital letter)
+        if kind in ["JsxElement", "JsxSelfClosingElement"]:
+            tag_name = extract_jsx_tag_name(node)
+            is_component = tag_name and tag_name[0].isupper() if tag_name else False
+            return True, is_component
+        return True, False
+
+    # Container nodes that might have JSX
+    if kind in ["ParenthesizedExpression", "ConditionalExpression",
+                "BinaryExpression", "LogicalExpression", "ArrayLiteralExpression",
+                "ObjectLiteralExpression", "ArrowFunction", "FunctionExpression"]:
+        # Deep search for JSX in complex expressions
+        for key in ['expression', 'initializer', 'left', 'right', 'operand',
+                    'condition', 'whenTrue', 'whenFalse', 'arguments', 'elements',
+                    'properties', 'body', 'statements', 'children']:
+            if key in node:
+                child = node[key]
+                if isinstance(child, list):
+                    for item in child:
+                        has_jsx, is_comp = detect_jsx_in_node(item, depth + 1)
+                        if has_jsx:
+                            return has_jsx, is_comp
+                elif isinstance(child, dict):
+                    has_jsx, is_comp = detect_jsx_in_node(child, depth + 1)
+                    if has_jsx:
+                        return has_jsx, is_comp
+
+    # React.createElement pattern (for transformed mode)
+    if kind == "CallExpression":
+        callee = node.get('expression', {})
+        if isinstance(callee, dict):
+            callee_text = callee.get('text', '')
+            if "React.createElement" in callee_text or "jsx" in callee_text or "_jsx" in callee_text:
+                # This was JSX before transformation
+                return True, analyze_create_element_component(node)
+
+    return False, False
+
+
+def extract_jsx_tag_name(node):
+    """Extract tag name from JSX element node.
+
+    Handles various JSX element structures to extract the tag name.
+    """
+    # For JsxElement with openingElement
+    if 'openingElement' in node:
+        opening = node['openingElement']
+        if isinstance(opening, dict) and 'tagName' in opening:
+            tag_name = opening['tagName']
+            if isinstance(tag_name, dict):
+                return tag_name.get('escapedText', '') or tag_name.get('text', '')
+
+    # For JsxSelfClosingElement
+    if 'tagName' in node:
+        tag_name = node['tagName']
+        if isinstance(tag_name, dict):
+            return tag_name.get('escapedText', '') or tag_name.get('text', '')
+
+    return None
+
+
+def analyze_create_element_component(node):
+    """Analyze React.createElement call to determine if it's a component.
+
+    Components have capital letters or are passed as references.
+    """
+    if 'arguments' in node and isinstance(node['arguments'], list):
+        if len(node['arguments']) > 0:
+            first_arg = node['arguments'][0]
+            if isinstance(first_arg, dict):
+                # String literal component name
+                if first_arg.get('kind') == 'StringLiteral':
+                    text = first_arg.get('text', '')
+                    return text and text[0].isupper()
+                # Identifier (component reference)
+                elif first_arg.get('kind') == 'Identifier':
+                    text = first_arg.get('escapedText', '')
+                    return text and text[0].isupper()
+    return False
+
+
+# Backward compatibility alias
+def check_for_jsx(node, depth=0):
+    """Legacy function name for backward compatibility."""
+    return detect_jsx_in_node(node, depth)
+
+
 def build_scope_map(ast_root: Dict) -> Dict[int, str]:
     """Build a map of line numbers to containing function names.
-    
+
     This solves the core problem: traverse() loses track of which function it's in.
     By pre-mapping all line numbers to their containing functions, we can do O(1)
     lookups instead of broken recursive tracking.
-    
+
     Returns:
         Dict mapping line number to function name for fast lookups
     """
@@ -859,32 +1000,18 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                 # Check expr_node kind for JSX detection
                 expr_kind = expr_node.get("kind", "")
 
-                # Detect JSX/React patterns
-                if expr_kind in ["JsxElement", "JsxSelfClosingElement", "JsxFragment", "JsxExpression"]:
-                    has_jsx = True
-                    returns_component = True
-                elif expr_kind == "ParenthesizedExpression":
-                    # Often wraps JSX: return ( <div>...</div> )
-                    # Check children for JSX
-                    for child in expr_node.get("children", []):
-                        if isinstance(child, dict):
-                            child_kind = child.get("kind", "")
-                            if "Jsx" in child_kind:
-                                has_jsx = True
-                                returns_component = True
-                                break
+                # Check for JSX elements in return statement
+                has_jsx, returns_component = detect_jsx_in_node(expr_node)
 
-                # Pattern-based JSX detection as fallback
+                # Additional pattern-based JSX detection for edge cases
                 if not has_jsx and return_expr:
-                    # Check for JSX patterns in the text
+                    # Check for JSX patterns in the text that might be missed
                     jsx_indicators = [
-                        '<',  # JSX element opening
                         'React.createElement',
                         'jsx(',
                         '_jsx(',
                         'React.Fragment',
                         'Fragment',
-                        '</','/>',  # JSX closing tags
                     ]
                     for indicator in jsx_indicators:
                         if indicator in return_expr:

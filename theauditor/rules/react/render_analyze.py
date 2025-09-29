@@ -156,7 +156,6 @@ class ReactRenderAnalyzer:
                     category='react-performance',
                     snippet=f'{callee} in {component}',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion=f'Wrap {operation} in useMemo to memoize the result',
                     cwe_id='CWE-1050'
                 ))
 
@@ -184,7 +183,6 @@ class ReactRenderAnalyzer:
                     category='react-state',
                     snippet=f'{callee}',
                     confidence=Confidence.HIGH if 'state' in str(args) else Confidence.MEDIUM,
-                    fix_suggestion=f'Create a new array/object instead of mutating with {method}',
                     cwe_id='CWE-682'
                 ))
 
@@ -215,7 +213,6 @@ class ReactRenderAnalyzer:
                     category='react-performance',
                     snippet='Inline arrow function or bind',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use useCallback to memoize event handlers',
                     cwe_id='CWE-1050'
                 ))
 
@@ -242,7 +239,6 @@ class ReactRenderAnalyzer:
                 category='react-performance',
                 snippet=f'{callee}',
                 confidence=Confidence.LOW,  # Hard to be certain without JSX context
-                fix_suggestion='Add a unique key prop to list items',
                 cwe_id='CWE-1050'
             ))
 
@@ -270,7 +266,6 @@ class ReactRenderAnalyzer:
                         category='react-performance',
                         snippet=f'{creator}',
                         confidence=Confidence.LOW,
-                        fix_suggestion='Move object creation outside render or use useMemo',
                         cwe_id='CWE-1050'
                     ))
 
@@ -298,7 +293,6 @@ class ReactRenderAnalyzer:
                 category='react-performance',
                 snippet='key={index}',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use a stable, unique ID as key instead of index',
                 cwe_id='CWE-1050'
             ))
 
@@ -335,7 +329,6 @@ class ReactRenderAnalyzer:
                 category='react-state',
                 snippet=f'useState followed by useEffect with props dependency',
                 confidence=Confidence.LOW,
-                fix_suggestion='Consider computing values during render instead of storing in state',
                 cwe_id='CWE-1066'
             ))
 
@@ -369,7 +362,6 @@ class ReactRenderAnalyzer:
                     category='react-performance',
                     snippet=f'Anonymous function in {component}',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Define function outside render or use useCallback',
                     cwe_id='CWE-1050'
                 ))
 
@@ -399,7 +391,6 @@ class ReactRenderAnalyzer:
                 category='react-performance',
                 snippet=f'{component}: {states} useState, {effects} useEffect',
                 confidence=Confidence.LOW,
-                fix_suggestion='Consider using useReducer or splitting component',
                 cwe_id='CWE-1050'
             ))
 
@@ -425,7 +416,6 @@ class ReactRenderAnalyzer:
                 category='react-performance',
                 snippet='style={{ ... }}',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use CSS classes or define styles outside render',
                 cwe_id='CWE-1050'
             ))
 

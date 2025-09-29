@@ -148,13 +148,14 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         
         return self.project_type
 
-    def parse_file(self, file_path: Path, language: str = None, root_path: str = None) -> Any:
+    def parse_file(self, file_path: Path, language: str = None, root_path: str = None, jsx_mode: str = 'transformed') -> Any:
         """Parse a file into an AST.
 
         Args:
             file_path: Path to the source file.
             language: Programming language (auto-detected if None).
             root_path: Absolute path to project root (for sandbox resolution).
+            jsx_mode: JSX extraction mode ('preserved' or 'transformed').
 
         Returns:
             AST tree object or None if parsing fails.
@@ -178,7 +179,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                     # Attempt to use the TypeScript Compiler API for semantic analysis
                     # Normalize path for cross-platform compatibility
                     normalized_path = str(file_path).replace("\\", "/")
-                    semantic_result = get_semantic_ast(normalized_path, project_root=root_path)
+                    semantic_result = get_semantic_ast(normalized_path, jsx_mode=jsx_mode)
                     
                     if semantic_result.get("success"):
                         # Return the semantic AST with full type information
@@ -336,7 +337,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             
             try:
                 # Use existing semantic parser
-                semantic_result = get_semantic_ast(tmp_path)
+                semantic_result = get_semantic_ast(tmp_path, jsx_mode=jsx_mode)
                 if semantic_result and semantic_result.get("success"):
                     return {
                         "type": "semantic_ast",
@@ -361,7 +362,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         
         return None
 
-    def parse_files_batch(self, file_paths: List[Path], root_path: str = None) -> Dict[str, Any]:
+    def parse_files_batch(self, file_paths: List[Path], root_path: str = None, jsx_mode: str = 'transformed') -> Dict[str, Any]:
         """Parse multiple files into ASTs in batch for performance.
 
         This method dramatically improves performance for JavaScript/TypeScript projects
@@ -370,6 +371,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         Args:
             file_paths: List of paths to source files
             root_path: Absolute path to project root (for sandbox resolution)
+            jsx_mode: JSX extraction mode ('preserved' or 'transformed')
 
         Returns:
             Dictionary mapping file paths to their AST trees
@@ -398,7 +400,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                 js_ts_paths = [str(f).replace("\\", "/") for f in js_ts_files]
 
                 # Use batch processing for JS/TS files
-                batch_results = get_semantic_ast_batch(js_ts_paths, project_root=root_path)
+                batch_results = get_semantic_ast_batch(js_ts_paths, jsx_mode=jsx_mode, project_root=root_path)
 
                 # Process batch results
                 for file_path in js_ts_files:
@@ -423,36 +425,36 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                             except Exception as e:
                                 print(f"Warning: Failed to read {file_path}: {e}, falling back to individual parsing")
                                 # CRITICAL FIX: Fall back to individual parsing on read failure
-                                individual_result = self.parse_file(file_path, root_path=root_path)
+                                individual_result = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
                                 results[str(file_path).replace("\\", "/")] = individual_result
                         else:
                             print(f"Warning: Semantic parser failed for {file_path}: {semantic_result.get('error')}, falling back to individual parsing")
                             # CRITICAL FIX: Fall back to individual parsing instead of None
-                            individual_result = self.parse_file(file_path, root_path=root_path)
+                            individual_result = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
                             results[str(file_path).replace("\\", "/")] = individual_result
                     else:
                         # CRITICAL FIX: Fall back to individual parsing instead of None
                         print(f"Warning: No batch result for {file_path}, falling back to individual parsing")
-                        individual_result = self.parse_file(file_path, root_path=root_path)
+                        individual_result = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
                         results[str(file_path).replace("\\", "/")] = individual_result
 
             except Exception as e:
                 print(f"Warning: Batch processing failed for JS/TS files: {e}")
                 # Fall back to individual processing
                 for file_path in js_ts_files:
-                    results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+                    results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
         else:
             # Process JS/TS files individually if not in JS project or batch failed
             for file_path in js_ts_files:
-                results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+                results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
 
         # Process Python files individually (they're fast enough)
         for file_path in python_files:
-            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
 
         # Process other files individually
         for file_path in other_files:
-            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
+            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path, jsx_mode=jsx_mode)
 
         return results
 

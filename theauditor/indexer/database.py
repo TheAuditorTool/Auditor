@@ -55,6 +55,14 @@ class DatabaseManager:
         self.react_components_batch = []
         self.react_hooks_batch = []
         self.variable_usage_batch = []
+        self.frameworks_batch = []
+        self.framework_safe_sinks_batch = []
+
+        # JSX-specific batch lists for dual-pass extraction
+        self.function_returns_jsx_batch = []
+        self.symbols_jsx_batch = []
+        self.assignments_jsx_batch = []
+        self.function_call_args_jsx_batch = []
 
     def begin_transaction(self):
         """Start a new transaction."""
@@ -387,6 +395,36 @@ class DatabaseManager:
         """
         )
 
+        # Framework detection tables for context-aware analysis
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS frameworks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                version TEXT,
+                language TEXT NOT NULL,
+                path TEXT DEFAULT '.',
+                source TEXT,
+                package_manager TEXT,
+                is_primary BOOLEAN DEFAULT 0,
+                UNIQUE(name, language, path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS framework_safe_sinks(
+                framework_id INTEGER,
+                sink_pattern TEXT NOT NULL,
+                sink_type TEXT NOT NULL,
+                is_safe BOOLEAN DEFAULT 1,
+                reason TEXT,
+                FOREIGN KEY(framework_id) REFERENCES frameworks(id)
+            )
+        """
+        )
+
         # Enhance function_returns table for React (handle existing columns gracefully)
         try:
             cursor.execute("ALTER TABLE function_returns ADD COLUMN has_jsx BOOLEAN DEFAULT 0")
@@ -400,6 +438,119 @@ class DatabaseManager:
             cursor.execute("ALTER TABLE function_returns ADD COLUMN cleanup_operations TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # ========================================================
+        # PARALLEL JSX TABLES FOR DUAL-PASS EXTRACTION
+        # ========================================================
+        # These tables store preserved JSX data (Pass 1)
+        # While standard tables store transformed data (Pass 2)
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS function_returns_jsx (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                function_name TEXT,
+                return_expr TEXT,
+                return_vars TEXT,
+                has_jsx BOOLEAN DEFAULT 0,
+                returns_component BOOLEAN DEFAULT 0,
+                cleanup_operations TEXT,
+                jsx_mode TEXT NOT NULL DEFAULT 'preserved',
+                extraction_pass INTEGER DEFAULT 1,
+                PRIMARY KEY (file, line, extraction_pass),
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS symbols_jsx (
+                path TEXT NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                col INTEGER NOT NULL,
+                jsx_mode TEXT NOT NULL DEFAULT 'preserved',
+                extraction_pass INTEGER DEFAULT 1,
+                PRIMARY KEY (path, name, line, jsx_mode),
+                FOREIGN KEY(path) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assignments_jsx (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                target_var TEXT NOT NULL,
+                source_expr TEXT NOT NULL,
+                source_vars TEXT,
+                in_function TEXT NOT NULL,
+                jsx_mode TEXT NOT NULL DEFAULT 'preserved',
+                extraction_pass INTEGER DEFAULT 1,
+                PRIMARY KEY (file, line, target_var, jsx_mode),
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS function_call_args_jsx (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                caller_function TEXT NOT NULL,
+                callee_function TEXT NOT NULL,
+                argument_index INTEGER NOT NULL,
+                argument_expr TEXT NOT NULL,
+                param_name TEXT NOT NULL,
+                jsx_mode TEXT NOT NULL DEFAULT 'preserved',
+                extraction_pass INTEGER DEFAULT 1,
+                PRIMARY KEY (file, line, callee_function, argument_index, jsx_mode),
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Metadata table for extraction runs
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS extraction_metadata (
+                extraction_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                jsx_mode TEXT NOT NULL,
+                files_processed INTEGER DEFAULT 0,
+                jsx_components_found INTEGER DEFAULT 0,
+                extraction_pass INTEGER DEFAULT 1,
+                error_count INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'running'
+            )
+        """
+        )
+
+        # Unified views for backward compatibility
+        cursor.execute(
+            """
+            CREATE VIEW IF NOT EXISTS function_returns_unified AS
+            SELECT *, 'transformed' as view_jsx_mode, 0 as view_extraction_pass
+            FROM function_returns
+            UNION ALL
+            SELECT * FROM function_returns_jsx
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE VIEW IF NOT EXISTS symbols_unified AS
+            SELECT *, 'transformed' as view_jsx_mode FROM symbols
+            UNION ALL
+            SELECT * FROM symbols_jsx
+        """
+        )
 
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src)")
@@ -448,6 +599,17 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_component ON variable_usage(in_component)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_var ON variable_usage(variable_name)")
 
+        # Indexes for JSX tables
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_returns_file ON function_returns_jsx(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_returns_function ON function_returns_jsx(function_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_symbols_path ON symbols_jsx(path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_symbols_type ON symbols_jsx(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_assignments_file ON assignments_jsx(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_assignments_function ON assignments_jsx(in_function)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_calls_file ON function_call_args_jsx(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_calls_caller ON function_call_args_jsx(caller_function)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_metadata_status ON extraction_metadata(status)")
+
         self.conn.commit()
 
     def clear_tables(self):
@@ -476,6 +638,12 @@ class DatabaseManager:
             cursor.execute("DELETE FROM react_components")
             cursor.execute("DELETE FROM react_hooks")
             cursor.execute("DELETE FROM variable_usage")
+            # Also clear JSX tables
+            cursor.execute("DELETE FROM function_returns_jsx")
+            cursor.execute("DELETE FROM symbols_jsx")
+            cursor.execute("DELETE FROM assignments_jsx")
+            cursor.execute("DELETE FROM function_call_args_jsx")
+            cursor.execute("DELETE FROM extraction_metadata")
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
@@ -634,6 +802,62 @@ class DatabaseManager:
         """Add a variable usage record to the batch."""
         self.variable_usage_batch.append((file_path, line, variable_name, usage_type,
                                          in_component or '', in_hook or '', scope_level))
+
+    # ========================================================
+    # JSX-SPECIFIC BATCH METHODS FOR DUAL-PASS EXTRACTION
+    # ========================================================
+
+    def add_function_return_jsx(self, file_path: str, line: int, function_name: str,
+                                return_expr: str, return_vars: List[str], has_jsx: bool = False,
+                                returns_component: bool = False, cleanup_operations: Optional[str] = None,
+                                jsx_mode: str = 'preserved', extraction_pass: int = 1):
+        """Add a JSX function return record for preserved JSX extraction."""
+        return_vars_json = json.dumps(return_vars)
+        self.function_returns_jsx_batch.append((file_path, line, function_name, return_expr,
+                                                return_vars_json, has_jsx, returns_component,
+                                                cleanup_operations, jsx_mode, extraction_pass))
+
+    def add_symbol_jsx(self, path: str, name: str, symbol_type: str, line: int, col: int,
+                      jsx_mode: str = 'preserved', extraction_pass: int = 1):
+        """Add a JSX symbol record for preserved JSX extraction."""
+        self.symbols_jsx_batch.append((path, name, symbol_type, line, col, jsx_mode, extraction_pass))
+
+    def add_assignment_jsx(self, file_path: str, line: int, target_var: str, source_expr: str,
+                          source_vars: List[str], in_function: str, jsx_mode: str = 'preserved',
+                          extraction_pass: int = 1):
+        """Add a JSX assignment record for preserved JSX extraction."""
+        source_vars_json = json.dumps(source_vars)
+        self.assignments_jsx_batch.append((file_path, line, target_var, source_expr,
+                                          source_vars_json, in_function, jsx_mode, extraction_pass))
+
+    def add_function_call_arg_jsx(self, file_path: str, line: int, caller_function: str,
+                                  callee_function: str, arg_index: int, arg_expr: str, param_name: str,
+                                  jsx_mode: str = 'preserved', extraction_pass: int = 1):
+        """Add a JSX function call argument record for preserved JSX extraction."""
+        self.function_call_args_jsx_batch.append((file_path, line, caller_function, callee_function,
+                                                  arg_index, arg_expr, param_name, jsx_mode, extraction_pass))
+
+    def add_framework(self, name, version, language, path, source, is_primary=False):
+        """Add framework to batch."""
+        # Skip if no name provided
+        if not name:
+            return
+        self.frameworks_batch.append((name, version, language, path, source, is_primary))
+        if len(self.frameworks_batch) >= self.batch_size:
+            self.flush_batch()
+
+    def add_framework_safe_sink(self, framework_id, pattern, sink_type, is_safe, reason):
+        """Add framework safe sink to batch."""
+        self.framework_safe_sinks_batch.append((framework_id, pattern, sink_type, is_safe, reason))
+        if len(self.framework_safe_sinks_batch) >= self.batch_size:
+            self.flush_batch()
+
+    def get_framework_id(self, name, language):
+        """Get framework ID from database."""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT id FROM frameworks WHERE name = ? AND language = ?", (name, language))
+        result = cursor.fetchone()
+        return result[0] if result else None
 
     def flush_batch(self, batch_idx: Optional[int] = None):
         """Execute all pending batch inserts."""
@@ -839,6 +1063,62 @@ class DatabaseManager:
                 )
                 self.variable_usage_batch = []
 
+            # Handle JSX-specific batches for dual-pass extraction
+            if self.function_returns_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO function_returns_jsx
+                       (file, line, function_name, return_expr, return_vars, has_jsx, returns_component,
+                        cleanup_operations, jsx_mode, extraction_pass)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.function_returns_jsx_batch
+                )
+                self.function_returns_jsx_batch = []
+
+            if self.symbols_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO symbols_jsx
+                       (path, name, type, line, col, jsx_mode, extraction_pass)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    self.symbols_jsx_batch
+                )
+                self.symbols_jsx_batch = []
+
+            if self.assignments_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO assignments_jsx
+                       (file, line, target_var, source_expr, source_vars, in_function, jsx_mode, extraction_pass)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.assignments_jsx_batch
+                )
+                self.assignments_jsx_batch = []
+
+            if self.function_call_args_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO function_call_args_jsx
+                       (file, line, caller_function, callee_function, argument_index, argument_expr,
+                        param_name, jsx_mode, extraction_pass)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.function_call_args_jsx_batch
+                )
+                self.function_call_args_jsx_batch = []
+
+            # Framework detection tables
+            if self.frameworks_batch:
+                cursor.executemany(
+                    """INSERT OR IGNORE INTO frameworks (name, version, language, path, source, is_primary)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    self.frameworks_batch
+                )
+                self.frameworks_batch = []
+
+            if self.framework_safe_sinks_batch:
+                cursor.executemany(
+                    """INSERT OR IGNORE INTO framework_safe_sinks (framework_id, sink_pattern, sink_type, is_safe, reason)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    self.framework_safe_sinks_batch
+                )
+                self.framework_safe_sinks_batch = []
+
             # Handle edges and statements without blocks (shouldn't happen, but be safe)
             elif self.cfg_edges_batch:
                 cursor.executemany(
@@ -898,6 +1178,10 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.react_components_batch = []
     manager.react_hooks_batch = []
     manager.variable_usage_batch = []
+    manager.function_returns_jsx_batch = []
+    manager.symbols_jsx_batch = []
+    manager.assignments_jsx_batch = []
+    manager.function_call_args_jsx_batch = []
 
     # Create the schema using the existing connection
     manager.create_schema()

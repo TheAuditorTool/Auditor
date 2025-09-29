@@ -376,14 +376,6 @@ def _find_weak_random_generation(cursor, existing_tables: Set[str]) -> List[Stan
         if confidence == Confidence.LOW and _is_test_file(file):
             continue
 
-        # Determine appropriate suggestion based on language
-        if 'Math.random' in callee:
-            suggestion = 'Use crypto.getRandomValues() or crypto.randomBytes()'
-        elif file.endswith('.py'):
-            suggestion = 'Use secrets.token_hex() or os.urandom()'
-        else:
-            suggestion = 'Use cryptographically secure random function'
-
         findings.append(StandardFinding(
             rule_name='crypto-insecure-random',
             message=f'Insecure random function {callee} used',
@@ -393,7 +385,6 @@ def _find_weak_random_generation(cursor, existing_tables: Set[str]) -> List[Stan
             confidence=confidence,
             category='security',
             snippet=f'{callee}({args[:50] if args else ""}...)',
-            fix_suggestion=suggestion,
             cwe_id='CWE-330'  # Use of Insufficiently Random Values
         ))
 
@@ -436,7 +427,6 @@ def _find_weak_hash_algorithms(cursor, existing_tables: Set[str]) -> List[Standa
                 confidence=confidence,
                 category='security',
                 snippet=f'{callee}(...{weak_algo}...)',
-                fix_suggestion='Use SHA-256, SHA-3, or BLAKE2',
                 cwe_id='CWE-327'  # Use of Broken or Risky Cryptographic Algorithm
             ))
 
@@ -471,7 +461,6 @@ def _find_weak_encryption_algorithms(cursor, existing_tables: Set[str]) -> List[
                 confidence=Confidence.HIGH,
                 category='security',
                 snippet=f'{callee}(...{weak_enc}...)',
-                fix_suggestion='Use AES-256-GCM or ChaCha20-Poly1305',
                 cwe_id='CWE-327'
             ))
 
@@ -524,7 +513,6 @@ def _find_missing_salt(cursor, existing_tables: Set[str]) -> List[StandardFindin
                 confidence=Confidence.MEDIUM,
                 category='security',
                 snippet=f'{callee}(password, ...)',
-                fix_suggestion='Add unique salt for each password hash',
                 cwe_id='CWE-759'  # Use of One-Way Hash without Salt
             ))
 
@@ -563,7 +551,6 @@ def _find_static_salt(cursor, existing_tables: Set[str]) -> List[StandardFinding
                 confidence=Confidence.HIGH,
                 category='security',
                 snippet=f'{var} = "..."',
-                fix_suggestion='Generate unique random salt for each password',
                 cwe_id='CWE-760'  # Use of One-Way Hash with Predictable Salt
             ))
 
@@ -607,7 +594,6 @@ def _find_weak_kdf_iterations(cursor, existing_tables: Set[str]) -> List[Standar
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{callee}(...iterations={num}...)',
-                    fix_suggestion='Use at least 100,000 iterations (OWASP recommendation)',
                     cwe_id='CWE-916'  # Use of Password Hash With Insufficient Computational Effort
                 ))
                 break  # Only report once per call
@@ -645,7 +631,6 @@ def _find_ecb_mode(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
             confidence=Confidence.HIGH,
             category='security',
             snippet=f'{callee}(...ECB...)',
-            fix_suggestion='Use GCM, CTR, or CBC mode with proper IV',
             cwe_id='CWE-327'
         ))
 
@@ -669,7 +654,6 @@ def _find_ecb_mode(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
                 confidence=Confidence.HIGH,
                 category='security',
                 snippet=f'{var} = "ECB"',
-                fix_suggestion='Use authenticated encryption modes like GCM',
                 cwe_id='CWE-327'
             ))
 
@@ -723,7 +707,6 @@ def _find_missing_iv(cursor, existing_tables: Set[str]) -> List[StandardFinding]
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{callee}(...)',
-                    fix_suggestion='Generate random IV for each encryption operation',
                     cwe_id='CWE-329'  # Not Using Random IV with CBC Mode
                 ))
 
@@ -762,7 +745,6 @@ def _find_static_iv(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
                 confidence=Confidence.HIGH,
                 category='security',
                 snippet=f'{var} = {expr[:50]}',
-                fix_suggestion='Generate unique random IV for each encryption',
                 cwe_id='CWE-329'
             ))
 
@@ -803,7 +785,6 @@ def _find_predictable_seeds(cursor, existing_tables: Set[str]) -> List[StandardF
                 confidence=Confidence.HIGH,
                 category='security',
                 snippet=f'{var} = {ts_func}()',
-                fix_suggestion='Use cryptographically secure random seed',
                 cwe_id='CWE-335'  # Incorrect Usage of Seeds in PRNG
             ))
 
@@ -828,7 +809,6 @@ def _find_predictable_seeds(cursor, existing_tables: Set[str]) -> List[StandardF
                 confidence=Confidence.HIGH,
                 category='security',
                 snippet=f'{callee}({args[:50]})',
-                fix_suggestion='Use unpredictable random seed',
                 cwe_id='CWE-335'
             ))
 
@@ -881,7 +861,6 @@ def _find_hardcoded_keys(cursor, existing_tables: Set[str]) -> List[StandardFind
             confidence=Confidence.HIGH,
             category='security',
             snippet=f'{var} = "***REDACTED***"',
-            fix_suggestion='Store keys in environment variables or key management system',
             cwe_id='CWE-798'  # Use of Hard-coded Credentials
         ))
 
@@ -924,7 +903,6 @@ def _find_weak_key_size(cursor, existing_tables: Set[str]) -> List[StandardFindi
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{callee}({num})',
-                    fix_suggestion='Use at least 128-bit keys (256-bit recommended)',
                     cwe_id='CWE-326'  # Inadequate Encryption Strength
                 ))
             elif num in [5, 7, 8, 10]:  # Weak sizes in bytes
@@ -937,7 +915,6 @@ def _find_weak_key_size(cursor, existing_tables: Set[str]) -> List[StandardFindi
                     confidence=Confidence.MEDIUM,
                     category='security',
                     snippet=f'{callee}({num})',
-                    fix_suggestion='Use at least 16 bytes (128 bits) for keys',
                     cwe_id='CWE-326'
                 ))
 
@@ -977,7 +954,6 @@ def _find_password_in_url(cursor, existing_tables: Set[str]) -> List[StandardFin
             confidence=Confidence.MEDIUM,
             category='security',
             snippet=f'{callee}(...password...)',
-            fix_suggestion='Send sensitive data in request body or headers with HTTPS',
             cwe_id='CWE-598'  # Information Exposure Through Query Strings in GET Request
         ))
 
@@ -1016,7 +992,6 @@ def _find_timing_vulnerable_compare(cursor, existing_tables: Set[str]) -> List[S
                 confidence=Confidence.MEDIUM,
                 category='security',
                 snippet=f'{name} == ...',
-                fix_suggestion='Use constant-time comparison (e.g., hmac.compare_digest)',
                 cwe_id='CWE-208'  # Observable Timing Discrepancy
             ))
 
@@ -1041,7 +1016,6 @@ def _find_timing_vulnerable_compare(cursor, existing_tables: Set[str]) -> List[S
             confidence=Confidence.HIGH,
             category='security',
             snippet=f'{callee}(secret, ...)',
-            fix_suggestion='Use constant-time comparison function',
             cwe_id='CWE-208'
         ))
 
@@ -1056,14 +1030,14 @@ def _find_deprecated_libraries(cursor, existing_tables: Set[str]) -> List[Standa
     findings = []
 
     deprecated_funcs = [
-        ('pycrypto', 'pycrypto is unmaintained', 'Use cryptography or pycryptodome'),
-        ('mcrypt', 'mcrypt is deprecated', 'Use openssl or sodium'),
-        ('CryptoJS.enc.Base64', 'Base64 is encoding, not encryption', 'Use proper encryption'),
-        ('md5_file', 'MD5 should not be used', 'Use SHA-256 or better'),
-        ('sha1_file', 'SHA1 is deprecated', 'Use SHA-256 or better')
+        ('pycrypto', 'pycrypto is unmaintained'),
+        ('mcrypt', 'mcrypt is deprecated'),
+        ('CryptoJS.enc.Base64', 'Base64 is encoding, not encryption'),
+        ('md5_file', 'MD5 should not be used'),
+        ('sha1_file', 'SHA1 is deprecated')
     ]
 
-    for deprecated, reason, suggestion in deprecated_funcs:
+    for deprecated, reason in deprecated_funcs:
         cursor.execute("""
             SELECT file, line, callee_function
             FROM function_call_args
@@ -1081,7 +1055,6 @@ def _find_deprecated_libraries(cursor, existing_tables: Set[str]) -> List[Standa
                 confidence=Confidence.HIGH,
                 category='security',
                 snippet=callee,
-                fix_suggestion=suggestion,
                 cwe_id='CWE-327'
             ))
 

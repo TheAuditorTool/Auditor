@@ -234,7 +234,6 @@ class CryptoAnalyzer:
                 severity=severity,
                 category='cryptography',
                 confidence=confidence,
-                fix_suggestion='Use SHA-256 or stronger. For passwords use bcrypt/argon2',
                 cwe_id='CWE-327'
             ))
 
@@ -264,7 +263,6 @@ class CryptoAnalyzer:
                 severity=Severity.CRITICAL,
                 category='cryptography',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use AES-256-GCM or ChaCha20-Poly1305',
                 cwe_id='CWE-327'
             ))
 
@@ -290,7 +288,6 @@ class CryptoAnalyzer:
                 severity=Severity.HIGH,
                 category='cryptography',
                 confidence=Confidence.HIGH,
-                fix_suggestion='Use AES-GCM or AES-CTR with authentication',
                 cwe_id='CWE-327'
             ))
 
@@ -322,7 +319,6 @@ class CryptoAnalyzer:
                     severity=Severity.CRITICAL,
                     category='cryptography',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use secrets module or os.urandom() for crypto',
                     cwe_id='CWE-338'
                 ))
 
@@ -357,7 +353,6 @@ class CryptoAnalyzer:
                         severity=Severity.CRITICAL,
                         category='cryptography',
                         confidence=Confidence.HIGH,
-                        fix_suggestion='Use environment variables or key management service',
                         cwe_id='CWE-798'
                     ))
 
@@ -390,7 +385,6 @@ class CryptoAnalyzer:
                     severity=Severity.HIGH,
                     category='cryptography',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use at least 100,000 iterations for PBKDF2, or use argon2',
                     cwe_id='CWE-916'
                 ))
 
@@ -404,7 +398,6 @@ class CryptoAnalyzer:
                     severity=Severity.HIGH,
                     category='cryptography',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Always use a random salt with KDF functions',
                     cwe_id='CWE-916'
                 ))
 
@@ -435,7 +428,6 @@ class CryptoAnalyzer:
                     severity=Severity.CRITICAL,
                     category='cryptography',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Never allow algorithm=none. Use RS256 or HS256',
                     cwe_id='CWE-347'
                 ))
 
@@ -449,7 +441,6 @@ class CryptoAnalyzer:
                     severity=Severity.HIGH,
                     category='cryptography',
                     confidence=Confidence.MEDIUM,
-                    fix_suggestion='Use RS256 or ensure HS256 secret is cryptographically strong',
                     cwe_id='CWE-347'
                 ))
 
@@ -477,7 +468,6 @@ class CryptoAnalyzer:
                     severity=Severity.CRITICAL,
                     category='cryptography',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Always verify SSL certificates in production',
                     cwe_id='CWE-295'
                 ))
 
@@ -490,7 +480,6 @@ class CryptoAnalyzer:
                     severity=Severity.HIGH,
                     category='cryptography',
                     confidence=Confidence.HIGH,
-                    fix_suggestion='Use TLS 1.2 or higher',
                     cwe_id='CWE-327'
                 ))
 
@@ -519,7 +508,6 @@ class CryptoAnalyzer:
                     severity=Severity.MEDIUM,
                     category='cryptography',
                     confidence=Confidence.LOW,
-                    fix_suggestion='Use different keys for different purposes',
                     cwe_id='CWE-323'
                 ))
 
