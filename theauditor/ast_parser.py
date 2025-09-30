@@ -148,13 +148,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         
         return self.project_type
 
-    def parse_file(
-        self,
-        file_path: Path,
-        language: str = None,
-        root_path: str = None,
-        jsx_mode: Optional[str] = None,
-    ) -> Any:
+    def parse_file(self, file_path: Path, language: str = None, root_path: str = None) -> Any:
         """Parse a file into an AST.
 
         Args:
@@ -184,11 +178,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                     # Attempt to use the TypeScript Compiler API for semantic analysis
                     # Normalize path for cross-platform compatibility
                     normalized_path = str(file_path).replace("\\", "/")
-                    semantic_result = get_semantic_ast(
-                        normalized_path,
-                        project_root=root_path,
-                        jsx_mode=jsx_mode,
-                    )
+                    semantic_result = get_semantic_ast(normalized_path, project_root=root_path)
                     
                     if semantic_result.get("success"):
                         # Return the semantic AST with full type information
@@ -199,8 +189,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                             "content": content.decode("utf-8", errors="ignore"),
                             "has_types": semantic_result.get("hasTypes", False),
                             "diagnostics": semantic_result.get("diagnostics", []),
-                            "symbols": semantic_result.get("symbols", []),
-                            "jsx_mode": jsx_mode or "transformed",
+                            "symbols": semantic_result.get("symbols", [])
                         }
                     else:
                         # Log but continue to Tree-sitter/regex fallback
@@ -220,13 +209,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                 try:
                     # Use cached parser
                     tree = self._parse_treesitter_cached(content_hash, content, language)
-                    return {
-                        "type": "tree_sitter",
-                        "tree": tree,
-                        "language": language,
-                        "content": content,
-                        "jsx_mode": jsx_mode or "transformed",
-                    }
+                    return {"type": "tree_sitter", "tree": tree, "language": language, "content": content}
                 except Exception as e:
                     print(f"Warning: Tree-sitter parsing failed for {file_path}: {e}")
                     print(f"         Falling back to alternative parser if available.")
@@ -237,25 +220,13 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                 decoded = content.decode("utf-8", errors="ignore")
                 python_ast = self._parse_python_cached(content_hash, decoded)
                 if python_ast:
-                    return {
-                        "type": "python_ast",
-                        "tree": python_ast,
-                        "language": language,
-                        "content": decoded,
-                        "jsx_mode": jsx_mode or "transformed",
-                    }
+                    return {"type": "python_ast", "tree": python_ast, "language": language, "content": decoded}
 
             # Return minimal structure to signal regex fallback for JS/TS
             if language in ["javascript", "typescript"]:
                 print(f"Warning: AST parsing unavailable for {file_path}. Using regex fallback.")
                 decoded = content.decode("utf-8", errors="ignore")
-                return {
-                    "type": "regex_fallback",
-                    "tree": None,
-                    "language": language,
-                    "content": decoded,
-                    "jsx_mode": jsx_mode or "transformed",
-                }
+                return {"type": "regex_fallback", "tree": None, "language": language, "content": decoded}
 
             # Return None for unsupported languages
             return None

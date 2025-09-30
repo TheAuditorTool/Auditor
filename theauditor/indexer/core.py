@@ -30,18 +30,16 @@ class ASTCache:
         self.cache_dir = root_path / ".pf" / "ast_cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
     
-    def get(self, file_hash: str, namespace: str = "default") -> Optional[Dict]:
+    def get(self, file_hash: str) -> Optional[Dict]:
         """Get cached AST for a file by its hash.
-
+        
         Args:
             file_hash: SHA256 hash of the file content
-            namespace: Cache namespace (e.g., transformed vs preserved JSX)
-
+            
         Returns:
             Cached AST tree or None if not found
         """
-        cache_dir = self.cache_dir / namespace
-        cache_file = cache_dir / f"{file_hash}.json"
+        cache_file = self.cache_dir / f"{file_hash}.json"
         if cache_file.exists():
             try:
                 with open(cache_file, 'r', encoding='utf-8') as f:
@@ -50,18 +48,15 @@ class ASTCache:
                 # Cache corrupted, return None
                 return None
         return None
-
-    def set(self, file_hash: str, tree: Dict, namespace: str = "default") -> None:
+    
+    def set(self, file_hash: str, tree: Dict) -> None:
         """Store an AST tree in the cache.
-
+        
         Args:
             file_hash: SHA256 hash of the file content
             tree: AST tree to cache (must be JSON serializable)
-            namespace: Cache namespace (e.g., transformed vs preserved JSX)
         """
-        cache_dir = self.cache_dir / namespace
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_file = cache_dir / f"{file_hash}.json"
+        cache_file = self.cache_dir / f"{file_hash}.json"
         try:
             # Only cache if tree is JSON serializable (dict), not a Tree object
             if isinstance(tree, dict):
@@ -70,15 +65,14 @@ class ASTCache:
         except (OSError, PermissionError, TypeError):
             # Cache write failed, non-critical
             pass
-
-    def invalidate(self, file_hash: str, namespace: str = "default") -> None:
+    
+    def invalidate(self, file_hash: str) -> None:
         """Invalidate cache entry for a specific file.
-
+        
         Args:
             file_hash: SHA256 hash of the file content
-            namespace: Cache namespace to remove from
         """
-        cache_file = (self.cache_dir / namespace) / f"{file_hash}.json"
+        cache_file = self.cache_dir / f"{file_hash}.json"
         if cache_file.exists():
             try:
                 cache_file.unlink()

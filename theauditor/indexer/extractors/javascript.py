@@ -38,7 +38,6 @@ class JavaScriptExtractor(BaseExtractor):
         Returns:
             Dictionary containing all extracted data
         """
-        jsx_mode = file_info.get('jsx_mode')
         result = {
             'imports': [],
             'resolved_imports': {},
@@ -47,9 +46,7 @@ class JavaScriptExtractor(BaseExtractor):
             'assignments': [],
             'function_calls': [],
             'returns': [],
-            'orm_queries': [],
-            'react_components': [],
-            'react_hooks': [],
+            'orm_queries': []
         }
         
         # Extract imports using regex patterns
@@ -163,17 +160,11 @@ class JavaScriptExtractor(BaseExtractor):
             # Extract return statements
             return_statements = self.ast_parser.extract_returns(tree)
             for ret in return_statements:
-                return_expr = ret.get('return_expr', '')
-                has_jsx = False
-                if (jsx_mode or '').lower() == 'preserved':
-                    snippet = return_expr or ''
-                    has_jsx = '<' in snippet and '>' in snippet
                 result['returns'].append({
                     'line': ret.get('line', 0),
                     'function_name': ret.get('function_name', 'global'),
-                    'return_expr': return_expr,
-                    'return_vars': ret.get('return_vars', []),
-                    'has_jsx': has_jsx,
+                    'return_expr': ret.get('return_expr', ''),
+                    'return_vars': ret.get('return_vars', [])
                 })
             
             # Extract ORM queries
@@ -181,90 +172,9 @@ class JavaScriptExtractor(BaseExtractor):
         
         # Extract SQL queries embedded in JavaScript code
         result['sql_queries'] = self.extract_sql_queries(content)
-
-        if (jsx_mode or '').lower() == 'preserved':
-            self._detect_react_metadata(file_info, content, result)
-
+        
         return result
-
-    def _detect_react_metadata(self, file_info: Dict[str, Any], content: str, result: Dict[str, Any]) -> None:
-        """Populate React component and hook metadata for preserved JSX pass."""
-        imported_modules = {mod for _, mod in result.get('imports', [])}
-        has_react_import = any(mod.startswith('react') for mod in imported_modules)
-        if not has_react_import:
-            return
-        component_patterns = [
-            (re.compile(r'export\s+default\s+function\s+(?P<name>[A-Z][A-Za-z0-9_]*)'), 'default'),
-            (re.compile(r'export\s+function\s+(?P<name>[A-Z][A-Za-z0-9_]*)'), 'named'),
-            (re.compile(r'export\s+const\s+(?P<name>[A-Z][A-Za-z0-9_]*)\s*=\s*(?:async\s*)?\(?[^\n=]*=>'), 'named'),
-        ]
-
-        discovered = {}
-        for pattern, export_type in component_patterns:
-            for match in pattern.finditer(content):
-                name = match.group('name')
-                if not name or name in discovered:
-                    continue
-                snippet_start = match.start()
-                snippet = content[snippet_start: snippet_start + 600]
-                if '<' not in snippet or '>' not in snippet:
-                    continue
-                line = content[:snippet_start].count('\n') + 1
-                discovered[name] = {
-                    'data': {
-                        'name': name,
-                        'line': line,
-                        'col': 0,
-                        'export': export_type,
-                        'hook_calls': 0,
-                    },
-                    'start': snippet_start,
-                }
-
-        if not discovered:
-            return
-
-        hook_regex = re.compile(r'(?:React\.)?(use[A-Z][A-Za-z0-9_]*)\s*\(')
-        for name, payload in discovered.items():
-            component = payload['data']
-            snippet_start = payload['start']
-            snippet = content[snippet_start: snippet_start + 600]
-            hooks = []
-            for hook_match in hook_regex.finditer(snippet):
-                hook_name = hook_match.group(1)
-                absolute_index = snippet_start + hook_match.start()
-                hook_line = content[:absolute_index].count('\n') + 1
-                hooks.append({'name': hook_name, 'component': name, 'line': hook_line, 'col': 0})
-
-            component['hook_calls'] = len(hooks)
-            result['react_hooks'].extend(hooks)
-
-            has_existing_jsx_return = any(
-                ret.get('function_name') == name and ret.get('has_jsx')
-                for ret in result.get('returns', [])
-            )
-            if not has_existing_jsx_return:
-                result.setdefault('returns', []).append({
-                    'line': component['line'],
-                    'function_name': name,
-                    'return_expr': '<jsx>',
-                    'return_vars': [],
-                    'has_jsx': True,
-                })
-
-        result['react_components'].extend([payload['data'] for payload in discovered.values()])
-
-    @staticmethod
-    def _detect_export_type(component_name: str, content: str) -> str:
-        """Heuristically determine how a component is exported."""
-        if re.search(rf'export\s+default\s+function\s+{component_name}\b', content):
-            return 'default'
-        if re.search(rf'export\s+(?:const|function|class)\s+{component_name}\b', content):
-            return 'named'
-        if re.search(rf'export\s*\{{[^}}]*\b{component_name}\b', content):
-            return 'named'
-        return 'local'
-
+    
     def _extract_routes_ast(self, tree: Dict[str, Any], content: str) -> List[tuple]:
         """Extract Express/Fastify routes with middleware.
         
@@ -288,23 +198,21 @@ class JavaScriptExtractor(BaseExtractor):
             method = match.group(1).upper()
             path = match.group(2)
             middleware_str = match.group(3)
-
-            raw_parts = [segment.strip() for segment in middleware_str.split(',')]
-            middleware: List[str] = []
-            candidates = raw_parts[:-1] if len(raw_parts) > 1 else []
-            ignore_tokens = {'req', 'res', 'next', 'async', 'function', 'err'}
-
-            for candidate in candidates:
-                token = candidate
-                if '=>' in token:
-                    continue
-                token = token.replace('async', '').strip()
-                token = token.split('(')[0].strip()
-                token = re.sub(r'[^A-Za-z0-9_.$]', '', token)
-                if not token or token in ignore_tokens:
-                    continue
-                middleware.append(token)
-
+            
+            # Extract middleware function names
+            middleware = []
+            # Look for function names before the final handler
+            middleware_pattern = re.compile(r'(\w+)(?:\s*,|\s*\))')
+            for m in middleware_pattern.finditer(middleware_str):
+                name = m.group(1)
+                # Filter out common non-middleware terms
+                if name not in ['req', 'res', 'next', 'async', 'function', 'err']:
+                    middleware.append(name)
+            
+            # Remove the last item as it's likely the handler, not middleware
+            if len(middleware) > 1:
+                middleware = middleware[:-1]
+            
             routes.append((method, path, middleware))
         
         # If no routes found with enhanced regex, fallback to basic extraction
