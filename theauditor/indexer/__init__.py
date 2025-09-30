@@ -137,12 +137,16 @@ class IndexerOrchestrator:
                 is_primary=(fw.get('path', '.') == '.')
             )
 
+        # Flush frameworks batch to database BEFORE querying for IDs
+        self.db_manager.flush_batch()
+        self.db_manager.commit()
+
         # Add safe sinks for Express (res.json, res.jsonp are auto-encoded)
         if any(fw.get('framework') == 'express' for fw in self.frameworks):
             conn = self.db_manager.conn
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT framework_id FROM frameworks WHERE name = ? AND language = ?",
+                "SELECT id FROM frameworks WHERE name = ? AND language = ?",
                 ('express', 'javascript')
             )
             result = cursor.fetchone()

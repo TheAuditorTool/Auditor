@@ -524,23 +524,6 @@ class DatabaseManager:
         """
         )
 
-        # Metadata table for extraction runs
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS extraction_metadata (
-                extraction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                completed_at TIMESTAMP,
-                jsx_mode TEXT NOT NULL,
-                files_processed INTEGER DEFAULT 0,
-                jsx_components_found INTEGER DEFAULT 0,
-                extraction_pass INTEGER DEFAULT 1,
-                error_count INTEGER DEFAULT 0,
-                status TEXT DEFAULT 'running'
-            )
-        """
-        )
-
         # Unified views for backward compatibility
         cursor.execute(
             """
@@ -713,7 +696,6 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_assignments_function ON assignments_jsx(in_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_calls_file ON function_call_args_jsx(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_calls_caller ON function_call_args_jsx(caller_function)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_metadata_status ON extraction_metadata(status)")
 
         # Indexes for Vue tables
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_components_file ON vue_components(file)")
@@ -775,7 +757,6 @@ class DatabaseManager:
             cursor.execute("DELETE FROM symbols_jsx")
             cursor.execute("DELETE FROM assignments_jsx")
             cursor.execute("DELETE FROM function_call_args_jsx")
-            cursor.execute("DELETE FROM extraction_metadata")
             # Also clear Vue tables
             cursor.execute("DELETE FROM vue_components")
             cursor.execute("DELETE FROM vue_hooks")
