@@ -280,7 +280,8 @@ class FileWalker:
             
             # CRITICAL: Also collect config files from monorepo directories
             # These are outside src/ but essential for module resolution
-            config_patterns = ['tsconfig.json', 'tsconfig.*.json', 'package.json', 
+            config_patterns = ['tsconfig.json', 'tsconfig.*.json', 'package.json',
+                             'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
                              'webpack.config.js', 'vite.config.ts', '.babelrc*']
             
             for base_dir, _ in STANDARD_MONOREPO_PATHS:

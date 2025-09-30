@@ -18,9 +18,6 @@ from .vue_xss_analyze import find_vue_xss
 from .dom_xss_analyze import find_dom_xss
 from .template_xss_analyze import find_template_injection
 
-# Legacy import for backward compatibility
-from .xssdetection import find_xss_vulnerabilities
-
 
 def find_all_xss_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Run all XSS analyzers based on detected frameworks.
@@ -105,5 +102,4 @@ __all__ = [
     'find_vue_xss',         # Vue-specific
     'find_dom_xss',         # DOM XSS
     'find_template_injection',  # Template injection
-    'find_xss_vulnerabilities'  # Legacy AST-based (backward compat)
 ]

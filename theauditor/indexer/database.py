@@ -73,6 +73,11 @@ class DatabaseManager:
         # TypeScript type annotation batch list
         self.type_annotations_batch = []
 
+        # Build analysis batch lists
+        self.package_configs_batch = []
+        self.lock_analysis_batch = []
+        self.import_styles_batch = []
+
     def begin_transaction(self):
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -264,6 +269,54 @@ class DatabaseManager:
                 level INTEGER DEFAULT 0,
                 PRIMARY KEY (file_path, block_type, block_context),
                 FOREIGN KEY(file_path) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Build analysis tables for bundle rules
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS package_configs(
+                file_path TEXT PRIMARY KEY,
+                package_name TEXT,
+                version TEXT,
+                dependencies TEXT,
+                dev_dependencies TEXT,
+                peer_dependencies TEXT,
+                scripts TEXT,
+                engines TEXT,
+                workspaces TEXT,
+                private BOOLEAN DEFAULT 0,
+                FOREIGN KEY(file_path) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS lock_analysis(
+                file_path TEXT PRIMARY KEY,
+                lock_type TEXT NOT NULL,
+                package_manager_version TEXT,
+                total_packages INTEGER,
+                duplicate_packages TEXT,
+                lock_file_version TEXT,
+                FOREIGN KEY(file_path) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS import_styles(
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                package TEXT NOT NULL,
+                import_style TEXT NOT NULL,
+                imported_names TEXT,
+                alias_name TEXT,
+                full_statement TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
             )
         """
         )
@@ -714,6 +767,14 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_type_annotations_unknown ON type_annotations(file, is_unknown)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_type_annotations_generic ON type_annotations(file, is_generic)")
 
+        # Indexes for build analysis tables
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_package_configs_file ON package_configs(file_path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_lock_analysis_file ON lock_analysis(file_path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_lock_analysis_type ON lock_analysis(lock_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_styles_file ON import_styles(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_styles_package ON import_styles(package)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_styles_style ON import_styles(import_style)")
+
         # Migration: Add type_annotation column to symbols table if it doesn't exist
         try:
             cursor.execute("ALTER TABLE symbols ADD COLUMN type_annotation TEXT")
@@ -764,6 +825,10 @@ class DatabaseManager:
             cursor.execute("DELETE FROM vue_provide_inject")
             # Also clear type annotations
             cursor.execute("DELETE FROM type_annotations")
+            # Also clear build analysis tables
+            cursor.execute("DELETE FROM package_configs")
+            cursor.execute("DELETE FROM lock_analysis")
+            cursor.execute("DELETE FROM import_styles")
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
@@ -1007,6 +1072,43 @@ class DatabaseManager:
         self.type_annotations_batch.append((file_path, line, column, symbol_name, symbol_kind,
                                            type_annotation, is_any, is_unknown, is_generic,
                                            has_type_params, type_params, return_type, extends_type))
+
+    def add_package_config(self, file_path: str, package_name: str, version: str,
+                          dependencies: Optional[Dict], dev_dependencies: Optional[Dict],
+                          peer_dependencies: Optional[Dict], scripts: Optional[Dict],
+                          engines: Optional[Dict], workspaces: Optional[List],
+                          is_private: bool = False):
+        """Add a package.json configuration to the batch."""
+        deps_json = json.dumps(dependencies) if dependencies else None
+        dev_deps_json = json.dumps(dev_dependencies) if dev_dependencies else None
+        peer_deps_json = json.dumps(peer_dependencies) if peer_dependencies else None
+        scripts_json = json.dumps(scripts) if scripts else None
+        engines_json = json.dumps(engines) if engines else None
+        workspaces_json = json.dumps(workspaces) if workspaces else None
+
+        self.package_configs_batch.append((file_path, package_name, version,
+                                          deps_json, dev_deps_json, peer_deps_json,
+                                          scripts_json, engines_json, workspaces_json,
+                                          is_private))
+
+    def add_lock_analysis(self, file_path: str, lock_type: str,
+                         package_manager_version: Optional[str],
+                         total_packages: int, duplicate_packages: Optional[Dict],
+                         lock_file_version: Optional[str]):
+        """Add a lock file analysis result to the batch."""
+        duplicates_json = json.dumps(duplicate_packages) if duplicate_packages else None
+
+        self.lock_analysis_batch.append((file_path, lock_type, package_manager_version,
+                                        total_packages, duplicates_json, lock_file_version))
+
+    def add_import_style(self, file_path: str, line: int, package: str,
+                        import_style: str, imported_names: Optional[List[str]] = None,
+                        alias_name: Optional[str] = None, full_statement: Optional[str] = None):
+        """Add an import style record to the batch."""
+        names_json = json.dumps(imported_names) if imported_names else None
+
+        self.import_styles_batch.append((file_path, line, package, import_style,
+                                        names_json, alias_name, full_statement))
 
     def add_framework(self, name, version, language, path, source, is_primary=False):
         """Add framework to batch."""
@@ -1341,6 +1443,36 @@ class DatabaseManager:
                 )
                 self.framework_safe_sinks_batch = []
 
+            # Handle build analysis batches
+            if self.package_configs_batch:
+                cursor.executemany(
+                    """INSERT OR REPLACE INTO package_configs
+                       (file_path, package_name, version, dependencies, dev_dependencies,
+                        peer_dependencies, scripts, engines, workspaces, private)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.package_configs_batch
+                )
+                self.package_configs_batch = []
+
+            if self.lock_analysis_batch:
+                cursor.executemany(
+                    """INSERT OR REPLACE INTO lock_analysis
+                       (file_path, lock_type, package_manager_version, total_packages,
+                        duplicate_packages, lock_file_version)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    self.lock_analysis_batch
+                )
+                self.lock_analysis_batch = []
+
+            if self.import_styles_batch:
+                cursor.executemany(
+                    """INSERT INTO import_styles
+                       (file, line, package, import_style, imported_names, alias_name, full_statement)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    self.import_styles_batch
+                )
+                self.import_styles_batch = []
+
             # Handle edges and statements without blocks (shouldn't happen, but be safe)
             elif self.cfg_edges_batch:
                 cursor.executemany(
@@ -1409,6 +1541,9 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.vue_directives_batch = []
     manager.vue_provide_inject_batch = []
     manager.type_annotations_batch = []
+    manager.package_configs_batch = []
+    manager.lock_analysis_batch = []
+    manager.import_styles_batch = []
 
     # Create the schema using the existing connection
     manager.create_schema()
