@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
 from ..config import (
-    IMPORT_PATTERNS, ROUTE_PATTERNS, SQL_PATTERNS, SQL_QUERY_PATTERNS
+    IMPORT_PATTERNS,
+    ROUTE_PATTERNS,
+    SQL_PATTERNS,
+    SQL_QUERY_PATTERNS,
 )
 
 # Optional SQL parsing support
@@ -21,6 +24,37 @@ try:
     HAS_SQLPARSE = True
 except ImportError:
     HAS_SQLPARSE = False
+
+
+SQL_COMMAND_KEYWORDS = {
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "MERGE",
+    "WITH",
+    "CREATE",
+    "DROP",
+    "ALTER",
+    "REPLACE",
+    "TRUNCATE",
+    "CALL",
+    "EXPLAIN",
+}
+
+SQL_STRUCTURE_KEYWORDS = {
+    "FROM",
+    "WHERE",
+    "JOIN",
+    "INTO",
+    "VALUES",
+    "SET",
+    "TABLE",
+    "LIMIT",
+    "GROUP",
+    "ORDER",
+    "HAVING",
+}
 
 
 class BaseExtractor(ABC):
@@ -141,7 +175,7 @@ class BaseExtractor(ABC):
     
     def extract_sql_queries(self, content: str) -> List[Dict]:
         """Extract and parse SQL queries from code.
-        
+
         Args:
             content: File content
             
@@ -157,62 +191,128 @@ class BaseExtractor(ABC):
         for pattern in SQL_QUERY_PATTERNS:
             for match in pattern.finditer(content):
                 query_text = match.group(1) if match.lastindex else match.group(0)
-                
+
                 # Calculate line number
                 line = content[:match.start()].count('\n') + 1
-                
+
                 # Clean up the query text
                 query_text = query_text.strip()
                 if not query_text:
                     continue
-                
+
+                upper_text = query_text.upper()
+                tokens = upper_text.split()
+                if len(tokens) < 2:
+                    continue
+
+                if not any(keyword in upper_text for keyword in SQL_COMMAND_KEYWORDS):
+                    continue
+
                 try:
                     # Parse the SQL query
                     parsed = sqlparse.parse(query_text)
                     if not parsed:
                         continue
-                    
+
                     for statement in parsed:
-                        # Extract command type
-                        command = statement.get_type()
-                        if not command:
-                            # Try to extract manually from first token
-                            tokens = statement.tokens
-                            for token in tokens:
-                                if not token.is_whitespace:
-                                    command = str(token).upper()
+                        command = statement.get_type() or ""
+
+                        if command == "UNKNOWN":
+                            command = self._guess_sql_command(statement, tokens)
+
+                        if command == "UNKNOWN" and not any(
+                            keyword in upper_text for keyword in SQL_STRUCTURE_KEYWORDS
+                        ):
+                            continue
+
+                        table_candidates: List[str] = []
+                        flattened = list(statement.flatten())
+                        for i, token in enumerate(flattened):
+                            if token.ttype is None and token.value.upper() in {
+                                'FROM',
+                                'INTO',
+                                'UPDATE',
+                                'TABLE',
+                                'JOIN',
+                            }:
+                                for j in range(i + 1, len(flattened)):
+                                    next_token = flattened[j]
+                                    if next_token.is_whitespace:
+                                        continue
+                                    if next_token.ttype in [None, sqlparse.tokens.Name]:
+                                        table_name = next_token.value.strip('"\'`')
+                                        if '.' in table_name:
+                                            table_name = table_name.split('.')[-1]
+                                        table_name = table_name.strip().lower()
+                                        if table_name and table_name.upper() not in SQL_COMMAND_KEYWORDS:
+                                            table_candidates.append(table_name)
                                     break
-                        
-                        # Extract table names
-                        tables = []
-                        tokens = list(statement.flatten())
-                        for i, token in enumerate(tokens):
-                            if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
-                                # Look for the next non-whitespace token
-                                for j in range(i + 1, len(tokens)):
-                                    next_token = tokens[j]
-                                    if not next_token.is_whitespace:
-                                        if next_token.ttype in [None, sqlparse.tokens.Name]:
-                                            table_name = next_token.value
-                                            # Clean up table name
-                                            table_name = table_name.strip('"\'`')
-                                            if '.' in table_name:
-                                                table_name = table_name.split('.')[-1]
-                                            if table_name and not table_name.upper() in ['SELECT', 'WHERE', 'SET', 'VALUES']:
-                                                tables.append(table_name)
-                                        break
-                        
-                        queries.append({
-                            'line': line,
-                            'query_text': query_text[:1000],  # Limit length
-                            'command': command or 'UNKNOWN',
-                            'tables': tables
-                        })
+
+                        tables = table_candidates or self._extract_sql_tables(query_text)
+
+                        if command == "UNKNOWN" and not tables:
+                            continue
+
+                        queries.append(
+                            {
+                                'line': line,
+                                'query_text': query_text[:1000],
+                                'command': command if command else 'UNKNOWN',
+                                'tables': tables,
+                            }
+                        )
                 except Exception:
                     # Skip queries that can't be parsed
                     continue
-        
+
         return queries
+
+    @staticmethod
+    def _guess_sql_command(statement: Any, tokens: List[str]) -> str:
+        """Attempt to determine the SQL command for ambiguous statements."""
+        if not HAS_SQLPARSE:
+            return tokens[0] if tokens else "UNKNOWN"
+
+        for token in statement.flatten():
+            if token.is_whitespace:
+                continue
+            value = token.value.upper()
+            if value in SQL_COMMAND_KEYWORDS:
+                return value
+            break
+
+        return tokens[0] if tokens and tokens[0] in SQL_COMMAND_KEYWORDS else "UNKNOWN"
+
+    @staticmethod
+    def _extract_sql_tables(query_text: str) -> List[str]:
+        """Fallback table extraction using regex heuristics."""
+        tables: List[str] = []
+        upper = query_text.upper()
+        patterns = [
+            r'FROM\s+([A-Z0-9_\.\"`]+)',
+            r'JOIN\s+([A-Z0-9_\.\"`]+)',
+            r'INTO\s+([A-Z0-9_\.\"`]+)',
+            r'UPDATE\s+([A-Z0-9_\.\"`]+)',
+            r'TABLE\s+([A-Z0-9_\.\"`]+)',
+        ]
+
+        def clean(name: str) -> str:
+            cleaned = name
+            for ch in ('"', "'", '`'):
+                cleaned = cleaned.replace(ch, '')
+            if '.' in cleaned:
+                cleaned = cleaned.split('.')[-1]
+            return cleaned.strip().lower()
+
+        seen = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, upper):
+                raw = clean(match.group(1))
+                if raw and raw not in seen and raw.upper() not in SQL_COMMAND_KEYWORDS:
+                    seen.add(raw)
+                    tables.append(raw)
+
+        return tables
 
 
 class ExtractorRegistry:

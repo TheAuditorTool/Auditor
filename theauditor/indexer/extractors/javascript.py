@@ -9,8 +9,7 @@ Handles extraction of JavaScript and TypeScript specific elements including:
 
 import re
 import json
-from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Pattern, Set, Tuple
 
 from . import BaseExtractor
 from ..config import (
@@ -46,7 +45,9 @@ class JavaScriptExtractor(BaseExtractor):
             'assignments': [],
             'function_calls': [],
             'returns': [],
-            'orm_queries': []
+            'orm_queries': [],
+            'react_components': [],
+            'react_hooks': [],
         }
         
         # Extract imports using regex patterns
@@ -172,12 +173,18 @@ class JavaScriptExtractor(BaseExtractor):
         
         # Extract SQL queries embedded in JavaScript code
         result['sql_queries'] = self.extract_sql_queries(content)
-        
+
+        react_components = self._detect_react_components(file_info, content, result)
+        result['react_components'] = react_components
+        result['react_hooks'] = self._detect_react_hooks(
+            react_components, result.get('function_calls', [])
+        )
+
         return result
     
     def _extract_routes_ast(self, tree: Dict[str, Any], content: str) -> List[tuple]:
         """Extract Express/Fastify routes with middleware.
-        
+
         Args:
             tree: Parsed AST tree
             content: File content for fallback extraction
@@ -219,12 +226,192 @@ class JavaScriptExtractor(BaseExtractor):
         if not routes:
             routes = [(method, path, []) 
                      for method, path in self.extract_routes(content)]
-        
+
         return routes
-    
+
+    def _detect_react_components(
+        self,
+        file_info: Dict[str, Any],
+        content: str,
+        extracted: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """Identify React component candidates using AST-derived signals."""
+        path = file_info.get('path', '')
+        if self._is_backend_path(path):
+            return []
+
+        imports = extracted.get('imports', [])
+        imported_modules = {value.lower() for _, value in imports}
+        has_react_import = any(
+            module == 'react' or module.startswith('react/')
+            for module in imported_modules
+        )
+
+        symbols = extracted.get('symbols', [])
+        returns = extracted.get('returns', [])
+        returns_by_function: Dict[str, List[Dict[str, Any]]] = {}
+        for ret in returns:
+            fn_name = ret.get('function_name')
+            if not fn_name:
+                continue
+            returns_by_function.setdefault(fn_name, []).append(ret)
+
+        components: List[Dict[str, Any]] = []
+        seen: Set[str] = set()
+
+        # Function components
+        for symbol in symbols:
+            if symbol.get('type') != 'function':
+                continue
+            name = symbol.get('name') or ''
+            if not name or not name[0].isupper():
+                continue
+
+            has_jsx = any(
+                self._looks_like_jsx(ret.get('return_expr', ''))
+                for ret in returns_by_function.get(name, [])
+            )
+
+            if not has_jsx and not has_react_import:
+                continue
+
+            if name in seen:
+                continue
+
+            components.append(
+                {
+                    'name': name,
+                    'line': symbol.get('line'),
+                    'export_type': self._detect_export_type(name, content),
+                    'has_jsx': has_jsx,
+                    'source': 'function',
+                }
+            )
+            seen.add(name)
+
+        # Class components (React.Component or Component)
+        class_pattern_cache: Dict[str, Pattern[str]] = {}
+        for symbol in symbols:
+            if symbol.get('type') != 'class':
+                continue
+            name = symbol.get('name') or ''
+            if not name or not name[0].isupper():
+                continue
+            if name in seen:
+                continue
+            if not has_react_import:
+                continue
+
+            pattern = class_pattern_cache.get(name)
+            if pattern is None:
+                pattern = re.compile(
+                    rf'class\s+{re.escape(name)}\s+extends\s+(?:React\.)?Component'
+                )
+                class_pattern_cache[name] = pattern
+
+            if not pattern.search(content):
+                continue
+
+            components.append(
+                {
+                    'name': name,
+                    'line': symbol.get('line'),
+                    'export_type': self._detect_export_type(name, content),
+                    'has_jsx': True,
+                    'source': 'class',
+                }
+            )
+            seen.add(name)
+
+        return components
+
+    def _detect_react_hooks(
+        self,
+        components: List[Dict[str, Any]],
+        function_calls: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Capture hook usage limited to component scope."""
+        if not components or not function_calls:
+            return []
+
+        component_names = {component['name'] for component in components if component.get('name')}
+        hooks: List[Dict[str, Any]] = []
+        seen_pairs: Set[Tuple[str, str, int]] = set()
+
+        for call in function_calls:
+            callee = call.get('callee_function') or ''
+            if not callee:
+                continue
+
+            base_name = callee
+            if '.' in callee:
+                if not callee.startswith('React.use'):
+                    continue
+                base_name = callee.split('.', 1)[1]
+
+            if not base_name.startswith('use') or len(base_name) <= 3 or not base_name[3].isupper():
+                continue
+
+            if '.' in base_name:
+                # Ignore chained calls like useSomething.foo()
+                continue
+
+            caller = call.get('caller_function') or ''
+            caller_base = caller.split('.')[-1] if caller else ''
+            if caller_base not in component_names:
+                continue
+
+            line = call.get('line') or 0
+            hook_key = (caller_base, base_name, line)
+            if hook_key in seen_pairs:
+                continue
+
+            hooks.append(
+                {
+                    'name': base_name,
+                    'component': caller_base,
+                    'line': line,
+                }
+            )
+            seen_pairs.add(hook_key)
+
+        return hooks
+
+    @staticmethod
+    def _looks_like_jsx(return_expr: str) -> bool:
+        """Simple heuristic to determine if return expression contains JSX."""
+        if not return_expr:
+            return False
+        expr = return_expr.strip()
+        if expr.startswith('React.createElement'):
+            return True
+        return bool(re.search(r'<[A-Za-z][^>]*>', expr))
+
+    @staticmethod
+    def _is_backend_path(path: str) -> bool:
+        """Heuristic to skip obvious backend directories when detecting React components."""
+        normalized = path.lower()
+        backend_prefixes = (
+            'backend/',
+            'server/',
+            'api/',
+        )
+        return normalized.startswith(backend_prefixes)
+
+    @staticmethod
+    def _detect_export_type(component_name: str, content: str) -> str:
+        """Determine how a React component is exported."""
+        if re.search(rf'export\s+default\s+(?:function|class|const)\s+{re.escape(component_name)}\b', content):
+            return 'default'
+        if re.search(rf'export\s+(?:const|function|class)\s+{re.escape(component_name)}\b', content):
+            return 'named'
+        if re.search(rf'export\s*\{{[^}}]*\b{re.escape(component_name)}\b', content):
+            return 'named'
+        return 'local'
+
     def _extract_orm_queries(self, tree: Dict[str, Any], content: str) -> List[Dict]:
         """Extract ORM query calls from JavaScript/TypeScript code.
-        
+
         Args:
             tree: AST tree from ast_parser
             content: File content for line extraction

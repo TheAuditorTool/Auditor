@@ -363,6 +363,34 @@ class IndexerOrchestrator:
                     ret['return_expr'], ret['return_vars']
                 )
 
+        react_components = extracted.get('react_components', [])
+        for component in react_components:
+            name = component.get('name')
+            if not name:
+                continue
+            self.db_manager.add_react_component(
+                file_path,
+                name,
+                component.get('line'),
+                component.get('export_type'),
+                {
+                    'has_jsx': component.get('has_jsx', False),
+                    'source': component.get('source'),
+                },
+            )
+
+        react_hooks = extracted.get('react_hooks', [])
+        for hook in react_hooks:
+            name = hook.get('name')
+            if not name:
+                continue
+            self.db_manager.add_react_hook(
+                file_path,
+                name,
+                hook.get('component'),
+                hook.get('line'),
+            )
+
 
 # Import backward compatibility functions from the compat module
 from ..indexer_compat import (

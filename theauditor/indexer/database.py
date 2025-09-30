@@ -49,6 +49,8 @@ class DatabaseManager:
         self.prisma_batch = []
         self.compose_batch = []
         self.nginx_batch = []
+        self.react_components_batch = []
+        self.react_hooks_batch = []
 
     def begin_transaction(self):
         """Start a new transaction."""
@@ -195,6 +197,31 @@ class DatabaseManager:
                 includes TEXT,
                 has_limit BOOLEAN DEFAULT 0,
                 has_transaction BOOLEAN DEFAULT 0,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_components(
+                file TEXT NOT NULL,
+                component TEXT NOT NULL,
+                line INTEGER,
+                export_type TEXT,
+                metadata TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_hooks(
+                file TEXT NOT NULL,
+                hook TEXT NOT NULL,
+                component TEXT,
+                line INTEGER,
                 FOREIGN KEY(file) REFERENCES files(path)
             )
         """
@@ -406,6 +433,37 @@ class DatabaseManager:
         self.function_returns_batch.append((file_path, line, function_name, 
                                            return_expr, return_vars_json))
 
+    def add_react_component(
+        self,
+        file_path: str,
+        component: str,
+        line: Optional[int],
+        export_type: Optional[str],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Queue a React component record for insertion."""
+        self.react_components_batch.append(
+            (
+                file_path,
+                component,
+                line if line is not None else 0,
+                export_type or "",
+                json.dumps(metadata or {}),
+            )
+        )
+
+    def add_react_hook(
+        self,
+        file_path: str,
+        hook: str,
+        component: Optional[str],
+        line: Optional[int],
+    ) -> None:
+        """Queue a React hook usage for insertion."""
+        self.react_hooks_batch.append(
+            (file_path, hook, component or "", line if line is not None else 0)
+        )
+
     def add_config_file(self, path: str, content: str, file_type: str, context: Optional[str] = None):
         """Add a configuration file content to the batch."""
         if not hasattr(self, 'config_files_batch'):
@@ -529,6 +587,20 @@ class DatabaseManager:
                     self.function_returns_batch
                 )
                 self.function_returns_batch = []
+
+            if self.react_components_batch:
+                cursor.executemany(
+                    "INSERT INTO react_components (file, component, line, export_type, metadata) VALUES (?, ?, ?, ?, ?)",
+                    self.react_components_batch
+                )
+                self.react_components_batch = []
+
+            if self.react_hooks_batch:
+                cursor.executemany(
+                    "INSERT INTO react_hooks (file, hook, component, line) VALUES (?, ?, ?, ?)",
+                    self.react_hooks_batch
+                )
+                self.react_hooks_batch = []
             
             if self.prisma_batch:
                 cursor.executemany(
