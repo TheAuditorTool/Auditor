@@ -1,474 +1,353 @@
-"""SQL Injection Detector - Pure Database Implementation.
+"""SQL Injection Analyzer - Phase 2 Clean Implementation.
 
-This module detects SQL injection vulnerabilities using ONLY indexed database data.
-NO AST TRAVERSAL. NO FILE I/O. Just efficient SQL queries against the sql_queries table.
+Database-first detection using ONLY indexed data. No AST traversal, no file I/O.
+Filters out garbage (97.6% UNKNOWN) and queries clean sources: function_call_args.
 
-The sql_queries table contains 4,723 actual SQL queries with:
-- file_path: Where the query is located
-- line_number: Line in source file
-- query_text: The actual SQL query text
-- command: Type of query (SELECT, INSERT, UPDATE, DELETE)
-- tables: Tables referenced in the query
+Truth Courier Design: Reports facts about SQL construction patterns, not recommendations.
 """
 
 import sqlite3
 from typing import List
+from dataclasses import dataclass
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 
 
-def find_sql_injection_issues(context: StandardRuleContext) -> List[StandardFinding]:
-    """Detect SQL injection vulnerabilities using indexed SQL queries.
-    
+@dataclass(frozen=True)
+class SQLInjectionPatterns:
+    """Finite pattern sets for SQL injection detection - no regex."""
+
+    # String interpolation indicators (dangerous)
+    INTERPOLATION_PATTERNS: frozenset = frozenset([
+        '.format(', '{0}', '{1}', '{2}', '{}',
+        'f"', "f'", 'F"', "F'",
+        ' + ', '||', '${', '`${',
+        '%s', '%d', '%(', ' % '
+    ])
+
+    # SQL keywords that indicate query construction
+    SQL_KEYWORDS: frozenset = frozenset([
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE',
+        'DROP', 'CREATE', 'ALTER', 'EXEC',
+        'UNION', 'FROM', 'WHERE', 'JOIN'
+    ])
+
+    # SQL execution methods
+    EXECUTION_METHODS: frozenset = frozenset([
+        '.query', '.execute', '.executemany', '.executescript',
+        '.raw', 'sequelize.query', 'db.query', 'knex.raw'
+    ])
+
+    # Safe parameterization indicators
+    SAFE_PARAMS: frozenset = frozenset([
+        '?', '$1', '$2', ':param', '@param',
+        'replacements:', 'bind:', 'values:'
+    ])
+
+
+def find_sql_injection(context: StandardRuleContext) -> List[StandardFinding]:
+    """Detect SQL injection vulnerabilities using database queries.
+
+    Detection strategy:
+    1. Query function_call_args for .query()/.execute() calls
+    2. Check if SQL contains string interpolation patterns
+    3. Exclude if parameterization detected
+    4. Filter out frontend/, migrations/, tests/
+
+    Args:
+        context: Rule execution context with db_path
+
     Returns:
         List of SQL injection findings
     """
     findings = []
-    
+
     if not context.db_path:
         return findings
-    
+
+    patterns = SQLInjectionPatterns()
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
-    
+
     try:
-        # First check if we have SQL queries indexed
-        cursor.execute("SELECT COUNT(*) FROM sql_queries")
-        query_count = cursor.fetchone()[0]
-        
-        if query_count == 0:
-            # No SQL queries indexed, fallback to function call analysis
-            findings.extend(_find_sql_injection_in_function_calls(cursor))
-        else:
-            # Primary analysis using actual SQL queries
-            findings.extend(_find_string_concatenation_in_queries(cursor))
-            findings.extend(_find_format_string_in_queries(cursor))
-            findings.extend(_find_fstring_patterns_in_queries(cursor))
-            findings.extend(_find_dynamic_table_names(cursor))
-            findings.extend(_find_unparameterized_user_input(cursor))
-            findings.extend(_find_order_by_injection(cursor))
-            findings.extend(_find_like_injection(cursor))
-        
-        # Secondary analysis using assignments and function calls
-        findings.extend(_find_query_building_patterns(cursor))
-        findings.extend(_find_unsafe_orm_usage(cursor))
-        
+        # Primary detection: function_call_args with SQL execution methods
+        findings.extend(_find_format_injection(cursor, patterns))
+        findings.extend(_find_fstring_injection(cursor, patterns))
+        findings.extend(_find_concatenation_injection(cursor, patterns))
+        findings.extend(_find_template_literal_injection(cursor, patterns))
+
+        # Secondary detection: sql_queries table (only clean data)
+        findings.extend(_find_dynamic_query_construction(cursor, patterns))
+
     finally:
         conn.close()
-    
+
     return findings
 
 
-# ============================================================================
-# PRIMARY DETECTION: Using sql_queries table
-# ============================================================================
-
-def _find_string_concatenation_in_queries(cursor) -> List[StandardFinding]:
-    """Find SQL queries with string concatenation patterns."""
+def _find_format_injection(cursor, patterns: SQLInjectionPatterns) -> List[StandardFinding]:
+    """Find .format() usage in SQL queries."""
     findings = []
-    seen_patterns = set()  # For deduplication
-    
-    # Look for concatenation patterns in actual SQL queries
-    # EXCLUDE UNKNOWN commands and frontend files
+
+    # Query for .query/.execute calls containing .format()
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
+          AND argument_expr LIKE '%.format(%'
+          AND file NOT LIKE '%frontend%'
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%migration%'
+        ORDER BY file, line
+    """)
+
+    seen = set()
+
+    for file, line, func, args in cursor.fetchall():
+        if not args:
+            continue
+
+        # Check if it contains SQL keywords
+        args_upper = args.upper()
+        has_sql = any(keyword in args_upper for keyword in patterns.SQL_KEYWORDS)
+
+        if not has_sql:
+            continue
+
+        # Check if parameterized (safe)
+        has_params = any(param in args for param in patterns.SAFE_PARAMS)
+
+        if has_params:
+            continue  # Parameterized queries are safe
+
+        # Dedupe by file:line
+        key = f"{file}:{line}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        findings.append(StandardFinding(
+            rule_name='sql-injection-format',
+            message='SQL query using .format() - potential injection risk',
+            file_path=file,
+            line=line,
+            severity=Severity.CRITICAL,
+            category='security',
+            snippet=args[:80] + '...' if len(args) > 80 else args,
+            cwe_id='CWE-89'
+        ))
+
+    return findings
+
+
+def _find_fstring_injection(cursor, patterns: SQLInjectionPatterns) -> List[StandardFinding]:
+    """Find f-string usage in SQL queries."""
+    findings = []
+
+    # Query for SQL execution with f-strings
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
+          AND (argument_expr LIKE '%f"%' OR argument_expr LIKE "%f'%")
+          AND file NOT LIKE '%frontend%'
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%migration%'
+        ORDER BY file, line
+    """)
+
+    seen = set()
+
+    for file, line, func, args in cursor.fetchall():
+        if not args:
+            continue
+
+        args_upper = args.upper()
+        has_sql = any(keyword in args_upper for keyword in patterns.SQL_KEYWORDS)
+
+        if not has_sql:
+            continue
+
+        has_params = any(param in args for param in patterns.SAFE_PARAMS)
+
+        if has_params:
+            continue
+
+        key = f"{file}:{line}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        findings.append(StandardFinding(
+            rule_name='sql-injection-fstring',
+            message='SQL query using f-string interpolation - potential injection risk',
+            file_path=file,
+            line=line,
+            severity=Severity.CRITICAL,
+            category='security',
+            snippet=args[:80] + '...' if len(args) > 80 else args,
+            cwe_id='CWE-89'
+        ))
+
+    return findings
+
+
+def _find_concatenation_injection(cursor, patterns: SQLInjectionPatterns) -> List[StandardFinding]:
+    """Find string concatenation in SQL queries."""
+    findings = []
+
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
+          AND (argument_expr LIKE '% + %' OR argument_expr LIKE '%||%')
+          AND file NOT LIKE '%frontend%'
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%migration%'
+        ORDER BY file, line
+    """)
+
+    seen = set()
+
+    for file, line, func, args in cursor.fetchall():
+        if not args:
+            continue
+
+        args_upper = args.upper()
+        has_sql = any(keyword in args_upper for keyword in patterns.SQL_KEYWORDS)
+
+        if not has_sql:
+            continue
+
+        # Check for safe concatenation (string literals only)
+        # If contains variable names between operators, it's dangerous
+        if (' + ' in args or '||' in args):
+            has_params = any(param in args for param in patterns.SAFE_PARAMS)
+
+            if has_params:
+                continue
+
+            key = f"{file}:{line}"
+            if key in seen:
+                continue
+            seen.add(key)
+
+            findings.append(StandardFinding(
+                rule_name='sql-injection-concatenation',
+                message='SQL query using string concatenation - potential injection risk',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                snippet=args[:80] + '...' if len(args) > 80 else args,
+                cwe_id='CWE-89'
+            ))
+
+    return findings
+
+
+def _find_template_literal_injection(cursor, patterns: SQLInjectionPatterns) -> List[StandardFinding]:
+    """Find template literal interpolation in SQL queries (JavaScript/TypeScript)."""
+    findings = []
+
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%' OR callee_function LIKE '%.raw%')
+          AND argument_expr LIKE '%${%'
+          AND (file LIKE '%.js' OR file LIKE '%.ts')
+          AND file NOT LIKE '%frontend%'
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%migration%'
+        ORDER BY file, line
+    """)
+
+    seen = set()
+
+    for file, line, func, args in cursor.fetchall():
+        if not args:
+            continue
+
+        args_upper = args.upper()
+        has_sql = any(keyword in args_upper for keyword in patterns.SQL_KEYWORDS)
+
+        if not has_sql:
+            continue
+
+        # Check for parameterization
+        has_params = any(param in args for param in patterns.SAFE_PARAMS)
+
+        if has_params:
+            continue
+
+        key = f"{file}:{line}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        findings.append(StandardFinding(
+            rule_name='sql-injection-template-literal',
+            message='SQL query using template literal ${} - potential injection risk',
+            file_path=file,
+            line=line,
+            severity=Severity.CRITICAL,
+            category='security',
+            snippet=args[:80] + '...' if len(args) > 80 else args,
+            cwe_id='CWE-89'
+        ))
+
+    return findings
+
+
+def _find_dynamic_query_construction(cursor, patterns: SQLInjectionPatterns) -> List[StandardFinding]:
+    """Find dynamic query construction in sql_queries table (clean data only)."""
+    findings = []
+
+    # Only query CLEAN sql_queries (exclude UNKNOWN)
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE command != 'UNKNOWN'
           AND command IS NOT NULL
-          AND (file_path LIKE '%backend%' OR file_path LIKE '%server%' OR file_path LIKE '%api%')
+          AND (query_text LIKE '%.format(%'
+               OR query_text LIKE '%f"%'
+               OR query_text LIKE "%f'%"
+               OR query_text LIKE '% + %')
+          AND file_path NOT LIKE '%migration%'
           AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%client%'
-          AND file_path NOT LIKE '%.tsx'
-          AND file_path NOT LIKE '%.jsx'
-          AND (query_text LIKE '%||%'
-               OR query_text LIKE '%+%'
-               OR query_text LIKE '%${%')
+          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
-        LIMIT 50
+        LIMIT 20
     """)
-    
+
+    seen = set()
+
     for file, line, query, command in cursor.fetchall():
-        # Deduplicate by file + pattern type
-        pattern_key = f"{file}:{command}:concatenation"
-        if pattern_key in seen_patterns:
+        # Check for interpolation patterns
+        has_interpolation = any(pattern in query for pattern in patterns.INTERPOLATION_PATTERNS)
+
+        if not has_interpolation:
             continue
-        seen_patterns.add(pattern_key)
-        
-        # Check for common concatenation patterns that indicate injection
-        if '||' in query or '+' in query or '${' in query:
-            # Try to identify if it's user input concatenation
-            query_lower = query.lower()
-            if any(pattern in query_lower for pattern in ['where', 'and', 'or', 'having']):
-                findings.append(StandardFinding(
-                    rule_name='sql-injection-concatenation',
-                    message=f'SQL {command} query using string concatenation - injection risk',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,  # Not always CRITICAL
-                    category='security',
-                    snippet=query[:100] + '...' if len(query) > 100 else query,
-                    cwe_id='CWE-89'
-                ))
-    
-    return findings
 
+        # Check for safe parameterization
+        has_params = any(param in query for param in patterns.SAFE_PARAMS)
 
-def _find_format_string_in_queries(cursor) -> List[StandardFinding]:
-    """Find SQL queries using format strings."""
-    findings = []
-    
-    # Look for format string patterns in SQL queries
-    cursor.execute("""
-        SELECT file_path, line_number, query_text, command
-        FROM sql_queries
-        WHERE query_text LIKE '%.format(%'
-           OR query_text LIKE '%{}%'
-           OR query_text LIKE '%{0}%'
-           OR query_text LIKE '%{1}%'
-        ORDER BY file_path, line_number
-    """)
-    
-    for file, line, query, command in cursor.fetchall():
-        if '{' in query and '}' in query:
-            findings.append(StandardFinding(
-                rule_name='sql-injection-format',
-                message=f'SQL {command} query using format strings - severe injection risk',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='security',
-                snippet=query[:100] + '...' if len(query) > 100 else query,
-                cwe_id='CWE-89'
-            ))
-    
-    return findings
-
-
-def _find_fstring_patterns_in_queries(cursor) -> List[StandardFinding]:
-    """Find f-string patterns in SQL queries."""
-    findings = []
-    
-    # F-strings leave telltale patterns like variable interpolation
-    cursor.execute("""
-        SELECT file_path, line_number, query_text, command
-        FROM sql_queries
-        WHERE query_text LIKE '%f"%'
-           OR query_text LIKE "%f'%"
-           OR (query_text LIKE '%{%' AND query_text LIKE '%}%')
-        ORDER BY file_path, line_number
-    """)
-    
-    for file, line, query, command in cursor.fetchall():
-        pattern_key = f"{file}:{command}:fstring"
-        if pattern_key in seen_patterns:
+        if has_params:
             continue
-        seen_patterns.add(pattern_key)
-        
-        # Check for f-string indicators
-        if (query.startswith('f"') or query.startswith("f'") or 
-            ('{' in query and '}' in query and not query.count('{') == query.count('{}'))):
 
-            findings.append(StandardFinding(
-                rule_name='sql-injection-fstring',
-                message=f'SQL {command} query using f-string interpolation - critical vulnerability',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='security',
-                snippet=query[:100] + '...' if len(query) > 100 else query,
-                cwe_id='CWE-89'
-            ))
-    
-    return findings
+        key = f"{file}:{line}"
+        if key in seen:
+            continue
+        seen.add(key)
 
-
-def _find_dynamic_table_names(cursor) -> List[StandardFinding]:
-    """Find queries with dynamic table/column names."""
-    findings = []
-    
-    # Look for patterns indicating dynamic table/column names
-    cursor.execute("""
-        SELECT file_path, line_number, query_text, command
-        FROM sql_queries
-        WHERE (query_text LIKE '%FROM %{%' 
-               OR query_text LIKE '%FROM %||%'
-               OR query_text LIKE '%FROM %+%'
-               OR query_text LIKE '%INSERT INTO %{%'
-               OR query_text LIKE '%UPDATE %{%'
-               OR query_text LIKE '%ALTER TABLE %{%')
-        ORDER BY file_path, line_number
-    """)
-    
-    for file, line, query, command in cursor.fetchall():
         findings.append(StandardFinding(
-            rule_name='sql-injection-dynamic-identifier',
-            message=f'Dynamic table/column name in {command} query - injection vector',
+            rule_name='sql-injection-dynamic-query',
+            message=f'{command} query with dynamic construction - potential injection risk',
             file_path=file,
             line=line,
             severity=Severity.HIGH,
             category='security',
-            snippet=query[:100] + '...' if len(query) > 100 else query,
+            snippet=query[:80] + '...' if len(query) > 80 else query,
             cwe_id='CWE-89'
         ))
-    
-    return findings
 
-
-def _find_unparameterized_user_input(cursor) -> List[StandardFinding]:
-    """Find queries with likely user input patterns."""
-    findings = []
-    
-    # Common user input variable patterns
-    user_input_patterns = [
-        '%user%', '%input%', '%request%', '%req%', '%param%',
-        '%arg%', '%data%', '%form%', '%body%', '%query%'
-    ]
-    
-    # Build the WHERE clause for all patterns
-    where_conditions = " OR ".join([f"query_text LIKE '{pattern}'" for pattern in user_input_patterns])
-    
-    cursor.execute(f"""
-        SELECT file_path, line_number, query_text, command
-        FROM sql_queries
-        WHERE ({where_conditions})
-          AND query_text NOT LIKE '%?%'
-          AND query_text NOT LIKE '%:1%'
-          AND query_text NOT LIKE '%$1%'
-          AND query_text NOT LIKE '%%s%'
-        ORDER BY file_path, line_number
-    """)
-    
-    for file, line, query, command in cursor.fetchall():
-        # Additional check for actual user input patterns
-        query_lower = query.lower()
-        if any(p.strip('%') in query_lower for p in user_input_patterns):
-            findings.append(StandardFinding(
-                rule_name='sql-injection-user-input',
-                message=f'{command} query with user input but no parameter placeholders',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='security',
-                snippet=query[:100] + '...' if len(query) > 100 else query,
-                cwe_id='CWE-89'
-            ))
-    
-    return findings
-
-
-def _find_order_by_injection(cursor) -> List[StandardFinding]:
-    """Find ORDER BY clauses with dynamic content."""
-    findings = []
-    
-    cursor.execute("""
-        SELECT file_path, line_number, query_text, command
-        FROM sql_queries
-        WHERE query_text LIKE '%ORDER BY%'
-          AND (query_text LIKE '%${%'
-               OR query_text LIKE '%+%'
-               OR query_text LIKE '%||%'
-               OR query_text LIKE '%format%')
-        ORDER BY file_path, line_number
-    """)
-    
-    for file, line, query, command in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='sql-injection-order-by',
-            message='Dynamic ORDER BY clause - classic injection point',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='security',
-            snippet=query[:100] + '...' if len(query) > 100 else query,
-            cwe_id='CWE-89'
-        ))
-    
-    return findings
-
-
-def _find_like_injection(cursor) -> List[StandardFinding]:
-    """Find LIKE clauses without proper escaping."""
-    findings = []
-    
-    cursor.execute("""
-        SELECT file_path, line_number, query_text, command
-        FROM sql_queries
-        WHERE query_text LIKE '%LIKE%'
-          AND (query_text LIKE '%${%'
-               OR query_text LIKE '%+%'
-               OR query_text LIKE '%||%'
-               OR query_text LIKE '%format%')
-          AND query_text NOT LIKE '%ESCAPE%'
-        ORDER BY file_path, line_number
-    """)
-    
-    for file, line, query, command in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='sql-injection-like',
-            message='LIKE clause with dynamic input and no ESCAPE - pattern injection risk',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='security',
-            snippet=query[:100] + '...' if len(query) > 100 else query,
-            cwe_id='CWE-89'
-        ))
-    
-    return findings
-
-
-# ============================================================================
-# SECONDARY DETECTION: Using function_call_args and assignments
-# ============================================================================
-
-def _find_sql_injection_in_function_calls(cursor) -> List[StandardFinding]:
-    """Fallback detection using function calls when sql_queries is empty."""
-    findings = []
-    
-    # Find execute/query calls with string operations
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%execute%'
-               OR f.callee_function LIKE '%query%'
-               OR f.callee_function LIKE '%raw%')
-          AND (f.argument_expr LIKE '%+%'
-               OR f.argument_expr LIKE '%.format%'
-               OR f.argument_expr LIKE '%f"%'
-               OR f.argument_expr LIKE "%f'%"
-               OR f.argument_expr LIKE '%$%')
-        ORDER BY f.file, f.line
-    """)
-    
-    for file, line, func, args in cursor.fetchall():
-        if args and any(op in args for op in ['+', '.format', 'f"', "f'", '$']):
-            findings.append(StandardFinding(
-                rule_name='sql-injection-function-call',
-                message=f'{func} with string manipulation - likely SQL injection',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='security',
-                snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                cwe_id='CWE-89'
-            ))
-    
-    return findings
-
-
-def _find_query_building_patterns(cursor) -> List[StandardFinding]:
-    """Find dynamic query construction in assignments."""
-    findings = []
-    
-    # Find query building patterns
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.target_var LIKE '%query%'
-               OR a.target_var LIKE '%sql%'
-               OR a.target_var LIKE '%stmt%')
-          AND (a.source_expr LIKE '%SELECT%'
-               OR a.source_expr LIKE '%INSERT%'
-               OR a.source_expr LIKE '%UPDATE%'
-               OR a.source_expr LIKE '%DELETE%')
-          AND (a.source_expr LIKE '%+%'
-               OR a.source_expr LIKE '%.format%'
-               OR a.source_expr LIKE '%f"%'
-               OR a.source_expr LIKE "%f'%")
-        ORDER BY a.file, a.line
-    """)
-    
-    for file, line, var, expr in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='sql-injection-query-building',
-            message=f'Dynamic SQL construction in {var} - injection prone',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='security',
-            snippet=f'{var} = {expr[:50]}...' if len(expr) > 50 else f'{var} = {expr}',
-            cwe_id='CWE-89'
-        ))
-    
-    # Find incremental query building (query += ...)
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%+=%'
-          AND (a.target_var LIKE '%query%'
-               OR a.target_var LIKE '%sql%'
-               OR a.target_var LIKE '%where%')
-        ORDER BY a.file, a.line
-    """)
-    
-    for file, line, var, expr in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='sql-injection-incremental-build',
-            message=f'Incremental SQL building in {var} - high injection risk',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='security',
-            snippet=f'{var} += ...',
-            cwe_id='CWE-89'
-        ))
-    
-    return findings
-
-
-def _find_unsafe_orm_usage(cursor) -> List[StandardFinding]:
-    """Find unsafe ORM usage patterns."""
-    findings = []
-    
-    # Find raw() or rawQuery() calls
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%.raw%'
-               OR f.callee_function LIKE '%rawQuery%'
-               OR f.callee_function LIKE '%knex.raw%'
-               OR f.callee_function LIKE '%sequelize.query%')
-          AND f.argument_expr NOT LIKE '%?%'
-          AND f.argument_expr NOT LIKE '%::%'
-          AND f.argument_expr NOT LIKE '%$%'
-        ORDER BY f.file, f.line
-    """)
-    
-    for file, line, func, args in cursor.fetchall():
-        if args and not any(placeholder in args for placeholder in ['?', '::', '$']):
-            findings.append(StandardFinding(
-                rule_name='sql-injection-orm-raw',
-                message=f'ORM raw query without placeholders in {func}',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='security',
-                snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                cwe_id='CWE-89'
-            ))
-    
-    # Find whereRaw or havingRaw without bindings
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%whereRaw%'
-               OR f.callee_function LIKE '%havingRaw%'
-               OR f.callee_function LIKE '%orderByRaw%')
-          AND f.param_name = 'arg0'
-          AND (f.argument_expr LIKE '%+%'
-               OR f.argument_expr LIKE '%${%')
-        ORDER BY f.file, f.line
-    """)
-    
-    for file, line, func, args in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='sql-injection-orm-where-raw',
-            message=f'Unsafe {func} with string concatenation',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='security',
-            snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-            cwe_id='CWE-89'
-        ))
-    
     return findings
