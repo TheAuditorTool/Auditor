@@ -89,14 +89,10 @@ class JavaScriptExtractor(BaseExtractor):
                 'col': cls.get('column', 0)
             })
 
-        calls = self.ast_parser.extract_calls(tree)
-        for call in calls:
-            result['symbols'].append({
-                'name': call.get('name', ''),
-                'type': call.get('type', 'call'),
-                'line': call.get('line', 0),
-                'col': call.get('column', 0)
-            })
+        # REMOVED: extract_calls() - this was adding function calls as "symbols"
+        # which pollutes the symbols table. Function calls are properly extracted
+        # via extract_function_calls_with_args() below and stored in function_calls table.
+        # Symbols table should only contain declarations (functions, classes, variables).
 
         # Extract assignments for data flow analysis
         assignments = self.ast_parser.extract_assignments(tree)
@@ -145,11 +141,11 @@ class JavaScriptExtractor(BaseExtractor):
                               if r.get('function_name') == name]
                 has_jsx = any(r.get('has_jsx') or r.get('returns_component') for r in func_returns)
 
-                # Check for hook usage
+                # Check for hook usage - use function_calls, not removed 'calls' variable
                 hook_calls = []
-                for call in calls:
-                    call_name = call.get('name', '')
-                    if call_name.startswith('use') and call.get('line', 0) >= func.get('line', 0):
+                for fc in result.get('function_calls', []):
+                    call_name = fc.get('callee_function', '')
+                    if call_name.startswith('use') and fc.get('line', 0) >= func.get('line', 0):
                         # This is a potential hook in this component
                         # More precise would be to check if line is within function bounds
                         hook_calls.append(call_name)
@@ -256,17 +252,17 @@ class JavaScriptExtractor(BaseExtractor):
                     'cleanup_type': cleanup_type
                 })
 
-        # Detect Vue components and patterns
-        for call in calls:
-            call_name = call.get('name', '')
+        # Detect Vue components and patterns - use function_calls, not removed 'calls' variable
+        for fc in result.get('function_calls', []):
+            call_name = fc.get('callee_function', '')
 
             # Vue 3 Composition API
             if call_name == 'defineComponent':
                 result['vue_components'].append({
                     'name': file_info.get('path', '').split('/')[-1].split('.')[0],
                     'type': 'composition-api',
-                    'start_line': call.get('line', 0),
-                    'end_line': call.get('line', 0),
+                    'start_line': fc.get('line', 0),
+                    'end_line': fc.get('line', 0),
                     'has_template': file_info.get('ext') == '.vue',
                     'has_style': file_info.get('ext') == '.vue',
                     'composition_api_used': True,
@@ -278,7 +274,7 @@ class JavaScriptExtractor(BaseExtractor):
             # Vue reactivity hooks
             elif call_name in ['ref', 'reactive', 'computed', 'watch', 'watchEffect']:
                 result['vue_hooks'].append({
-                    'line': call.get('line', 0),
+                    'line': fc.get('line', 0),
                     'component_name': 'global',  # Would need component detection
                     'hook_name': call_name,
                     'hook_type': 'reactivity',
@@ -290,7 +286,7 @@ class JavaScriptExtractor(BaseExtractor):
             # Vue provide/inject
             elif call_name in ['provide', 'inject']:
                 result['vue_provide_inject'].append({
-                    'line': call.get('line', 0),
+                    'line': fc.get('line', 0),
                     'component_name': 'global',
                     'operation_type': call_name,
                     'key_name': 'unknown',
@@ -301,7 +297,7 @@ class JavaScriptExtractor(BaseExtractor):
             # Vue directives (would need template parsing for full support)
             elif call_name.startswith('v-') or call_name in ['directive']:
                 result['vue_directives'].append({
-                    'line': call.get('line', 0),
+                    'line': fc.get('line', 0),
                     'directive_name': call_name,
                     'element_type': None,
                     'argument': None,
@@ -310,7 +306,7 @@ class JavaScriptExtractor(BaseExtractor):
                     'is_dynamic': False
                 })
 
-        # Detect ORM queries from method calls
+        # Detect ORM queries with DETAILED analysis
         orm_methods = {
             # Sequelize
             'findAll', 'findOne', 'findByPk', 'create', 'update', 'destroy',
@@ -323,15 +319,53 @@ class JavaScriptExtractor(BaseExtractor):
             'createQueryBuilder', 'getRepository', 'getManager'
         }
 
-        for call in calls:
-            method = call.get('name', '').split('.')[-1]
+        for fc in result.get('function_calls', []):
+            method = fc.get('callee_function', '').split('.')[-1]
             if method in orm_methods:
+                line = fc.get('line', 0)
+
+                # Analyze arguments for includes/relations, limit, transaction
+                includes = None
+                has_limit = False
+                has_transaction = False
+
+                # Get all arguments for this call
+                matching_args = [c for c in result.get('function_calls', [])
+                               if c.get('line') == line and
+                               c.get('callee_function') == fc.get('callee_function')]
+
+                # Check first argument (usually options object)
+                if matching_args:
+                    first_arg = [c for c in matching_args if c.get('argument_index') == 0]
+                    if first_arg:
+                        arg_expr = first_arg[0].get('argument_expr', '')
+
+                        # Check for includes/relations
+                        if 'include:' in arg_expr or 'include :' in arg_expr:
+                            # Extract include value
+                            includes = 'has_includes'
+                        elif 'relations:' in arg_expr or 'relations :' in arg_expr:
+                            includes = 'has_relations'
+
+                        # Check for limit/take
+                        if any(term in arg_expr for term in ['limit:', 'limit :', 'take:', 'take :', 'skip:', 'offset:']):
+                            has_limit = True
+
+                        # Check for transaction
+                        if 'transaction:' in arg_expr or 'transaction :' in arg_expr:
+                            has_transaction = True
+
+                # Check if in transaction block (simplified check)
+                caller_func = fc.get('caller_function', '')
+                if 'transaction' in caller_func.lower() or 'withTransaction' in caller_func:
+                    has_transaction = True
+
                 result['orm_queries'].append({
-                    'line': call.get('line', 0),
-                    'query_type': method,
-                    'includes': None,
-                    'has_limit': False,
-                    'has_transaction': False
+                    'line': line,
+                    'query_type': fc.get('callee_function', method),
+                    'includes': includes,
+                    'has_limit': has_limit,
+                    'has_transaction': has_transaction
                 })
 
         # Detect API endpoints from route definitions

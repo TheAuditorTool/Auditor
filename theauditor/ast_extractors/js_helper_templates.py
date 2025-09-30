@@ -360,7 +360,7 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
 SYMBOL_EXTRACTION = '''
 /**
  * Extract symbols with type information from TypeScript AST.
- * Critical for type checking and taint analysis.
+ * CRITICAL: Only extracts DECLARATIONS, not references (to avoid massive duplicates).
  *
  * @param {Object} sourceFile - TypeScript source file
  * @param {Object} checker - TypeScript type checker
@@ -369,25 +369,89 @@ SYMBOL_EXTRACTION = '''
  */
 function extractSymbols(sourceFile, checker, ts) {
     const symbols = [];
+    const seen = new Set();  // Track seen (name, line) to deduplicate
+
+    // Map node kind to symbol type string for database
+    function getSymbolType(nodeKind, ts) {
+        switch (nodeKind) {
+            case ts.SyntaxKind.FunctionDeclaration:
+            case ts.SyntaxKind.MethodDeclaration:
+                return 'function';
+            case ts.SyntaxKind.ClassDeclaration:
+                return 'class';
+            case ts.SyntaxKind.VariableDeclaration:
+            case ts.SyntaxKind.Parameter:
+            case ts.SyntaxKind.PropertyDeclaration:
+                return 'variable';
+            case ts.SyntaxKind.InterfaceDeclaration:
+                return 'interface';
+            case ts.SyntaxKind.TypeAliasDeclaration:
+                return 'type';
+            case ts.SyntaxKind.EnumDeclaration:
+                return 'enum';
+            case ts.SyntaxKind.ModuleDeclaration:
+                return 'module';
+            default:
+                return 'unknown';
+        }
+    }
 
     function visit(node) {
         try {
-            const symbol = checker.getSymbolAtLocation(node);
-            if (symbol && symbol.getName) {
-                const type = checker.getTypeOfSymbolAtLocation(symbol, node);
-                const typeString = checker.typeToString(type);
+            const nodeKind = node.kind;
 
-                const startPos = sourceFile.getLineAndCharacterOfPosition(node.pos || 0);
-                const endPos = node.end !== undefined ?
-                    sourceFile.getLineAndCharacterOfPosition(node.end) : startPos;
+            // CRITICAL FIX: Only extract at DECLARATION sites, not every reference
+            const isDeclaration = (
+                nodeKind === ts.SyntaxKind.FunctionDeclaration ||
+                nodeKind === ts.SyntaxKind.ClassDeclaration ||
+                nodeKind === ts.SyntaxKind.VariableDeclaration ||
+                nodeKind === ts.SyntaxKind.MethodDeclaration ||
+                nodeKind === ts.SyntaxKind.PropertyDeclaration ||
+                nodeKind === ts.SyntaxKind.Parameter ||
+                nodeKind === ts.SyntaxKind.InterfaceDeclaration ||
+                nodeKind === ts.SyntaxKind.TypeAliasDeclaration ||
+                nodeKind === ts.SyntaxKind.EnumDeclaration ||
+                nodeKind === ts.SyntaxKind.ModuleDeclaration
+            );
 
-                symbols.push({
-                    name: symbol.getName() || 'anonymous',
-                    kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
-                    type: typeString || 'unknown',
-                    line: startPos.line + 1,
-                    endLine: endPos.line + 1
-                });
+            if (isDeclaration) {
+                // Get symbol at the declaration name, not the whole node
+                const nameNode = node.name || node;
+                const symbol = checker.getSymbolAtLocation(nameNode);
+
+                if (symbol && symbol.getName) {
+                    const symbolName = symbol.getName() || 'anonymous';
+
+                    // Filter out noise symbols
+                    const NOISE_SYMBOLS = ['console', 'document', 'window', 'process', 'global',
+                                          'require', 'module', 'exports', '__dirname', '__filename'];
+                    if (NOISE_SYMBOLS.includes(symbolName)) {
+                        return;  // Skip noise
+                    }
+
+                    const startPos = sourceFile.getLineAndCharacterOfPosition(nameNode.pos || 0);
+                    const dedupKey = `${symbolName}:${startPos.line}`;
+
+                    // Deduplicate by name+line
+                    if (seen.has(dedupKey)) {
+                        return;  // Already processed this declaration
+                    }
+                    seen.add(dedupKey);
+
+                    // Get the DECLARATION TYPE (function, class, variable, etc.)
+                    // NOT the TypeScript type string
+                    const symbolType = getSymbolType(nodeKind, ts);
+                    const endPos = nameNode.end !== undefined ?
+                        sourceFile.getLineAndCharacterOfPosition(nameNode.end) : startPos;
+
+                    symbols.push({
+                        name: symbolName,
+                        kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
+                        type: symbolType,  // Now correctly stores "function", "class", etc.
+                        line: startPos.line + 1,
+                        endLine: endPos.line + 1
+                    });
+                }
             }
         } catch (e) {
             // Log error for debugging
@@ -400,7 +464,7 @@ function extractSymbols(sourceFile, checker, ts) {
     visit(sourceFile);
 
     // Log symbol extraction results for debugging
-    console.error(`[INFO] Found ${symbols.length} symbols in ${sourceFile.fileName}`);
+    console.error(`[INFO] Found ${symbols.length} declaration symbols in ${sourceFile.fileName}`);
 
     return symbols;
 }

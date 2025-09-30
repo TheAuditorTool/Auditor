@@ -1256,7 +1256,7 @@ class DatabaseManager:
             # Handle JSX-specific batches for dual-pass extraction
             if self.function_returns_jsx_batch:
                 cursor.executemany(
-                    """INSERT INTO function_returns_jsx
+                    """INSERT OR REPLACE INTO function_returns_jsx
                        (file, line, function_name, return_expr, return_vars, has_jsx, returns_component,
                         cleanup_operations, jsx_mode, extraction_pass)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -1266,7 +1266,7 @@ class DatabaseManager:
 
             if self.symbols_jsx_batch:
                 cursor.executemany(
-                    """INSERT INTO symbols_jsx
+                    """INSERT OR REPLACE INTO symbols_jsx
                        (path, name, type, line, col, jsx_mode, extraction_pass)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     self.symbols_jsx_batch
@@ -1275,7 +1275,7 @@ class DatabaseManager:
 
             if self.assignments_jsx_batch:
                 cursor.executemany(
-                    """INSERT INTO assignments_jsx
+                    """INSERT OR REPLACE INTO assignments_jsx
                        (file, line, target_var, source_expr, source_vars, in_function, jsx_mode, extraction_pass)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     self.assignments_jsx_batch
@@ -1284,7 +1284,7 @@ class DatabaseManager:
 
             if self.function_call_args_jsx_batch:
                 cursor.executemany(
-                    """INSERT INTO function_call_args_jsx
+                    """INSERT OR REPLACE INTO function_call_args_jsx
                        (file, line, caller_function, callee_function, argument_index, argument_expr,
                         param_name, jsx_mode, extraction_pass)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
