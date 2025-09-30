@@ -65,18 +65,18 @@ The indexer has been refactored from a monolithic 2000+ line file into a modular
 
 ```
 theauditor/indexer/
-├── __init__.py           # Package initialization and backward compatibility
+├── __init__.py           # IndexOrchestrator + backward compatibility
 ├── config.py             # Constants, patterns, and configuration
 ├── database.py           # DatabaseManager class for all DB operations
 ├── core.py               # FileWalker and ASTCache classes
-├── orchestrator.py       # IndexOrchestrator - main coordination logic
+├── metadata_collector.py # Git churn and test coverage analysis
 └── extractors/
     ├── __init__.py       # BaseExtractor abstract class and registry
     ├── python.py         # Python-specific extraction logic
     ├── javascript.py     # JavaScript/TypeScript extraction
     ├── docker.py         # Docker/docker-compose extraction
     ├── sql.py            # SQL extraction
-    └── nginx.py          # Nginx configuration extraction
+    └── generic.py        # Generic extractor (webpack, nginx, compose)
 ```
 
 Key features:
@@ -85,6 +85,8 @@ Key features:
 - **AST caching** for performance optimization
 - **Monorepo detection** and intelligent path filtering
 - **Parallel JavaScript processing** when semantic parser available
+- **Dual-pass JSX extraction**: Transformed mode for taint analysis, preserved mode for structural analysis
+- **Metadata collection** (`metadata_collector.py`): Git churn analysis (commits, authors, volatility) and test coverage parsing (Python coverage.py, Node.js Istanbul/nyc) for temporal dimension in FCE
 
 ### Pipeline System (`theauditor/pipelines.py`)
 Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** (v1.1+):
@@ -119,25 +121,40 @@ Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** 
 **Performance Impact:** 480x faster overall on second run (v1.2), 25-40% faster pipeline structure (v1.1)
 
 ### Pattern Detection Engine
-- 100+ YAML-defined security patterns in `theauditor/patterns/`
-- AST-based matching for Python and JavaScript
-- Supports semantic analysis via TypeScript compiler
+- **AST-based rules**: 20+ categories in `theauditor/rules/` (auth, SQL injection, XSS, secrets, frameworks, performance, etc.)
+- **YAML patterns**: Configuration security in `theauditor/rules/YAML/config_patterns.yml`
+- **Dynamic discovery**: Rules orchestrator (`theauditor/rules/orchestrator.py`) auto-discovers all detection rules
+- **Coverage**: 100+ security rules across Python, JavaScript, Docker, Nginx, PostgreSQL, and framework-specific patterns
+- Supports semantic analysis via TypeScript compiler for type-aware detection
 
 ### Factual Correlation Engine (FCE) (`theauditor/fce.py`)
-- **29 advanced correlation rules** in `theauditor/correlations/rules/`
+- **30 advanced correlation rules** in `theauditor/correlations/rules/`
 - Detects complex vulnerability patterns across multiple tools
 - Categories: Authentication, Injection, Data Exposure, Infrastructure, Code Quality, Framework-Specific
+- **5 architectural meta-findings**: Correlates security issues with graph hotspots, complexity, churn, and test coverage
 
-### Taint Analysis Package (`theauditor/taint_analyzer.py`)
-A comprehensive taint analysis module that tracks data flow from sources to sinks:
+### Taint Analysis Package (`theauditor/taint/`)
+Previously a monolithic file, the taint analysis system has been refactored into a modular package with 11 specialized modules. A backward compatibility shim remains at `theauditor/taint_analyzer.py` for legacy imports.
 
+**Core capabilities:**
 - Tracks data flow from user inputs to dangerous outputs
-- Detects SQL injection, XSS, command injection vulnerabilities
+- Detects SQL injection, XSS, command injection, path traversal vulnerabilities
 - Database-aware analysis using `repo_index.db`
-- Supports both assignment-based and direct-use patterns
-- Merges findings from multiple detection methods
+- Supports both assignment-based and direct-use taint patterns
+- Flow-sensitive CFG analysis for path-aware detection
+- Inter-procedural tracking across function boundaries
+- Language-specific handlers for JavaScript and Python constructs
+- v1.2 memory cache: 8,461x speedup (4 hours → 30 seconds)
 
-**Note**: The optional severity scoring for taint analysis is provided by `theauditor/insights/taint.py` (Insights module)
+**Package structure:**
+- `core.py`: Main TaintAnalyzer orchestration
+- `sources.py`, `config.py`: 650+ source/sink/sanitizer patterns
+- `propagation.py`: Worklist-based taint flow algorithm
+- `cfg_integration.py`: Flow-sensitive path analysis
+- `interprocedural.py`: Cross-function tracking
+- `memory_cache.py`: In-memory O(1) lookup cache
+- `javascript.py`, `python.py`: Language-specific construct handling
+- `insights.py`: Shim to `theauditor/insights/taint.py` for optional severity scoring
 
 ### Graph Analysis (`theauditor/graph/`)
 - **builder.py**: Constructs dependency graph from codebase

@@ -155,9 +155,10 @@ This executes in **4-stage optimized pipeline** for maximum performance (v1.1+):
   13. **Documentation summarization** - Create AI-friendly summaries
 
 **Stage 4 - Final Aggregation (Sequential):**
-14. **Factual correlation engine** - Correlate findings across tools with 29 advanced rules
-15. **Report generation** - Produce final output
-16. **Summary generation** - Create executive summary
+14. **Factual correlation engine** - Correlate findings across tools with 30 advanced rules
+15. **[AUTOMATIC]** Chunk extraction to readthis/ - Create AI-consumable output (<65KB chunks)
+16. **Report generation** - Produce final consolidated output
+17. **Summary generation** - Create executive summary
 
 **Performance Impact:** 25-40% faster overall execution by isolating heavy taint analysis
 
@@ -260,13 +261,13 @@ Run pattern-based vulnerability scanning:
 aud detect-patterns
 ```
 
-Uses **100+ YAML-defined patterns** across multiple categories:
+Uses **100+ security rules** (AST-based analysis + YAML patterns) across multiple categories:
 
-**Security Patterns:**
+**Security Patterns** (AST-based rules in `theauditor/rules/`):
 - Hardcoded secrets and API keys
 - Insecure randomness (**Math.random** for security)
 - Weak cryptographic algorithms
-- Authentication bypasses
+- Authentication bypasses (JWT issues, session fixation)
 - Missing authentication decorators
 
 **Resource Management:**

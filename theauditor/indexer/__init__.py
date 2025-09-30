@@ -865,6 +865,54 @@ class IndexerOrchestrator:
                     var.get('scope_level', 0)
                 )
 
+        # Store build analysis data
+        if 'package_configs' in extracted:
+            for pkg_config in extracted['package_configs']:
+                self.db_manager.add_package_config(
+                    pkg_config['file_path'],
+                    pkg_config['package_name'],
+                    pkg_config['version'],
+                    pkg_config.get('dependencies'),
+                    pkg_config.get('dev_dependencies'),
+                    pkg_config.get('peer_dependencies'),
+                    pkg_config.get('scripts'),
+                    pkg_config.get('engines'),
+                    pkg_config.get('workspaces'),
+                    pkg_config.get('is_private', False)
+                )
+                if 'package_configs' not in self.counts:
+                    self.counts['package_configs'] = 0
+                self.counts['package_configs'] += 1
+
+        if 'lock_analysis' in extracted:
+            for lock in extracted['lock_analysis']:
+                self.db_manager.add_lock_analysis(
+                    lock['file_path'],
+                    lock['lock_type'],
+                    lock.get('package_manager_version'),
+                    lock['total_packages'],
+                    lock.get('duplicate_packages'),
+                    lock.get('lock_file_version')
+                )
+                if 'lock_analysis' not in self.counts:
+                    self.counts['lock_analysis'] = 0
+                self.counts['lock_analysis'] += 1
+
+        if 'import_styles' in extracted:
+            for import_style in extracted['import_styles']:
+                self.db_manager.add_import_style(
+                    file_path,
+                    import_style['line'],
+                    import_style['package'],
+                    import_style['import_style'],
+                    import_style.get('imported_names'),
+                    import_style.get('alias_name'),
+                    import_style.get('full_statement')
+                )
+                if 'import_styles' not in self.counts:
+                    self.counts['import_styles'] = 0
+                self.counts['import_styles'] += 1
+
 
 # Import backward compatibility functions from the compat module
 from ..indexer_compat import (

@@ -201,9 +201,10 @@ TheAuditor runs a comprehensive audit through multiple analysis phases organized
 13. **Summarize Documentation** - Create AI-readable documentation chunks
 
 **STAGE 4: Final Aggregation (Sequential)**
-14. **Factual Correlation Engine** - Cross-reference findings across all tools
-15. **Generate Report** - Produce final AI-consumable chunks in `.pf/readthis/`
-16. **Summary Generation** - Create executive summary of findings
+14. **Factual Correlation Engine** - Cross-reference findings across all tools with 30 advanced rules
+15. **Chunk Extraction** - Automatically create AI-consumable chunks (<65KB) in `.pf/readthis/`
+16. **Generate Report** - Produce final consolidated output
+17. **Summary Generation** - Create executive summary of findings
 
 ## Key Features
 

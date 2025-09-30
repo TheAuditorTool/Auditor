@@ -70,6 +70,9 @@ class JavaScriptExtractor(BaseExtractor):
                 if imp.get('target'):
                     result['imports'].append(('import', imp['target']))
 
+            # NEW: Extract import styles for bundle analysis
+            result['import_styles'] = self._analyze_import_styles(imports, file_info['path'])
+
         # Extract symbols (functions, classes, calls)
         functions = self.ast_parser.extract_functions(tree)
         for func in functions:
@@ -450,3 +453,68 @@ class JavaScriptExtractor(BaseExtractor):
                 result['resolved_imports'][module_name] = imp_path
 
         return result
+
+    def _analyze_import_styles(self, imports: List[Dict], file_path: str) -> List[Dict]:
+        """Analyze import statements to determine import style.
+
+        Classifies imports into categories for tree-shaking analysis:
+        - namespace: import * as lodash from 'lodash' (prevents tree-shaking)
+        - named: import { map, filter } from 'lodash' (allows tree-shaking)
+        - default: import lodash from 'lodash' (depends on export structure)
+        - side-effect: import 'polyfill' (no tree-shaking, intentional)
+
+        This enables bundle_analyze.py CHECK 3 (inefficient namespace imports).
+
+        Args:
+            imports: List of import dictionaries from ast_parser
+            file_path: Path to the file being analyzed
+
+        Returns:
+            List of import style records for database
+        """
+        import_styles = []
+
+        for imp in imports:
+            target = imp.get('target', '')
+            if not target:
+                continue
+
+            line = imp.get('line', 0)
+
+            # Determine import style from import structure
+            import_style = None
+            imported_names = None
+            alias_name = None
+            full_statement = imp.get('text', '')
+
+            # Check for namespace import: import * as X
+            if imp.get('namespace'):
+                import_style = 'namespace'
+                alias_name = imp.get('namespace')
+
+            # Check for named imports: import { a, b }
+            elif imp.get('names'):
+                import_style = 'named'
+                imported_names = imp.get('names', [])
+
+            # Check for default import: import X
+            elif imp.get('default'):
+                import_style = 'default'
+                alias_name = imp.get('default')
+
+            # Side-effect only: import 'package'
+            elif not imp.get('namespace') and not imp.get('names') and not imp.get('default'):
+                import_style = 'side-effect'
+
+            # Only add if we could classify the import
+            if import_style:
+                import_styles.append({
+                    'line': line,
+                    'package': target,
+                    'import_style': import_style,
+                    'imported_names': imported_names,
+                    'alias_name': alias_name,
+                    'full_statement': full_statement[:200] if full_statement else None
+                })
+
+        return import_styles

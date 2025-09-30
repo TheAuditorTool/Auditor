@@ -146,29 +146,37 @@ TheAuditor maintains strict separation between:
 
 #### Indexer Package (`theauditor/indexer/`)
 The indexer has been refactored from a monolithic 2000+ line file into a modular package:
+- **__init__.py**: IndexOrchestrator class (main coordination logic) + backward compatibility
 - **config.py**: Constants, patterns, and configuration (SKIP_DIRS, language maps, etc.)
 - **database.py**: DatabaseManager class handling all database operations
-- **core.py**: FileWalker (with monorepo detection) and ASTCache classes  
-- **orchestrator.py**: IndexOrchestrator coordinating the indexing process
-- **extractors/**: Language-specific extractors (Python, JavaScript, Docker, SQL, nginx)
+- **core.py**: FileWalker (with monorepo detection) and ASTCache classes
+- **metadata_collector.py**: Git churn and test coverage analysis
+- **extractors/**: Language-specific extractors (Python, JavaScript, Docker, SQL, generic)
 
 The package uses a dynamic extractor registry for automatic language detection and processing.
 
 #### Pipeline System (`theauditor/pipelines.py`)
-- Orchestrates comprehensive analysis pipeline in **parallel stages**:
-  - **Stage 1**: Foundation (index with batched DB operations, framework detection)
-  - **Stage 2**: 3 concurrent tracks (Network I/O, Code Analysis, Graph Build)
-  - **Stage 3**: Final aggregation (graph analysis, taint, FCE, report)
+- Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** (v1.1+):
+  - **Stage 1 (Sequential)**: Foundation (index with batched DB operations, framework detection)
+  - **Stage 2 (Sequential)**: Data Preparation (workset, graph build, CFG, metadata) [NEW in v1.1]
+  - **Stage 3 (Parallel)**: Heavy Analysis - 3 concurrent tracks:
+    - Track A: Taint analysis (isolated heavy task, ~30 seconds with v1.2 memory cache)
+    - Track B: Static & graph analysis (lint, patterns, graph analyze/viz)
+    - Track C: Network I/O (deps, docs) - skipped in offline mode
+  - **Stage 4 (Sequential)**: Final Aggregation (FCE, chunk extraction, report, summary)
 - Handles error recovery and logging
 - **Performance optimizations**:
   - Batched database inserts (200 records per batch) in indexer
-  - Parallel rule execution with ThreadPoolExecutor (4 workers)
-  - Parallel holistic analysis (bundle + sourcemap detection)
+  - Pipeline-level memory cache (v1.2) shared across analysis phases
+  - In-process taint execution avoids subprocess overhead
+  - Parallel rule execution with ThreadPoolExecutor (3 workers for Stage 3 tracks)
 
 #### Pattern Detection Engine
-- 100+ YAML-defined security patterns in `theauditor/patterns/`
-- AST-based matching for Python and JavaScript
-- Supports semantic analysis via TypeScript compiler
+- **AST-based rules**: 20+ categories in `theauditor/rules/` (auth, SQL injection, XSS, secrets, frameworks, etc.)
+- **YAML patterns**: Configuration security in `theauditor/rules/YAML/config_patterns.yml`
+- **Dynamic discovery**: Rules orchestrator (`theauditor/rules/orchestrator.py`) auto-discovers all detection rules
+- **Coverage**: 100+ security rules across Python, JavaScript, Docker, Nginx, PostgreSQL, and more
+- Supports semantic analysis via TypeScript compiler for type-aware detection
 
 #### Factual Correlation Engine (FCE) (`theauditor/fce.py`)
 - **30 advanced correlation rules** in `theauditor/correlations/rules/`
@@ -342,10 +350,14 @@ if chunk_info.get('truncated', False):
 ## Critical Working Knowledge
 
 ### Pipeline Execution Order
-The `aud full` command runs multiple analysis phases in 3 stages:
-1. **Sequential**: index → framework_detect
-2. **Parallel**: (deps, docs) || (workset, lint, patterns) || (graph_build)
-3. **Sequential**: graph_analyze → taint → fce → report
+The `aud full` command runs multiple analysis phases in 4 stages:
+1. **Sequential Foundation**: index → framework_detect
+2. **Sequential Data Prep**: workset → graph_build → cfg_analyze → metadata_churn
+3. **Parallel Heavy Analysis**:
+   - Track A: taint-analyze (isolated, ~30s with v1.2 cache)
+   - Track B: lint → patterns → graph_analyze → graph_viz (4 views)
+   - Track C: deps → docs_fetch → docs_summarize (skipped in --offline mode)
+4. **Sequential Aggregation**: fce → extract_chunks → report → summary
 
 If modifying pipeline, maintain this dependency order.
 
@@ -375,6 +387,12 @@ Key environment variables for configuration:
 - `THEAUDITOR_DB_BATCH_SIZE`: Database batch insert size (default: 200)
 
 ## Recent Fixes & Known Issues
+
+### Auth Rules Expansion (v1.1+)
+- **New Analyzers**: OAuth, password handling, and session management analyzers added
+- **Location**: `theauditor/rules/auth/` now contains jwt_analyze.py, oauth_analyze.py, password_analyze.py, session_analyze.py
+- **Pattern**: All follow database-first architecture querying function_call_args and symbols tables
+- **Current Status**: Comprehensive authentication security coverage across all major patterns
 
 ### Parser Integration (Fixed)
 - **Previous Issue**: Configuration parsers (webpack, nginx, docker-compose) were orphaned
@@ -406,11 +424,19 @@ Key environment variables for configuration:
 - **Fix Applied**: Added direct-use detection for patterns like `res.send(req.body)`
 - **Current Status**: Now detects both assignment-based and direct-use taint flows
 
+### Phase 2 Rules Refactor (In Progress)
+Based on comprehensive audit documented in `theauditor/rules/nightmare_fuel.md`:
+- **Completed**: Auth rules package (JWT, OAuth, password, session)
+- **Completed**: XSS rules refactor with framework-aware safe sinks
+- **Gold Standard Pattern**: Database-first queries, frozensets for O(1) lookups, table existence checks
+- **Next Phase**: SQL injection rules, remaining categories per priority matrix
+
 ### Known Limitations
 - Maximum 2MB file size for analysis (configurable)
 - TypeScript decorator metadata not fully parsed
 - Some advanced ES2024+ syntax may not be recognized
 - GraphViz visualization requires separate installation
+- SQL extraction patterns may produce UNKNOWN entries (P0 fix scheduled - see nightmare_fuel.md)
 
 ## Common Misconceptions to Avoid
 
@@ -436,6 +462,14 @@ Solution: Run `aud setup-claude --target .`
 - Verify symbols table contains property accesses: `SELECT * FROM symbols WHERE name LIKE '%req.body%'`
 - Ensure you run `aud index` before `aud taint-analyze`
 
+### High UNKNOWN Count in sql_queries Table
+This is a known issue documented in `theauditor/rules/nightmare_fuel.md`:
+- **Symptom**: `SELECT command, COUNT(*) FROM sql_queries` shows 95%+ UNKNOWN
+- **Root Cause**: SQL_QUERY_PATTERNS in `indexer/config.py` are too broad
+- **Impact**: SQL injection rules may have false positives
+- **Fix Status**: P0 priority, 3-hour fix scheduled
+- **Workaround**: Focus on non-UNKNOWN findings, or manually verify SQL patterns
+
 ### Pipeline Failures
 Check `.pf/error.log` and `.pf/pipeline.log` for details
 
@@ -445,6 +479,12 @@ Ensure linters installed: `pip install -e ".[linters]"`
 ### Graph Commands Not Working
 - Ensure `aud index` has been run first
 - Check that NetworkX is installed: `pip install -e ".[all]"`
+
+### Empty refs Table
+- **Symptom**: `SELECT COUNT(*) FROM refs` returns 0
+- **Root Cause**: Python extractor uses regex fallback for imports (line 48)
+- **Fix Status**: P0 priority, documented in nightmare_fuel.md
+- **Impact**: Import tracking and dependency analysis incomplete
 
 ## Testing Vulnerable Code
 Test projects are in `fakeproj/` directory. Always use `--exclude-self` when analyzing them to avoid false positives from TheAuditor's own configuration.
@@ -465,8 +505,15 @@ Install with `pip install -e ".[group]"`:
 - **[all]**: Everything including NetworkX for graphs
 
 ## Performance Expectations
-- Small project (< 5K LOC): ~2 minutes
-- Medium project (20K LOC): ~30 minutes
-- Large monorepo (100K+ LOC): 1-2 hours
-- Memory usage: ~500MB-2GB depending on codebase size
-- Disk space: ~100MB for .pf/ output directory
+
+### v1.2 with Memory Cache (Current)
+- **Small project** (< 5K LOC): ~1 minute first run, near-instant on warm cache
+- **Medium project** (20K LOC): ~2-5 minutes first run, ~30 seconds on warm cache
+- **Large monorepo** (100K+ LOC): ~15-30 minutes first run, ~5 minutes on warm cache
+- **Memory usage**: 500MB-4GB depending on codebase size and cache settings
+- **Disk space**: ~100-500MB for .pf/ output directory
+
+### Key Performance Improvements
+- **v1.2**: 8,461x faster taint analysis (4 hours → 30 seconds), 480x faster overall on warm cache
+- **v1.1**: 355x faster pattern detection (10 hours → 101 seconds), 66% faster typical projects
+- **Memory cache**: Pre-loads database with O(1) lookups, graceful degradation if memory constrained
