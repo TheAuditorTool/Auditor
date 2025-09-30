@@ -71,7 +71,15 @@ class BaseExtractor(ABC):
             List of (kind, value) tuples for imports
         """
         imports = []
-        for pattern in IMPORT_PATTERNS:
+        seen = set()
+
+        js_like_exts = {'.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'}
+        if file_ext in js_like_exts:
+            patterns = IMPORT_PATTERNS[:3]  # JavaScript/TypeScript specific
+        else:
+            patterns = IMPORT_PATTERNS
+
+        for pattern in patterns:
             for match in pattern.finditer(content):
                 value = match.group(1) if match.lastindex else match.group(0)
                 # Determine kind based on pattern
@@ -83,7 +91,11 @@ class BaseExtractor(ABC):
                     kind = "package"
                 else:
                     kind = "import"
-                imports.append((kind, value))
+                if file_ext in js_like_exts:
+                    value = value.strip().strip("'\"")
+                if value not in seen:
+                    imports.append((kind, value))
+                    seen.add(value)
         return imports
     
     def extract_routes(self, content: str) -> List[Tuple[str, str]]:
@@ -157,7 +169,7 @@ class BaseExtractor(ABC):
         for pattern in SQL_QUERY_PATTERNS:
             for match in pattern.finditer(content):
                 query_text = match.group(1) if match.lastindex else match.group(0)
-                
+
                 # Calculate line number
                 line = content[:match.start()].count('\n') + 1
                 
@@ -202,6 +214,8 @@ class BaseExtractor(ABC):
                                                 tables.append(table_name)
                                         break
                         
+                        tables = tables or self._extract_sql_tables(query_text)
+
                         queries.append({
                             'line': line,
                             'query_text': query_text[:1000],  # Limit length
@@ -213,6 +227,35 @@ class BaseExtractor(ABC):
                     continue
         
         return queries
+
+    @staticmethod
+    def _extract_sql_tables(query_text: str) -> List[str]:
+        """Best-effort extraction of table names from SQL text."""
+        tables: List[str] = []
+        upper = query_text.upper()
+        patterns = [
+            r'FROM\s+([A-Z0-9_\.\"`]+)',
+            r'JOIN\s+([A-Z0-9_\.\"`]+)',
+            r'INTO\s+([A-Z0-9_\.\"`]+)',
+            r'UPDATE\s+([A-Z0-9_\.\"`]+)'
+        ]
+
+        def clean(name: str) -> str:
+            for ch in ['"', "'", '`']:
+                name = name.replace(ch, '')
+            if '.' in name:
+                name = name.split('.')[-1]
+            return name.strip()
+
+        seen = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, upper):
+                raw = clean(match.group(1))
+                if raw and raw not in seen:
+                    seen.add(raw)
+                    tables.append(raw)
+
+        return tables
 
 
 class ExtractorRegistry:

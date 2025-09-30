@@ -684,7 +684,11 @@ try {
         batch_helper_path.write_text(batch_helper_content, encoding='utf-8')
         return batch_helper_path
     
-    def get_semantic_ast_batch(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_semantic_ast_batch(
+        self,
+        file_paths: List[str],
+        jsx_mode: Optional[str] = None,
+    ) -> Dict[str, Dict[str, Any]]:
         """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
         
         This dramatically improves performance by reusing the TypeScript program
@@ -696,6 +700,9 @@ try {
         Returns:
             Dictionary mapping file paths to their AST results
         """
+        # Normalize JSX mode for downstream metadata (TypeScript helper ignores when sandbox unavailable)
+        jsx_mode = (jsx_mode or "transformed").lower()
+
         # Validate all files exist
         results = {}
         valid_files = []
@@ -708,7 +715,8 @@ try {
                     "error": f"File not found: {file_path}",
                     "ast": None,
                     "diagnostics": [],
-                    "symbols": []
+                    "symbols": [],
+                    "jsxMode": jsx_mode,
                 }
             elif file.suffix.lower() not in ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue']:
                 results[file_path] = {
@@ -716,7 +724,8 @@ try {
                     "error": f"Not a JavaScript/TypeScript file: {file_path}",
                     "ast": None,
                     "diagnostics": [],
-                    "symbols": []
+                    "symbols": [],
+                    "jsxMode": jsx_mode,
                 }
             else:
                 valid_files.append(str(file.resolve()))
@@ -731,7 +740,8 @@ try {
                     "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-claude' to install tools.",
                     "ast": None,
                     "diagnostics": [],
-                    "symbols": []
+                    "symbols": [],
+                    "jsxMode": jsx_mode,
                 }
             return results
         
@@ -852,7 +862,11 @@ try {
         
         return results
     
-    def get_semantic_ast(self, file_path: str) -> Dict[str, Any]:
+    def get_semantic_ast(
+        self,
+        file_path: str,
+        jsx_mode: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Get semantic AST for a JavaScript/TypeScript file using the TypeScript compiler.
         
         Args:
@@ -868,6 +882,9 @@ try {
             - hasTypes: Boolean indicating if type information is available
             - error: Error message if parsing failed
         """
+        # Normalize JSX mode for downstream helpers
+        jsx_mode = (jsx_mode or "transformed").lower()
+
         # Validate file exists
         file = Path(file_path).resolve()
         if not file.exists():
@@ -876,7 +893,8 @@ try {
                 "error": f"File not found: {file_path}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsxMode": jsx_mode,
             }
         
         # Check if it's a JavaScript, TypeScript, or Vue file
@@ -886,7 +904,8 @@ try {
                 "error": f"Not a JavaScript/TypeScript file: {file_path}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsxMode": jsx_mode,
             }
         
         # CRITICAL: No fallbacks allowed - fail fast with clear error
@@ -896,7 +915,8 @@ try {
                 "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-claude' to install tools.",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsxMode": jsx_mode,
             }
         
         try:
@@ -969,7 +989,8 @@ try {
                         "error": "Node.js runtime not found. Run 'aud setup-claude' to install tools.",
                         "ast": None,
                         "diagnostics": [],
-                        "symbols": []
+                        "symbols": [],
+                        "jsxMode": jsx_mode,
                     }
                 
                 # Convert paths for Windows node if needed
@@ -996,33 +1017,31 @@ try {
                 if result.returncode != 0:
                     # Consolidate error information from stderr (stdout is not captured)
                     error_json = None
-                    
-                    # Try to parse error output as JSON from stderr
+
                     if result.stderr and result.stderr.strip():
                         try:
                             error_json = json.loads(result.stderr)
                         except json.JSONDecodeError:
-                            # Not JSON, will use as plain text
                             pass
-                    
+
                     if error_json and isinstance(error_json, dict):
                         error_msg = error_json.get("error", "Unknown error from TypeScript compiler")
                     else:
-                        # Build detailed error message from stderr
                         error_details = []
                         if result.stderr and result.stderr.strip():
                             error_details.append(f"stderr: {result.stderr.strip()[:500]}")
                         if not error_details:
                             error_details.append("No error output from TypeScript compiler")
-                        
+
                         error_msg = f"TypeScript compiler failed (exit code {result.returncode}). " + " | ".join(error_details)
-                    
+
                     return {
                         "success": False,
                         "error": error_msg,
                         "ast": None,
                         "diagnostics": [],
-                        "symbols": []
+                        "symbols": [],
+                        "jsxMode": jsx_mode,
                     }
                 else:
                     # Read output from file
@@ -1032,7 +1051,8 @@ try {
                             "error": "TypeScript compiler succeeded but output file was not created",
                             "ast": None,
                             "diagnostics": [],
-                            "symbols": []
+                            "symbols": [],
+                            "jsxMode": jsx_mode,
                         }
                     
                     try:
@@ -1040,6 +1060,8 @@ try {
                             ast_data = json.load(f)
                         
                         # Add Vue metadata if this was a Vue file
+                        ast_data.setdefault("jsxMode", jsx_mode)
+
                         if vue_metadata:
                             ast_data["vueMetadata"] = vue_metadata
                         return ast_data
@@ -1051,7 +1073,8 @@ try {
                             "error": f"Failed to parse TypeScript AST output: {e}. Output file size: {file_size} bytes",
                             "ast": None,
                             "diagnostics": [],
-                            "symbols": []
+                            "symbols": [],
+                            "jsxMode": jsx_mode,
                         }
             finally:
                 # Clean up temporary output file
@@ -1064,7 +1087,8 @@ try {
                 "error": f"Timeout: File too large or complex to parse within {dynamic_timeout:.0f} seconds",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsxMode": jsx_mode,
             }
         except subprocess.SubprocessError as e:
             return {
@@ -1072,7 +1096,8 @@ try {
                 "error": f"Subprocess error: {e}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsxMode": jsx_mode,
             }
         except Exception as e:
             return {
@@ -1080,7 +1105,8 @@ try {
                 "error": f"Unexpected error: {e}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsxMode": jsx_mode,
             }
     
     
@@ -1236,7 +1262,11 @@ try {
 
 
 # Module-level function for direct usage
-def get_semantic_ast(file_path: str, project_root: str = None) -> Dict[str, Any]:
+def get_semantic_ast(
+    file_path: str,
+    project_root: str = None,
+    jsx_mode: Optional[str] = None,
+) -> Dict[str, Any]:
     """Get semantic AST for a JavaScript/TypeScript file.
     
     This is a convenience function that creates a parser instance
@@ -1250,10 +1280,14 @@ def get_semantic_ast(file_path: str, project_root: str = None) -> Dict[str, Any]
         Dictionary containing the semantic AST and metadata
     """
     parser = JSSemanticParser(project_root=project_root)
-    return parser.get_semantic_ast(file_path)
+    return parser.get_semantic_ast(file_path, jsx_mode=jsx_mode)
 
 
-def get_semantic_ast_batch(file_paths: List[str], project_root: str = None) -> Dict[str, Dict[str, Any]]:
+def get_semantic_ast_batch(
+    file_paths: List[str],
+    project_root: str = None,
+    jsx_mode: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
     """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
     
     This is a convenience function that creates a parser instance
@@ -1267,4 +1301,4 @@ def get_semantic_ast_batch(file_paths: List[str], project_root: str = None) -> D
         Dictionary mapping file paths to their AST results
     """
     parser = JSSemanticParser(project_root=project_root)
-    return parser.get_semantic_ast_batch(file_paths)
+    return parser.get_semantic_ast_batch(file_paths, jsx_mode=jsx_mode)

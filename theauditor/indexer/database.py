@@ -49,6 +49,17 @@ class DatabaseManager:
         self.prisma_batch = []
         self.compose_batch = []
         self.nginx_batch = []
+        # JSX-preserved batches
+        self.symbols_jsx_batch = []
+        self.assignments_jsx_batch = []
+        self.function_call_args_jsx_batch = []
+        self.function_returns_jsx_batch = []
+        # Framework persistence batches
+        self.frameworks_batch = []
+        self.framework_safe_sinks_batch = []
+        # React metadata batches
+        self.react_components_batch = []
+        self.react_hooks_batch = []
 
     def begin_transaction(self):
         """Start a new transaction."""
@@ -288,6 +299,121 @@ class DatabaseManager:
         """
         )
 
+        # JSX-preserved dual-pass tables
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS symbols_jsx(
+                path TEXT NOT NULL,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                col INTEGER NOT NULL,
+                jsx_mode TEXT NOT NULL,
+                extraction_pass INTEGER NOT NULL DEFAULT 2,
+                FOREIGN KEY(path) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assignments_jsx (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                target_var TEXT NOT NULL,
+                source_expr TEXT NOT NULL,
+                source_vars TEXT,
+                in_function TEXT NOT NULL,
+                jsx_mode TEXT NOT NULL,
+                extraction_pass INTEGER NOT NULL DEFAULT 2,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS function_call_args_jsx (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                caller_function TEXT NOT NULL,
+                callee_function TEXT NOT NULL,
+                argument_index INTEGER NOT NULL,
+                argument_expr TEXT NOT NULL,
+                param_name TEXT NOT NULL,
+                jsx_mode TEXT NOT NULL,
+                extraction_pass INTEGER NOT NULL DEFAULT 2,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS function_returns_jsx (
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                function_name TEXT NOT NULL,
+                return_expr TEXT NOT NULL,
+                return_vars TEXT,
+                has_jsx BOOLEAN NOT NULL DEFAULT 0,
+                jsx_mode TEXT NOT NULL,
+                extraction_pass INTEGER NOT NULL DEFAULT 2,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Framework detection persistence
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS frameworks (
+                framework TEXT NOT NULL,
+                language TEXT NOT NULL,
+                version TEXT,
+                source TEXT,
+                path TEXT,
+                is_primary BOOLEAN NOT NULL DEFAULT 0
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS framework_safe_sinks (
+                framework TEXT NOT NULL,
+                sink_type TEXT NOT NULL,
+                value TEXT NOT NULL
+            )
+        """
+        )
+
+        # React metadata tables
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_components (
+                file TEXT NOT NULL,
+                component TEXT NOT NULL,
+                line INTEGER,
+                col INTEGER,
+                export_type TEXT,
+                hook_calls INTEGER NOT NULL DEFAULT 0
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_hooks (
+                file TEXT NOT NULL,
+                hook TEXT NOT NULL,
+                component TEXT,
+                line INTEGER,
+                col INTEGER
+            )
+        """
+        )
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoints_file ON api_endpoints(file)")
@@ -316,6 +442,16 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_file ON function_returns(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_function ON function_returns(function_name)")
 
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbols_jsx_path ON symbols_jsx(path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignments_jsx_file ON assignments_jsx(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_jsx_file ON function_call_args_jsx(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_jsx_file ON function_returns_jsx(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_frameworks_name ON frameworks(framework)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_frameworks_primary ON frameworks(is_primary)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_framework_sinks ON framework_safe_sinks(framework)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_components_file ON react_components(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_hooks_file ON react_hooks(file)")
+
         self.conn.commit()
 
     def clear_tables(self):
@@ -338,6 +474,14 @@ class DatabaseManager:
             cursor.execute("DELETE FROM assignments")
             cursor.execute("DELETE FROM function_call_args")
             cursor.execute("DELETE FROM function_returns")
+            cursor.execute("DELETE FROM symbols_jsx")
+            cursor.execute("DELETE FROM assignments_jsx")
+            cursor.execute("DELETE FROM function_call_args_jsx")
+            cursor.execute("DELETE FROM function_returns_jsx")
+            cursor.execute("DELETE FROM frameworks")
+            cursor.execute("DELETE FROM framework_safe_sinks")
+            cursor.execute("DELETE FROM react_components")
+            cursor.execute("DELETE FROM react_hooks")
         except sqlite3.Error as e:
             self.conn.rollback()
             raise RuntimeError(f"Failed to clear existing data: {e}")
@@ -405,6 +549,152 @@ class DatabaseManager:
         return_vars_json = json.dumps(return_vars)
         self.function_returns_batch.append((file_path, line, function_name, 
                                            return_expr, return_vars_json))
+
+    # JSX-preserved helpers -------------------------------------------------
+
+    def add_symbol_jsx(
+        self,
+        path: str,
+        name: str,
+        symbol_type: str,
+        line: int,
+        col: int,
+        jsx_mode: str,
+        extraction_pass: int,
+    ) -> None:
+        """Add a preserved-mode symbol for JSX-aware analysis."""
+        self.symbols_jsx_batch.append(
+            (path, name, symbol_type, line, col, jsx_mode, extraction_pass)
+        )
+
+    def add_assignment_jsx(
+        self,
+        file_path: str,
+        line: int,
+        target_var: str,
+        source_expr: str,
+        source_vars: List[str],
+        in_function: str,
+        jsx_mode: str,
+        extraction_pass: int,
+    ) -> None:
+        """Add a preserved-mode assignment record."""
+        self.assignments_jsx_batch.append(
+            (
+                file_path,
+                line,
+                target_var,
+                source_expr,
+                json.dumps(source_vars),
+                in_function,
+                jsx_mode,
+                extraction_pass,
+            )
+        )
+
+    def add_function_call_arg_jsx(
+        self,
+        file_path: str,
+        line: int,
+        caller_function: str,
+        callee_function: str,
+        argument_index: int,
+        argument_expr: str,
+        param_name: str,
+        jsx_mode: str,
+        extraction_pass: int,
+    ) -> None:
+        """Add a preserved-mode function call argument."""
+        self.function_call_args_jsx_batch.append(
+            (
+                file_path,
+                line,
+                caller_function,
+                callee_function,
+                argument_index,
+                argument_expr,
+                param_name,
+                jsx_mode,
+                extraction_pass,
+            )
+        )
+
+    def add_function_return_jsx(
+        self,
+        file_path: str,
+        line: int,
+        function_name: str,
+        return_expr: str,
+        return_vars: List[str],
+        has_jsx: bool,
+        jsx_mode: str,
+        extraction_pass: int,
+    ) -> None:
+        """Add a preserved-mode function return entry."""
+        self.function_returns_jsx_batch.append(
+            (
+                file_path,
+                line,
+                function_name,
+                return_expr,
+                json.dumps(return_vars),
+                int(has_jsx),
+                jsx_mode,
+                extraction_pass,
+            )
+        )
+
+    # Framework persistence helpers ---------------------------------------
+
+    def add_framework(
+        self,
+        framework: str,
+        language: str,
+        version: Optional[str],
+        source: Optional[str],
+        path: Optional[str],
+        is_primary: bool,
+    ) -> None:
+        """Queue a detected framework for insertion."""
+        self.frameworks_batch.append(
+            (framework, language, version or "unknown", source or "", path or ".", int(is_primary))
+        )
+
+    def add_framework_safe_sink(
+        self,
+        framework: str,
+        sink_type: str,
+        value: str,
+    ) -> None:
+        """Queue a framework-specific safe sink."""
+        self.framework_safe_sinks_batch.append((framework, sink_type, value))
+
+    # React metadata helpers ----------------------------------------------
+
+    def add_react_component(
+        self,
+        file_path: str,
+        component: str,
+        line: Optional[int],
+        col: Optional[int],
+        export_type: Optional[str],
+        hook_calls: int,
+    ) -> None:
+        """Persist a detected React component."""
+        self.react_components_batch.append(
+            (file_path, component, line, col, export_type or "", hook_calls)
+        )
+
+    def add_react_hook(
+        self,
+        file_path: str,
+        hook: str,
+        component: Optional[str],
+        line: Optional[int],
+        col: Optional[int],
+    ) -> None:
+        """Persist a detected React hook usage."""
+        self.react_hooks_batch.append((file_path, hook, component or "", line, col))
 
     def add_config_file(self, path: str, content: str, file_type: str, context: Optional[str] = None):
         """Add a configuration file content to the batch."""
@@ -529,6 +819,70 @@ class DatabaseManager:
                     self.function_returns_batch
                 )
                 self.function_returns_batch = []
+
+            if self.symbols_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO symbols_jsx
+                        (path, name, type, line, col, jsx_mode, extraction_pass)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    self.symbols_jsx_batch,
+                )
+                self.symbols_jsx_batch = []
+
+            if self.assignments_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO assignments_jsx
+                        (file, line, target_var, source_expr, source_vars, in_function, jsx_mode, extraction_pass)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.assignments_jsx_batch,
+                )
+                self.assignments_jsx_batch = []
+
+            if self.function_call_args_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO function_call_args_jsx
+                        (file, line, caller_function, callee_function, argument_index, argument_expr, param_name, jsx_mode, extraction_pass)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.function_call_args_jsx_batch,
+                )
+                self.function_call_args_jsx_batch = []
+
+            if self.function_returns_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO function_returns_jsx
+                        (file, line, function_name, return_expr, return_vars, has_jsx, jsx_mode, extraction_pass)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.function_returns_jsx_batch,
+                )
+                self.function_returns_jsx_batch = []
+
+            if self.frameworks_batch:
+                cursor.executemany(
+                    "INSERT INTO frameworks (framework, language, version, source, path, is_primary) VALUES (?, ?, ?, ?, ?, ?)",
+                    self.frameworks_batch,
+                )
+                self.frameworks_batch = []
+
+            if self.framework_safe_sinks_batch:
+                cursor.executemany(
+                    "INSERT INTO framework_safe_sinks (framework, sink_type, value) VALUES (?, ?, ?)",
+                    self.framework_safe_sinks_batch,
+                )
+                self.framework_safe_sinks_batch = []
+
+            if self.react_components_batch:
+                cursor.executemany(
+                    "INSERT INTO react_components (file, component, line, col, export_type, hook_calls) VALUES (?, ?, ?, ?, ?, ?)",
+                    self.react_components_batch,
+                )
+                self.react_components_batch = []
+
+            if self.react_hooks_batch:
+                cursor.executemany(
+                    "INSERT INTO react_hooks (file, hook, component, line, col) VALUES (?, ?, ?, ?, ?)",
+                    self.react_hooks_batch,
+                )
+                self.react_hooks_batch = []
             
             if self.prisma_batch:
                 cursor.executemany(
