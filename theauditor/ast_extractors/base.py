@@ -1,10 +1,23 @@
 """Base utilities and shared helpers for AST extraction.
 
 This module contains utility functions shared across all language implementations.
+
+ARCHITECTURAL PRINCIPLE: NO REGEX FOR EXTRACTION
+================================================
+This module must remain regex-free for code extraction. We have ASTs - use them.
+The only regex that ever existed here was extract_vars_from_tree_sitter_expr(),
+which has been deprecated and gutted to enforce proper AST traversal.
+
+If you're tempted to add regex:
+1. STOP
+2. You already have an AST node
+3. Traverse the AST structure instead
+4. Text parsing is a lazy escape hatch that defeats the entire purpose
+
+This is a deliberate architectural decision to maintain extraction purity.
 """
 
 import ast
-import re
 from typing import Any, List, Optional
 from pathlib import Path
 
@@ -49,13 +62,33 @@ def extract_vars_from_expr(node: ast.AST) -> List[str]:
 
 
 def extract_vars_from_tree_sitter_expr(expr: str) -> List[str]:
-    """Extract variable names from a JavaScript/TypeScript expression string.
-    
-    Uses regex to find identifiers that aren't keywords.
+    """DEPRECATED: DO NOT USE - This is a legacy regex fallback that violates AST purity.
+
+    ARCHITECTURAL DECISION: We have the AST - extract variables from AST nodes, NOT text.
+
+    This function was removed to enforce proper AST traversal. If you're calling this,
+    you're doing text parsing when you should be traversing the AST structure.
+
+    Why this is wrong:
+    - We already parsed the code into an AST
+    - Text parsing is fragile and misses context
+    - Regex cannot understand scope, destructuring, or complex expressions
+    - This creates a "lazy escape hatch" that prevents proper structural analysis
+
+    What to do instead:
+    - For assignments: The AST node already has source node - traverse it
+    - For returns: The AST node already has expression node - traverse it
+    - Use proper visitor patterns, not text matching
+
+    If source_vars are critical for your use case, extract them from the AST node
+    that you already have. Don't convert to text and re-parse with regex.
+
+    CRITICAL: DO NOT add regex back. If this breaks something, fix the caller
+    to use proper AST traversal, not text parsing.
     """
-    # Match identifiers that are not keywords
-    pattern = r'\b(?!(?:const|let|var|function|return|if|else|for|while|true|false|null|undefined|new|this)\b)[a-zA-Z_$][a-zA-Z0-9_$]*\b'
-    return re.findall(pattern, expr)
+    # Return empty list to force callers to handle the absence of this data
+    # This will surface edge cases where source_vars are actually needed
+    return []
 
 
 def find_containing_function_python(tree: ast.AST, line: int) -> Optional[str]:

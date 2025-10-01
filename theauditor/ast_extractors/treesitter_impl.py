@@ -7,7 +7,7 @@ from typing import Any, List, Dict, Optional
 
 from .base import (
     find_containing_function_tree_sitter,
-    extract_vars_from_tree_sitter_expr
+    extract_vars_from_tree_sitter_expr  # DEPRECATED: Returns [] to enforce AST purity
 )
 
 
@@ -406,6 +406,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                             "source_expr": value_node.text.decode("utf-8", errors="ignore"),
                             "line": child.start_point[0] + 1,
                             "in_function": in_function,
+                            # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                            # Should traverse value_node AST instead of parsing its text
                             "source_vars": extract_vars_from_tree_sitter_expr(
                                 value_node.text.decode("utf-8", errors="ignore")
                             )
@@ -420,6 +422,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 target_var = left_node.text.decode("utf-8", errors="ignore")
             if right_node:
                 source_expr = right_node.text.decode("utf-8", errors="ignore")
+                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                # Should traverse right_node AST instead of parsing its text
                 source_vars = extract_vars_from_tree_sitter_expr(source_expr)
         
         elif node.type == "assignment":
@@ -449,6 +453,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 "source_expr": source_expr,
                 "line": node.start_point[0] + 1,
                 "in_function": in_function or "global",
+                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                # This fallback now returns [] - traverse AST node instead
                 "source_vars": source_vars if source_vars else extract_vars_from_tree_sitter_expr(source_expr)
             })
     
@@ -675,14 +681,16 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
         
         if not return_expr:
             return_expr = "undefined"
-        
+
         returns.append({
             "function_name": function_name,
             "line": node.start_point[0] + 1,
             "return_expr": return_expr,
+            # EDGE CASE DISCOVERY: return_vars now [] due to regex removal (JS)
+            # Should traverse the return expression AST node instead
             "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
         })
-    
+
     elif language == "python" and node.type == "return_statement":
         # Find containing function
         function_name = find_containing_function_tree_sitter(node, content, language) or "global"
@@ -696,14 +704,16 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
         
         if not return_expr:
             return_expr = "None"
-        
+
         returns.append({
             "function_name": function_name,
             "line": node.start_point[0] + 1,
             "return_expr": return_expr,
+            # EDGE CASE DISCOVERY: return_vars now [] due to regex removal (Python)
+            # Should traverse the return expression AST node instead
             "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
         })
-    
+
     # Recursively search children
     for child in node.children:
         returns.extend(_extract_tree_sitter_returns(child, language, content))

@@ -59,56 +59,22 @@ def has_sanitizer_between(cursor: sqlite3.Cursor, source: Dict[str, Any], sink: 
     return False
 
 
-def is_external_source(cursor: sqlite3.Cursor, source: Dict[str, Any]) -> bool:
-    """
-    Validate if source actually handles external data.
-    
-    Returns True only for sources that truly bring in untrusted external data,
-    not internal application data.
-    """
-    pattern = source.get("pattern", "")
-    
-    # Web scraping sources are always external
-    web_scraping_patterns = [
-        "requests.get", "requests.post", "requests.put", "requests.patch", "requests.delete",
-        "response.text", "response.content", "response.json",
-        "BeautifulSoup", "soup.find", "soup.find_all", "soup.select",
-        "page.content", "page.inner_text", "page.inner_html",
-        "driver.page_source", "element.text", "element.get_attribute",
-        "urlopen", "urllib.request.urlopen"
-    ]
-    if pattern in web_scraping_patterns:
-        return True
-    
-    # Web framework inputs are external
-    web_input_patterns = [
-        "req.body", "req.query", "req.params", "req.headers",
-        "request.args", "request.form", "request.json", "request.data",
-        "request.GET", "request.POST", "request.FILES"
-    ]
-    if pattern in web_input_patterns:
-        return True
-    
-    # File I/O - check if reading external files
-    if pattern in ["open", "json.load", "json.loads", "pd.read_csv", "pd.read_json", "pd.read_excel"]:
-        # Check for nearby network/scraping calls suggesting external data
-        cursor.execute("""
-            SELECT COUNT(*) FROM symbols 
-            WHERE path = ? AND line BETWEEN ? AND ?
-            AND (name LIKE '%request%' OR name LIKE '%download%' 
-                 OR name LIKE '%fetch%' OR name LIKE '%scrape%'
-                 OR name LIKE '%BeautifulSoup%' OR name LIKE '%urlopen%')
-        """, (source["file"], source["line"] - 50, source["line"] + 50))
-        
-        nearby_external_calls = cursor.fetchone()[0]
-        return nearby_external_calls > 0
-    
-    # Environment variables and CLI args are external
-    if pattern in ["os.getenv", "os.environ.get", "sys.argv", "input", "click.argument"]:
-        return True
-    
-    # Conservative: if we're not sure, don't flag it
-    return False
+# ============================================================================
+# DELETED: is_external_source() - 50 lines of string matching fallback
+# ============================================================================
+# This function existed because database queries returned empty results
+# (symbols table had zero call/property records due to indexer bug).
+#
+# HARD FAILURE PROTOCOL:
+# All sources from database are VALID by definition.
+# If database returns invalid sources, fix the SOURCE PATTERNS or INDEXER.
+#
+# DO NOT re-add validation logic here. Validation belongs in:
+#   1. Indexer extraction (what gets into symbols table)
+#   2. Source pattern definitions (taint/sources.py)
+#
+# String matching validation = hiding bugs. Let it fail loud.
+# ============================================================================
 
 
 def trace_from_source(
@@ -136,11 +102,11 @@ def trace_from_source(
     """
     # Import TaintPath here to avoid circular dependency
     from .core import TaintPath
-    
-    # Validate source is truly external
-    if not is_external_source(cursor, source):
-        return []  # Skip internal sources
-    
+
+    # HARD FAILURE PROTOCOL: No validation needed.
+    # All sources from database are valid by definition.
+    # If we get invalid sources, fix the indexer or source patterns.
+
     # If CFG analysis is requested and available, use flow-sensitive analysis
     if use_cfg:
         from .cfg_integration import trace_flow_sensitive, should_use_cfg
@@ -328,25 +294,17 @@ def trace_from_source(
             tainted_elements.add(f"{func_name}:{source['pattern']}")
             if debug_mode:
                 print(f"[TAINT] Created initial taint for JS source: {func_name}:{source['pattern']}", file=sys.stderr)
-    
-    # ENHANCEMENT: Apply JavaScript-specific taint tracking
-    if source["file"].endswith(('.js', '.jsx', '.ts', '.tsx')):
-        from .javascript import enhance_javascript_tracking
-        tainted_elements = enhance_javascript_tracking(
-            cursor, source, tainted_elements, source["file"]
-        )
-        if debug_mode and tainted_elements:
-            print(f"[TAINT] JavaScript enhancement added: {tainted_elements}", file=sys.stderr)
-    
-    # ENHANCEMENT: Apply Python-specific taint tracking
-    if source["file"].endswith(('.py', '.pyx')):
-        from .python import enhance_python_tracking
-        tainted_elements = enhance_python_tracking(
-            cursor, source, tainted_elements, source["file"]
-        )
-        if debug_mode and tainted_elements:
-            print(f"[TAINT] Python enhancement added: {tainted_elements}", file=sys.stderr)
-    
+
+    # DELETED: JavaScript-specific taint tracking (lines 298-305)
+    # This called enhance_javascript_tracking() from taint/javascript.py
+    # which did string parsing fallback because symbols table was empty.
+    # Now that indexer populates call/property symbols, this is unnecessary.
+
+    # DELETED: Python-specific taint tracking (lines 303-314)
+    # This called enhance_python_tracking() from taint/python.py
+    # which did string parsing fallback because symbols table was empty.
+    # Now that indexer populates call/property symbols, this is unnecessary.
+
     # Step 2: Propagate taint through assignments (worklist algorithm)
     processed = set()
     iterations = 0

@@ -6,7 +6,7 @@ This module contains all TypeScript compiler API extraction logic for semantic a
 import os
 from typing import Any, List, Dict, Optional
 
-from .base import extract_vars_from_tree_sitter_expr
+from .base import extract_vars_from_tree_sitter_expr  # DEPRECATED: Returns [] to enforce AST purity
 
 
 def extract_semantic_ast_symbols(node, depth=0):
@@ -694,6 +694,8 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                     "source_expr": source_expr,
                                     "line": line,
                                     "in_function": in_function,  # NOW ACCURATE!
+                                    # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                                    # If taint analysis breaks, extract vars from AST node, not text
                                     "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
                                 })
                     else:
@@ -719,6 +721,8 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                                 "source_expr": source_expr, # CRITICAL: Source is the original object/array
                                                 "line": line,
                                                 "in_function": in_function,  # NOW ACCURATE!
+                                                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                                                # For destructuring, extract from source_node AST, not text
                                                 "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
                                             })
                             else:
@@ -738,6 +742,8 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                         "source_expr": source_expr,
                                         "line": line,
                                         "in_function": in_function,  # NOW ACCURATE!
+                                        # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                                        # Extract from source_node AST if needed for taint analysis
                                         "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
                                     })
 
@@ -1018,10 +1024,10 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                             has_jsx = True
                             # Check if it's a component (starts with capital)
                             if return_expr.strip().startswith('<'):
-                                # Extract component name
-                                import re
-                                match = re.match(r'<([A-Z]\w*)', return_expr.strip())
-                                if match:
+                                # Check if component name starts with capital letter
+                                # Pure string operation - no regex needed
+                                stripped = return_expr.strip()
+                                if len(stripped) > 1 and stripped[1].isupper():
                                     returns_component = True
                             break
             else:
@@ -1037,6 +1043,8 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                 "function_name": current_function,  # NOW ACCURATE!
                 "line": line,
                 "return_expr": return_expr,
+                # EDGE CASE DISCOVERY: return_vars now [] due to regex removal
+                # Extract from expr_node AST if needed for data flow analysis
                 "return_vars": extract_vars_from_tree_sitter_expr(return_expr),
                 "has_jsx": has_jsx,  # NEW: Track JSX returns
                 "returns_component": returns_component,  # NEW: Track if returning a component

@@ -4,9 +4,23 @@ Detects security misconfigurations in Docker Compose services.
 Uses pre-extracted data from compose_services table - NO FILE I/O.
 
 This rule requires the compose_services table populated by the indexer
-with Docker Compose configuration data.
+with Docker Compose configuration data (17 fields - Phase 3C enhanced).
 
-Migration Status: Database-First Architecture
+Detects 11 security issues:
+- Privileged containers
+- Host network mode
+- Docker socket mounting (container escape)
+- Dangerous volume mounts
+- Hardcoded secrets / weak passwords
+- Exposed database/admin ports
+- Vulnerable/unpinned images
+- Root user (Phase 3C)
+- Dangerous capabilities (Phase 3C)
+- Disabled security features (Phase 3C)
+- Command injection risk (Phase 3C)
+- Missing cap_drop (Phase 3C)
+
+Migration Status: Gold Standard - Database-First Architecture
 """
 
 import json
@@ -14,7 +28,24 @@ import sqlite3
 from typing import List, Dict, Any, Set, Optional
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="compose_security",
+    category="deployment",
+
+    # Target docker-compose files (database level, not per-file)
+    target_extensions=[],  # Empty = database-first rule
+    exclude_patterns=['test/', '__tests__/', 'node_modules/'],
+
+    # Database-first: not JSX-specific
+    requires_jsx_pass=False,
+)
 
 
 # ============================================================================
@@ -110,6 +141,38 @@ VULNERABLE_IMAGES = {
     'php:7.2': 'EOL - upgrade to 8.0+'
 }
 
+# Dangerous Linux capabilities (Phase 3C - NEW)
+DANGEROUS_CAPABILITIES = frozenset([
+    'SYS_ADMIN',     # Full system admin - container escape
+    'NET_ADMIN',     # Network manipulation - packet sniffing
+    'SYS_PTRACE',    # Debug other processes - memory dumping
+    'SYS_MODULE',    # Load kernel modules
+    'DAC_OVERRIDE',  # Bypass file permissions
+    'DAC_READ_SEARCH',  # Bypass read permissions
+    'SYS_RAWIO',     # Raw I/O operations
+    'SYS_BOOT',      # Reboot system
+    'SYS_TIME',      # Manipulate system time
+    'SYS_RESOURCE',  # Override resource limits
+])
+
+# Insecure security options (Phase 3C - NEW)
+INSECURE_SECURITY_OPTS = frozenset([
+    'apparmor=unconfined',   # Disable AppArmor
+    'apparmor:unconfined',
+    'seccomp=unconfined',    # Disable seccomp
+    'seccomp:unconfined',
+    'label=disable',         # Disable SELinux
+    'label:disable',
+])
+
+# Shell metacharacters for command injection detection (Phase 3C - NEW)
+SHELL_METACHARACTERS = frozenset([
+    ';', '&', '|', '$', '`', '\n', '>', '<', '*', '?', '[', ']', '{', '}', '(', ')'
+])
+
+# Root user identifiers (Phase 3C - NEW)
+ROOT_USER_IDS = frozenset(['root', '0', 'UID 0'])
+
 
 # ============================================================================
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
@@ -155,10 +218,12 @@ def find_compose_issues(context: StandardRuleContext) -> List[StandardFinding]:
             # Table doesn't exist - indexer hasn't extracted compose data yet
             return findings
 
-        # Load all compose services
+        # Load all compose services (ALL 17 fields - Phase 3C enhancement)
         cursor.execute("""
             SELECT file_path, service_name, image, ports, volumes,
-                   environment, is_privileged, network_mode
+                   environment, is_privileged, network_mode,
+                   user, cap_add, cap_drop, security_opt, restart,
+                   command, entrypoint, depends_on, healthcheck
             FROM compose_services
             ORDER BY file_path, service_name
         """)
@@ -181,14 +246,14 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
     """Analyze a single Docker Compose service for security issues.
 
     Args:
-        row: Database row with service data
+        row: Database row with ALL 17 service fields (Phase 3C)
 
     Returns:
         List of findings for this service
     """
     findings = []
 
-    # Parse database row
+    # Parse database row (ALL 17 FIELDS)
     try:
         file_path = row[0]
         service_name = row[1]
@@ -198,11 +263,26 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
         env_json = row[5]
         is_privileged = bool(row[6])
         network_mode = row[7]
+        # NEW FIELDS (Phase 3C):
+        user = row[8]
+        cap_add_json = row[9]
+        cap_drop_json = row[10]
+        security_opt_json = row[11]
+        restart = row[12]
+        command_json = row[13]
+        entrypoint_json = row[14]
+        depends_on_json = row[15]
+        healthcheck_json = row[16]
 
         # Parse JSON fields
         ports = json.loads(ports_json) if ports_json else []
         volumes = json.loads(volumes_json) if volumes_json else []
         environment = json.loads(env_json) if env_json else {}
+        cap_add = json.loads(cap_add_json) if cap_add_json else []
+        cap_drop = json.loads(cap_drop_json) if cap_drop_json else []
+        security_opt = json.loads(security_opt_json) if security_opt_json else []
+        command = json.loads(command_json) if command_json else None
+        entrypoint = json.loads(entrypoint_json) if entrypoint_json else None
 
     except (json.JSONDecodeError, IndexError, TypeError):
         return findings
@@ -310,6 +390,83 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
     if image:
         findings.extend(check_image_security(
             file_path, service_name, image
+        ))
+
+    # === PHASE 3C: NEW SECURITY CHECKS (5 rules) ===
+
+    # NEW RULE 1: Root user detection
+    if user is None or user in ROOT_USER_IDS or user.lower() in ROOT_USER_IDS:
+        severity = Severity.HIGH if user is None else Severity.CRITICAL
+        user_display = user or "[not set - defaults to image USER or root]"
+        findings.append(StandardFinding(
+            rule_name='compose-root-user',
+            message=f'Service "{service_name}" runs as root user (user: {user_display})',
+            file_path=file_path,
+            line=1,
+            severity=severity,
+            category='deployment',
+            snippet=f'{service_name}:\n  user: {user_display}',
+            cwe_id='CWE-250'  # Execution with Unnecessary Privileges
+        ))
+
+    # NEW RULE 2: Dangerous capabilities
+    if isinstance(cap_add, list):
+        for capability in cap_add:
+            if capability in DANGEROUS_CAPABILITIES:
+                findings.append(StandardFinding(
+                    rule_name='compose-dangerous-capability',
+                    message=f'Service "{service_name}" grants dangerous capability: {capability}',
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.CRITICAL,
+                    category='deployment',
+                    snippet=f'cap_add:\n  - {capability}',
+                    cwe_id='CWE-250'
+                ))
+
+    # NEW RULE 3: Disabled security features
+    if isinstance(security_opt, list):
+        for opt in security_opt:
+            if opt in INSECURE_SECURITY_OPTS:
+                findings.append(StandardFinding(
+                    rule_name='compose-disabled-security',
+                    message=f'Service "{service_name}" disables security feature: {opt}',
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.HIGH,
+                    category='deployment',
+                    snippet=f'security_opt:\n  - {opt}',
+                    cwe_id='CWE-693'  # Protection Mechanism Failure
+                ))
+
+    # NEW RULE 4: Command injection risk (shell metacharacters in command/entrypoint)
+    for cmd_field, cmd_value in [('command', command), ('entrypoint', entrypoint)]:
+        if cmd_value and isinstance(cmd_value, str):
+            # Check for shell metacharacters
+            has_metachar = any(char in cmd_value for char in SHELL_METACHARACTERS)
+            if has_metachar:
+                findings.append(StandardFinding(
+                    rule_name='compose-command-injection-risk',
+                    message=f'Service "{service_name}" has shell metacharacters in {cmd_field}',
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category='deployment',
+                    snippet=f'{cmd_field}: {cmd_value[:60]}...' if len(cmd_value) > 60 else f'{cmd_field}: {cmd_value}',
+                    cwe_id='CWE-78'  # OS Command Injection
+                ))
+
+    # NEW RULE 5: Missing capability drop (best practice: drop ALL caps, add only needed)
+    if not cap_drop or (isinstance(cap_drop, list) and 'ALL' not in cap_drop):
+        findings.append(StandardFinding(
+            rule_name='compose-missing-cap-drop',
+            message=f'Service "{service_name}" does not drop all capabilities (missing cap_drop: [ALL])',
+            file_path=file_path,
+            line=1,
+            severity=Severity.LOW,
+            category='deployment',
+            snippet=f'{service_name}:\n  cap_drop:\n    - ALL  # RECOMMENDED',
+            cwe_id='CWE-250'
         ))
 
     return findings

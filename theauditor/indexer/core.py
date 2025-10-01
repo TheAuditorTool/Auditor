@@ -14,7 +14,8 @@ from typing import Tuple, List, Dict, Any, Optional, Set
 from theauditor.utils import compute_file_hash, count_lines_in_file
 from theauditor.config_runtime import load_runtime_config
 from .config import (
-    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES
+    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES,
+    COMPOSE_PATTERNS, DOCKERFILE_PATTERNS, NGINX_PATTERNS
 )
 
 # Import ASTCache from the new unified cache module
@@ -279,10 +280,22 @@ class FileWalker:
                             files.append(file_info)
             
             # CRITICAL: Also collect config files from monorepo directories
-            # These are outside src/ but essential for module resolution
-            config_patterns = ['tsconfig.json', 'tsconfig.*.json', 'package.json',
-                             'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-                             'webpack.config.js', 'vite.config.ts', '.babelrc*']
+            # These are outside src/ but essential for module resolution and security analysis
+            config_patterns = [
+                # TypeScript/JavaScript configs
+                'tsconfig.json', 'tsconfig.*.json', 'package.json',
+                'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+                'webpack.config.js', 'vite.config.ts', '.babelrc*',
+                # Infrastructure patterns (dynamically imported from config.py)
+                *COMPOSE_PATTERNS,      # docker-compose.yml, compose.yml, etc.
+                *DOCKERFILE_PATTERNS,   # Dockerfile, Dockerfile.dev, etc.
+                *NGINX_PATTERNS,        # nginx.conf, site.conf, etc.
+                # Environment and schema files
+                '.env', '.env.*', '.env.local', '.env.production', '.env.development',
+                'prisma/schema.prisma',
+                # Linter and formatter configs
+                '.eslintrc*', '.prettierrc*', '.editorconfig',
+            ]
             
             for base_dir, _ in STANDARD_MONOREPO_PATHS:
                 base_path = self.root_path / base_dir

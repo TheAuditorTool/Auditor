@@ -37,7 +37,7 @@ from .propagation import (
     trace_from_source_legacy,
     is_sanitizer,
     has_sanitizer_between,
-    is_external_source,
+    # DELETED: is_external_source - string matching fallback removed
     deduplicate_paths,
 )
 
@@ -45,25 +45,40 @@ from .interprocedural import (
     trace_inter_procedural_flow,
 )
 
-from .javascript import (
-    track_destructuring,
-    track_spread_operators,
-    track_bracket_notation,
-    track_array_operations,
-    track_type_conversions,
-    enhance_javascript_tracking,
-)
+# DELETED: taint/javascript.py (375 lines) - All string parsing fallbacks removed
+#
+# Functions that existed:
+#   - track_destructuring()
+#   - track_spread_operators()
+#   - track_bracket_notation()
+#   - track_array_operations()
+#   - track_type_conversions()
+#   - enhance_javascript_tracking()
+#
+# These existed because indexer wasn't populating symbols with call/property types.
+# Now that indexer is fixed, these fallbacks are CANCER.
+#
+# NEVER re-add this file. If JavaScript analysis is incomplete:
+#   1. Check symbols table has call/property records
+#   2. Add missing patterns to taint/sources.py
+#   3. Fix indexer extraction
 
-from .python import (
-    track_fstrings,
-    track_comprehensions,
-    track_unpacking,
-    track_decorators,
-    track_context_managers,
-    track_string_operations,
-    track_exception_propagation,
-    enhance_python_tracking,
-)
+# DELETED: taint/python.py (473 lines) - All string parsing fallbacks removed
+#
+# Functions that existed:
+#   - track_fstrings()
+#   - track_comprehensions()
+#   - track_unpacking()
+#   - track_decorators()
+#   - track_context_managers()
+#   - track_string_operations()
+#   - track_exception_propagation()
+#   - enhance_python_tracking()
+#
+# Same reason as javascript.py - these existed because symbols table was empty.
+# Now that indexer populates call/property symbols, these are unnecessary fallbacks.
+#
+# NEVER re-add this file. Python taint analysis works via database queries.
 
 # Memory cache optimization (NEW!)
 from .memory_cache import (
@@ -100,29 +115,31 @@ __all__ = [
     "trace_from_source_legacy",
     "is_sanitizer",
     "has_sanitizer_between",
-    "is_external_source",
+    # DELETED: "is_external_source" - string matching fallback removed
     "deduplicate_paths",
     
     # Inter-procedural
     "trace_inter_procedural_flow",
-    
-    # JavaScript enhancements
-    "track_destructuring",
-    "track_spread_operators",
-    "track_bracket_notation",
-    "track_array_operations",
-    "track_type_conversions",
-    "enhance_javascript_tracking",
-    
-    # Python enhancements (new!)
-    "track_fstrings",
-    "track_comprehensions",
-    "track_unpacking",
-    "track_decorators",
-    "track_context_managers",
-    "track_string_operations",
-    "track_exception_propagation",
-    "enhance_python_tracking",
+
+    # DELETED: JavaScript enhancements - taint/javascript.py removed (375 lines)
+    # These functions were string parsing fallbacks:
+    #   - track_destructuring
+    #   - track_spread_operators
+    #   - track_bracket_notation
+    #   - track_array_operations
+    #   - track_type_conversions
+    #   - enhance_javascript_tracking
+
+    # DELETED: Python enhancements - taint/python.py removed (473 lines)
+    # These functions were string parsing fallbacks:
+    #   - track_fstrings
+    #   - track_comprehensions
+    #   - track_unpacking
+    #   - track_decorators
+    #   - track_context_managers
+    #   - track_string_operations
+    #   - track_exception_propagation
+    #   - enhance_python_tracking
     
     # Memory cache optimization (NEW!)
     "MemoryCache",

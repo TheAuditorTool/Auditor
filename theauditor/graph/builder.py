@@ -2,7 +2,6 @@
 
 import os
 import platform
-import re
 import subprocess
 import tempfile
 from dataclasses import asdict, dataclass
@@ -76,125 +75,13 @@ class ImpactAnalysis:
 
 
 class XGraphBuilder:
-    """Build cross-project dependency and call graphs."""
+    """Build cross-project dependency and call graphs.
 
-    # Import regex patterns for different languages
-    IMPORT_PATTERNS = {
-        "python": [
-            r"^import\s+(\S+)",
-            r"^from\s+(\S+)\s+import",
-        ],
-        "javascript": [
-            # Standard ES6 imports with 'from'
-            r"import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-            
-            # Side-effect imports (no 'from')
-            r"import\s+['\"]([^'\"]+)['\"]",
-            
-            # CommonJS require
-            r"require\(['\"]([^'\"]+)['\"]\)",
-            
-            # Dynamic imports
-            r"import\(['\"]([^'\"]+)['\"]\)",
-            
-            # Re-exports
-            r"export\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-        ],
-        "typescript": [
-            # Standard ES6 imports with 'from'
-            r"import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-            
-            # Side-effect imports (no 'from')
-            r"import\s+['\"]([^'\"]+)['\"]",
-            
-            # Type-only imports
-            r"import\s+type\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-            
-            # CommonJS require
-            r"require\(['\"]([^'\"]+)['\"]\)",
-            
-            # Dynamic imports
-            r"import\(['\"]([^'\"]+)['\"]\)",
-            
-            # Re-exports
-            r"export\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-        ],
-        "java": [
-            r"^import\s+(\S+);",
-            r"^import\s+static\s+(\S+);",
-        ],
-        "go": [
-            r'^import\s+"([^"]+)"',
-            r'^import\s+\(\s*"([^"]+)"',
-        ],
-        "c#": [
-            r"^using\s+(\S+);",
-            r"^using\s+static\s+(\S+);",
-        ],
-        "php": [
-            r"^use\s+(\S+);",
-            r"require_once\s*\(['\"]([^'\"]+)['\"]\)",
-            r"include_once\s*\(['\"]([^'\"]+)['\"]\)",
-        ],
-        "ruby": [
-            r"^require\s+['\"]([^'\"]+)['\"]",
-            r"^require_relative\s+['\"]([^'\"]+)['\"]",
-        ],
-    }
-
-    # Export patterns for different languages
-    EXPORT_PATTERNS = {
-        "python": [
-            r"^def\s+(\w+)\s*\(",
-            r"^class\s+(\w+)",
-            r"^(\w+)\s*=",  # Module-level variables
-        ],
-        "javascript": [
-            r"export\s+(?:default\s+)?(?:function|class|const|let|var)\s+(\w+)",
-            r"exports\.(\w+)\s*=",
-            r"module\.exports\.(\w+)\s*=",
-        ],
-        "typescript": [
-            r"export\s+(?:default\s+)?(?:function|class|const|let|var|interface|type)\s+(\w+)",
-            r"exports\.(\w+)\s*=",
-        ],
-        "java": [
-            r"public\s+(?:static\s+)?(?:class|interface|enum)\s+(\w+)",
-            r"public\s+(?:static\s+)?(?:\w+\s+)?(\w+)\s*\(",  # Public methods
-        ],
-        "go": [
-            r"^func\s+(\w+)\s*\(",  # Exported if capitalized
-            r"^type\s+(\w+)\s+",
-            r"^var\s+(\w+)\s+",
-        ],
-    }
-
-    # Call patterns for different languages
-    CALL_PATTERNS = {
-        "python": [
-            r"(\w+)\s*\(",  # Function calls
-            r"(\w+)\.(\w+)\s*\(",  # Method calls
-        ],
-        "javascript": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-            r"new\s+(\w+)\s*\(",
-        ],
-        "typescript": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-            r"new\s+(\w+)\s*\(",
-        ],
-        "java": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-            r"new\s+(\w+)\s*\(",
-        ],
-        "go": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-        ],
-    }
+    This builder operates in database-first mode, reading all extraction data
+    (imports, exports, calls) from the repo_index.db populated by the indexer.
+    No regex-based extraction fallbacks exist - if data is not in the database,
+    the extraction will return empty results, allowing us to identify edge cases.
+    """
 
     def __init__(self, batch_size: int = 200, exclude_patterns: list[str] = None, project_root: str = "."):
         """Initialize builder with configuration."""
@@ -363,51 +250,30 @@ class XGraphBuilder:
             return []
 
     def extract_exports(self, file_path: Path, lang: str) -> list[str]:
-        """Extract exported symbols from a file using AST parser with regex fallback."""
-        # Try AST parser first for supported languages
-        if self.ast_parser.supports_language(lang):
-            try:
-                # Check persistent cache first for JS/TS files
-                tree = None
-                if lang in ["javascript", "typescript"]:
-                    # Compute file hash for cache lookup
-                    import hashlib
-                    with open(file_path, 'rb') as f:
-                        file_hash = hashlib.sha256(f.read()).hexdigest()
-                    
-                    # Check cache
-                    cache_dir = self.project_root / ".pf" / "ast_cache"
-                    cache_file = cache_dir / f"{file_hash}.json"
-                    if cache_file.exists():
-                        try:
-                            import json
-                            with open(cache_file, 'r', encoding='utf-8') as f:
-                                tree = json.load(f)
-                        except (json.JSONDecodeError, OSError):
-                            pass  # Cache read failed, parse fresh
-                
-                # Parse file if not in cache
-                if not tree:
-                    tree = self.ast_parser.parse_file(file_path, lang)
-                    # REMOVED: Cache write logic - only indexer.py should write to cache
-                
-                if tree and tree.get("type") != "regex_fallback":
-                    # Extract exports using AST
-                    export_dicts = self.ast_parser.extract_exports(tree, lang)
-                    # Convert to list of export names
-                    exports = []
-                    for exp in export_dicts:
-                        name = exp.get('name')
-                        if name and name != 'unknown':
-                            exports.append(name)
-                    if exports:  # If we got results, return them
-                        return exports
-            except Exception as e:
-                # Fall through to regex fallback
-                pass
-        
-        # Fallback to regex-based extraction
-        return self._extract_exports_regex(file_path, lang)
+        """Extract exported symbols from the database where indexer already stored them.
+
+        The indexer has already extracted all exports and stored them in the symbols table.
+        We read from there instead of re-parsing files.
+
+        Args:
+            file_path: Path to the source file
+            lang: Programming language (not used, kept for API compatibility)
+
+        Returns:
+            List of exported symbol names
+        """
+        # Get relative path for database lookup
+        try:
+            rel_path = file_path.relative_to(self.project_root)
+        except ValueError:
+            # If file_path is already relative or from a different root
+            rel_path = file_path
+
+        # Normalize path separators for database lookup
+        db_path = str(rel_path).replace("\\", "/")
+
+        # Query database for exports
+        return self.extract_exports_from_db(db_path)
 
     def extract_calls_from_db(self, rel_path: str) -> list[tuple[str, str | None]]:
         """Extract function calls from the database where indexer already stored them.
@@ -445,58 +311,30 @@ class XGraphBuilder:
             return []
 
     def extract_calls(self, file_path: Path, lang: str) -> list[tuple[str, str | None]]:
-        """Extract function/method calls from a file using AST parser with regex fallback."""
-        # Try AST parser first for supported languages
-        if self.ast_parser.supports_language(lang):
-            try:
-                # Check persistent cache first for JS/TS files
-                tree = None
-                if lang in ["javascript", "typescript"]:
-                    # Compute file hash for cache lookup
-                    import hashlib
-                    with open(file_path, 'rb') as f:
-                        file_hash = hashlib.sha256(f.read()).hexdigest()
-                    
-                    # Check cache
-                    cache_dir = self.project_root / ".pf" / "ast_cache"
-                    cache_file = cache_dir / f"{file_hash}.json"
-                    if cache_file.exists():
-                        try:
-                            import json
-                            with open(cache_file, 'r', encoding='utf-8') as f:
-                                tree = json.load(f)
-                        except (json.JSONDecodeError, OSError):
-                            pass  # Cache read failed, parse fresh
-                
-                # Parse file if not in cache
-                if not tree:
-                    tree = self.ast_parser.parse_file(file_path, lang)
-                    # REMOVED: Cache write logic - only indexer.py should write to cache
-                
-                if tree and tree.get("type") != "regex_fallback":
-                    # Extract calls using AST
-                    call_dicts = self.ast_parser.extract_calls(tree, lang)
-                    # Convert to list of (function, method) tuples
-                    calls = []
-                    for call in call_dicts:
-                        name = call.get('name', '')
-                        # Check if it's a method call (contains dot)
-                        if '.' in name:
-                            parts = name.rsplit('.', 1)
-                            if len(parts) == 2:
-                                calls.append((parts[0], parts[1]))
-                            else:
-                                calls.append((name, None))
-                        else:
-                            calls.append((name, None))
-                    if calls:  # If we got results, return them
-                        return calls
-            except Exception as e:
-                # Fall through to regex fallback
-                pass
-        
-        # Fallback to regex-based extraction
-        return self._extract_calls_regex(file_path, lang)
+        """Extract function calls from the database where indexer already stored them.
+
+        The indexer has already extracted all function calls and stored them in the symbols table.
+        We read from there instead of re-parsing files.
+
+        Args:
+            file_path: Path to the source file
+            lang: Programming language (not used, kept for API compatibility)
+
+        Returns:
+            List of (function_name, None) tuples for calls
+        """
+        # Get relative path for database lookup
+        try:
+            rel_path = file_path.relative_to(self.project_root)
+        except ValueError:
+            # If file_path is already relative or from a different root
+            rel_path = file_path
+
+        # Normalize path separators for database lookup
+        db_path = str(rel_path).replace("\\", "/")
+
+        # Query database for calls
+        return self.extract_calls_from_db(db_path)
 
     def resolve_import_path(self, import_str: str, source_file: Path, lang: str) -> str:
         """Resolve import string to a normalized module path that matches actual files in the graph."""
@@ -1017,92 +855,5 @@ class XGraphBuilder:
             },
         }
 
-    def _extract_imports_regex(self, file_path: Path, lang: str) -> list[str]:
-        """Regex-based fallback for extracting imports.
-        
-        This method is used when AST parsing fails or is unavailable.
-        """
-        if lang not in self.IMPORT_PATTERNS:
-            return []
 
-        imports = []
-        patterns = [re.compile(p, re.MULTILINE) for p in self.IMPORT_PATTERNS[lang]]
 
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-
-            for pattern in patterns:
-                matches = pattern.findall(content)
-                imports.extend(matches)
-
-        except (IOError, UnicodeDecodeError, OSError) as e:
-            print(f"Warning: Failed to extract imports from {file_path}: {e}")
-            # Return empty list but LOG the failure
-
-        return imports
-
-    def _extract_exports_regex(self, file_path: Path, lang: str) -> list[str]:
-        """Regex-based fallback for extracting exports.
-        
-        This method is used when AST parsing fails or is unavailable.
-        """
-        if lang not in self.EXPORT_PATTERNS:
-            return []
-
-        exports = []
-        patterns = [re.compile(p, re.MULTILINE) for p in self.EXPORT_PATTERNS[lang]]
-
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-
-            for pattern in patterns:
-                matches = pattern.findall(content)
-                # Flatten tuples if regex has groups
-                for match in matches:
-                    if isinstance(match, tuple):
-                        exports.extend([m for m in match if m])
-                    else:
-                        exports.append(match)
-
-        except (IOError, UnicodeDecodeError, OSError) as e:
-            print(f"Warning: Failed to extract exports from {file_path}: {e}")
-            # Return empty list but LOG the failure
-
-        # Filter exports for Go (only capitalized are public)
-        if lang == "go":
-            exports = [e for e in exports if e and e[0].isupper()]
-
-        return exports
-
-    def _extract_calls_regex(self, file_path: Path, lang: str) -> list[tuple[str, str | None]]:
-        """Regex-based fallback for extracting function calls.
-        
-        This method is used when AST parsing fails or is unavailable.
-        """
-        if lang not in self.CALL_PATTERNS:
-            return []
-
-        calls = []
-        patterns = [re.compile(p) for p in self.CALL_PATTERNS[lang]]
-
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-
-            for pattern in patterns:
-                matches = pattern.findall(content)
-                for match in matches:
-                    if isinstance(match, tuple):
-                        # Method call: (object, method)
-                        calls.append(match)
-                    else:
-                        # Function call
-                        calls.append((match, None))
-
-        except (IOError, UnicodeDecodeError, OSError) as e:
-            print(f"Warning: Failed to extract calls from {file_path}: {e}")
-            # Return empty list but LOG the failure
-
-        return calls

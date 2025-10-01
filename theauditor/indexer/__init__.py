@@ -66,7 +66,12 @@ class IndexerOrchestrator:
         # Special extractors that don't follow standard extension mapping
         self.docker_extractor = DockerExtractor(root_path, self.ast_parser)
         self.generic_extractor = GenericExtractor(root_path, self.ast_parser)
-        
+
+        # Inject db_manager into special extractors (Phase 3C fix)
+        # GenericExtractor uses database-first architecture and needs direct access
+        self.docker_extractor.db_manager = self.db_manager
+        self.generic_extractor.db_manager = self.db_manager
+
         # Stats tracking
         self.counts = {
             "files": 0,
@@ -78,7 +83,22 @@ class IndexerOrchestrator:
             "docker": 0,
             "orm": 0,
             "react_components": 0,
-            "react_hooks": 0
+            "react_hooks": 0,
+            # Data flow tracking
+            "assignments": 0,
+            "function_calls": 0,
+            "returns": 0,
+            "variable_usage": 0,
+            # Control flow tracking
+            "cfg_blocks": 0,
+            "cfg_edges": 0,
+            "cfg_statements": 0,
+            # Type annotations
+            "type_annotations": 0,
+            # Configuration
+            "frameworks": 0,
+            "package_configs": 0,
+            "config_files": 0,
         }
 
     def _detect_frameworks_inline(self) -> List[Dict]:
@@ -136,6 +156,7 @@ class IndexerOrchestrator:
                 source=fw.get('source'),
                 is_primary=(fw.get('path', '.') == '.')
             )
+            self.counts['frameworks'] += 1
 
         # Flush frameworks batch to database BEFORE querying for IDs
         self.db_manager.flush_batch()
@@ -233,11 +254,7 @@ class IndexerOrchestrator:
                    f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
                    f"{self.counts['routes']} routes")
 
-        # Add config counts if present
-        if self.counts.get('compose', 0) > 0:
-            base_msg += f", {self.counts['compose']} compose services"
-        if self.counts.get('nginx', 0) > 0:
-            base_msg += f", {self.counts['nginx']} nginx blocks"
+        # React/Vue framework components
         if self.counts.get('react_components', 0) > 0:
             base_msg += f", {self.counts['react_components']} React components"
         if self.counts.get('react_hooks', 0) > 0:
@@ -248,10 +265,68 @@ class IndexerOrchestrator:
             base_msg += f", {self.counts['vue_hooks']} Vue hooks"
         if self.counts.get('vue_directives', 0) > 0:
             base_msg += f", {self.counts['vue_directives']} Vue directives"
+
+        # TypeScript type system
         if self.counts.get('type_annotations', 0) > 0:
             base_msg += f", {self.counts['type_annotations']} TypeScript type annotations"
 
         print(base_msg)
+
+        # Data flow tracking (verbose but critical for taint analysis)
+        if self.counts.get('assignments', 0) > 0 or self.counts.get('function_calls', 0) > 0:
+            flow_msg = f"[Indexer] Data flow: "
+            flow_parts = []
+            if self.counts.get('assignments', 0) > 0:
+                flow_parts.append(f"{self.counts['assignments']} assignments")
+            if self.counts.get('function_calls', 0) > 0:
+                flow_parts.append(f"{self.counts['function_calls']} function calls")
+            if self.counts.get('returns', 0) > 0:
+                flow_parts.append(f"{self.counts['returns']} returns")
+            if self.counts.get('variable_usage', 0) > 0:
+                flow_parts.append(f"{self.counts['variable_usage']} variable usages")
+            print(flow_msg + ", ".join(flow_parts))
+
+        # Control flow analysis
+        if self.counts.get('cfg_blocks', 0) > 0:
+            cfg_msg = f"[Indexer] Control flow: {self.counts['cfg_blocks']} blocks, {self.counts['cfg_edges']} edges"
+            if self.counts.get('cfg_statements', 0) > 0:
+                cfg_msg += f", {self.counts['cfg_statements']} statements"
+            print(cfg_msg)
+
+        # Database queries
+        if self.counts.get('orm', 0) > 0 or self.counts.get('sql_queries', 0) > 0:
+            db_msg = f"[Indexer] Database: "
+            db_parts = []
+            if self.counts.get('orm', 0) > 0:
+                db_parts.append(f"{self.counts['orm']} ORM queries")
+            if self.counts.get('sql_queries', 0) > 0:
+                db_parts.append(f"{self.counts['sql_queries']} SQL queries")
+            print(db_msg + ", ".join(db_parts))
+
+        # Infrastructure configs
+        if self.counts.get('compose', 0) > 0 or self.counts.get('nginx', 0) > 0 or self.counts.get('docker', 0) > 0:
+            infra_msg = f"[Indexer] Infrastructure: "
+            infra_parts = []
+            if self.counts.get('docker', 0) > 0:
+                infra_parts.append(f"{self.counts['docker']} Dockerfiles")
+            if self.counts.get('compose', 0) > 0:
+                infra_parts.append(f"{self.counts['compose']} compose services")
+            if self.counts.get('nginx', 0) > 0:
+                infra_parts.append(f"{self.counts['nginx']} nginx blocks")
+            print(infra_msg + ", ".join(infra_parts))
+
+        # Project configuration
+        if self.counts.get('frameworks', 0) > 0 or self.counts.get('package_configs', 0) > 0:
+            config_msg = f"[Indexer] Configuration: "
+            config_parts = []
+            if self.counts.get('frameworks', 0) > 0:
+                config_parts.append(f"{self.counts['frameworks']} frameworks")
+            if self.counts.get('package_configs', 0) > 0:
+                config_parts.append(f"{self.counts['package_configs']} package configs")
+            if self.counts.get('config_files', 0) > 0:
+                config_parts.append(f"{self.counts['config_files']} config files")
+            print(config_msg + ", ".join(config_parts))
+
         print(f"[Indexer] Database updated: {self.db_manager.db_path}")
 
         # Store frameworks in database if available
@@ -314,7 +389,7 @@ class IndexerOrchestrator:
                     continue
 
                 # Get extractor for this file type
-                extractor = self.extractor_registry.get_extractor(file_info['ext'])
+                extractor = self.extractor_registry.get_extractor(file_path, file_info['ext'])
                 if not extractor:
                     continue
 
@@ -418,11 +493,12 @@ class IndexerOrchestrator:
                 context_dir = 'frontend'
             
             self.db_manager.add_config_file(
-                file_info['path'], 
-                content, 
+                file_info['path'],
+                content,
                 'tsconfig',
                 context_dir
             )
+            self.counts['config_files'] += 1
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Cached tsconfig: {file_info['path']} (context: {context_dir})")
         
@@ -496,7 +572,7 @@ class IndexerOrchestrator:
             return self.generic_extractor
         
         # Use registry for standard extension-based extraction
-        return self.extractor_registry.get_extractor(file_ext)
+        return self.extractor_registry.get_extractor(file_path, file_ext)
     
     def _store_extracted_data(self, file_path: str, extracted: Dict[str, Any]):
         """Store extracted data in the database.
@@ -530,7 +606,8 @@ class IndexerOrchestrator:
             for query in extracted['sql_queries']:
                 self.db_manager.add_sql_query(
                     file_path, query['line'], query['query_text'],
-                    query['command'], query['tables']
+                    query['command'], query['tables'],
+                    query.get('extraction_source', 'code_execute')  # Phase 3B: source tagging
                 )
                 self.counts['sql_queries'] += 1
         
@@ -561,8 +638,6 @@ class IndexerOrchestrator:
                     annotation.get('return_type'),
                     annotation.get('extends_type')
                 )
-                if 'type_annotations' not in self.counts:
-                    self.counts['type_annotations'] = 0
                 self.counts['type_annotations'] += 1
 
         # Store ORM queries
@@ -606,6 +681,7 @@ class IndexerOrchestrator:
                     assignment['source_expr'], assignment['source_vars'],
                     assignment['in_function']
                 )
+                self.counts['assignments'] += 1
         
         if 'function_calls' in extracted:
             for call in extracted['function_calls']:
@@ -636,13 +712,15 @@ class IndexerOrchestrator:
                     call['callee_function'], call['argument_index'],
                     call['argument_expr'], call['param_name']
                 )
-        
+                self.counts['function_calls'] += 1
+
         if 'returns' in extracted:
             for ret in extracted['returns']:
                 self.db_manager.add_function_return(
                     file_path, ret['line'], ret['function_name'],
                     ret['return_expr'], ret['return_vars']
                 )
+                self.counts['returns'] += 1
         
         # Store control flow graph data
         if 'cfg' in extracted:
@@ -665,7 +743,8 @@ class IndexerOrchestrator:
                         block.get('condition')
                     )
                     block_id_map[temp_id] = real_id
-                    
+                    self.counts['cfg_blocks'] += 1
+
                     # Store statements for this block
                     for stmt in block.get('statements', []):
                         self.db_manager.add_cfg_statement(
@@ -674,7 +753,8 @@ class IndexerOrchestrator:
                             stmt['line'],
                             stmt.get('text')
                         )
-                
+                        self.counts['cfg_statements'] += 1
+
                 # Store edges with mapped IDs
                 for edge in function_cfg.get('edges', []):
                     source_id = block_id_map.get(edge['source'], edge['source'])
@@ -686,53 +766,15 @@ class IndexerOrchestrator:
                         target_id,
                         edge['type']
                     )
+                    self.counts['cfg_edges'] += 1
                 
                 # Track count
                 if 'cfg_functions' not in self.counts:
                     self.counts['cfg_functions'] = 0
                 self.counts['cfg_functions'] += 1
         
-        # Store configuration data from parsers
-        if 'config_data' in extracted:
-            # Store Docker Compose services
-            if 'docker_compose' in extracted['config_data']:
-                compose_data = extracted['config_data']['docker_compose']
-                if 'services' in compose_data and compose_data['services']:
-                    for service in compose_data['services']:
-                        self.db_manager.add_compose_service(
-                            file_path,
-                            service.get('name', 'unknown'),
-                            service.get('image'),
-                            service.get('ports', []),
-                            service.get('volumes', []),
-                            service.get('environment', {}),
-                            service.get('is_privileged', False),
-                            service.get('network_mode', 'bridge')
-                        )
-                        # Track count if not already tracked
-                        if 'compose' not in self.counts:
-                            self.counts['compose'] = 0
-                        self.counts['compose'] += 1
-            
-            # Store Nginx configuration blocks
-            if 'nginx' in extracted['config_data']:
-                nginx_data = extracted['config_data']['nginx']
-                if 'blocks' in nginx_data and nginx_data['blocks']:
-                    for block in nginx_data['blocks']:
-                        self.db_manager.add_nginx_config(
-                            file_path,
-                            block.get('block_type', 'unknown'),
-                            block.get('block_context', ''),
-                            block.get('directives', {}),
-                            block.get('level', 0)
-                        )
-                        # Track count if not already tracked
-                        if 'nginx' not in self.counts:
-                            self.counts['nginx'] = 0
-                        self.counts['nginx'] += 1
-
-            # Store dedicated JWT patterns
-            if 'jwt_patterns' in extracted:
+        # Store dedicated JWT patterns
+        if 'jwt_patterns' in extracted:
                 for pattern in extracted['jwt_patterns']:
                     # Store in sql_queries table with special command type
                     command = f"JWT_{pattern['type'].upper()}_{pattern.get('secret_type', 'UNKNOWN').upper()}"
@@ -751,14 +793,10 @@ class IndexerOrchestrator:
                         pattern['line'],
                         pattern['full_match'],
                         command,
-                        [json.dumps(metadata)]  # Store metadata in tables column
+                        [json.dumps(metadata)],  # Store metadata in tables column
+                        'code_execute'  # Phase 3B: JWT patterns are always in code
                     )
                     self.counts['jwt'] = self.counts.get('jwt', 0) + 1
-
-            # Store Webpack configuration (future implementation)
-            # if 'webpack' in extracted['config_data']:
-            #     webpack_data = extracted['config_data']['webpack']
-            #     # TODO: Add webpack-specific storage when database table is created
 
         # Store React-specific data
         if 'react_components' in extracted:
@@ -864,6 +902,7 @@ class IndexerOrchestrator:
                     var.get('in_hook'),
                     var.get('scope_level', 0)
                 )
+                self.counts['variable_usage'] += 1
 
         # Store build analysis data
         if 'package_configs' in extracted:
@@ -880,8 +919,6 @@ class IndexerOrchestrator:
                     pkg_config.get('workspaces'),
                     pkg_config.get('is_private', False)
                 )
-                if 'package_configs' not in self.counts:
-                    self.counts['package_configs'] = 0
                 self.counts['package_configs'] += 1
 
         if 'lock_analysis' in extracted:

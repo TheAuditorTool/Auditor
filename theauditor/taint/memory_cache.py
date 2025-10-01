@@ -46,6 +46,12 @@ class MemoryCache:
         self.cfg_edges = []
         self.function_returns = []
 
+        # NEW: Specialized table storage for multi-table taint analysis (Phase 3.3)
+        self.sql_queries = []
+        self.orm_queries = []
+        self.react_hooks = []
+        self.variable_usage = []
+
         # Multi-index architecture for different query patterns
         # Index 1: By line for proximity queries
         self.symbols_by_line = defaultdict(list)  # (file, line) -> [symbols]
@@ -71,6 +77,16 @@ class MemoryCache:
 
         # Function returns index
         self.returns_by_function = defaultdict(list)  # (file, func) -> [returns]
+
+        # NEW: Specialized table indexes for multi-table taint analysis (Phase 3.3)
+        self.sql_queries_by_type = defaultdict(list)  # query_type -> [queries]
+        self.sql_queries_by_file = defaultdict(list)  # file -> [queries]
+        self.orm_queries_by_model = defaultdict(list)  # model_name -> [queries]
+        self.orm_queries_by_file = defaultdict(list)  # file -> [queries]
+        self.react_hooks_by_name = defaultdict(list)  # hook_name -> [hooks]
+        self.react_hooks_by_file = defaultdict(list)  # file -> [hooks]
+        self.variable_usage_by_name = defaultdict(list)  # var_name -> [usages]
+        self.variable_usage_by_file = defaultdict(list)  # file -> [usages]
 
         # Pre-computed patterns (will be populated during precompute)
         self.precomputed_sources = {}  # pattern -> [matching symbols]
@@ -227,14 +243,124 @@ class MemoryCache:
 
                 print(f"[MEMORY] Loaded {len(self.function_returns)} function returns", file=sys.stderr)
 
-            # Step 5: Pre-compute call graph (NEW OPTIMIZATION!)
+            # Step 5: Load specialized tables for multi-table taint analysis (Phase 3.3)
+            if 'sql_queries' in tables:
+                cursor.execute("""
+                    SELECT file, line, query_text, query_type
+                    FROM sql_queries
+                    WHERE query_text IS NOT NULL
+                    AND query_text != ''
+                    AND query_type != 'UNKNOWN'
+                """)
+                sql_queries_data = cursor.fetchall()
+
+                for file, line, query_text, query_type in sql_queries_data:
+                    file = file.replace("\\", "/") if file else ""
+
+                    query = {
+                        "file": file,
+                        "line": line or 0,
+                        "query_text": query_text or "",
+                        "query_type": query_type or ""
+                    }
+
+                    self.sql_queries.append(query)
+                    self.sql_queries_by_type[query_type].append(query)
+                    self.sql_queries_by_file[file].append(query)
+                    self.current_memory += sys.getsizeof(query) + 50
+
+                print(f"[MEMORY] Loaded {len(self.sql_queries)} SQL queries", file=sys.stderr)
+
+            if 'orm_queries' in tables:
+                cursor.execute("""
+                    SELECT file, line, model_name, operation, framework_specific
+                    FROM orm_queries
+                    WHERE model_name IS NOT NULL
+                """)
+                orm_queries_data = cursor.fetchall()
+
+                for file, line, model_name, operation, framework_data in orm_queries_data:
+                    file = file.replace("\\", "/") if file else ""
+
+                    query = {
+                        "file": file,
+                        "line": line or 0,
+                        "model_name": model_name or "",
+                        "operation": operation or "",
+                        "framework_specific": framework_data or ""
+                    }
+
+                    self.orm_queries.append(query)
+                    self.orm_queries_by_model[model_name].append(query)
+                    self.orm_queries_by_file[file].append(query)
+                    self.current_memory += sys.getsizeof(query) + 50
+
+                print(f"[MEMORY] Loaded {len(self.orm_queries)} ORM queries", file=sys.stderr)
+
+            if 'react_hooks' in tables:
+                cursor.execute("""
+                    SELECT file, line, hook_name, dependencies
+                    FROM react_hooks
+                """)
+                react_hooks_data = cursor.fetchall()
+
+                for file, line, hook_name, deps in react_hooks_data:
+                    file = file.replace("\\", "/") if file else ""
+
+                    hook = {
+                        "file": file,
+                        "line": line or 0,
+                        "hook_name": hook_name or "",
+                        "dependencies": deps or ""
+                    }
+
+                    self.react_hooks.append(hook)
+                    self.react_hooks_by_name[hook_name].append(hook)
+                    self.react_hooks_by_file[file].append(hook)
+                    self.current_memory += sys.getsizeof(hook) + 50
+
+                print(f"[MEMORY] Loaded {len(self.react_hooks)} React hooks", file=sys.stderr)
+
+            if 'variable_usage' in tables:
+                # Only load if count is reasonable (avoid massive tables)
+                cursor.execute("SELECT COUNT(*) FROM variable_usage")
+                usage_count = cursor.fetchone()[0]
+
+                if usage_count < 500000:  # 500K limit for variable_usage
+                    cursor.execute("""
+                        SELECT file, line, var_name, usage_type, context
+                        FROM variable_usage
+                    """)
+                    variable_usage_data = cursor.fetchall()
+
+                    for file, line, var_name, usage_type, context in variable_usage_data:
+                        file = file.replace("\\", "/") if file else ""
+
+                        usage = {
+                            "file": file,
+                            "line": line or 0,
+                            "var_name": var_name or "",
+                            "usage_type": usage_type or "",
+                            "context": context or ""
+                        }
+
+                        self.variable_usage.append(usage)
+                        self.variable_usage_by_name[var_name].append(usage)
+                        self.variable_usage_by_file[file].append(usage)
+                        self.current_memory += sys.getsizeof(usage) + 50
+
+                    print(f"[MEMORY] Loaded {len(self.variable_usage)} variable usages", file=sys.stderr)
+                else:
+                    print(f"[MEMORY] Skipping variable_usage table (too large: {usage_count} rows)", file=sys.stderr)
+
+            # Step 6: Pre-compute call graph (NEW OPTIMIZATION!)
             self._precompute_call_graph()
 
-            # Step 6: Pre-compute common patterns (NEW OPTIMIZATION!)
+            # Step 7: Pre-compute common patterns (NEW OPTIMIZATION!)
             self._precompute_patterns()
 
             print(f"[MEMORY] Total memory used: {self.current_memory / 1024 / 1024:.1f}MB", file=sys.stderr)
-            print(f"[MEMORY] Indexes built: 11 primary, 2 pre-computed", file=sys.stderr)
+            print(f"[MEMORY] Indexes built: 19 primary (11 base + 8 specialized), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
 
             self.is_loaded = True
             return True
@@ -318,48 +444,195 @@ class MemoryCache:
                 # Store pre-computed results even if empty (to avoid re-searching)
                 self.precomputed_sources[pattern] = matching_symbols
 
-        # Pre-compute ALL security sink patterns
+        # Pre-compute ALL security sink patterns (Phase 3.3: Multi-table strategy)
         for category, patterns in SECURITY_SINKS.items():
             for pattern in patterns:
-                matching_symbols = []
-                
+                matching_results = []
+
+                # STRATEGY 1: Check specialized tables first (more precise)
+                if category == 'sql':
+                    # Check SQL queries table
+                    for query in self.sql_queries:
+                        # Match pattern in query context
+                        for call_arg in self.function_call_args:
+                            if (call_arg["file"] == query["file"] and
+                                call_arg["line"] == query["line"]):
+                                callee = call_arg["callee_function"]
+                                if pattern in callee or callee in pattern:
+                                    matching_results.append({
+                                        "file": query["file"],
+                                        "name": callee,
+                                        "line": query["line"],
+                                        "column": 0,
+                                        "pattern": pattern,
+                                        "category": category,
+                                        "type": "sink",
+                                        "metadata": {
+                                            "query_text": query["query_text"][:200],
+                                            "query_type": query["query_type"],
+                                            "table": "sql_queries"
+                                        }
+                                    })
+
+                    # Check ORM queries table
+                    for query in self.orm_queries:
+                        if pattern in query["operation"]:
+                            matching_results.append({
+                                "file": query["file"],
+                                "name": f"{query['model_name']}.{query['operation']}",
+                                "line": query["line"],
+                                "column": 0,
+                                "pattern": pattern,
+                                "category": category,
+                                "type": "sink",
+                                "metadata": {
+                                    "model": query["model_name"],
+                                    "operation": query["operation"],
+                                    "table": "orm_queries"
+                                }
+                            })
+
+                elif category == 'xss':
+                    # Check React hooks for dangerouslySetInnerHTML
+                    if pattern == 'dangerouslySetInnerHTML':
+                        for hook in self.react_hooks:
+                            if 'dangerouslySetInnerHTML' in hook.get("hook_name", "") or \
+                               'dangerouslySetInnerHTML' in hook.get("dependencies", ""):
+                                matching_results.append({
+                                    "file": hook["file"],
+                                    "name": "dangerouslySetInnerHTML",
+                                    "line": hook["line"],
+                                    "column": 0,
+                                    "pattern": pattern,
+                                    "category": category,
+                                    "type": "sink",
+                                    "metadata": {
+                                        "hook": hook["hook_name"],
+                                        "dependencies": hook["dependencies"],
+                                        "table": "react_hooks"
+                                    }
+                                })
+
+                    # Check function_call_args for XSS sinks (res.send, res.render, etc.)
+                    for call_arg in self.function_call_args:
+                        callee = call_arg["callee_function"]
+                        if pattern in callee or callee.endswith(f".{pattern}"):
+                            matching_results.append({
+                                "file": call_arg["file"],
+                                "name": callee,
+                                "line": call_arg["line"],
+                                "column": 0,
+                                "pattern": pattern,
+                                "category": category,
+                                "type": "sink",
+                                "metadata": {
+                                    "arguments": call_arg["argument_expr"][:200],
+                                    "table": "function_call_args"
+                                }
+                            })
+
+                elif category in ['command', 'path']:
+                    # Check function_call_args for command/path sinks
+                    for call_arg in self.function_call_args:
+                        callee = call_arg["callee_function"]
+                        if pattern in callee or callee.endswith(f".{pattern}"):
+                            matching_results.append({
+                                "file": call_arg["file"],
+                                "name": callee,
+                                "line": call_arg["line"],
+                                "column": 0,
+                                "pattern": pattern,
+                                "category": category,
+                                "type": "sink",
+                                "metadata": {
+                                    "arguments": call_arg["argument_expr"][:200],
+                                    "table": "function_call_args"
+                                }
+                            })
+
+                # STRATEGY 2: Fallback to symbols table (catches remaining sinks)
                 # Handle chained method patterns specially
                 if '().' in pattern:
                     # Complex chained pattern - decompose and find matches
                     parts = pattern.replace('().', '.').split('.')
                     final_method = parts[-1]
-                    
+
                     # Find all calls to the final method
                     if final_method in self.symbols_by_name:
                         for sym in self.symbols_by_name[final_method]:
                             if sym["type"] == 'call':
-                                matching_symbols.append(sym)
-                    
+                                # Avoid duplicates
+                                if not any(r["file"] == sym["file"] and r["line"] == sym["line"]
+                                          for r in matching_results):
+                                    matching_results.append({
+                                        "file": sym["file"],
+                                        "name": sym["name"],
+                                        "line": sym["line"],
+                                        "column": sym["col"],
+                                        "pattern": pattern,
+                                        "category": category,
+                                        "type": "sink",
+                                        "metadata": {"table": "symbols"}
+                                    })
+
                     # Also check for qualified names
                     for name, symbols in self.symbols_by_name.items():
                         if name.endswith(f".{final_method}"):
                             for sym in symbols:
                                 if sym["type"] == 'call':
-                                    matching_symbols.append(sym)
+                                    if not any(r["file"] == sym["file"] and r["line"] == sym["line"]
+                                              for r in matching_results):
+                                        matching_results.append({
+                                            "file": sym["file"],
+                                            "name": sym["name"],
+                                            "line": sym["line"],
+                                            "column": sym["col"],
+                                            "pattern": pattern,
+                                            "category": category,
+                                            "type": "sink",
+                                            "metadata": {"table": "symbols"}
+                                        })
                 else:
                     # Simple pattern - direct O(1) lookup first
                     if pattern in self.symbols_by_name:
                         for sym in self.symbols_by_name[pattern]:
                             if sym["type"] == 'call':
-                                matching_symbols.append(sym)
-                    
+                                if not any(r["file"] == sym["file"] and r["line"] == sym["line"]
+                                          for r in matching_results):
+                                    matching_results.append({
+                                        "file": sym["file"],
+                                        "name": sym["name"],
+                                        "line": sym["line"],
+                                        "column": sym["col"],
+                                        "pattern": pattern,
+                                        "category": category,
+                                        "type": "sink",
+                                        "metadata": {"table": "symbols"}
+                                    })
+
                     # Also check for method calls like obj.method
                     for name, symbols in self.symbols_by_name.items():
                         if name.endswith(f".{pattern}") and name != pattern:
                             for sym in symbols:
                                 if sym["type"] == 'call':
-                                    matching_symbols.append(sym)
-                
+                                    if not any(r["file"] == sym["file"] and r["line"] == sym["line"]
+                                              for r in matching_results):
+                                        matching_results.append({
+                                            "file": sym["file"],
+                                            "name": sym["name"],
+                                            "line": sym["line"],
+                                            "column": sym["col"],
+                                            "pattern": pattern,
+                                            "category": category,
+                                            "type": "sink",
+                                            "metadata": {"table": "symbols"}
+                                        })
+
                 # Store pre-computed results even if empty
-                self.precomputed_sinks[pattern] = matching_symbols
+                self.precomputed_sinks[pattern] = matching_results
 
         print(f"[MEMORY] Pre-computed {len(self.precomputed_sources)} source patterns", file=sys.stderr)
-        print(f"[MEMORY] Pre-computed {len(self.precomputed_sinks)} sink patterns", file=sys.stderr)
+        print(f"[MEMORY] Pre-computed {len(self.precomputed_sinks)} sink patterns (multi-table)", file=sys.stderr)
 
     def find_taint_sources_cached(self, sources_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
         """
@@ -442,59 +715,31 @@ class MemoryCache:
     def find_security_sinks_cached(self, sinks_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
         """
         Find all occurrences of security sinks using cache.
-        
+
+        Phase 3.3: Returns pre-computed multi-table results with rich metadata.
+        All sinks are pre-computed during cache load for TRUE O(1) lookup.
+
         Returns same format as database.find_security_sinks for compatibility.
         """
         from .sources import SECURITY_SINKS
-        
+
         sinks = []
         sinks_to_use = sinks_dict if sinks_dict is not None else SECURITY_SINKS
-        
-        # Combine all sink patterns with categories
+
+        # Combine all sink patterns
         all_sinks = []
-        sink_categories = {}
-        for category, sink_list in sinks_to_use.items():
-            for sink in sink_list:
-                all_sinks.append(sink)
-                sink_categories[sink] = category
-        
+        for sink_list in sinks_to_use.values():
+            all_sinks.extend(sink_list)
+
         for sink_pattern in all_sinks:
-            # Check pre-computed patterns first
-            if sink_pattern in self.precomputed_sinks and self.precomputed_sinks[sink_pattern]:
-                # O(1) lookup for pre-computed patterns
-                for sym in self.precomputed_sinks[sink_pattern]:
-                    sinks.append({
-                        "file": sym["file"],
-                        "name": sym["name"],
-                        "line": sym["line"],
-                        "column": sym["col"],
-                        "pattern": sink_pattern,
-                        "category": sink_categories.get(sink_pattern, ""),
-                        "type": "sink"
-                    })
+            # All patterns should be pre-computed during cache load
+            if sink_pattern in self.precomputed_sinks:
+                # TRUE O(1) lookup - just return pre-computed results
+                sinks.extend(self.precomputed_sinks[sink_pattern])
             else:
-                # Pattern not pre-computed - shouldn't happen if precompute works correctly
-                # But handle gracefully with optimized lookups
-                if '().' in sink_pattern:
-                    # Complex chained pattern - this should have been precomputed
-                    # Log warning and skip
-                    print(f"[MEMORY] WARNING: Unpre-computed chained pattern: {sink_pattern}", file=sys.stderr)
-                else:
-                    # Simple pattern - use O(1) lookup
-                    if sink_pattern in self.symbols_by_name:
-                        # Direct O(1) match
-                        for sym in self.symbols_by_name[sink_pattern]:
-                            if sym["type"] == 'call':
-                                sinks.append({
-                                    "file": sym["file"],
-                                    "name": sym["name"],
-                                    "line": sym["line"],
-                                    "column": sym["col"],
-                                    "pattern": sink_pattern,
-                                    "category": sink_categories.get(sink_pattern, ""),
-                                    "type": "sink"
-                                    })
-        
+                # This should never happen if _precompute_patterns() worked correctly
+                print(f"[MEMORY] WARNING: Pattern not pre-computed: {sink_pattern}", file=sys.stderr)
+
         return sinks
 
     def get_memory_usage_mb(self) -> float:
@@ -509,29 +754,45 @@ class MemoryCache:
         self.cfg_blocks.clear()
         self.cfg_edges.clear()
         self.function_returns.clear()
-        
+
+        # Clear specialized tables (Phase 3.3)
+        self.sql_queries.clear()
+        self.orm_queries.clear()
+        self.react_hooks.clear()
+        self.variable_usage.clear()
+
         self.symbols_by_line.clear()
         self.symbols_by_name.clear()
         self.symbols_by_file.clear()
         self.symbols_by_type.clear()
-        
+
         self.assignments_by_func.clear()
         self.assignments_by_target.clear()
         self.assignments_by_file.clear()
-        
+
         self.calls_by_caller.clear()
         self.calls_by_callee.clear()
         self.calls_by_file.clear()
-        
+
         self.returns_by_function.clear()
-        
+
+        # Clear specialized table indexes (Phase 3.3)
+        self.sql_queries_by_type.clear()
+        self.sql_queries_by_file.clear()
+        self.orm_queries_by_model.clear()
+        self.orm_queries_by_file.clear()
+        self.react_hooks_by_name.clear()
+        self.react_hooks_by_file.clear()
+        self.variable_usage_by_name.clear()
+        self.variable_usage_by_file.clear()
+
         self.precomputed_sources.clear()
         self.precomputed_sinks.clear()
         self.call_graph.clear()
-        
+
         self.current_memory = 0
         self.is_loaded = False
-        
+
         print("[MEMORY] Cache cleared", file=sys.stderr)
 
 
