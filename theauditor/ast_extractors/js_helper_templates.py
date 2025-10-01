@@ -357,6 +357,110 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
 }
 '''
 
+IMPORT_EXTRACTION = '''
+/**
+ * Extract import statements from TypeScript AST.
+ *
+ * Detects both ES6 imports and CommonJS require() calls.
+ * Critical for dependency tracking and taint analysis.
+ *
+ * @param {Object} sourceFile - TypeScript source file
+ * @param {Object} ts - TypeScript compiler API
+ * @returns {Array} - List of import statements
+ */
+function extractImports(sourceFile, ts) {
+    const imports = [];
+
+    function visit(node) {
+        // ES6 Import declarations: import { foo } from 'bar'
+        if (node.kind === ts.SyntaxKind.ImportDeclaration) {
+            const moduleSpecifier = node.moduleSpecifier;
+            if (moduleSpecifier && moduleSpecifier.text) {
+                const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart ? node.getStart(sourceFile) : node.pos);
+
+                // Extract import specifiers (what's being imported)
+                const specifiers = [];
+                if (node.importClause) {
+                    // Default import: import Foo from 'bar'
+                    if (node.importClause.name) {
+                        specifiers.push({
+                            name: node.importClause.name.text || node.importClause.name.escapedText,
+                            isDefault: true
+                        });
+                    }
+
+                    // Named imports: import { a, b } from 'bar'
+                    if (node.importClause.namedBindings) {
+                        const bindings = node.importClause.namedBindings;
+
+                        // Namespace import: import * as foo from 'bar'
+                        if (bindings.kind === ts.SyntaxKind.NamespaceImport) {
+                            specifiers.push({
+                                name: bindings.name.text || bindings.name.escapedText,
+                                isNamespace: true
+                            });
+                        }
+                        // Named imports: import { a, b } from 'bar'
+                        else if (bindings.kind === ts.SyntaxKind.NamedImports && bindings.elements) {
+                            bindings.elements.forEach(element => {
+                                specifiers.push({
+                                    name: element.name.text || element.name.escapedText,
+                                    isNamed: true
+                                });
+                            });
+                        }
+                    }
+                }
+
+                imports.push({
+                    kind: 'import',
+                    module: moduleSpecifier.text,
+                    line: line + 1,
+                    specifiers: specifiers
+                });
+            }
+        }
+
+        // CommonJS require: const x = require('bar')
+        else if (node.kind === ts.SyntaxKind.CallExpression) {
+            const expr = node.expression;
+            if (expr && (expr.text === 'require' || expr.escapedText === 'require')) {
+                const args = node.arguments;
+                if (args && args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
+                    const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart ? node.getStart(sourceFile) : node.pos);
+                    imports.push({
+                        kind: 'require',
+                        module: args[0].text,
+                        line: line + 1,
+                        specifiers: []
+                    });
+                }
+            }
+        }
+
+        // Dynamic imports: import('module')
+        else if (node.kind === ts.SyntaxKind.ImportKeyword && node.parent && node.parent.kind === ts.SyntaxKind.CallExpression) {
+            const callExpr = node.parent;
+            const args = callExpr.arguments;
+            if (args && args.length > 0 && args[0].kind === ts.SyntaxKind.StringLiteral) {
+                const { line } = sourceFile.getLineAndCharacterOfPosition(callExpr.getStart ? callExpr.getStart(sourceFile) : callExpr.pos);
+                imports.push({
+                    kind: 'dynamic_import',
+                    module: args[0].text,
+                    line: line + 1,
+                    specifiers: []
+                });
+            }
+        }
+
+        ts.forEachChild(node, visit);
+    }
+
+    visit(sourceFile);
+    return imports;
+}
+'''
+
 SYMBOL_EXTRACTION = '''
 /**
  * Extract symbols with type information from TypeScript AST.
@@ -506,6 +610,8 @@ const __dirname = path.dirname(__filename);
 
 {NODE_SERIALIZATION}
 
+{IMPORT_EXTRACTION}
+
 {SYMBOL_EXTRACTION}
 
 {COUNT_NODES}
@@ -586,6 +692,9 @@ async function main() {{
             }});
         }});
 
+        // Extract imports
+        const imports = extractImports(sourceFile, ts);
+
         // Extract symbols
         const checker = program.getTypeChecker();
         const symbols = extractSymbols(sourceFile, checker, ts);
@@ -600,6 +709,7 @@ async function main() {{
             languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
             ast: ast,
             diagnostics: diagnostics,
+            imports: imports,  // CRITICAL: Import tracking for dependency analysis
             symbols: symbols,
             nodeCount: countNodes(ast),
             hasTypes: symbols.some(s => s.type && s.type !== 'any'),
@@ -638,6 +748,8 @@ const fs = require('fs');
 {ANONYMOUS_FUNCTION_NAMING_HEURISTICS}
 
 {NODE_SERIALIZATION}
+
+{IMPORT_EXTRACTION}
 
 {SYMBOL_EXTRACTION}
 
@@ -716,6 +828,9 @@ try {{
         }});
     }});
 
+    // Extract imports
+    const imports = extractImports(sourceFile, ts);
+
     // Extract symbols
     const checker = program.getTypeChecker();
     const symbols = extractSymbols(sourceFile, checker, ts);
@@ -730,6 +845,7 @@ try {{
         languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
         ast: ast,
         diagnostics: diagnostics,
+        imports: imports,  // CRITICAL: Import tracking for dependency analysis
         symbols: symbols,
         nodeCount: countNodes(ast),
         hasTypes: symbols.some(s => s.type && s.type !== 'any'),
@@ -766,6 +882,8 @@ const __dirname = path.dirname(__filename);
 {ANONYMOUS_FUNCTION_NAMING_HEURISTICS}
 
 {NODE_SERIALIZATION}
+
+{IMPORT_EXTRACTION}
 
 {SYMBOL_EXTRACTION}
 
@@ -876,6 +994,9 @@ async function main() {{
                     }});
                 }});
 
+                // Extract imports
+                const imports = extractImports(sourceFile, ts);
+
                 // Extract symbols
                 const symbols = extractSymbols(sourceFile, checker, ts);
 
@@ -889,6 +1010,7 @@ async function main() {{
                     languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
                     ast: ast,
                     diagnostics: diagnostics,
+                    imports: imports,  // CRITICAL: Import tracking for dependency analysis
                     symbols: symbols,
                     nodeCount: countNodes(ast),
                     hasTypes: symbols.some(s => s.type && s.type !== 'any'),
@@ -938,6 +1060,8 @@ const fs = require('fs');
 {ANONYMOUS_FUNCTION_NAMING_HEURISTICS}
 
 {NODE_SERIALIZATION}
+
+{IMPORT_EXTRACTION}
 
 {SYMBOL_EXTRACTION}
 
@@ -1045,6 +1169,9 @@ try {{
                 }});
             }});
 
+            // Extract imports
+            const imports = extractImports(sourceFile, ts);
+
             // Extract symbols
             const symbols = extractSymbols(sourceFile, checker, ts);
 
@@ -1058,6 +1185,7 @@ try {{
                 languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
                 ast: ast,
                 diagnostics: diagnostics,
+                imports: imports,  // CRITICAL: Import tracking for dependency analysis
                 symbols: symbols,
                 nodeCount: countNodes(ast),
                 hasTypes: symbols.some(s => s.type && s.type !== 'any'),

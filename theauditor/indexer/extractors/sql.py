@@ -34,11 +34,14 @@ class SQLExtractor(BaseExtractor):
             'sql_objects': [],
             'sql_queries': []
         }
-        
-        # Extract SQL objects (CREATE statements)
+
+        # Extract SQL DDL objects (CREATE TABLE, CREATE INDEX, etc.)
+        # This is legitimate use of string patterns for .sql files
         result['sql_objects'] = self.extract_sql_objects(content)
-        
-        # Extract and parse SQL queries
-        result['sql_queries'] = self.extract_sql_queries(content)
-        
+
+        # For .sql files, we don't extract individual queries
+        # These files contain DDL statements and migrations, not runtime queries
+        # SQL injection detection happens in code files (Python/JS), not .sql files
+        result['sql_queries'] = []
+
         return result

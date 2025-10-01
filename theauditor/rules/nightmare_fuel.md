@@ -1,3 +1,12 @@
+# ==============================================================================
+# RULE METADATA SYSTEM DOCUMENTATION
+# ==============================================================================
+# **NEW:** Rule templates and smart filtering system added in Phase 3B
+# **READ THIS FIRST:** See RULE_METADATA_GUIDE.md for full documentation
+# **Templates:** TEMPLATE_STANDARD_RULE.py and TEMPLATE_JSX_RULE.py
+# ==============================================================================
+
+
 COMPREHENSIVE PHASE 3 STATUS REPORT
 
 

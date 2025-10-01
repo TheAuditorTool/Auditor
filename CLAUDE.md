@@ -326,6 +326,36 @@ class YourLanguageExtractor(BaseExtractor):
 
 The extractor will be auto-discovered via the registry pattern.
 
+### Adding New Rules
+**📖 Full documentation:** `theauditor/rules/RULE_METADATA_GUIDE.md`
+**📋 Templates:** `theauditor/rules/TEMPLATE_STANDARD_RULE.py` and `TEMPLATE_JSX_RULE.py`
+
+Rules use **smart filtering** via metadata to skip irrelevant files:
+
+```python
+from theauditor.rules.base import RuleMetadata, StandardRuleContext, StandardFinding
+
+METADATA = RuleMetadata(
+    name="sql_injection",
+    category="sql",
+    target_extensions=['.py', '.js', '.ts'],     # ONLY these files
+    exclude_patterns=['frontend/', 'migrations/'], # SKIP these paths
+    requires_jsx_pass=False  # True = use *_jsx tables (React/Vue)
+)
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Database-first detection (no file I/O, no AST traversal)."""
+    conn = sqlite3.connect(context.db_path)
+    # Query function_call_args, symbols, etc.
+```
+
+**Key decisions:**
+- **Backend/SQL/Auth rules** → Use `TEMPLATE_STANDARD_RULE.py`
+- **JSX syntax rules** → Use `TEMPLATE_JSX_RULE.py` (requires `requires_jsx_pass=True`)
+- **React hooks rules** → Use `TEMPLATE_STANDARD_RULE.py` ⚠️ (hooks are function calls, not JSX)
+
+**Result:** SQL rules skip `.jsx` files, React rules skip `.py` files, migrations auto-filtered.
+
 ## CRITICAL: Reading Chunked Data
 
 **IMPORTANT**: When processing files from `.pf/readthis/`, you MUST check for truncation:

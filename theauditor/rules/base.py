@@ -198,9 +198,38 @@ def validate_rule_signature(func: Callable) -> bool:
     return len(params) == 1 and params[0] == 'context'
 
 
+@dataclass
+class RuleMetadata:
+    """Metadata describing rule requirements for smart orchestrator filtering.
+
+    Added in Phase 3B to enable intelligent file targeting and skip irrelevant files.
+
+    Usage in rules:
+        METADATA = RuleMetadata(
+            name="sql_injection",
+            category="sql",
+            target_extensions=['.py', '.js'],
+            exclude_patterns=['migrations/'],
+            requires_jsx_pass=False
+        )
+    """
+    # Required fields
+    name: str  # Rule identifier (snake_case)
+    category: str  # sql, xss, auth, secrets, etc.
+
+    # File targeting (orchestrator uses these for filtering)
+    target_extensions: Optional[List[str]] = None  # ['.py', '.js'] - ONLY these files
+    exclude_patterns: Optional[List[str]] = None  # ['migrations/', 'test/'] - SKIP these
+    target_file_patterns: Optional[List[str]] = None  # ['backend/', 'server/'] - INCLUDE these
+
+    # JSX-specific settings
+    requires_jsx_pass: bool = False  # True = query *_jsx tables instead of standard tables
+    jsx_pass_mode: str = 'preserved'  # 'preserved' or 'transformed' (only if requires_jsx_pass=True)
+
+
 def convert_old_context(old_context, project_path: Path = None) -> StandardRuleContext:
     """Convert old RuleContext to StandardRuleContext.
-    
+
     Helper for dual-mode orchestrator during migration.
     """
     from pathlib import Path

@@ -1,9 +1,10 @@
 """Generate comprehensive audit summary from all analysis phases."""
 
 import json
+import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 import click
 
 
@@ -52,17 +53,12 @@ def summary(root, raw_dir, out):
                 "total_size_bytes": sum(f.get("size", 0) for f in manifest)
             }
     
-    # Phase 2: Framework detection
-    frameworks = load_json(raw_path / "frameworks.json")
-    if frameworks:
-        if isinstance(frameworks, dict):
-            framework_list = frameworks.get("frameworks", [])
-        else:
-            framework_list = frameworks if isinstance(frameworks, list) else []
-        
+    # Phase 2: Framework detection (read from database, not output files)
+    framework_list = _load_frameworks_from_db(project_path)
+    if framework_list:
         audit_summary["metrics_by_phase"]["detect_frameworks"] = {
             "frameworks_detected": len(framework_list),
-            "languages": list(set(f.get("language", "") if isinstance(f, dict) else "" for f in framework_list))
+            "languages": list(set(f.get("language", "") for f in framework_list))
         }
     
     # Phase 3: Dependencies
@@ -231,6 +227,45 @@ def summary(root, raw_dir, out):
     click.echo(f"  Overall status: {audit_summary['overall_status']}")
     click.echo(f"  Total findings: {audit_summary['key_statistics']['total_findings']}")
     click.echo(f"  Critical: {severity_counts['critical']}, High: {severity_counts['high']}, Medium: {severity_counts['medium']}, Low: {severity_counts['low']}")
+
+
+def _load_frameworks_from_db(project_path: Path) -> List[Dict]:
+    """Load frameworks from database (not output files).
+
+    Args:
+        project_path: Project root directory
+
+    Returns:
+        List of framework dictionaries or empty list
+    """
+    db_path = project_path / ".pf" / "repo_index.db"
+    if not db_path.exists():
+        return []
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT name, version, language, path
+            FROM frameworks
+            ORDER BY is_primary DESC, name
+        """)
+
+        frameworks = []
+        for name, version, language, path in cursor.fetchall():
+            frameworks.append({
+                "framework": name,
+                "version": version,
+                "language": language,
+                "path": path
+            })
+
+        conn.close()
+        return frameworks
+
+    except sqlite3.Error:
+        return []
     click.echo(f"  Summary saved to: {out_path}")
     
     return audit_summary

@@ -223,8 +223,53 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         # CRITICAL FIX: Recalculate summary with filtered paths
         from theauditor.taint.insights import generate_summary
         result["summary"] = generate_summary(filtered_paths)
-    
-    # Save COMPLETE taint analysis results to raw (including all data)
+
+    # ===== DUAL-WRITE PATTERN =====
+    # Write to DATABASE first (for FCE performance), then JSON (for AI consumption)
+    # Extract findings from taint_paths for database storage
+    if db_path.exists():
+        try:
+            from theauditor.indexer.database import DatabaseManager
+            db_manager = DatabaseManager(str(db_path))
+
+            # Convert taint_paths to findings format for database
+            findings_dicts = []
+            for taint_path in result.get('taint_paths', []):
+                findings_dicts.append({
+                    'file': taint_path.get('file', ''),
+                    'line': int(taint_path.get('line', 0)),
+                    'column': taint_path.get('column'),
+                    'rule': f"taint-{taint_path.get('sink_type', 'unknown')}",
+                    'tool': 'taint',
+                    'message': taint_path.get('message', ''),
+                    'severity': taint_path.get('severity', 'high'),
+                    'category': 'injection',
+                    'code_snippet': taint_path.get('code_snippet')
+                })
+
+            # Also add rule-based findings if available
+            for finding in result.get('all_rule_findings', []):
+                findings_dicts.append({
+                    'file': finding.get('file', ''),
+                    'line': int(finding.get('line', 0)),
+                    'rule': finding.get('rule', 'unknown'),
+                    'tool': 'taint',
+                    'message': finding.get('message', ''),
+                    'severity': finding.get('severity', 'medium'),
+                    'category': finding.get('category', 'security')
+                })
+
+            if findings_dicts:
+                db_manager.write_findings_batch(findings_dicts, tool_name='taint')
+                db_manager.close()
+                click.echo(f"[DB] Wrote {len(findings_dicts)} taint findings to database for FCE correlation")
+        except Exception as e:
+            # Non-fatal: if DB write fails, JSON write still succeeds
+            click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
+            click.echo("[DB] JSON output will still be generated for AI consumption")
+    # ===== END DUAL-WRITE =====
+
+    # Save COMPLETE taint analysis results to raw (including all data) - AI CONSUMPTION REQUIRED
     save_taint_analysis(result, output)
     click.echo(f"Raw analysis results saved to: {output}")
     

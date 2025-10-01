@@ -11,36 +11,45 @@ from collections import defaultdict
 from .sources import TAINT_SOURCES, SECURITY_SINKS
 
 
-def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, List[str]]] = None, 
+def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, List[str]]] = None,
                       cache: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Find all occurrences of taint sources in the codebase.
-    
+
+    CRITICAL: This function REQUIRES symbols table to have call/property types.
+    Query: SELECT * FROM symbols WHERE type IN ('call', 'property')
+
+    If this returns empty:
+      1. Verify indexer extracted call/property symbols
+      2. Run: aud index
+      3. Check symbols table: SELECT COUNT(*) FROM symbols WHERE type='property'
+      4. DO NOT add fallback logic - fix the indexer
+
     With cache: O(1) lookups, no queries
-    Without cache: Falls back to original implementation
-    
+    Without cache: Falls back to disk-based queries
+
     Args:
         cursor: Database cursor
         sources_dict: Optional dictionary of sources to use instead of global TAINT_SOURCES
         cache: Optional MemoryCache for optimized lookups
-    
+
     Returns:
         List of source occurrences found in the codebase
     """
     # Check if cache is available and use it for O(1) lookups
     if cache and hasattr(cache, 'find_taint_sources_cached'):
         return cache.find_taint_sources_cached(sources_dict)
-    
-    # FALLBACK: Original disk-based implementation
+
+    # FALLBACK: Disk-based implementation
     sources = []
-    
+
     # Use provided sources or default to global
     sources_to_use = sources_dict if sources_dict is not None else TAINT_SOURCES
-    
+
     # Combine all source patterns
     all_sources = []
     for source_list in sources_to_use.values():
         all_sources.extend(source_list)
-    
+
     # Query for each source pattern
     for source_pattern in all_sources:
         # Handle dot notation (e.g., req.body)
@@ -63,7 +72,7 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
                 AND name = ?
                 ORDER BY path, line
             """, (source_pattern,))
-        
+
         for row in cursor.fetchall():
             sources.append({
                 "file": row[0].replace("\\", "/"),  # Normalize path separators
@@ -73,44 +82,268 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
                 "pattern": source_pattern,
                 "type": "source"
             })
-    
+
+    # HARD FAILURE CHECK: If symbols query returned nothing, verify database state
+    if not sources:
+        import sys
+        print(f"[TAINT] WARNING: Found 0 taint sources", file=sys.stderr)
+        print(f"[TAINT] Checked {len(all_sources)} patterns", file=sys.stderr)
+
+        # Verify symbols table has call/property types
+        cursor.execute("SELECT COUNT(*) FROM symbols WHERE type='property'")
+        prop_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM symbols WHERE type='call'")
+        call_count = cursor.fetchone()[0]
+
+        print(f"[TAINT] Symbols table: {call_count} calls, {prop_count} properties", file=sys.stderr)
+
+        if call_count == 0 and prop_count == 0:
+            print(f"[TAINT] ERROR: Indexer did not extract call/property symbols", file=sys.stderr)
+            print(f"[TAINT] Run: aud index", file=sys.stderr)
+            print(f"[TAINT] This is a CRITICAL failure - taint analysis impossible", file=sys.stderr)
+            raise RuntimeError("Taint analysis impossible: No call/property symbols in database. Run 'aud index' first.")
+
     return sources
 
 
 def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, List[str]]] = None,
                        cache: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Find all occurrences of security sinks in the codebase.
-    
+
+    MULTI-TABLE STRATEGY (Phase 3.2 Rewrite):
+    - SQL sinks: Query sql_queries + orm_queries tables (has query_text metadata)
+    - Command sinks: Query function_call_args (has argument data)
+    - XSS sinks: Query react_hooks + function_call_args (has dependencies + arguments)
+    - Path sinks: Query function_call_args (has path arguments)
+    - Fallback: Query symbols table for call types
+
     With cache: O(1) lookups, no queries
-    Without cache: Falls back to original implementation
-    
+    Without cache: Multi-table database queries
+
     Args:
         cursor: Database cursor
         sinks_dict: Optional dictionary of sinks to use instead of global SECURITY_SINKS
         cache: Optional MemoryCache for optimized lookups
-    
+
     Returns:
-        List of sink occurrences found in the codebase
+        List of sink occurrences with rich metadata (query_text, arguments, dependencies)
     """
     # Check if cache is available and use it for O(1) lookups
     if cache and hasattr(cache, 'find_security_sinks_cached'):
         return cache.find_security_sinks_cached(sinks_dict)
-    
-    # FALLBACK: Original disk-based implementation
+
+    # MULTI-TABLE QUERY IMPLEMENTATION
     sinks = []
-    
+
     # Use provided sinks or default to global
     sinks_to_use = sinks_dict if sinks_dict is not None else SECURITY_SINKS
-    
-    # Combine all sink patterns
+
+    # Build category-specific sink sets for O(1) lookups
+    sql_sinks = frozenset(sinks_to_use.get('sql', []))
+    command_sinks = frozenset(sinks_to_use.get('command', []))
+    xss_sinks = frozenset(sinks_to_use.get('xss', []))
+    path_sinks = frozenset(sinks_to_use.get('path', []))
+    ldap_sinks = frozenset(sinks_to_use.get('ldap', []))
+    nosql_sinks = frozenset(sinks_to_use.get('nosql', []))
+
+    # Helper to check if table exists
+    def table_exists(table_name: str) -> bool:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+        return cursor.fetchone() is not None
+
+    # STRATEGY 1: Query sql_queries table for SQL sinks (most precise)
+    # Schema: file_path, line_number, query_text, command, tables, extraction_source
+    if sql_sinks and table_exists('sql_queries'):
+        cursor.execute("""
+            SELECT file_path, line_number, query_text, command
+            FROM sql_queries
+            WHERE query_text IS NOT NULL
+            AND query_text != ''
+            AND command != 'UNKNOWN'
+            ORDER BY file_path, line_number
+        """)
+
+        for file_path, line_number, query_text, command in cursor.fetchall():
+            # Extract function/method name from query context
+            cursor.execute("""
+                SELECT name FROM symbols
+                WHERE path = ? AND line = ? AND type = 'call'
+                ORDER BY col DESC LIMIT 1
+            """, (file_path, line_number))
+
+            func_result = cursor.fetchone()
+            func_name = func_result[0] if func_result else 'execute'
+
+            # Match against SQL sink patterns
+            matched_pattern = None
+            for pattern in sql_sinks:
+                if pattern in func_name or func_name in pattern:
+                    matched_pattern = pattern
+                    break
+
+            if matched_pattern:
+                sinks.append({
+                    "file": file_path.replace("\\", "/"),
+                    "name": func_name,
+                    "line": line_number,
+                    "column": 0,
+                    "pattern": matched_pattern,
+                    "category": "sql",
+                    "type": "sink",
+                    "metadata": {
+                        "query_text": query_text[:200],  # Truncate for readability
+                        "command": command,
+                        "table": "sql_queries"
+                    }
+                })
+
+    # STRATEGY 2: Query orm_queries table for ORM sinks
+    # Schema: file, line, query_type, includes, has_limit, has_transaction
+    if sql_sinks and table_exists('orm_queries'):
+        cursor.execute("""
+            SELECT file, line, query_type, includes
+            FROM orm_queries
+            WHERE query_type IS NOT NULL
+            ORDER BY file, line
+        """)
+
+        for file, line, query_type, includes in cursor.fetchall():
+            # ORM operations are implicit SQL sinks
+            sinks.append({
+                "file": file.replace("\\", "/"),
+                "name": query_type,
+                "line": line,
+                "column": 0,
+                "pattern": query_type,
+                "category": "sql",
+                "type": "sink",
+                "metadata": {
+                    "query_type": query_type,
+                    "includes": includes,
+                    "table": "orm_queries"
+                }
+            })
+
+    # STRATEGY 3: Query function_call_args for command execution sinks
+    if command_sinks and table_exists('function_call_args'):
+        for pattern in command_sinks:
+            cursor.execute("""
+                SELECT file, line, callee_function, argument_expr
+                FROM function_call_args
+                WHERE callee_function LIKE ?
+                OR callee_function = ?
+                ORDER BY file, line
+            """, (f"%{pattern}%", pattern))
+
+            for file, line, callee_func, arg_expr in cursor.fetchall():
+                sinks.append({
+                    "file": file.replace("\\", "/"),
+                    "name": callee_func,
+                    "line": line,
+                    "column": 0,
+                    "pattern": pattern,
+                    "category": "command",
+                    "type": "sink",
+                    "metadata": {
+                        "arguments": arg_expr[:200] if arg_expr else "",
+                        "table": "function_call_args"
+                    }
+                })
+
+    # STRATEGY 4: Query react_hooks for dangerouslySetInnerHTML (XSS)
+    # Schema: file, line, component_name, hook_name, dependency_array, dependency_vars, callback_body
+    if xss_sinks and table_exists('react_hooks'):
+        cursor.execute("""
+            SELECT file, line, hook_name, dependency_vars
+            FROM react_hooks
+            WHERE hook_name = 'dangerouslySetInnerHTML'
+            OR dependency_vars LIKE '%dangerouslySetInnerHTML%'
+            ORDER BY file, line
+        """)
+
+        for file, line, hook_name, deps in cursor.fetchall():
+            sinks.append({
+                "file": file.replace("\\", "/"),
+                "name": "dangerouslySetInnerHTML",
+                "line": line,
+                "column": 0,
+                "pattern": "dangerouslySetInnerHTML",
+                "category": "xss",
+                "type": "sink",
+                "metadata": {
+                    "hook": hook_name,
+                    "dependencies": deps,
+                    "table": "react_hooks"
+                }
+            })
+
+    # STRATEGY 5: Query function_call_args for XSS sinks (res.send, res.render, etc.)
+    if xss_sinks and table_exists('function_call_args'):
+        for pattern in xss_sinks:
+            if pattern == 'dangerouslySetInnerHTML':
+                continue  # Already handled in react_hooks
+
+            cursor.execute("""
+                SELECT file, line, callee_function, argument_expr
+                FROM function_call_args
+                WHERE callee_function LIKE ?
+                OR callee_function = ?
+                ORDER BY file, line
+            """, (f"%{pattern}%", pattern))
+
+            for file, line, callee_func, arg_expr in cursor.fetchall():
+                sinks.append({
+                    "file": file.replace("\\", "/"),
+                    "name": callee_func,
+                    "line": line,
+                    "column": 0,
+                    "pattern": pattern,
+                    "category": "xss",
+                    "type": "sink",
+                    "metadata": {
+                        "arguments": arg_expr[:200] if arg_expr else "",
+                        "table": "function_call_args"
+                    }
+                })
+
+    # STRATEGY 6: Query function_call_args for path traversal sinks
+    if path_sinks and table_exists('function_call_args'):
+        for pattern in path_sinks:
+            cursor.execute("""
+                SELECT file, line, callee_function, argument_expr
+                FROM function_call_args
+                WHERE callee_function LIKE ?
+                OR callee_function = ?
+                ORDER BY file, line
+            """, (f"%{pattern}%", pattern))
+
+            for file, line, callee_func, arg_expr in cursor.fetchall():
+                sinks.append({
+                    "file": file.replace("\\", "/"),
+                    "name": callee_func,
+                    "line": line,
+                    "column": 0,
+                    "pattern": pattern,
+                    "category": "path",
+                    "type": "sink",
+                    "metadata": {
+                        "path_argument": arg_expr[:200] if arg_expr else "",
+                        "table": "function_call_args"
+                    }
+                })
+
+    # STRATEGY 7: Fallback to symbols table for any remaining sinks
+    # This catches sinks not found in specialized tables
     all_sinks = []
     sink_categories = {}
     for category, sink_list in sinks_to_use.items():
         for sink in sink_list:
             all_sinks.append(sink)
             sink_categories[sink] = category
-    
-    # Query for each sink pattern
+
+    # Get already found sink locations to avoid duplicates
+    found_locations = {(s['file'], s['line'], s['pattern']) for s in sinks}
+
     for sink_pattern in all_sinks:
         # CRITICAL FIX: Handle chained method patterns like "res.status().json"
         if '().' in sink_pattern:
@@ -118,9 +351,7 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
             parts = sink_pattern.replace('().', '.').split('.')
             base_method = '.'.join(parts[:-1])
             final_method = parts[-1]
-            
-            # Performance optimization: Query for final method first (smaller result set)
-            # Then verify base method exists on same line
+
             cursor.execute("""
                 SELECT DISTINCT a.path, a.line, a.col
                 FROM symbols a
@@ -135,19 +366,28 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 )
                 ORDER BY a.path, a.line
             """, (final_method, f"%.{final_method}", f"%{base_method}%", base_method))
-            
+
             for row in cursor.fetchall():
+                file = row[0].replace("\\", "/")
+                line = row[1]
+
+                # Skip if already found in specialized tables
+                if (file, line, sink_pattern) in found_locations:
+                    continue
+
                 sinks.append({
-                    "file": row[0].replace("\\", "/"),  # Normalize path separators
-                    "name": sink_pattern,  # Use full pattern for reporting
-                    "line": row[1],
+                    "file": file,
+                    "name": sink_pattern,
+                    "line": line,
                     "column": row[2],
                     "pattern": sink_pattern,
-                    "category": sink_categories.get(sink_pattern, ""),  # Empty not unknown
-                    "type": "sink"
+                    "category": sink_categories.get(sink_pattern, ""),
+                    "type": "sink",
+                    "metadata": {
+                        "table": "symbols"
+                    }
                 })
         else:
-            # Original logic for simple patterns
             cursor.execute("""
                 SELECT path, name, line, col
                 FROM symbols
@@ -155,18 +395,57 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 AND (name = ? OR name LIKE ?)
                 ORDER BY path, line
             """, (sink_pattern, f"%.{sink_pattern}"))
-            
+
             for row in cursor.fetchall():
+                file = row[0].replace("\\", "/")
+                line = row[2]
+
+                # Skip if already found in specialized tables
+                if (file, line, sink_pattern) in found_locations:
+                    continue
+
                 sinks.append({
-                    "file": row[0].replace("\\", "/"),  # Normalize path separators
+                    "file": file,
                     "name": row[1],
-                    "line": row[2],
+                    "line": line,
                     "column": row[3],
                     "pattern": sink_pattern,
-                    "category": sink_categories.get(sink_pattern, ""),  # Empty not unknown
-                    "type": "sink"
+                    "category": sink_categories.get(sink_pattern, ""),
+                    "type": "sink",
+                    "metadata": {
+                        "table": "symbols"
+                    }
                 })
-    
+
+    # HARD FAILURE CHECK: If no sinks found, verify database state
+    if not sinks:
+        import sys
+        print(f"[TAINT] WARNING: Found 0 security sinks", file=sys.stderr)
+        print(f"[TAINT] Checked {len(all_sinks)} patterns across {len(sinks_to_use)} categories", file=sys.stderr)
+
+        # Verify symbols table has call types
+        cursor.execute("SELECT COUNT(*) FROM symbols WHERE type='call'")
+        call_count = cursor.fetchone()[0]
+
+        print(f"[TAINT] Symbols table: {call_count} calls", file=sys.stderr)
+
+        # Check specialized tables
+        if table_exists('sql_queries'):
+            cursor.execute("SELECT COUNT(*) FROM sql_queries")
+            sql_count = cursor.fetchone()[0]
+            print(f"[TAINT] sql_queries table: {sql_count} rows", file=sys.stderr)
+
+        if table_exists('function_call_args'):
+            cursor.execute("SELECT COUNT(*) FROM function_call_args")
+            args_count = cursor.fetchone()[0]
+            print(f"[TAINT] function_call_args table: {args_count} rows", file=sys.stderr)
+
+        if call_count == 0:
+            print(f"[TAINT] ERROR: Indexer did not extract call symbols", file=sys.stderr)
+            print(f"[TAINT] Run: aud index", file=sys.stderr)
+            print(f"[TAINT] This is a CRITICAL failure - taint analysis impossible", file=sys.stderr)
+            raise RuntimeError("Taint analysis impossible: No call symbols in database. Run 'aud index' first.")
+
     return sinks
 
 

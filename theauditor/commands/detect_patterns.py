@@ -116,8 +116,40 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
         # Run detection
         categories = list(patterns) if patterns else None
         findings = detector.detect_patterns(categories=categories, file_filter=file_filter)
-        
-        # Always save results to default location
+
+        # ===== DUAL-WRITE PATTERN =====
+        # Write to DATABASE first (for FCE performance), then JSON (for AI consumption)
+        # This eliminates FCE file I/O while preserving extraction.py pipeline
+        db_path = project_path / ".pf" / "repo_index.db"
+        if db_path.exists():
+            try:
+                from theauditor.indexer.database import DatabaseManager
+                db_manager = DatabaseManager(str(db_path))
+
+                # Convert findings to dict if needed (handles both dict and object formats)
+                findings_dicts = []
+                for f in findings:
+                    if hasattr(f, 'to_dict'):
+                        findings_dicts.append(f.to_dict())
+                    elif isinstance(f, dict):
+                        findings_dicts.append(f)
+                    else:
+                        # Fallback: try to convert to dict
+                        findings_dicts.append(dict(f))
+
+                db_manager.write_findings_batch(findings_dicts, tool_name='patterns')
+                db_manager.close()
+
+                click.echo(f"[DB] Wrote {len(findings)} findings to database for FCE correlation")
+            except Exception as e:
+                # Non-fatal: if DB write fails, JSON write still succeeds
+                click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
+                click.echo("[DB] JSON output will still be generated for AI consumption")
+        else:
+            click.echo(f"[DB] Database not found - run 'aud index' first for optimal FCE performance")
+        # ===== END DUAL-WRITE =====
+
+        # Always save results to default location (AI CONSUMPTION - REQUIRED)
         patterns_output = project_path / ".pf" / "raw" / "patterns.json"
         patterns_output.parent.mkdir(parents=True, exist_ok=True)
         

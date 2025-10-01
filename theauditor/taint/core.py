@@ -137,15 +137,33 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     # Create configuration instead of modifying globals
     # This ensures thread safety and reentrancy
     
-    # Load framework data to enhance analysis
+    # Load framework data from database (not output files)
     frameworks = []
-    frameworks_path = Path(".pf/raw/frameworks.json")
-    if frameworks_path.exists():
+    db_path = Path(".pf/repo_index.db")
+    if db_path.exists():
         try:
-            with open(frameworks_path, 'r') as f:
-                frameworks = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            # Gracefully continue without framework data
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            # Get all frameworks for enhancement
+            cursor.execute("""
+                SELECT name, version, language, path
+                FROM frameworks
+                ORDER BY is_primary DESC
+            """)
+
+            for name, version, language, path in cursor.fetchall():
+                frameworks.append({
+                    "framework": name,
+                    "version": version or "unknown",
+                    "language": language or "unknown",
+                    "path": path or "."
+                })
+
+            conn.close()
+        except (sqlite3.Error, ImportError):
+            # Gracefully continue without framework enhancement
             pass
     
     # CRITICAL: Use registry if provided, otherwise use framework enhancement

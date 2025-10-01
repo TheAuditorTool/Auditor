@@ -240,8 +240,15 @@ class InterProceduralCFGAnalyzer:
             for source_expr, in self.cursor.fetchall():
                 # Parse object literal to find possible functions
                 if "{" in source_expr:
-                    # Extract function names from object literal
-                    func_pattern = r"['\"]?\w+['\"]?\s*:\s*(\w+)"
+                    # ACCEPTABLE MINIMAL REGEX: Parsing EXTRACTED string from database
+                    # This is NOT matching source code - it's parsing an expression
+                    # extracted by the indexer. Example:
+                    #   source_expr = "{ create: handleCreate, update: handleUpdate }"
+                    #   Need to extract: ["handleCreate", "handleUpdate"]
+                    #
+                    # Alternative would be running AST parser on this expression,
+                    # but that's overkill for simple object literal parsing.
+                    func_pattern = r":\s*(\w+)"  # Match function refs after colons
                     matches = re.findall(func_pattern, source_expr)
                     possible_callees.extend(matches)
         

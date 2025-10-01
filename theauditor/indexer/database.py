@@ -110,7 +110,8 @@ class DatabaseManager:
                 sha256 TEXT NOT NULL,
                 ext TEXT NOT NULL,
                 bytes INTEGER NOT NULL,
-                loc INTEGER NOT NULL
+                loc INTEGER NOT NULL,
+                file_category TEXT NOT NULL DEFAULT 'source'
             )
         """
         )
@@ -180,8 +181,9 @@ class DatabaseManager:
                 file_path TEXT NOT NULL,
                 line_number INTEGER NOT NULL,
                 query_text TEXT NOT NULL,
-                command TEXT NOT NULL,
+                command TEXT NOT NULL CHECK(command != 'UNKNOWN'),
                 tables TEXT,
+                extraction_source TEXT NOT NULL DEFAULT 'code_execute',
                 FOREIGN KEY(file_path) REFERENCES files(path)
             )
         """
@@ -342,7 +344,7 @@ class DatabaseManager:
                 file TEXT NOT NULL,
                 line INTEGER NOT NULL,
                 caller_function TEXT NOT NULL,
-                callee_function TEXT NOT NULL,
+                callee_function TEXT NOT NULL CHECK(callee_function != ''),
                 argument_index INTEGER NOT NULL,
                 argument_expr TEXT NOT NULL,
                 param_name TEXT NOT NULL,
@@ -693,12 +695,40 @@ class DatabaseManager:
         """
         )
 
+        # ========================================================
+        # FINDINGS CONSOLIDATED TABLE (DUAL-WRITE PATTERN)
+        # ========================================================
+        # This table stores ALL tool findings for fast FCE correlation
+        # while preserving JSON outputs for AI consumption pipeline.
+        # Tools write to BOTH database (performance) AND JSON (AI consumption).
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS findings_consolidated (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                column INTEGER,
+                rule TEXT NOT NULL,
+                tool TEXT NOT NULL,
+                message TEXT,
+                severity TEXT NOT NULL,
+                category TEXT,
+                confidence REAL,
+                code_snippet TEXT,
+                cwe TEXT,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
         # Create indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_refs_src ON refs(src)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoints_file ON api_endpoints(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_file ON sql_objects(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbols_path ON symbols(path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbols_type ON symbols(type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_queries_file ON sql_queries(file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_queries_command ON sql_queries(command)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_docker_images_base ON docker_images(base_image)")
@@ -715,9 +745,11 @@ class DatabaseManager:
         # Indexes for data flow tables
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignments_file ON assignments(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignments_function ON assignments(in_function)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignments_target ON assignments(target_var)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_file ON function_call_args(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_caller ON function_call_args(caller_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_callee ON function_call_args(callee_function)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_file_line ON function_call_args(file, line)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_file ON function_returns(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_function ON function_returns(function_name)")
         
@@ -775,6 +807,13 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_styles_package ON import_styles(package)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_styles_style ON import_styles(import_style)")
 
+        # Indexes for findings_consolidated table (dual-write pattern for FCE performance)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_file_line ON findings_consolidated(file, line)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_tool ON findings_consolidated(tool)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings_consolidated(severity)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_rule ON findings_consolidated(rule)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_category ON findings_consolidated(category)")
+
         # Migration: Add type_annotation column to symbols table if it doesn't exist
         try:
             cursor.execute("ALTER TABLE symbols ADD COLUMN type_annotation TEXT")
@@ -782,6 +821,66 @@ class DatabaseManager:
             pass  # Column already exists
         try:
             cursor.execute("ALTER TABLE symbols ADD COLUMN is_typed BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Migration: Add extraction_source column to sql_queries table (Phase 3B)
+        try:
+            cursor.execute("ALTER TABLE sql_queries ADD COLUMN extraction_source TEXT DEFAULT 'code_execute'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Migration: Add file_category column to files table (Phase 3B)
+        try:
+            cursor.execute("ALTER TABLE files ADD COLUMN file_category TEXT DEFAULT 'source'")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Migration: Add 9 security fields to compose_services table (Phase 3C)
+        # Security-critical fields (P0 priority)
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN user TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN cap_add TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN cap_drop TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN security_opt TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Operational fields (P1/P2 priority)
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN restart TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN command TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN entrypoint TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN depends_on TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            cursor.execute("ALTER TABLE compose_services ADD COLUMN healthcheck TEXT")
         except sqlite3.OperationalError:
             pass  # Column already exists
 
@@ -850,10 +949,23 @@ class DatabaseManager:
         """Add a SQL object record to the batch."""
         self.sql_objects_batch.append((file_path, kind, name))
 
-    def add_sql_query(self, file_path: str, line: int, query_text: str, command: str, tables: List[str]):
-        """Add a SQL query record to the batch."""
+    def add_sql_query(self, file_path: str, line: int, query_text: str, command: str, tables: List[str],
+                      extraction_source: str = 'code_execute'):
+        """Add a SQL query record to the batch.
+
+        Args:
+            file_path: Path to the file containing the query
+            line: Line number
+            query_text: SQL query text
+            command: SQL command type (SELECT, INSERT, etc.)
+            tables: List of table names referenced
+            extraction_source: Source of extraction - one of:
+                - 'code_execute': Direct db.execute() calls (HIGH priority for SQL injection)
+                - 'orm_query': ORM method calls (MEDIUM priority, usually parameterized)
+                - 'migration_file': Database migration files (LOW priority, DDL only)
+        """
         tables_json = json.dumps(tables) if tables else "[]"
-        self.sql_queries_batch.append((file_path, line, query_text, command, tables_json))
+        self.sql_queries_batch.append((file_path, line, query_text, command, tables_json, extraction_source))
 
     def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int):
         """Add a symbol record to the batch."""
@@ -911,13 +1023,58 @@ class DatabaseManager:
 
     def add_compose_service(self, file_path: str, service_name: str, image: Optional[str],
                            ports: List[str], volumes: List[str], environment: Dict,
-                           is_privileged: bool, network_mode: str):
-        """Add a Docker Compose service record to the batch."""
+                           is_privileged: bool, network_mode: str,
+                           # 9 new security fields (Phase 3C)
+                           user: Optional[str] = None,
+                           cap_add: Optional[List[str]] = None,
+                           cap_drop: Optional[List[str]] = None,
+                           security_opt: Optional[List[str]] = None,
+                           restart: Optional[str] = None,
+                           command: Optional[List[str]] = None,
+                           entrypoint: Optional[List[str]] = None,
+                           depends_on: Optional[List[str]] = None,
+                           healthcheck: Optional[Dict] = None):
+        """Add a Docker Compose service record to the batch.
+
+        Args:
+            file_path: Path to docker-compose.yml
+            service_name: Name of the service
+            image: Docker image name
+            ports: List of port mappings
+            volumes: List of volume mounts
+            environment: Dictionary of environment variables
+            is_privileged: Whether service runs in privileged mode
+            network_mode: Network mode (bridge, host, etc.)
+            user: User/UID to run as (security: detect root)
+            cap_add: Linux capabilities to add (security: detect dangerous caps)
+            cap_drop: Linux capabilities to drop (security: enforce hardening)
+            security_opt: Security options (security: detect disabled AppArmor/SELinux)
+            restart: Restart policy (operational: availability)
+            command: Override CMD instruction (security: command injection risk)
+            entrypoint: Override ENTRYPOINT instruction (security: tampering)
+            depends_on: Service dependencies (operational: dependency graph)
+            healthcheck: Health check configuration (operational: availability)
+        """
         ports_json = json.dumps(ports)
         volumes_json = json.dumps(volumes)
         env_json = json.dumps(environment)
-        self.compose_batch.append((file_path, service_name, image, ports_json,
-                                  volumes_json, env_json, is_privileged, network_mode))
+
+        # Encode new fields as JSON (or None if not provided)
+        cap_add_json = json.dumps(cap_add) if cap_add else None
+        cap_drop_json = json.dumps(cap_drop) if cap_drop else None
+        security_opt_json = json.dumps(security_opt) if security_opt else None
+        command_json = json.dumps(command) if command else None
+        entrypoint_json = json.dumps(entrypoint) if entrypoint else None
+        depends_on_json = json.dumps(depends_on) if depends_on else None
+        healthcheck_json = json.dumps(healthcheck) if healthcheck else None
+
+        self.compose_batch.append((
+            file_path, service_name, image, ports_json, volumes_json, env_json,
+            is_privileged, network_mode,
+            # 9 new fields
+            user, cap_add_json, cap_drop_json, security_opt_json,
+            restart, command_json, entrypoint_json, depends_on_json, healthcheck_json
+        ))
 
     def add_nginx_config(self, file_path: str, block_type: str, block_context: str,
                         directives: Dict, level: int):
@@ -1125,6 +1282,67 @@ class DatabaseManager:
         if len(self.framework_safe_sinks_batch) >= self.batch_size:
             self.flush_batch()
 
+    def write_findings_batch(self, findings: List[dict], tool_name: str):
+        """Write findings to database using batch insert for dual-write pattern.
+
+        This method implements the dual-write architecture where findings are written
+        to BOTH the database (for FCE performance) AND JSON files (for AI consumption).
+
+        Args:
+            findings: List of finding dicts from any tool (patterns, taint, lint, etc.)
+            tool_name: Name of the tool that generated findings (e.g., 'patterns', 'taint')
+
+        Notes:
+            - Normalizes findings to standard format (handles different field names)
+            - Uses batch inserts for performance (batch_size from config)
+            - Automatically commits after all batches complete
+            - Optional fields (column, cwe, confidence) are gracefully handled
+        """
+        if not findings:
+            return
+
+        from datetime import datetime, UTC
+
+        cursor = self.conn.cursor()
+
+        # Normalize findings to standard format
+        normalized = []
+        for f in findings:
+            # Handle different finding formats from various tools
+            # Try multiple field names for compatibility
+            normalized.append((
+                f.get('file', ''),
+                int(f.get('line', 0)),
+                f.get('column'),  # Optional
+                f.get('rule', f.get('pattern', f.get('code', 'unknown'))),  # Try multiple names
+                f.get('tool', tool_name),
+                f.get('message', ''),
+                f.get('severity', 'medium'),  # Default to medium if not specified
+                f.get('category'),  # Optional
+                f.get('confidence'),  # Optional
+                f.get('code_snippet'),  # Optional
+                f.get('cwe'),  # Optional
+                f.get('timestamp', datetime.now(UTC).isoformat())
+            ))
+
+        # Batch insert using configured batch size for performance
+        for i in range(0, len(normalized), self.batch_size):
+            batch = normalized[i:i+self.batch_size]
+            cursor.executemany(
+                """INSERT INTO findings_consolidated
+                   (file, line, column, rule, tool, message, severity, category,
+                    confidence, code_snippet, cwe, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                batch
+            )
+
+        # Commit immediately for findings (not part of normal batch cycle)
+        self.conn.commit()
+
+        # Debug logging if enabled
+        if hasattr(self, '_debug') and self._debug:
+            print(f"[DB] Wrote {len(findings)} findings from {tool_name} to findings_consolidated")
+
     def get_framework_id(self, name, language):
         """Get framework ID from database."""
         cursor = self.conn.cursor()
@@ -1167,7 +1385,7 @@ class DatabaseManager:
             
             if self.sql_queries_batch:
                 cursor.executemany(
-                    "INSERT INTO sql_queries (file_path, line_number, query_text, command, tables) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO sql_queries (file_path, line_number, query_text, command, tables, extraction_source) VALUES (?, ?, ?, ?, ?, ?)",
                     self.sql_queries_batch
                 )
                 self.sql_queries_batch = []
@@ -1232,10 +1450,11 @@ class DatabaseManager:
             
             if self.compose_batch:
                 cursor.executemany(
-                    """INSERT INTO compose_services 
-                       (file_path, service_name, image, ports, volumes, environment, 
-                        is_privileged, network_mode) 
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO compose_services
+                       (file_path, service_name, image, ports, volumes, environment,
+                        is_privileged, network_mode, user, cap_add, cap_drop, security_opt,
+                        restart, command, entrypoint, depends_on, healthcheck)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     self.compose_batch
                 )
                 self.compose_batch = []

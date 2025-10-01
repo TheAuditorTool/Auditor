@@ -243,19 +243,38 @@ class PathAnalyzer:
         """
         new_state = state.copy()
         
-        # Get statements in this block
-        statements = block.get("statements", [])
-        
-        for stmt in statements:
-            # Check if statement is a sanitizer call
-            if stmt["type"] == "call" and stmt.get("text"):
-                # Simple check - would need more sophisticated analysis
-                for var in new_state.tainted_vars.copy():
-                    if var in stmt["text"] and is_sanitizer(stmt["text"]):
-                        new_state.sanitize(var)
-                        if self.debug:
-                            print(f"[CFG]     Sanitizer found for {var} at line {stmt['line']}", file=sys.stderr)
-        
+        # Get statements in this block - query database instead of string matching
+        block_id = block.get("id")
+        if block_id:
+            # Query cfg_block_statements for calls in this block
+            self.cursor.execute("""
+                SELECT statement_type, line, statement_text
+                FROM cfg_block_statements
+                WHERE block_id = ?
+                  AND statement_type = 'call'
+                ORDER BY line
+            """, (block_id,))
+
+            for stmt_type, line, stmt_text in self.cursor.fetchall():
+                # Query function_call_args to get exact function name
+                self.cursor.execute("""
+                    SELECT callee_function, argument_expr
+                    FROM function_call_args
+                    WHERE file = ?
+                      AND line = ?
+                """, (self.file_path, line))
+
+                for callee, arg_expr in self.cursor.fetchall():
+                    # Check if callee is a sanitizer
+                    if is_sanitizer(callee):
+                        # Find which variable is being sanitized
+                        for var in list(new_state.tainted_vars):
+                            # Minimal string check on EXTRACTED argument expression
+                            if var in arg_expr:
+                                new_state.sanitize(var)
+                                if self.debug:
+                                    print(f"[CFG]     Sanitizer {callee} found for {var} at line {line}", file=sys.stderr)
+
         return new_state
     
     def _analyze_path_taint_enhanced(self, path_blocks: List[int], tainted_var: str,
