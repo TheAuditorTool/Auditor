@@ -24,7 +24,27 @@ import sqlite3
 from typing import List, Set
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Smart File Filtering
+# ============================================================================
+METADATA = RuleMetadata(
+    name="session_security",
+    category="auth",
+    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
+    exclude_patterns=[
+        'frontend/',
+        'client/',
+        'test/',
+        'spec.',
+        '__tests__',
+        'demo/',
+        'example/'
+    ],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

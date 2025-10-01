@@ -400,7 +400,12 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         # Step 2: Find all security sinks in the codebase
         # Pass config sinks instead of global SECURITY_SINKS
         sinks = find_security_sinks(cursor, config.sinks, cache=cache)
-        
+
+        # Step 2.1: Filter framework-safe sinks (P1 Enhancement)
+        # Remove sinks that are automatically sanitized by frameworks (e.g., res.json in Express)
+        from .database import filter_framework_safe_sinks
+        sinks = filter_framework_safe_sinks(cursor, sinks)
+
         # Step 3: Build a call graph for efficient traversal
         call_graph = build_call_graph(cursor)
         

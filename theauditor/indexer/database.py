@@ -933,8 +933,14 @@ class DatabaseManager:
             raise RuntimeError(f"Failed to clear existing data: {e}")
 
     def add_file(self, path: str, sha256: str, ext: str, bytes_size: int, loc: int):
-        """Add a file record to the batch."""
-        self.files_batch.append((path, sha256, ext, bytes_size, loc))
+        """Add a file record to the batch.
+
+        Deduplicates paths to prevent UNIQUE constraint violations.
+        This can happen with symlinks, junction points, or case sensitivity issues.
+        """
+        # Check if path already in current batch (O(n) but batches are small)
+        if not any(item[0] == path for item in self.files_batch):
+            self.files_batch.append((path, sha256, ext, bytes_size, loc))
 
     def add_ref(self, src: str, kind: str, value: str):
         """Add a reference record to the batch."""
@@ -1356,8 +1362,10 @@ class DatabaseManager:
         
         try:
             if self.files_batch:
+                # Use INSERT OR REPLACE to handle duplicates gracefully
+                # This can occur with symlinks, junction points, or processing the same file twice
                 cursor.executemany(
-                    "INSERT INTO files (path, sha256, ext, bytes, loc) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO files (path, sha256, ext, bytes, loc) VALUES (?, ?, ?, ?, ?)",
                     self.files_batch
                 )
                 self.files_batch = []

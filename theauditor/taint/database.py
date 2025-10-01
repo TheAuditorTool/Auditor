@@ -103,6 +103,81 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
             print(f"[TAINT] This is a CRITICAL failure - taint analysis impossible", file=sys.stderr)
             raise RuntimeError("Taint analysis impossible: No call/property symbols in database. Run 'aud index' first.")
 
+    # P2 Enhancement: Add API endpoint context for prioritization
+    sources = enhance_sources_with_api_context(cursor, sources)
+
+    return sources
+
+
+def enhance_sources_with_api_context(
+    cursor: sqlite3.Cursor,
+    sources: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Enhance taint sources with API endpoint context for prioritization.
+
+    Maps taint sources (req.body, req.query) to their API endpoint definitions
+    to provide attack surface context (public vs authenticated endpoints).
+
+    This allows prioritization of taint analysis on public API endpoints which
+    represent higher risk as they are accessible without authentication.
+
+    Args:
+        cursor: Database cursor
+        sources: List of taint sources from find_taint_sources()
+
+    Returns:
+        Enhanced sources with API endpoint metadata
+    """
+    # Check if api_endpoints table exists
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='api_endpoints'
+    """)
+
+    if not cursor.fetchone():
+        return sources
+
+    # Build endpoint lookup map indexed by file
+    cursor.execute("""
+        SELECT file, line, method, path, has_auth, handler_function
+        FROM api_endpoints
+    """)
+
+    endpoints_by_file = defaultdict(list)
+    for file, line, method, path, has_auth, handler in cursor.fetchall():
+        endpoints_by_file[file].append({
+            'line': line,
+            'method': method,
+            'path': path,
+            'has_auth': has_auth,
+            'handler': handler
+        })
+
+    # Enhance sources with endpoint context
+    for source in sources:
+        file = source['file']
+        line = source['line']
+
+        if file in endpoints_by_file:
+            # Find closest endpoint (within 50 lines)
+            closest_endpoint = None
+            min_distance = float('inf')
+
+            for endpoint in endpoints_by_file[file]:
+                distance = abs(endpoint['line'] - line)
+                if distance < min_distance and distance < 50:
+                    min_distance = distance
+                    closest_endpoint = endpoint
+
+            if closest_endpoint:
+                source['api_context'] = {
+                    'method': closest_endpoint['method'],
+                    'path': closest_endpoint['path'],
+                    'has_auth': closest_endpoint['has_auth'],
+                    'handler': closest_endpoint['handler'],
+                    'attack_surface': 'public' if not closest_endpoint['has_auth'] else 'authenticated'
+                }
+
     return sources
 
 
@@ -151,11 +226,12 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
         return cursor.fetchone() is not None
 
-    # STRATEGY 1: Query sql_queries table for SQL sinks (most precise)
+    # STRATEGY 1: Query sql_queries table for SQL sinks (P2 ENHANCED)
     # Schema: file_path, line_number, query_text, command, tables, extraction_source
+    # Analyzes query structure to detect SQL injection risk factors
     if sql_sinks and table_exists('sql_queries'):
         cursor.execute("""
-            SELECT file_path, line_number, query_text, command
+            SELECT file_path, line_number, query_text, command, tables, extraction_source
             FROM sql_queries
             WHERE query_text IS NOT NULL
             AND query_text != ''
@@ -163,7 +239,24 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
             ORDER BY file_path, line_number
         """)
 
-        for file_path, line_number, query_text, command in cursor.fetchall():
+        for file_path, line_number, query_text, command, tables, extraction_source in cursor.fetchall():
+            # Analyze query for SQL injection risk factors
+            risk_factors = []
+            risk_level = "low"
+
+            # Check for string concatenation (high risk)
+            if any(indicator in query_text for indicator in ['+', '${', '`${', 'f"', "f'"]):
+                risk_factors.append("string_concatenation")
+                risk_level = "high"
+
+            # Check for parameterized queries (low risk)
+            elif any(indicator in query_text for indicator in ['?', '$1', ':param', '@param']):
+                risk_factors.append("parameterized")
+                risk_level = "low"
+            else:
+                # Uncertain - treat as medium risk
+                risk_level = "medium"
+
             # Extract function/method name from query context
             cursor.execute("""
                 SELECT name FROM symbols
@@ -193,21 +286,41 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     "metadata": {
                         "query_text": query_text[:200],  # Truncate for readability
                         "command": command,
+                        "tables": tables,
+                        "risk_level": risk_level,
+                        "risk_factors": risk_factors,
+                        "extraction_source": extraction_source,
                         "table": "sql_queries"
                     }
                 })
 
-    # STRATEGY 2: Query orm_queries table for ORM sinks
+    # STRATEGY 2: Query orm_queries table for ORM sinks (P2 ENHANCED)
     # Schema: file, line, query_type, includes, has_limit, has_transaction
+    # Classifies ORM operations by risk level based on operation type and safeguards
     if sql_sinks and table_exists('orm_queries'):
         cursor.execute("""
-            SELECT file, line, query_type, includes
+            SELECT file, line, query_type, includes, has_limit, has_transaction
             FROM orm_queries
             WHERE query_type IS NOT NULL
             ORDER BY file, line
         """)
 
-        for file, line, query_type, includes in cursor.fetchall():
+        for file, line, query_type, includes, has_limit, has_transaction in cursor.fetchall():
+            # Classify risk level based on ORM operation type
+            risk_level = "medium"
+
+            # High-risk operations (write operations without transactions)
+            if query_type in ['create', 'update', 'delete', 'destroy'] and not has_transaction:
+                risk_level = "high"
+
+            # Medium-risk operations (read operations without limits)
+            elif query_type in ['findOne', 'findAll', 'find'] and not has_limit:
+                risk_level = "medium"
+
+            # Low-risk operations (reads with limits, transactional writes)
+            else:
+                risk_level = "low"
+
             # ORM operations are implicit SQL sinks
             sinks.append({
                 "file": file.replace("\\", "/"),
@@ -220,6 +333,9 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 "metadata": {
                     "query_type": query_type,
                     "includes": includes,
+                    "risk_level": risk_level,
+                    "has_limit": has_limit,
+                    "has_transaction": has_transaction,
                     "table": "orm_queries"
                 }
             })
@@ -250,32 +366,61 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     }
                 })
 
-    # STRATEGY 4: Query react_hooks for dangerouslySetInnerHTML (XSS)
+    # STRATEGY 4: Query react_hooks for XSS vulnerabilities (P2 ENHANCED)
     # Schema: file, line, component_name, hook_name, dependency_array, dependency_vars, callback_body
+    # Detects DOM manipulation in hooks with external dependencies
     if xss_sinks and table_exists('react_hooks'):
+        # Query hooks that depend on external data (potential XSS vectors)
         cursor.execute("""
-            SELECT file, line, hook_name, dependency_vars
+            SELECT file, line, component_name, hook_name, dependency_vars, callback_body
             FROM react_hooks
-            WHERE hook_name = 'dangerouslySetInnerHTML'
-            OR dependency_vars LIKE '%dangerouslySetInnerHTML%'
+            WHERE hook_name IN ('useEffect', 'useLayoutEffect', 'useMemo', 'useCallback')
+            AND (
+                dependency_vars LIKE '%props%' OR
+                dependency_vars LIKE '%state%' OR
+                dependency_vars LIKE '%data%' OR
+                dependency_vars LIKE '%response%' OR
+                callback_body LIKE '%innerHTML%' OR
+                callback_body LIKE '%dangerouslySetInnerHTML%' OR
+                callback_body LIKE '%document.write%'
+            )
             ORDER BY file, line
         """)
 
-        for file, line, hook_name, deps in cursor.fetchall():
-            sinks.append({
-                "file": file.replace("\\", "/"),
-                "name": "dangerouslySetInnerHTML",
-                "line": line,
-                "column": 0,
-                "pattern": "dangerouslySetInnerHTML",
-                "category": "xss",
-                "type": "sink",
-                "metadata": {
-                    "hook": hook_name,
-                    "dependencies": deps,
-                    "table": "react_hooks"
-                }
-            })
+        for file, line, component, hook, deps, body in cursor.fetchall():
+            # Detect DOM manipulation in hook callbacks
+            xss_risk = False
+            risk_reason = []
+
+            if body and 'innerHTML' in body:
+                xss_risk = True
+                risk_reason.append('innerHTML usage')
+
+            if body and 'dangerouslySetInnerHTML' in body:
+                xss_risk = True
+                risk_reason.append('dangerouslySetInnerHTML')
+
+            if body and 'document.write' in body:
+                xss_risk = True
+                risk_reason.append('document.write')
+
+            if xss_risk:
+                sinks.append({
+                    "file": file.replace("\\", "/"),
+                    "name": f"{hook} in {component}",
+                    "line": line,
+                    "column": 0,
+                    "pattern": hook,
+                    "category": "xss",
+                    "type": "sink",
+                    "metadata": {
+                        "hook": hook,
+                        "component": component,
+                        "dependencies": deps,
+                        "risk_factors": risk_reason,
+                        "table": "react_hooks"
+                    }
+                })
 
     # STRATEGY 5: Query function_call_args for XSS sinks (res.send, res.render, etc.)
     if xss_sinks and table_exists('function_call_args'):
@@ -447,6 +592,85 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
             raise RuntimeError("Taint analysis impossible: No call symbols in database. Run 'aud index' first.")
 
     return sinks
+
+
+def filter_framework_safe_sinks(
+    cursor: sqlite3.Cursor,
+    sinks: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Filter out framework-safe sinks from taint analysis.
+
+    Queries framework_safe_sinks table to remove sinks that are
+    automatically sanitized by the framework (e.g., res.json in Express).
+
+    This eliminates false positives by recognizing when frameworks provide
+    automatic encoding/sanitization (JSON.stringify, template engines, etc.).
+
+    Args:
+        cursor: Database cursor
+        sinks: List of detected sinks from find_security_sinks()
+
+    Returns:
+        Filtered list of sinks with framework-safe patterns removed
+    """
+    # Check if framework_safe_sinks table exists
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table' AND name='framework_safe_sinks'
+    """)
+
+    if not cursor.fetchone():
+        # Table doesn't exist, return all sinks (no filtering)
+        return sinks
+
+    # Query all safe sink patterns
+    cursor.execute("""
+        SELECT sink_pattern, reason
+        FROM framework_safe_sinks
+        WHERE is_safe = 1
+    """)
+
+    safe_patterns = {row[0]: row[1] for row in cursor.fetchall()}
+
+    if not safe_patterns:
+        # No safe sinks configured, return all sinks
+        return sinks
+
+    # Filter sinks
+    filtered = []
+    removed_count = 0
+
+    for sink in sinks:
+        sink_name = sink.get('name', '')
+        sink_pattern = sink.get('pattern', '')
+
+        # Check if this sink matches any safe pattern
+        is_safe = False
+        reason = None
+
+        for safe_pattern, safe_reason in safe_patterns.items():
+            # Match pattern in sink name or vice versa
+            if (safe_pattern in sink_name or
+                safe_pattern in sink_pattern or
+                sink_name in safe_pattern or
+                sink_pattern in safe_pattern):
+                is_safe = True
+                reason = safe_reason
+                break
+
+        if is_safe:
+            removed_count += 1
+            # Optional: Log removed sinks for debugging
+            import os
+            if os.environ.get("THEAUDITOR_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG"):
+                print(f"[TAINT] Filtered safe sink: {sink_name} at {sink.get('file', 'unknown')}:{sink.get('line', 0)} ({reason})", file=sys.stderr)
+        else:
+            filtered.append(sink)
+
+    if removed_count > 0:
+        print(f"[TAINT] Filtered {removed_count} framework-safe sinks", file=sys.stderr)
+
+    return filtered
 
 
 def build_call_graph(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:

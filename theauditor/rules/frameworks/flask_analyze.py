@@ -200,7 +200,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.CRITICAL if has_user_input else Severity.HIGH,
                     category='injection',
+                    confidence=Confidence.HIGH if has_user_input else Confidence.MEDIUM,
                     snippet=template_arg[:100] if len(template_arg) > 100 else template_arg,
+                    cwe_id='CWE-94'  # Improper Control of Generation of Code
                 ))
 
             conn.close()
@@ -231,7 +233,9 @@ class FlaskAnalyzer:
                         line=line,
                         severity=Severity.HIGH,
                         category='xss',
+                        confidence=Confidence.HIGH,
                         snippet=markup_content[:100] if len(markup_content) > 100 else markup_content,
+                        cwe_id='CWE-79'  # Cross-site Scripting
                     ))
 
             conn.close()
@@ -261,7 +265,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.CRITICAL,
                     category='security',
+                    confidence=Confidence.HIGH,
                     snippet=args[:100] if len(args) > 100 else args,
+                    cwe_id='CWE-489'  # Active Debug Code
                 ))
 
             conn.close()
@@ -299,7 +305,9 @@ class FlaskAnalyzer:
                         line=line,
                         severity=Severity.CRITICAL,
                         category='security',
+                        confidence=Confidence.HIGH,
                         snippet=f'{var_name} = {secret_value[:30]}...',
+                        cwe_id='CWE-798'  # Use of Hard-coded Credentials
                     ))
 
             conn.close()
@@ -340,7 +348,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='security',
+                    confidence=Confidence.HIGH,
                     snippet='request.files[...].save() without secure_filename()',
+                    cwe_id='CWE-434'  # Unrestricted Upload of File with Dangerous Type
                 ))
 
             conn.close()
@@ -379,7 +389,9 @@ class FlaskAnalyzer:
                         line=line,
                         severity=Severity.CRITICAL,
                         category='injection',
+                        confidence=Confidence.HIGH,
                         snippet=query[:100] if len(query) > 100 else query,
+                        cwe_id='CWE-89'  # SQL Injection
                     ))
 
             conn.close()
@@ -411,7 +423,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='security',
+                    confidence=Confidence.HIGH,
                     snippet=redirect_arg[:100] if len(redirect_arg) > 100 else redirect_arg,
+                    cwe_id='CWE-601'  # URL Redirection to Untrusted Site
                 ))
 
             conn.close()
@@ -441,7 +455,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.CRITICAL,
                     category='injection',
+                    confidence=Confidence.HIGH,
                     snippet=eval_arg[:100] if len(eval_arg) > 100 else eval_arg,
+                    cwe_id='CWE-95'  # Improper Neutralization of Directives in Dynamically Evaluated Code
                 ))
 
             conn.close()
@@ -473,7 +489,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='security',
+                    confidence=Confidence.HIGH,
                     snippet=cors_config[:100] if len(cors_config) > 100 else cors_config,
+                    cwe_id='CWE-346'  # Origin Validation Error
                 ))
 
             # Check function calls
@@ -493,7 +511,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='security',
+                    confidence=Confidence.HIGH,
                     snippet=cors_arg[:100] if len(cors_arg) > 100 else cors_arg,
+                    cwe_id='CWE-346'  # Origin Validation Error
                 ))
 
             conn.close()
@@ -523,7 +543,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.CRITICAL,
                     category='injection',
+                    confidence=Confidence.HIGH,
                     snippet=pickle_arg[:100] if len(pickle_arg) > 100 else pickle_arg,
+                    cwe_id='CWE-502'  # Deserialization of Untrusted Data
                 ))
 
             conn.close()
@@ -553,7 +575,9 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.CRITICAL,
                     category='security',
+                    confidence=Confidence.HIGH,
                     snippet=f'{var} = {value[:50]}',
+                    cwe_id='CWE-489'  # Active Debug Code
                 ))
 
             conn.close()
@@ -596,7 +620,9 @@ class FlaskAnalyzer:
                             line=1,
                             severity=Severity.HIGH,
                             category='security',
+                            confidence=Confidence.MEDIUM,
                             snippet='Missing CSRF protection for POST/PUT/DELETE/PATCH endpoints',
+                            cwe_id='CWE-352'  # Cross-Site Request Forgery
                         ))
 
             conn.close()
@@ -629,10 +655,57 @@ class FlaskAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='session',
+                    confidence=Confidence.HIGH,
                     snippet=f'{var} = {config}',
+                    cwe_id='CWE-614'  # Sensitive Cookie Without Secure Attribute
                 ))
 
             conn.close()
 
         except (sqlite3.Error, Exception):
             pass
+
+
+def register_taint_patterns(taint_registry):
+    """Register Flask-specific taint patterns.
+
+    This function is called by the orchestrator to register
+    framework-specific sources and sinks for taint analysis.
+
+    Args:
+        taint_registry: TaintRegistry instance
+    """
+    # Flask user input sources (taint sources)
+    FLASK_INPUT_SOURCES = frozenset([
+        'request.args', 'request.form', 'request.values',
+        'request.json', 'request.data', 'request.files',
+        'request.cookies', 'request.headers', 'request.environ',
+        'request.get_json', 'request.get_data'
+    ])
+
+    for pattern in FLASK_INPUT_SOURCES:
+        taint_registry.register_source(pattern, 'user_input', 'python')
+
+    # Flask SSTI sinks (template injection targets)
+    FLASK_SSTI_SINKS = frozenset([
+        'render_template_string', 'Markup', 'jinja2.Template'
+    ])
+
+    for pattern in FLASK_SSTI_SINKS:
+        taint_registry.register_sink(pattern, 'ssti', 'python')
+
+    # Flask redirect sinks (open redirect targets)
+    FLASK_REDIRECT_SINKS = frozenset([
+        'redirect', 'url_for', 'make_response'
+    ])
+
+    for pattern in FLASK_REDIRECT_SINKS:
+        taint_registry.register_sink(pattern, 'redirect', 'python')
+
+    # Flask SQL execution sinks
+    FLASK_SQL_SINKS = frozenset([
+        'execute', 'executemany', 'db.execute', 'session.execute'
+    ])
+
+    for pattern in FLASK_SQL_SINKS:
+        taint_registry.register_sink(pattern, 'sql', 'python')

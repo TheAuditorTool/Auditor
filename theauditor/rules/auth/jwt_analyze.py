@@ -21,10 +21,83 @@ Filters test/demo/example files to reduce false positives by ~40%.
 """
 
 import sqlite3
-from typing import List
+from typing import List, Set
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Smart File Filtering
+# ============================================================================
+METADATA = RuleMetadata(
+    name="jwt_security",
+    category="auth",
+    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
+    exclude_patterns=[
+        'frontend/',
+        'client/',
+        'test/',
+        'spec.',
+        '__tests__',
+        'demo/',
+        'example/'
+    ],
+    requires_jsx_pass=False
+)
+
+
+# ============================================================================
+# FROZENSETS FOR O(1) PATTERN LOOKUPS
+# ============================================================================
+
+# Sensitive data that should never be in JWT payloads
+JWT_SENSITIVE_FIELDS = frozenset([
+    'password',
+    'secret',
+    'creditCard',
+    'ssn',
+    'apiKey',
+    'privateKey',
+    'cvv',
+    'creditcard',
+    'social_security'
+])
+
+# Weak environment variable patterns
+JWT_WEAK_ENV_PATTERNS = frozenset([
+    'TEST',
+    'DEMO',
+    'DEV',
+    'LOCAL'
+])
+
+# JWT storage keys (for frontend detection)
+JWT_STORAGE_KEYS = frozenset([
+    'token',
+    'jwt',
+    'auth',
+    'access',
+    'refresh',
+    'bearer'
+])
+
+
+# ============================================================================
+# HELPER: Table Existence Check
+# ============================================================================
+def _check_tables(cursor) -> Set[str]:
+    """Check which tables exist in database for graceful degradation."""
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN (
+            'function_call_args',
+            'assignments',
+            'files'
+        )
+    """)
+    return {row[0] for row in cursor.fetchall()}
 
 
 def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
@@ -60,6 +133,11 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
+        # Check which tables exist (graceful degradation)
+        existing_tables = _check_tables(cursor)
+        if 'function_call_args' not in existing_tables:
+            return findings
+
         # ========================================================
         # CHECK 1: Hardcoded JWT Secrets (CRITICAL)
         # ========================================================
@@ -284,10 +362,11 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         """)
 
         for file, line, payload in cursor.fetchall():
-            # Identify which sensitive field was found
+            # Identify which sensitive field was found (using frozenset for O(1) lookups)
             sensitive_fields = []
-            for field in ['password', 'secret', 'creditCard', 'ssn', 'apiKey', 'privateKey', 'cvv']:
-                if field.lower() in payload.lower():
+            payload_lower = payload.lower()
+            for field in JWT_SENSITIVE_FIELDS:
+                if field.lower() in payload_lower:
                     sensitive_fields.append(field)
 
             if sensitive_fields:

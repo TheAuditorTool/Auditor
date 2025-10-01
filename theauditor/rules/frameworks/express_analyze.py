@@ -144,6 +144,15 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Check if refs table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='refs'
+            """)
+            if not cursor.fetchone():
+                conn.close()
+                return False  # Can't verify Express without refs table
+
             # Check if this is an Express project
             cursor.execute("""
                 SELECT DISTINCT src FROM refs
@@ -197,6 +206,15 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Check if cfg_blocks table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='cfg_blocks'
+            """)
+            if not cursor.fetchone():
+                conn.close()
+                return  # Graceful degradation - can't check without CFG data
+
             # Check each route handler for try/catch blocks
             for endpoint in self.api_endpoints:
                 # Get the handler function name (might be in handler field)
@@ -224,6 +242,7 @@ class ExpressAnalyzer:
                         category='error-handling',
                         confidence=Confidence.MEDIUM,
                         snippet='Route handler missing try/catch',
+                        cwe_id='CWE-755'  # Improper Handling of Exceptional Conditions
                     ))
 
             conn.close()
@@ -262,7 +281,9 @@ class ExpressAnalyzer:
                         line=1,
                         severity=Severity.HIGH,
                         category='security',
+                        confidence=Confidence.HIGH,
                         snippet='Missing: app.use(helmet())',
+                        cwe_id='CWE-693'  # Protection Mechanism Failure
                     ))
 
             except (sqlite3.Error, Exception):
@@ -296,7 +317,9 @@ class ExpressAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='performance',
+                    confidence=Confidence.HIGH,
                     snippet=f'{sync_op}(...) in {caller}',
+                    cwe_id='CWE-407'  # Inefficient Algorithmic Complexity
                 ))
 
             conn.close()
@@ -347,7 +370,9 @@ class ExpressAnalyzer:
                             line=line,
                             severity=Severity.CRITICAL,
                             category='xss',
+                            confidence=Confidence.HIGH,
                             snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                            cwe_id='CWE-79'  # Cross-site Scripting
                         ))
 
             conn.close()
@@ -378,7 +403,9 @@ class ExpressAnalyzer:
                 line=api_routes[0]['line'],
                 severity=Severity.HIGH,
                 category='security',
+                confidence=Confidence.MEDIUM,
                 snippet='Add express-rate-limit middleware',
+                cwe_id='CWE-307'  # Improper Restriction of Excessive Authentication Attempts
             ))
 
     def _check_body_parser_limits(self) -> None:
@@ -406,7 +433,9 @@ class ExpressAnalyzer:
                         line=line,
                         severity=Severity.LOW,
                         category='security',
+                        confidence=Confidence.MEDIUM,
                         snippet='Add limit option to bodyParser',
+                        cwe_id='CWE-400'  # Uncontrolled Resource Consumption
                     ))
 
             conn.close()
@@ -448,7 +477,9 @@ class ExpressAnalyzer:
                         line=line,
                         severity=Severity.MEDIUM,
                         category='architecture',
+                        confidence=Confidence.MEDIUM,
                         snippet=f'Move {db_method} to service/repository layer',
+                        cwe_id='CWE-1061'  # Insufficient Encapsulation
                     ))
 
             conn.close()
@@ -482,7 +513,9 @@ class ExpressAnalyzer:
                         line=line,
                         severity=Severity.HIGH,
                         category='security',
+                        confidence=Confidence.HIGH,
                         snippet='CORS with origin: * or origin: true',
+                        cwe_id='CWE-346'  # Origin Validation Error
                     ))
 
             conn.close()
@@ -530,7 +563,9 @@ class ExpressAnalyzer:
                         line=modifying_endpoints[0]['line'],
                         severity=Severity.HIGH,
                         category='csrf',
+                        confidence=Confidence.MEDIUM,
                         snippet='POST/PUT/DELETE endpoints need CSRF tokens',
+                        cwe_id='CWE-352'  # Cross-Site Request Forgery
                     ))
 
             except (sqlite3.Error, Exception):
@@ -576,10 +611,51 @@ class ExpressAnalyzer:
                         line=line,
                         severity=Severity.MEDIUM,
                         category='security',
+                        confidence=Confidence.HIGH,
                         snippet='Session configuration issues',
+                        cwe_id='CWE-614'  # Sensitive Cookie Without Secure Attribute
                     ))
 
             conn.close()
 
         except (sqlite3.Error, Exception):
             pass
+
+
+def register_taint_patterns(taint_registry):
+    """Register Express.js-specific taint patterns.
+
+    This function is called by the orchestrator to register
+    framework-specific sources and sinks for taint analysis.
+
+    Args:
+        taint_registry: TaintRegistry instance
+    """
+    # Express.js user input sources (taint sources)
+    EXPRESS_INPUT_SOURCES = frozenset([
+        'req.body', 'req.query', 'req.params', 'req.cookies',
+        'req.headers', 'req.ip', 'req.hostname', 'req.path',
+        'request.body', 'request.query', 'request.params',
+        'request.headers', 'request.cookies'
+    ])
+
+    for pattern in EXPRESS_INPUT_SOURCES:
+        taint_registry.register_source(pattern, 'user_input', 'javascript')
+
+    # Express.js response sinks (XSS/injection targets)
+    EXPRESS_RESPONSE_SINKS = frozenset([
+        'res.send', 'res.json', 'res.jsonp', 'res.render',
+        'res.write', 'res.end', 'response.send', 'response.json',
+        'response.render', 'response.write'
+    ])
+
+    for pattern in EXPRESS_RESPONSE_SINKS:
+        taint_registry.register_sink(pattern, 'response', 'javascript')
+
+    # Express.js redirect sinks (open redirect targets)
+    EXPRESS_REDIRECT_SINKS = frozenset([
+        'res.redirect', 'response.redirect', 'res.location'
+    ])
+
+    for pattern in EXPRESS_REDIRECT_SINKS:
+        taint_registry.register_sink(pattern, 'redirect', 'javascript')

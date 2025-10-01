@@ -169,14 +169,24 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check for React imports
+            # Check if refs table exists
             cursor.execute("""
-                SELECT DISTINCT src FROM refs
-                WHERE value IN ('react', 'react-dom', 'React')
-                   OR value LIKE 'react/%'
-                   OR value LIKE 'react-dom/%'
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='refs'
             """)
-            react_refs = cursor.fetchall()
+            has_refs_table = cursor.fetchone() is not None
+
+            # Check for React imports
+            if has_refs_table:
+                cursor.execute("""
+                    SELECT DISTINCT src FROM refs
+                    WHERE value IN ('react', 'react-dom', 'React')
+                       OR value LIKE 'react/%'
+                       OR value LIKE 'react-dom/%'
+                """)
+                react_refs = cursor.fetchall()
+            else:
+                react_refs = []
 
             if react_refs:
                 self.react_files = [ref[0] for ref in react_refs]
@@ -184,16 +194,23 @@ class ReactAnalyzer:
             else:
                 # Also check for React-specific symbols
                 cursor.execute("""
-                    SELECT DISTINCT path FROM symbols
-                    WHERE name IN ('useState', 'useEffect', 'useContext',
-                                   'useReducer', 'Component', 'createElement')
-                    LIMIT 1
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name='symbols'
                 """)
-                react_symbols = cursor.fetchall()
+                has_symbols_table = cursor.fetchone() is not None
 
-                if react_symbols:
-                    self.react_files = [sym[0] for sym in react_symbols]
-                    self.has_react = True
+                if has_symbols_table:
+                    cursor.execute("""
+                        SELECT DISTINCT path FROM symbols
+                        WHERE name IN ('useState', 'useEffect', 'useContext',
+                                       'useReducer', 'Component', 'createElement')
+                        LIMIT 1
+                    """)
+                    react_symbols = cursor.fetchall()
+
+                    if react_symbols:
+                        self.react_files = [sym[0] for sym in react_symbols]
+                        self.has_react = True
 
             conn.close()
             return self.has_react
@@ -235,7 +252,9 @@ class ReactAnalyzer:
                         line=line,
                         severity=Severity.HIGH,
                         category='xss',
+                        confidence=Confidence.HIGH,
                         snippet=html_content[:100] if len(html_content) > 100 else html_content,
+                        cwe_id='CWE-79'  # Cross-site Scripting
                     ))
 
             conn.close()
@@ -280,7 +299,9 @@ class ReactAnalyzer:
                             line=line,
                             severity=Severity.HIGH,
                             category='security',
+                            confidence=Confidence.HIGH,
                             snippet=f'{var_name} = {value[:50]}...' if len(value) > 50 else f'{var_name} = {value}',
+                            cwe_id='CWE-200'  # Exposure of Sensitive Information
                         ))
 
             conn.close()
@@ -313,7 +334,9 @@ class ReactAnalyzer:
                     line=line,
                     severity=Severity.CRITICAL,
                     category='injection',
+                    confidence=Confidence.HIGH,
                     snippet=eval_content[:100] if len(eval_content) > 100 else eval_content,
+                    cwe_id='CWE-95'  # Improper Neutralization of Directives in Dynamically Evaluated Code
                 ))
 
             conn.close()
@@ -346,7 +369,9 @@ class ReactAnalyzer:
                     line=line,
                     severity=Severity.MEDIUM,
                     category='security',
+                    confidence=Confidence.HIGH,
                     snippet=link_code[:100] if len(link_code) > 100 else link_code,
+                    cwe_id='CWE-1022'  # Use of Web Link to Untrusted Target
                 ))
 
             conn.close()
@@ -377,7 +402,9 @@ class ReactAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='xss',
+                    confidence=Confidence.HIGH,
                     snippet=f'{target} = {content[:50]}...' if len(content) > 50 else f'{target} = {content}',
+                    cwe_id='CWE-79'  # Cross-site Scripting
                 ))
 
             # Also check for document.write
@@ -396,7 +423,9 @@ class ReactAnalyzer:
                     line=line,
                     severity=Severity.HIGH,
                     category='xss',
+                    confidence=Confidence.HIGH,
                     snippet=write_content[:100] if len(write_content) > 100 else write_content,
+                    cwe_id='CWE-79'  # Cross-site Scripting
                 ))
 
             conn.close()
@@ -451,7 +480,9 @@ class ReactAnalyzer:
                         line=line,
                         severity=Severity.CRITICAL,
                         category='security',
+                        confidence=Confidence.HIGH,
                         snippet=f'{var_name} = "..."',
+                        cwe_id='CWE-798'  # Use of Hard-coded Credentials
                     ))
 
             conn.close()
@@ -493,7 +524,9 @@ class ReactAnalyzer:
                         line=line,
                         severity=Severity.HIGH,
                         category='security',
+                        confidence=Confidence.HIGH,
                         snippet=data[:100] if len(data) > 100 else data,
+                        cwe_id='CWE-922'  # Insecure Storage of Sensitive Information
                     ))
 
             conn.close()
@@ -577,6 +610,7 @@ class ReactAnalyzer:
                     category='performance',
                     confidence=Confidence.LOW,
                     snippet=effect_code[:100] if len(effect_code) > 100 else effect_code,
+                    cwe_id='CWE-401'  # Missing Release of Memory after Effective Lifetime
                 ))
 
             conn.close()
@@ -628,6 +662,7 @@ class ReactAnalyzer:
                         category='authorization',
                         confidence=Confidence.LOW,
                         snippet='Routes defined without auth guards',
+                        cwe_id='CWE-862'  # Missing Authorization
                     ))
 
             conn.close()
@@ -683,7 +718,9 @@ class ReactAnalyzer:
                                 line=line,
                                 severity=Severity.HIGH,
                                 category='csrf',
+                                confidence=Confidence.MEDIUM,
                                 snippet='Form with POST/PUT/DELETE without CSRF',
+                                cwe_id='CWE-352'  # Cross-Site Request Forgery
                             ))
 
             conn.close()
@@ -749,10 +786,60 @@ class ReactAnalyzer:
                                 line=line,
                                 severity=Severity.HIGH,
                                 category='xss',
+                                confidence=Confidence.MEDIUM,
                                 snippet=jsx_content[:100] if len(jsx_content) > 100 else jsx_content,
+                                cwe_id='CWE-79'  # Cross-site Scripting
                             ))
 
             conn.close()
 
         except (sqlite3.Error, Exception):
             pass
+
+
+def register_taint_patterns(taint_registry):
+    """Register React-specific taint patterns.
+
+    This function is called by the orchestrator to register
+    framework-specific sources and sinks for taint analysis.
+
+    Args:
+        taint_registry: TaintRegistry instance
+    """
+    # React user input sources (taint sources)
+    REACT_INPUT_SOURCES = frozenset([
+        'props.user', 'props.input', 'props.data', 'props.content',
+        'location.search', 'params', 'query', 'formData',
+        'event.target.value', 'e.target.value', 'useState',
+        'this.props', 'this.state'
+    ])
+
+    for pattern in REACT_INPUT_SOURCES:
+        taint_registry.register_source(pattern, 'user_input', 'javascript')
+
+    # React XSS sinks (dangerous DOM operations)
+    REACT_XSS_SINKS = frozenset([
+        'dangerouslySetInnerHTML', 'innerHTML', 'outerHTML',
+        'document.write', 'document.writeln'
+    ])
+
+    for pattern in REACT_XSS_SINKS:
+        taint_registry.register_sink(pattern, 'xss', 'javascript')
+
+    # React code execution sinks
+    REACT_CODE_EXEC_SINKS = frozenset([
+        'eval', 'Function', 'setTimeout', 'setInterval',
+        'new Function'
+    ])
+
+    for pattern in REACT_CODE_EXEC_SINKS:
+        taint_registry.register_sink(pattern, 'code_execution', 'javascript')
+
+    # React storage sinks (sensitive data exposure)
+    REACT_STORAGE_SINKS = frozenset([
+        'localStorage.setItem', 'sessionStorage.setItem',
+        'document.cookie'
+    ])
+
+    for pattern in REACT_STORAGE_SINKS:
+        taint_registry.register_sink(pattern, 'storage', 'javascript')
