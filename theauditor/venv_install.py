@@ -577,10 +577,93 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
 
         print(f"    {check_mark} OSV-Scanner installed at {osv_dir}")
         print(f"    {check_mark} Database cache directory: {db_dir}")
+
+        # Download offline vulnerability databases (NOT optional - required for offline mode)
         print(f"")
-        print(f"    To download offline vulnerability database (optional):")
-        print(f"      set OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
-        print(f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases")
+        print(f"    Downloading offline vulnerability databases...", flush=True)
+        print(f"    This may take 5-10 minutes and use 100-500MB disk space", flush=True)
+        print(f"    Downloading databases for: npm, PyPI", flush=True)
+
+        try:
+            # Set environment variable for database location
+            env = os.environ.copy()
+            env["OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY"] = str(db_dir)
+
+            # Create a minimal lockfile to trigger database download
+            # OSV-Scanner needs a lockfile to determine which ecosystems to download
+            temp_dir = osv_dir / "temp_download"
+            temp_dir.mkdir(exist_ok=True)
+
+            # Create minimal package-lock.json for npm database
+            npm_lock = temp_dir / "package-lock.json"
+            npm_lock.write_text(json.dumps({
+                "name": "temp-for-db-download",
+                "version": "1.0.0",
+                "lockfileVersion": 3,
+                "packages": {
+                    "": {"name": "temp-for-db-download", "version": "1.0.0"}
+                }
+            }, indent=2))
+
+            # Create minimal requirements.txt for PyPI database
+            py_lock = temp_dir / "requirements.txt"
+            py_lock.write_text("# Minimal file for database download\n")
+
+            # Download databases using OSV-Scanner
+            # The --offline-vulnerabilities flag combined with lockfiles triggers database download
+            result = subprocess.run(
+                [
+                    str(binary_path),
+                    "scan",
+                    "-L", str(npm_lock),
+                    "-L", str(py_lock),
+                    "--offline-vulnerabilities",
+                    "--format", "json"
+                ],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 minutes max for database download
+                cwd=str(temp_dir)
+            )
+
+            # Clean up temp directory
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+            # Verify databases were downloaded
+            npm_db = db_dir / "npm" / "all.zip"
+            pypi_db = db_dir / "PyPI" / "all.zip"
+
+            if npm_db.exists():
+                npm_size = npm_db.stat().st_size / (1024 * 1024)  # MB
+                print(f"    {check_mark} npm vulnerability database downloaded ({npm_size:.1f} MB)")
+            else:
+                print(f"    ⚠ npm database download failed - online mode will use API")
+
+            if pypi_db.exists():
+                pypi_size = pypi_db.stat().st_size / (1024 * 1024)  # MB
+                print(f"    {check_mark} PyPI vulnerability database downloaded ({pypi_size:.1f} MB)")
+            else:
+                print(f"    ⚠ PyPI database download failed - online mode will use API")
+
+            if npm_db.exists() or pypi_db.exists():
+                print(f"    {check_mark} Offline vulnerability scanning ready")
+            else:
+                print(f"    ⚠ Database download failed - scanner will use online API mode")
+                print(f"    ⚠ To retry manually, run:")
+                print(f"      export OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
+                print(f"      {binary_path} scan -r . --offline-vulnerabilities")
+
+        except subprocess.TimeoutExpired:
+            print(f"    ⚠ Database download timed out after 10 minutes")
+            print(f"    ⚠ Scanner will use online API mode")
+            print(f"    ⚠ To retry: delete {db_dir} and run setup again")
+        except Exception as e:
+            print(f"    ⚠ Database download failed: {e}")
+            print(f"    ⚠ Scanner will use online API mode")
+            print(f"    ⚠ To retry manually:")
+            print(f"      export OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
+            print(f"      {binary_path} scan -r . --offline-vulnerabilities")
 
         return binary_path
 

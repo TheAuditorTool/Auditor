@@ -72,6 +72,16 @@ class IndexerOrchestrator:
         self.docker_extractor.db_manager = self.db_manager
         self.generic_extractor.db_manager = self.db_manager
 
+        # Inject db_manager into registry extractors that need it
+        # PrismaExtractor and any other database-first extractors
+        for ext in self.extractor_registry.extractors.values():
+            if hasattr(ext, 'extract') and not hasattr(ext, 'db_manager'):
+                # Check if extractor uses db_manager by inspecting its code
+                import inspect
+                source = inspect.getsource(ext.extract)
+                if 'self.db_manager' in source:
+                    ext.db_manager = self.db_manager
+
         # Stats tracking
         self.counts = {
             "files": 0,
