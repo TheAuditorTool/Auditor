@@ -633,46 +633,178 @@ class AsyncConcurrencyAnalyzer:
         except (sqlite3.Error, Exception):
             pass
 
+    def _extract_base_object(self, callee_function: str) -> str:
+        """Extract base object from function call.
+
+        Examples:
+            'fs.existsSync' → 'fs'
+            'user.save' → 'user'
+            'save' → '' (no object)
+
+        Args:
+            callee_function: Function call string
+
+        Returns:
+            Base object name or empty string
+        """
+        if '.' in callee_function:
+            return callee_function.split('.')[0]
+        return ''
+
+    def _extract_operation_target(self, callee_function: str, argument_expr: str) -> str:
+        """Extract operation target (object + first argument).
+
+        Examples:
+            ('fs.existsSync', 'filePath') → 'fs:filePath'
+            ('user.save', '') → 'user'
+            ('save', '') → ''
+
+        Args:
+            callee_function: Function being called
+            argument_expr: Argument expression string
+
+        Returns:
+            Target identifier for grouping operations
+        """
+        base_obj = self._extract_base_object(callee_function)
+
+        # Parse first argument from expression
+        first_arg = ''
+        if argument_expr:
+            cleaned = argument_expr.strip('()')
+            first_arg = cleaned.split(',')[0].strip() if ',' in cleaned else cleaned.strip()
+
+        if base_obj and first_arg:
+            return f"{base_obj}:{first_arg}"
+        elif base_obj:
+            return base_obj
+        elif first_arg:
+            return first_arg
+        return ''
+
+    def _calculate_toctou_confidence(self, check_func: str, write_func: str, target: str) -> float:
+        """Calculate confidence that this is a real TOCTOU vulnerability.
+
+        Args:
+            check_func: Check function name
+            write_func: Write function name
+            target: Target identifier
+
+        Returns:
+            0.0-1.0 confidence score
+        """
+        confidence = 0.5  # Base confidence
+
+        # Boost: File system operations
+        if 'fs.' in check_func or 'fs.' in write_func:
+            confidence += 0.2
+
+        # Boost: Target includes specific variable
+        if ':' in target:  # Format is 'obj:variable'
+            confidence += 0.15
+
+        # Boost: Known TOCTOU patterns
+        known_patterns = [
+            ('exists', 'read'), ('exists', 'write'), ('exists', 'delete'),
+            ('has', 'get'), ('includes', 'remove'),
+        ]
+
+        for check_pattern, write_pattern in known_patterns:
+            if check_pattern in check_func.lower() and write_pattern in write_func.lower():
+                confidence += 0.15
+                break
+
+        # Penalty: Generic operations (likely false positive)
+        generic_ops = ['save', 'update', 'create']
+        if any(op in write_func.lower() for op in generic_ops):
+            confidence -= 0.1
+
+        return max(0.0, min(1.0, confidence))
+
     def _check_toctou_race_conditions(self) -> None:
-        """Check for time-of-check-time-of-use race conditions."""
+        """Check for TOCTOU race conditions with object tracking."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Get all function calls with arguments
             cursor.execute("""
-                SELECT f1.file, f1.line, f1.callee_function, f2.callee_function
-                FROM function_call_args f1
-                JOIN function_call_args f2 ON f1.file = f2.file
-                WHERE f2.line BETWEEN f1.line + 1 AND f1.line + 10
-                ORDER BY f1.file, f1.line
+                SELECT file, line, callee_function, argument_expr
+                FROM function_call_args
+                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
+                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
+                ORDER BY file, line
             """)
 
-            for file, line, check_func, write_func in cursor.fetchall():
-                # Check if first is a check operation
-                is_check = False
-                for pattern in self.patterns.CHECK_OPERATIONS:
-                    if pattern in check_func:
-                        is_check = True
-                        break
+            all_calls = cursor.fetchall()
 
-                # Check if second is a write operation
-                is_write = False
-                for pattern in self.patterns.WRITE_OPERATIONS:
-                    if pattern in write_func:
-                        is_write = True
-                        break
+            # Group by file
+            calls_by_file = {}
+            for file, line, func, args in all_calls:
+                if file not in calls_by_file:
+                    calls_by_file[file] = []
+                calls_by_file[file].append((line, func, args))
 
-                if is_check and is_write:
-                    self.findings.append(StandardFinding(
-                        rule_name='check-then-act',
-                        message=f'TOCTOU race: {check_func} then {write_func}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category='race-condition',
-                        confidence=Confidence.HIGH,
-                        snippet=f'{check_func} -> {write_func}',
-                    ))
+            # Process each file
+            for file, calls in calls_by_file.items():
+                # Build index of operations by target
+                check_ops = {}  # {target: [(line, function)]}
+                write_ops = {}  # {target: [(line, function)]}
+
+                for line, func, args in calls:
+                    target = self._extract_operation_target(func, args)
+                    if not target:
+                        continue  # Skip if can't determine target
+
+                    # Check if CHECK operation
+                    is_check = any(pattern in func for pattern in self.patterns.CHECK_OPERATIONS)
+                    if is_check:
+                        if target not in check_ops:
+                            check_ops[target] = []
+                        check_ops[target].append((line, func))
+
+                    # Check if WRITE operation
+                    is_write = any(pattern in func for pattern in self.patterns.WRITE_OPERATIONS)
+                    if is_write:
+                        if target not in write_ops:
+                            write_ops[target] = []
+                        write_ops[target].append((line, func))
+
+                # Find TOCTOU pairs (CHECK then WRITE on SAME target)
+                for target, checks in check_ops.items():
+                    if target not in write_ops:
+                        continue  # No write on this target
+
+                    writes = write_ops[target]
+
+                    # For each CHECK operation
+                    for check_line, check_func in checks:
+                        # Find WRITEs within 10 lines after CHECK
+                        for write_line, write_func in writes:
+                            if 1 <= write_line - check_line <= 10:
+                                # Potential TOCTOU detected
+                                confidence = self._calculate_toctou_confidence(
+                                    check_func, write_func, target
+                                )
+
+                                # Determine severity based on confidence
+                                if confidence >= 0.7:
+                                    severity = Severity.HIGH
+                                elif confidence >= 0.5:
+                                    severity = Severity.MEDIUM
+                                else:
+                                    severity = Severity.LOW
+
+                                self.findings.append(StandardFinding(
+                                    rule_name='check-then-act',
+                                    message=f'Potential TOCTOU: {check_func} at line {check_line}, then {write_func} at line {write_line} (target: {target})',
+                                    file_path=file,
+                                    line=check_line,
+                                    severity=severity,
+                                    category='race-condition',
+                                    confidence=confidence,
+                                    snippet=f'{check_func} → {write_func} (target: {target})',
+                                ))
 
             conn.close()
 

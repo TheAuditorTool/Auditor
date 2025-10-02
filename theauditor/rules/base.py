@@ -153,24 +153,31 @@ class StandardFinding:
     additional_info: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
+        """Convert to dictionary for JSON serialization.
+
+        Field mappings aligned with findings_consolidated schema:
+        - rule_name → rule
+        - file_path → file
+        - snippet → code_snippet
+        - cwe_id → cwe
+        """
         result = {
-            "rule_name": self.rule_name,
+            "rule": self.rule_name,  # Schema expects 'rule'
             "message": self.message,
-            "file_path": self.file_path,
+            "file": self.file_path,  # Schema expects 'file'
             "line": self.line,
             "column": self.column,
             "severity": self.severity.value if isinstance(self.severity, Severity) else self.severity,
             "category": self.category,
             "confidence": self.confidence.value if isinstance(self.confidence, Confidence) else self.confidence,
-            "snippet": self.snippet,
+            "code_snippet": self.snippet,  # Schema expects 'code_snippet'
         }
 
         # Only include optional fields if set
         if self.references:
             result["references"] = self.references
         if self.cwe_id:
-            result["cwe_id"] = self.cwe_id
+            result["cwe"] = self.cwe_id  # Schema expects 'cwe'
         if self.additional_info:
             result["additional_info"] = self.additional_info
 

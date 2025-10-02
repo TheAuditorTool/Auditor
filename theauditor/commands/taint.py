@@ -80,7 +80,46 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         click.echo(f"Error: Database not found at {db}", err=True)
         click.echo("Run 'aud index' first to build the repository index", err=True)
         raise click.ClickException(f"Database not found: {db}")
-    
+
+    # SCHEMA CONTRACT: Pre-flight validation before expensive analysis
+    click.echo("Validating database schema...", err=True)
+    try:
+        import sqlite3
+        from theauditor.indexer.schema import validate_all_tables
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        mismatches = validate_all_tables(cursor)
+        conn.close()
+
+        if mismatches:
+            click.echo("", err=True)
+            click.echo("=" * 60, err=True)
+            click.echo(" SCHEMA VALIDATION FAILED ", err=True)
+            click.echo("=" * 60, err=True)
+            click.echo("Database schema does not match expected definitions.", err=True)
+            click.echo("This will cause incorrect results or failures.\n", err=True)
+
+            for table_name, errors in list(mismatches.items())[:5]:  # Show first 5 tables
+                click.echo(f"Table: {table_name}", err=True)
+                for error in errors[:2]:  # Show first 2 errors per table
+                    click.echo(f"  - {error}", err=True)
+
+            click.echo("\nFix: Run 'aud index' to rebuild database with correct schema.", err=True)
+            click.echo("=" * 60, err=True)
+
+            if not click.confirm("\nContinue anyway? (results may be incorrect)", default=False):
+                raise click.ClickException("Aborted due to schema mismatch")
+
+            click.echo("WARNING: Continuing with schema mismatch - results may be unreliable", err=True)
+        else:
+            click.echo("Schema validation passed.", err=True)
+    except ImportError:
+        click.echo("Schema validation skipped (schema module not available)", err=True)
+    except Exception as e:
+        click.echo(f"Schema validation error: {e}", err=True)
+        click.echo("Continuing anyway...", err=True)
+
     # Check if rules are enabled
     if rules:
         # STAGE 1: Initialize infrastructure

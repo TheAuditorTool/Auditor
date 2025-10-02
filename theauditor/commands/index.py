@@ -78,3 +78,28 @@ def index(root, manifest, db, print_stats, dry_run, follow_symlinks, exclude_sel
     if result.get("error"):
         click.echo(f"Error: {result['error']}", err=True)
         raise click.ClickException(result["error"])
+
+    # SCHEMA CONTRACT: Validate database schema after indexing
+    if not dry_run:
+        try:
+            import sqlite3
+            from theauditor.indexer.schema import validate_all_tables
+
+            conn = sqlite3.connect(db)
+            cursor = conn.cursor()
+            mismatches = validate_all_tables(cursor)
+            conn.close()
+
+            if mismatches:
+                click.echo("", err=True)
+                click.echo(" Schema Validation Warnings ", err=True)
+                click.echo("=" * 60, err=True)
+                for table_name, errors in mismatches.items():
+                    click.echo(f"  {table_name}:", err=True)
+                    for error in errors[:3]:  # Show first 3 errors per table
+                        click.echo(f"    - {error}", err=True)
+                click.echo("", err=True)
+                click.echo("Note: Some warnings may be expected (migrated columns).", err=True)
+                click.echo("Run 'aud index' again to rebuild with correct schema.", err=True)
+        except Exception as e:
+            click.echo(f"Schema validation skipped: {e}", err=True)
