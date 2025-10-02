@@ -36,7 +36,13 @@ METADATA = RuleMetadata(
 
     # Target Dockerfiles specifically
     target_extensions=[],  # Empty = runs at database level, not per-file
-    exclude_patterns=['test/', '__tests__/', 'node_modules/'],
+    exclude_patterns=[
+        'test/',
+        '__tests__/',
+        'node_modules/',
+        '.pf/',              # TheAuditor output directory
+        '.auditor_venv/'     # TheAuditor sandboxed tools
+    ],
 
     # Database-first: not JSX-specific
     requires_jsx_pass=False,
@@ -88,7 +94,7 @@ SECRET_VALUE_PATTERNS = [
 # MAIN DETECTION FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def find_docker_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Dockerfile security misconfigurations using indexed data.
 
     Detection Strategy:
@@ -96,10 +102,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     2. Check USER instruction (root user detection)
     3. Scan ENV/ARG for hardcoded secrets
     4. Validate base image versions
-    5. Optional: Scan base images for CVEs
+    5. Check for missing HEALTHCHECK
+    6. Detect sensitive ports exposed
+    7. Optional: Scan base images for CVEs
 
     Database Tables Used:
-    - docker_images: Dockerfile metadata (USER, ENV, ARG, base_image)
+    - docker_images: Dockerfile metadata (USER, ENV, ARG, base_image, exposed_ports, has_healthcheck)
 
     Args:
         context: Rule execution context with database path
@@ -136,6 +144,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         findings.extend(_check_root_user(cursor, patterns))
         findings.extend(_check_exposed_secrets(cursor, patterns))
         findings.extend(_check_vulnerable_images(cursor, patterns))
+        findings.extend(_check_missing_healthcheck(cursor))
+        findings.extend(_check_sensitive_ports(cursor))
 
         # Optional: CVE scanning (requires network, skip in offline mode)
         # findings.extend(_check_base_image_cves(cursor))
@@ -416,6 +426,108 @@ def _is_high_entropy(value: str, threshold: float = 4.0) -> bool:
             entropy -= probability * math.log2(probability)
 
     return entropy > threshold
+
+
+def _check_missing_healthcheck(cursor) -> List[StandardFinding]:
+    """Detect containers without HEALTHCHECK instruction.
+
+    HEALTHCHECK allows Docker/Kubernetes to monitor container health.
+    Without it, orchestrators can't detect application failures and
+    will keep routing traffic to dead containers.
+
+    Checks docker_images.has_healthcheck field.
+    """
+    findings = []
+
+    cursor.execute("SELECT file_path FROM docker_images WHERE has_healthcheck = 0 OR has_healthcheck IS NULL")
+
+    for row in cursor.fetchall():
+        file_path = row[0]
+
+        findings.append(StandardFinding(
+            rule_name='dockerfile-missing-healthcheck',
+            message='Container missing HEALTHCHECK instruction - orchestrator cannot monitor health',
+            file_path=file_path,
+            line=1,
+            severity=Severity.MEDIUM,
+            category='deployment',
+            snippet='# No HEALTHCHECK instruction found',
+            cwe_id='CWE-1272'  # Sensitive Information Uncleared Before Debug/Power State Transition
+        ))
+
+    return findings
+
+
+def _check_sensitive_ports(cursor) -> List[StandardFinding]:
+    """Detect containers exposing sensitive management ports.
+
+    Exposing management ports (SSH, RDP, database ports) in production
+    increases attack surface. These should be behind VPN/bastion hosts.
+
+    Checks docker_images.exposed_ports field against known sensitive ports.
+    """
+    findings = []
+
+    # Sensitive ports that should not be exposed in production
+    SENSITIVE_PORT_NUMS = frozenset([
+        '22',    # SSH
+        '23',    # Telnet
+        '135',   # Windows RPC
+        '139',   # NetBIOS
+        '445',   # SMB
+        '3389',  # RDP
+        '3306',  # MySQL
+        '5432',  # PostgreSQL
+        '6379',  # Redis
+        '27017', # MongoDB
+        '9200',  # Elasticsearch
+    ])
+
+    cursor.execute("SELECT file_path, exposed_ports FROM docker_images WHERE exposed_ports IS NOT NULL AND exposed_ports != '[]'")
+
+    for row in cursor.fetchall():
+        file_path = row[0]
+        ports_json = row[1]
+
+        try:
+            ports = json.loads(ports_json) if ports_json else []
+        except json.JSONDecodeError:
+            continue
+
+        # Check each exposed port
+        for port_spec in ports:
+            # Handle different port formats: "8080", "8080/tcp", etc.
+            port_num = port_spec.split('/')[0].strip()
+
+            if port_num in SENSITIVE_PORT_NUMS:
+                # Map port to service name
+                port_service_map = {
+                    '22': 'SSH',
+                    '23': 'Telnet',
+                    '135': 'Windows RPC',
+                    '139': 'NetBIOS',
+                    '445': 'SMB',
+                    '3389': 'RDP',
+                    '3306': 'MySQL',
+                    '5432': 'PostgreSQL',
+                    '6379': 'Redis',
+                    '27017': 'MongoDB',
+                    '9200': 'Elasticsearch',
+                }
+                service_name = port_service_map.get(port_num, 'Unknown')
+
+                findings.append(StandardFinding(
+                    rule_name='dockerfile-sensitive-port-exposed',
+                    message=f'Container exposes sensitive port {port_num} ({service_name}) - should be behind VPN/bastion',
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.HIGH,
+                    category='deployment',
+                    snippet=f'EXPOSE {port_spec}',
+                    cwe_id='CWE-749'  # Exposed Dangerous Method or Function
+                ))
+
+    return findings
 
 
 # ============================================================================

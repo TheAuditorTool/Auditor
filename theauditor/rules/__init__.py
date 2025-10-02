@@ -13,7 +13,7 @@ from .sql import (
     find_sql_safety_issues,
     find_multi_tenant_issues
 )
-from .security.apiauth_analyze import find_apiauth_issues
+from .security.api_auth_analyze import find_apiauth_issues
 from .performance import (
     find_queries_in_loops,
     find_inefficient_string_concatenation,

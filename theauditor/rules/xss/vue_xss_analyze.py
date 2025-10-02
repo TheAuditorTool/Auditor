@@ -7,7 +7,19 @@ Uses Vue-specific database tables for accurate detection.
 import sqlite3
 from typing import List
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="vue_xss",
+    category="xss",
+    target_extensions=['.vue', '.js', '.ts'],
+    exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.spec.js'],
+    requires_jsx_pass=False
+)
 
 
 # Vue dangerous directives

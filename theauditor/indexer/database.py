@@ -42,7 +42,6 @@ class DatabaseManager:
         self.symbols_batch = []
         self.orm_queries_batch = []
         self.docker_images_batch = []
-        self.docker_issues_batch = []
         self.assignments_batch = []
         self.function_call_args_batch = []
         self.function_returns_batch = []
@@ -200,18 +199,6 @@ class DatabaseManager:
                 user TEXT,
                 has_healthcheck BOOLEAN DEFAULT 0,
                 FOREIGN KEY(file_path) REFERENCES files(path)
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS docker_issues(
-                file TEXT NOT NULL,
-                line INTEGER NOT NULL,
-                issue_type TEXT NOT NULL,
-                severity TEXT NOT NULL,
-                FOREIGN KEY(file) REFERENCES files(path)
             )
         """
         )
@@ -732,8 +719,6 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_queries_file ON sql_queries(file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_queries_command ON sql_queries(command)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_docker_images_base ON docker_images(base_image)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_docker_issues_file ON docker_issues(file)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_docker_issues_severity ON docker_issues(severity)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orm_queries_file ON orm_queries(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orm_queries_type ON orm_queries(query_type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prisma_models_indexed ON prisma_models(is_indexed)")
@@ -898,7 +883,6 @@ class DatabaseManager:
             cursor.execute("DELETE FROM symbols")
             cursor.execute("DELETE FROM sql_queries")
             cursor.execute("DELETE FROM docker_images")
-            cursor.execute("DELETE FROM docker_issues")
             cursor.execute("DELETE FROM orm_queries")
             cursor.execute("DELETE FROM prisma_models")
             cursor.execute("DELETE FROM compose_services")
@@ -990,10 +974,6 @@ class DatabaseManager:
         args_json = json.dumps(build_args)
         self.docker_images_batch.append((file_path, base_image, ports_json, env_json, 
                                         args_json, user, has_healthcheck))
-
-    def add_docker_issue(self, file_path: str, line: int, issue_type: str, severity: str):
-        """Add a Docker security issue to the batch."""
-        self.docker_issues_batch.append((file_path, line, issue_type, severity))
 
     def add_assignment(self, file_path: str, line: int, target_var: str, source_expr: str,
                       source_vars: List[str], in_function: str):
@@ -1418,14 +1398,7 @@ class DatabaseManager:
                     self.docker_images_batch
                 )
                 self.docker_images_batch = []
-            
-            if self.docker_issues_batch:
-                cursor.executemany(
-                    "INSERT INTO docker_issues (file, line, issue_type, severity) VALUES (?, ?, ?, ?)",
-                    self.docker_issues_batch
-                )
-                self.docker_issues_batch = []
-            
+
             if self.assignments_batch:
                 cursor.executemany(
                     "INSERT INTO assignments (file, line, target_var, source_expr, source_vars, in_function) VALUES (?, ?, ?, ?, ?, ?)",
@@ -1746,7 +1719,6 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.symbols_batch = []
     manager.orm_queries_batch = []
     manager.docker_images_batch = []
-    manager.docker_issues_batch = []
     manager.assignments_batch = []
     manager.function_call_args_batch = []
     manager.function_returns_batch = []

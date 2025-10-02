@@ -11,7 +11,29 @@ import json
 from typing import List, Set, Dict, Any, Optional
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA (Orchestrator Smart Filtering)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="react_render_issues",
+    category="react",
+
+    # Target React files only
+    target_extensions=['.jsx', '.tsx', '.js', '.ts'],
+
+    # Focus on frontend directories
+    target_file_patterns=['frontend/', 'client/', 'src/'],
+
+    # Skip non-source files
+    exclude_patterns=['node_modules/', '__tests__/', '*.test.jsx', '*.test.tsx', 'migrations/'],
+
+    # Uses standard tables for render performance analysis
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

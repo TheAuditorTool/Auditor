@@ -7,7 +7,19 @@ These are particularly dangerous as they can bypass server-side protections.
 import sqlite3
 from typing import List
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="dom_xss",
+    category="xss",
+    target_extensions=['.js', '.ts', '.jsx', '.tsx', '.html'],
+    exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.test.js', '*.spec.js'],
+    requires_jsx_pass=False
+)
 
 
 # DOM XSS Sources (where malicious data comes from)

@@ -15,7 +15,38 @@ import json
 from typing import List
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - SMART FILTERING
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="typeorm_orm_issues",
+    category="orm",
+
+    # Target TypeScript files (TypeORM is TypeScript-first)
+    target_extensions=['.ts', '.tsx', '.mjs'],
+
+    # Exclude patterns - skip tests, migrations, build, TheAuditor folders
+    exclude_patterns=[
+        '__tests__/',
+        'test/',
+        'tests/',
+        'node_modules/',
+        'dist/',
+        'build/',
+        '.next/',
+        'migrations/',
+        'migration/',          # TypeORM-specific migrations
+        '.pf/',                # TheAuditor output directory
+        '.auditor_venv/'       # TheAuditor sandboxed tools
+    ],
+
+    # This is a DATABASE-ONLY rule (no JSX required)
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================
@@ -563,5 +594,3 @@ def register_taint_patterns(taint_registry):
     for pattern in TRANSACTION_METHODS:
         taint_registry.register_sink(pattern, 'transaction', 'javascript')
         taint_registry.register_sink(pattern, 'transaction', 'typescript')
-
-typeorm_analyze.py

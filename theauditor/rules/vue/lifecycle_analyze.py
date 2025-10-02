@@ -14,7 +14,21 @@ import sqlite3
 from typing import List, Set, Dict
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA (Phase 3B - Smart Filtering)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="vue_lifecycle",
+    category="vue",
+    target_extensions=['.vue', '.js', '.ts', '.jsx', '.tsx'],
+    target_file_patterns=['frontend/', 'client/', 'src/components/', 'src/views/', 'src/pages/'],
+    exclude_patterns=['backend/', 'server/', 'api/', 'migrations/', '__tests__/', '*.test.*', '*.spec.*'],
+    requires_jsx_pass=False  # Lifecycle hooks use standard tables
+)
 
 
 # ============================================================================
@@ -561,3 +575,16 @@ def _find_unhandled_async(cursor, vue_files: Set[str]) -> List[StandardFinding]:
             ))
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_vue_lifecycle_issues(context)

@@ -11,7 +11,21 @@ semantic AST analysis via js_semantic_parser.
 
 import sqlite3
 from typing import List, Dict, Any, Set, Optional
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA (Phase 3B - Smart Filtering)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="vue_reactivity",
+    category="vue",
+    target_extensions=['.vue', '.js', '.ts'],
+    target_file_patterns=['frontend/', 'client/', 'src/components/', 'src/views/'],
+    exclude_patterns=['backend/', 'server/', 'api/', '__tests__/', '*.test.*', '*.spec.*'],
+    requires_jsx_pass=False  # Uses semantic AST, not JSX-preserved AST
+)
 
 
 def find_vue_reactivity_issues(context: StandardRuleContext) -> List[StandardFinding]:
@@ -415,3 +429,16 @@ def _check_data_function(node, get_text_func, get_line_func):
         issues.extend(child_issues)
 
     return issues
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_vue_reactivity_issues(context)

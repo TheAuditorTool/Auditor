@@ -15,7 +15,38 @@ import json
 from typing import List
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - SMART FILTERING
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="prisma_orm_issues",
+    category="orm",
+
+    # Target TypeScript/JavaScript files (Prisma is primarily TypeScript)
+    target_extensions=['.ts', '.js', '.tsx', '.jsx', '.mjs', '.cjs'],
+
+    # Exclude patterns - skip tests, migrations, build, frontend, TheAuditor folders
+    exclude_patterns=[
+        '__tests__/',
+        'test/',
+        'tests/',
+        'node_modules/',
+        'dist/',
+        'build/',
+        '.next/',
+        'migrations/',
+        'prisma/migrations/',  # Prisma-specific migrations
+        '.pf/',                # TheAuditor output directory
+        '.auditor_venv/'       # TheAuditor sandboxed tools
+    ],
+
+    # This is a DATABASE-ONLY rule (no JSX required)
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

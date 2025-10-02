@@ -7,7 +7,19 @@ Uses database-only approach with React component awareness.
 import sqlite3
 from typing import List
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="react_xss",
+    category="xss",
+    target_extensions=['.jsx', '.tsx', '.js', '.ts'],
+    exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.test.jsx', '*.spec.tsx'],
+    requires_jsx_pass=False
+)
 
 
 # React dangerous props/methods

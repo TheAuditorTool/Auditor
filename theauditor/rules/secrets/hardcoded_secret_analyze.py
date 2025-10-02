@@ -21,7 +21,47 @@ from typing import List, Optional
 from pathlib import Path
 from collections import Counter
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Smart Filtering Configuration
+# ============================================================================
+# HYBRID JUSTIFICATION: This rule requires file I/O because:
+# 1. Entropy calculation is computational (Shannon entropy cannot be pre-indexed)
+# 2. Base64 decoding requires runtime processing
+# 3. Provider-specific patterns evolve and need regex evaluation
+# 4. Sequential/keyboard pattern detection is algorithmic
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="hardcoded_secrets",
+    category="secrets",
+
+    # Target source code and config files ONLY
+    target_extensions=[
+        '.py', '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs',  # Code
+        '.env', '.json', '.yml', '.yaml', '.toml', '.ini',    # Config
+        '.sh', '.bash', '.zsh'                                 # Scripts
+    ],
+
+    # Exclude non-source paths and example files
+    exclude_patterns=[
+        'node_modules/',      # Dependencies
+        'venv/', '.venv/',    # Virtual environments
+        'migrations/',        # Database migrations (low priority)
+        'test/', '__tests__/', 'tests/',  # Test files
+        '.env.example',       # Example templates
+        '.env.template',
+        'package-lock.json',  # Lock files
+        'yarn.lock',
+        'dist/', 'build/',    # Build outputs
+        '.git/'               # Version control
+    ],
+
+    # Not JSX-specific (uses standard tables)
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

@@ -4,6 +4,17 @@
 RULE TEMPLATE DOCUMENTATION
 ================================================================================
 
+⚠️ CRITICAL: StandardFinding PARAMETER NAMES
+--------------------------------------------------------------------------------
+ALWAYS use these EXACT parameter names when creating findings:
+  ✅ file_path=     (NOT file=)
+  ✅ rule_name=     (NOT rule=)
+  ✅ cwe_id=        (NOT cwe=)
+  ✅ severity=Severity.HIGH (NOT severity='HIGH')
+
+Using wrong names will cause RUNTIME CRASHES. See examples at line 233.
+--------------------------------------------------------------------------------
+
 This template is for STANDARD RULES that analyze backend code, databases, or
 general language patterns. These rules:
 
@@ -230,10 +241,10 @@ def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> List[StandardF
         seen.add(key)
 
         findings.append(StandardFinding(
-            rule_name='your-rule-dangerous-call',
-            message=f'Dangerous function {func}() called with user input',
-            file_path=file,
+            file_path=file,           # ✅ CORRECT: Use file_path= not file=
             line=line,
+            rule_name='your-rule-dangerous-call',  # ✅ CORRECT: Use rule_name= not rule=
+            message=f'Dangerous function {func}() called with user input',
             severity=Severity.HIGH,  # Choose: CRITICAL, HIGH, MEDIUM, LOW, INFO
             category='security',      # Match METADATA.category
             snippet=args[:80] + '...' if len(args) > 80 else args,
@@ -268,10 +279,10 @@ def _check_user_input_flow(cursor, patterns: YourRulePatterns) -> List[StandardF
 
         if has_input:
             findings.append(StandardFinding(
-                rule_name='your-rule-input-flow',
-                message=f'User input assigned to variable {target}',
-                file_path=file,
+                file_path=file,           # ✅ CORRECT parameter order
                 line=line,
+                rule_name='your-rule-input-flow',  # ✅ CORRECT: rule_name= not rule=
+                message=f'User input assigned to variable {target}',
                 severity=Severity.MEDIUM,
                 category='security',
                 snippet=f'{target} = {source[:60]}'

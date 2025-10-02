@@ -9,7 +9,19 @@ Truth Courier Design: Reports facts about SQL construction patterns, not recomme
 import sqlite3
 from typing import List
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="sql_injection",
+    category="sql",
+    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
+    exclude_patterns=['frontend/', 'client/', 'migrations/', 'test/', '__tests__/'],
+    requires_jsx_pass=False
+)
 
 
 @dataclass(frozen=True)
@@ -69,6 +81,13 @@ def find_sql_injection(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
+        # Check table availability (graceful degradation)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        available_tables = {row[0] for row in cursor.fetchall()}
+
+        if 'function_call_args' not in available_tables:
+            return findings  # Cannot run without function_call_args table
+
         # Primary detection: function_call_args with SQL execution methods
         findings.extend(_find_format_injection(cursor, patterns))
         findings.extend(_find_fstring_injection(cursor, patterns))
@@ -89,14 +108,12 @@ def _find_format_injection(cursor, patterns: SQLInjectionPatterns) -> List[Stand
     findings = []
 
     # Query for .query/.execute calls containing .format()
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
           AND argument_expr LIKE '%.format(%'
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
     """)
 
@@ -144,14 +161,12 @@ def _find_fstring_injection(cursor, patterns: SQLInjectionPatterns) -> List[Stan
     findings = []
 
     # Query for SQL execution with f-strings
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
           AND (argument_expr LIKE '%f"%' OR argument_expr LIKE "%f'%")
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
     """)
 
@@ -195,14 +210,12 @@ def _find_concatenation_injection(cursor, patterns: SQLInjectionPatterns) -> Lis
     """Find string concatenation in SQL queries."""
     findings = []
 
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
           AND (argument_expr LIKE '% + %' OR argument_expr LIKE '%||%')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
     """)
 
@@ -249,15 +262,13 @@ def _find_template_literal_injection(cursor, patterns: SQLInjectionPatterns) -> 
     """Find template literal interpolation in SQL queries (JavaScript/TypeScript)."""
     findings = []
 
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%' OR callee_function LIKE '%.raw%')
           AND argument_expr LIKE '%${%'
           AND (file LIKE '%.js' OR file LIKE '%.ts')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
     """)
 
@@ -303,6 +314,7 @@ def _find_dynamic_query_construction(cursor, patterns: SQLInjectionPatterns) -> 
     findings = []
 
     # Only query CLEAN sql_queries (exclude UNKNOWN)
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
@@ -312,9 +324,6 @@ def _find_dynamic_query_construction(cursor, patterns: SQLInjectionPatterns) -> 
                OR query_text LIKE '%f"%'
                OR query_text LIKE "%f'%"
                OR query_text LIKE '% + %')
-          AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 20
     """)
