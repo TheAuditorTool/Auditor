@@ -501,6 +501,205 @@ def download_portable_node(sandbox_dir: Path) -> Path:
         raise RuntimeError(f"Failed to install Node.js: {e}")
 
 
+def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
+    """
+    Download and install OSV-Scanner binary for vulnerability detection.
+
+    OSV-Scanner is Google's official tool for scanning dependencies against
+    the OSV (Open Source Vulnerabilities) database. It provides offline
+    scanning capabilities once the database is downloaded.
+
+    FACTS (from installation.md - DO NOT HALLUCINATE):
+    - Binary source: https://github.com/google/osv-scanner/releases
+    - File naming: osv-scanner_{version}_{platform}_{arch}
+    - Single executable, no dependencies required
+    - SLSA3 compliant with provenance verification
+    - Offline database: {local_db_dir}/osv-scanner/{ecosystem}/all.zip
+
+    Args:
+        sandbox_dir: Directory to install OSV-Scanner (.auditor_venv/.theauditor_tools)
+
+    Returns:
+        Path to osv-scanner executable, or None if installation failed
+    """
+    import urllib.request
+    import urllib.error
+
+    print("  Setting up OSV-Scanner (Google's vulnerability scanner)...", flush=True)
+
+    osv_dir = sandbox_dir / "osv-scanner"
+    osv_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine platform-specific binary name
+    # FACTS from atomic_vuln_impl.md - DO NOT CHANGE
+    system = platform.system()
+    if system == "Windows":
+        binary_name = "osv-scanner.exe"
+        download_filename = "osv-scanner_windows_amd64.exe"
+    elif system == "Darwin":
+        binary_name = "osv-scanner"
+        download_filename = "osv-scanner_darwin_amd64"
+    else:  # Linux
+        binary_name = "osv-scanner"
+        download_filename = "osv-scanner_linux_amd64"
+
+    binary_path = osv_dir / binary_name
+
+    # Check if already installed
+    if binary_path.exists():
+        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        print(f"    {check_mark} OSV-Scanner already installed at {osv_dir}")
+        return binary_path
+
+    # Download from GitHub releases (latest)
+    # FACT: Release page at https://github.com/google/osv-scanner/releases
+    url = f"https://github.com/google/osv-scanner/releases/latest/download/{download_filename}"
+    print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
+    print(f"    URL: {url}")
+
+    try:
+        # Download binary
+        urllib.request.urlretrieve(url, str(binary_path))
+
+        # Make executable on Unix systems
+        if system != "Windows":
+            import stat
+            st = binary_path.stat()
+            binary_path.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
+
+        # Create offline database directory
+        # FACT from offline-mode.md: Database structure is {local_db_dir}/osv-scanner/{ecosystem}/all.zip
+        db_dir = osv_dir / "db"
+        db_dir.mkdir(exist_ok=True)
+
+        print(f"    {check_mark} OSV-Scanner installed at {osv_dir}")
+        print(f"    {check_mark} Database cache directory: {db_dir}")
+        print(f"")
+        print(f"    To download offline vulnerability database (optional):")
+        print(f"      set OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
+        print(f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases")
+
+        return binary_path
+
+    except urllib.error.URLError as e:
+        print(f"    ⚠ Network error downloading OSV-Scanner: {e}")
+        print(f"    ⚠ You can manually download from: https://github.com/google/osv-scanner/releases")
+        return None
+    except Exception as e:
+        print(f"    ⚠ Failed to install OSV-Scanner: {e}")
+        # Clean up partial download
+        if binary_path.exists():
+            binary_path.unlink()
+        return None
+
+
+def setup_python_security_tools(sandbox_dir: Path) -> Optional[Path]:
+    """
+    Bundle pip-audit in sandboxed Python environment.
+
+    pip-audit is a tool for scanning Python dependencies for known vulnerabilities.
+    We install it in an isolated venv to avoid conflicts with the user's project.
+
+    Creates:
+    - .theauditor_tools/python-tools/venv/ (isolated Python environment)
+    - .theauditor_tools/python-tools/pip-audit (executable symlink/copy)
+
+    Args:
+        sandbox_dir: Directory to install Python tools (.auditor_venv/.theauditor_tools)
+
+    Returns:
+        Path to pip-audit executable, or None if installation failed
+    """
+    print("  Setting up Python security tools (pip-audit)...", flush=True)
+
+    python_tools = sandbox_dir / "python-tools"
+    python_tools.mkdir(parents=True, exist_ok=True)
+
+    # Create virtual environment for Python security tools
+    venv_path = python_tools / "venv"
+
+    # Check if already exists
+    if venv_path.exists():
+        # Verify it's functional
+        if platform.system() == "Windows":
+            pip_exe = venv_path / "Scripts" / "pip.exe"
+            pip_audit_exe = venv_path / "Scripts" / "pip-audit.exe"
+        else:
+            pip_exe = venv_path / "bin" / "pip"
+            pip_audit_exe = venv_path / "bin" / "pip-audit"
+
+        if pip_audit_exe.exists():
+            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            print(f"    {check_mark} Python tools already installed at {python_tools}")
+            return pip_audit_exe
+
+    try:
+        print(f"    Creating isolated Python venv for security tools...", flush=True)
+
+        # Create venv using stdlib
+        builder = venv.EnvBuilder(
+            system_site_packages=False,
+            clear=False,
+            symlinks=(platform.system() != "Windows"),
+            upgrade=False,
+            with_pip=True,
+            prompt="[theauditor-tools]"
+        )
+        builder.create(venv_path)
+
+        # Determine pip executable path
+        if platform.system() == "Windows":
+            pip_exe = venv_path / "Scripts" / "pip.exe"
+            pip_audit_exe = venv_path / "Scripts" / "pip-audit.exe"
+        else:
+            pip_exe = venv_path / "bin" / "pip"
+            pip_audit_exe = venv_path / "bin" / "pip-audit"
+
+        # Install pip-audit
+        print(f"    Installing pip-audit 2.7.3...", flush=True)
+
+        result = subprocess.run(
+            [str(pip_exe), "install", "pip-audit==2.7.3"],
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
+        if result.returncode != 0:
+            print(f"    ⚠ pip-audit installation failed: {result.stderr[:200]}")
+            return None
+
+        # Create symlink/copy for easy access
+        target = python_tools / ("pip-audit.exe" if platform.system() == "Windows" else "pip-audit")
+
+        if platform.system() == "Windows":
+            # Windows: copy the executable
+            shutil.copy(pip_audit_exe, target)
+        else:
+            # Unix: create symlink
+            if not target.exists():
+                target.symlink_to(pip_audit_exe)
+
+        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        print(f"    {check_mark} pip-audit installed successfully")
+        print(f"    {check_mark} Python tools available at: {python_tools}")
+
+        return pip_audit_exe
+
+    except Exception as e:
+        print(f"    ⚠ Error setting up Python security tools: {e}")
+        # Clean up partial installation
+        if venv_path.exists():
+            try:
+                shutil.rmtree(venv_path)
+            except Exception:
+                pass
+        return None
+
+
 def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, bool]:
     """
     Complete venv setup: create and install TheAuditor + ALL linting tools.
@@ -865,6 +1064,25 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             print("    ⚠ To retry: Delete .auditor_venv and run setup again")
         except Exception as e:
             print(f"    ⚠ Unexpected error setting up JS tools: {e}")
-        
-    
+
+        # Setup vulnerability scanning tools (OSV-Scanner + pip-audit)
+        # These are needed by the vulnerability_scanner.py module
+        print("\nSetting up vulnerability scanning tools...", flush=True)
+
+        # OSV-Scanner for cross-platform vulnerability detection
+        osv_scanner_path = setup_osv_scanner(sandbox_dir)
+        if osv_scanner_path:
+            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            print(f"{check_mark} OSV-Scanner ready for vulnerability detection")
+        else:
+            print("⚠ OSV-Scanner setup failed - vulnerability detection may be limited")
+
+        # pip-audit for Python dependency scanning
+        pip_audit_path = setup_python_security_tools(sandbox_dir)
+        if pip_audit_path:
+            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            print(f"{check_mark} pip-audit ready for Python dependency scanning")
+        else:
+            print("⚠ pip-audit setup failed - Python vulnerability detection may be limited")
+
     return venv_path, success
