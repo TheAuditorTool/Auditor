@@ -30,7 +30,7 @@ IS_WINDOWS = platform.system() == "Windows"
 COMMAND_TIMEOUTS = {
     "index": 600,               # 10 minutes - AST parsing can be slow on large codebases
     "detect-frameworks": 300,   # 5 minutes - Quick scan of config files
-    "deps": 300,                # 5 minutes - Network I/O but usually fast
+    "deps": 600,                # 10 minutes - Network I/O + vulnerability scanning (npm audit, pip-audit, osv-scanner)
     "docs": 300,                # 5 minutes - Network I/O for fetching docs
     "workset": 300,             # 5 minutes - File system traversal
     "lint": 900,                # 15 minutes - ESLint/ruff on large codebases
@@ -414,7 +414,7 @@ def run_full_pipeline(
     command_order = [
         ("index", []),
         ("detect-frameworks", []),
-        ("deps", ["--check-latest"]),
+        ("deps", ["--check-latest", "--vuln-scan"]),  # Added --vuln-scan for vulnerability scanning
         ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
         ("docs", ["summarize"]),
         ("workset", ["--all"]),
@@ -451,7 +451,10 @@ def run_full_pipeline(
             elif cmd_name == "detect-frameworks":
                 description = f"{phase_num}. Detect frameworks"
             elif cmd_name == "deps" and "--check-latest" in extra_args:
-                description = f"{phase_num}. Check dependencies"
+                if "--vuln-scan" in extra_args:
+                    description = f"{phase_num}. Check dependencies & scan vulnerabilities"
+                else:
+                    description = f"{phase_num}. Check dependencies"
             elif cmd_name == "docs" and "fetch" in extra_args:
                 description = f"{phase_num}. Fetch documentation"
             elif cmd_name == "docs" and "summarize" in extra_args:

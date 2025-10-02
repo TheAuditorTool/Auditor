@@ -13,7 +13,39 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - SMART FILTERING
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="runtime_issues",
+    category="node",
+
+    # Target JavaScript/TypeScript files only (Node.js runtime)
+    target_extensions=['.js', '.ts', '.mjs', '.cjs'],
+
+    # Exclude patterns - skip frontend React/Vue, tests, build, TheAuditor folders
+    exclude_patterns=[
+        '__tests__/',
+        'test/',
+        'tests/',
+        'node_modules/',
+        'dist/',
+        'build/',
+        '.next/',
+        'frontend/',
+        'client/',
+        'migrations/',
+        '.pf/',              # TheAuditor output directory
+        '.auditor_venv/'     # TheAuditor sandboxed tools
+    ],
+
+    # This is a DATABASE-ONLY rule (no JSX required)
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================
@@ -90,7 +122,7 @@ class RuntimePatterns:
 # MAIN ENTRY POINT (Orchestrator Pattern)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def find_runtime_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Node.js runtime security issues.
 
     This is the main entry point called by the orchestrator.

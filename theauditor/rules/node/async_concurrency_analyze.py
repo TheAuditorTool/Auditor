@@ -13,7 +13,37 @@ from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - SMART FILTERING
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="async_concurrency_issues",
+    category="node",
+
+    # Target JavaScript/TypeScript files only
+    target_extensions=['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs'],
+
+    # Exclude patterns - skip tests, migrations, build artifacts, TheAuditor folders
+    exclude_patterns=[
+        '__tests__/',
+        'test/',
+        'tests/',
+        'node_modules/',
+        'dist/',
+        'build/',
+        '.next/',
+        'migrations/',
+        '.pf/',              # TheAuditor output directory
+        '.auditor_venv/'     # TheAuditor sandboxed tools
+    ],
+
+    # This is a DATABASE-ONLY rule (no JSX required)
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================
@@ -103,7 +133,7 @@ class AsyncPatterns:
 # MAIN ENTRY POINT (Orchestrator Pattern)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def find_async_concurrency_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect async and concurrency issues in JavaScript/TypeScript.
 
     This is the main entry point called by the orchestrator.
