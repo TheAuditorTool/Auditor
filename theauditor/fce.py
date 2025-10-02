@@ -423,7 +423,7 @@ def run_fce(
     capsules_dir: str = "./.pf/capsules",
     manifest_path: str = "manifest.json",
     workset_path: str = "./.pf/workset.json",
-    db_path: str = "repo_index.db",
+    db_path: str = ".pf/repo_index.db",
     timeout: int = 600,
     print_plan: bool = False,
 ) -> dict[str, Any]:

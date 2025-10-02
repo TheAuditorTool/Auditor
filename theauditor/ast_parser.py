@@ -309,17 +309,18 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
 
         return False
     
-    def parse_content(self, content: str, language: str, filepath: str = "unknown") -> Any:
+    def parse_content(self, content: str, language: str, filepath: str = "unknown", jsx_mode: str = 'transformed') -> Any:
         """Parse in-memory content into AST.
-        
+
         Why: parse_file() reads from disk, but universal_detector already has content.
         This provides memory-based parsing with same infrastructure for both languages.
-        
+
         Args:
             content: Source code as string
             language: Programming language ('python' or 'javascript')
             filepath: Original file path for error messages
-            
+            jsx_mode: JSX extraction mode ('preserved' or 'transformed')
+
         Returns:
             Dictionary with parsed AST or None if parsing fails
         """

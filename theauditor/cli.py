@@ -68,7 +68,8 @@ class VerboseGroup(click.Group):
         formatter.write_text("DEPENDENCIES:")
         with formatter.indentation():
             formatter.write_text("aud deps                    # Analyze project dependencies")
-            formatter.write_text("  --vuln-scan               # Run npm audit & pip-audit")
+            formatter.write_text("  --vuln-scan               # Run npm audit, pip-audit, OSV-Scanner")
+            formatter.write_text("  --offline                 # Use offline databases (no network)")
             formatter.write_text("  --check-latest            # Check for outdated packages")
             formatter.write_text("  --upgrade-all             # YOLO: upgrade everything to latest")
         
@@ -124,8 +125,8 @@ class VerboseGroup(click.Group):
         formatter.write_text("SETUP & CONFIG:")
         with formatter.indentation():
             formatter.write_text("aud init                    # Initialize .pf/ directory")
-            formatter.write_text("aud setup-claude            # Setup sandboxed JS/TS tools")
-            formatter.write_text("  --target .                # Target directory")
+            formatter.write_text("aud setup-claude            # Setup sandboxed tools + vuln databases")
+            formatter.write_text("  --target .                # Target directory (downloads ~500MB)")
             formatter.write_paragraph()
             
             formatter.write_text("aud init-js                 # Create/merge package.json")
