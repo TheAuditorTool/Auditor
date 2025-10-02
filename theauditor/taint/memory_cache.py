@@ -219,15 +219,15 @@ class MemoryCache:
             # Step 4: Load function returns if table exists
             if 'function_returns' in tables:
                 cursor.execute("""
-                    SELECT file, function_name, return_expr, return_vars, line
+                    SELECT file, line, function_name, return_expr, return_vars
                     FROM function_returns
                 """)
                 returns_data = cursor.fetchall()
 
-                for file, func_name, return_expr, return_vars, line in returns_data:
+                for file, line, func_name, return_expr, return_vars in returns_data:
                     # Normalize path
                     file = file.replace("\\", "/") if file else ""
-                    
+
                     ret = {
                         "file": file,
                         "function_name": func_name or "",
@@ -246,52 +246,51 @@ class MemoryCache:
             # Step 5: Load specialized tables for multi-table taint analysis (Phase 3.3)
             if 'sql_queries' in tables:
                 cursor.execute("""
-                    SELECT file, line, query_text, query_type
+                    SELECT file_path, line_number, query_text, command
                     FROM sql_queries
                     WHERE query_text IS NOT NULL
                     AND query_text != ''
-                    AND query_type != 'UNKNOWN'
+                    AND command != 'UNKNOWN'
                 """)
                 sql_queries_data = cursor.fetchall()
 
-                for file, line, query_text, query_type in sql_queries_data:
-                    file = file.replace("\\", "/") if file else ""
+                for file_path, line_number, query_text, command in sql_queries_data:
+                    file_path = file_path.replace("\\", "/") if file_path else ""
 
                     query = {
-                        "file": file,
-                        "line": line or 0,
+                        "file": file_path,
+                        "line": line_number or 0,
                         "query_text": query_text or "",
-                        "query_type": query_type or ""
+                        "command": command or ""
                     }
 
                     self.sql_queries.append(query)
-                    self.sql_queries_by_type[query_type].append(query)
-                    self.sql_queries_by_file[file].append(query)
+                    self.sql_queries_by_type[command].append(query)
+                    self.sql_queries_by_file[file_path].append(query)
                     self.current_memory += sys.getsizeof(query) + 50
 
                 print(f"[MEMORY] Loaded {len(self.sql_queries)} SQL queries", file=sys.stderr)
 
             if 'orm_queries' in tables:
                 cursor.execute("""
-                    SELECT file, line, model_name, operation, framework_specific
+                    SELECT file, line, query_type, includes
                     FROM orm_queries
-                    WHERE model_name IS NOT NULL
+                    WHERE query_type IS NOT NULL
                 """)
                 orm_queries_data = cursor.fetchall()
 
-                for file, line, model_name, operation, framework_data in orm_queries_data:
+                for file, line, query_type, includes in orm_queries_data:
                     file = file.replace("\\", "/") if file else ""
 
                     query = {
                         "file": file,
                         "line": line or 0,
-                        "model_name": model_name or "",
-                        "operation": operation or "",
-                        "framework_specific": framework_data or ""
+                        "query_type": query_type or "",
+                        "includes": includes or ""
                     }
 
                     self.orm_queries.append(query)
-                    self.orm_queries_by_model[model_name].append(query)
+                    self.orm_queries_by_model[query_type].append(query)
                     self.orm_queries_by_file[file].append(query)
                     self.current_memory += sys.getsizeof(query) + 50
 
@@ -469,25 +468,25 @@ class MemoryCache:
                                         "type": "sink",
                                         "metadata": {
                                             "query_text": query["query_text"][:200],
-                                            "query_type": query["query_type"],
+                                            "command": query["command"],
                                             "table": "sql_queries"
                                         }
                                     })
 
                     # Check ORM queries table
                     for query in self.orm_queries:
-                        if pattern in query["operation"]:
+                        if pattern in query["query_type"]:
                             matching_results.append({
                                 "file": query["file"],
-                                "name": f"{query['model_name']}.{query['operation']}",
+                                "name": f"{query['query_type']}",
                                 "line": query["line"],
                                 "column": 0,
                                 "pattern": pattern,
                                 "category": category,
                                 "type": "sink",
                                 "metadata": {
-                                    "model": query["model_name"],
-                                    "operation": query["operation"],
+                                    "query_type": query["query_type"],
+                                    "includes": query["includes"],
                                     "table": "orm_queries"
                                 }
                             })

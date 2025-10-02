@@ -54,7 +54,7 @@ def summary(root, raw_dir, out):
             }
     
     # Phase 2: Framework detection (read from database, not output files)
-    framework_list = _load_frameworks_from_db(project_path)
+    framework_list = _load_frameworks_from_db(Path(root))
     if framework_list:
         audit_summary["metrics_by_phase"]["detect_frameworks"] = {
             "frameworks_detected": len(framework_list),

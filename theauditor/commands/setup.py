@@ -20,16 +20,27 @@ import click
     help="Print plan without executing"
 )
 def setup_claude(target, sync, dry_run):
-    """Setup sandboxed JS/TS analysis tools for TheAuditor.
+    """Setup sandboxed analysis tools and vulnerability databases.
 
-    This command creates a sandboxed environment for JavaScript/TypeScript analysis:
+    This command creates a complete sandboxed environment for TheAuditor:
+
     1. Creates a Python venv at <target>/.auditor_venv
     2. Installs TheAuditor into that venv (editable)
-    3. Sets up isolated JS/TS tools at <target>/.auditor_venv/.theauditor_tools
-    4. Installs ESLint, TypeScript, and other analysis tools
+    3. Sets up isolated JS/TS tools (ESLint, TypeScript)
+    4. Downloads OSV-Scanner binary for vulnerability detection
+    5. Downloads offline vulnerability databases (npm, PyPI)
 
-    This sandbox ensures JS/TS analysis works correctly without interfering
-    with the project's own dependencies.
+    Initial Setup:
+      - Downloads 100-500MB of vulnerability databases
+      - Takes 5-10 minutes (one-time setup)
+      - Enables offline vulnerability scanning with no rate limits
+
+    Benefits:
+      - JS/TS analysis isolated from project dependencies
+      - Offline vulnerability scanning (no OSV.dev API calls)
+      - Cross-referenced findings from 3 sources (npm audit, pip-audit, OSV-Scanner)
+
+    After setup, run: aud deps --vuln-scan
     """
     from theauditor.claude_setup import setup_claude_complete
 

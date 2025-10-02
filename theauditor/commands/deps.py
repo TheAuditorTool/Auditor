@@ -46,9 +46,12 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
       aud deps --offline              # Skip all network operations
 
     Vulnerability Scanning (--vuln-scan):
-      - Runs native tools: npm audit, pip-audit
+      - Runs 3 native tools: npm audit, pip-audit, OSV-Scanner
+      - Cross-references findings for validation (confidence scoring)
       - Reports CVEs with severity levels
       - Exit code 2 for critical vulnerabilities
+      - Requires: Run 'aud setup-claude --target .' first
+      - Offline mode: Uses local OSV databases (faster, no rate limits)
 
     YOLO Mode (--upgrade-all):
       - Updates ALL packages to latest versions
@@ -82,8 +85,11 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
     # Vulnerability scanning
     if vuln_scan:
         click.echo(f"\n[SCAN] Running native vulnerability scanners...")
-        click.echo(f"  Using: npm audit, pip-audit (if available)")
-        
+        click.echo(f"  Using: npm audit, pip-audit, OSV-Scanner")
+        mode_str = "Offline (local databases)" if offline else "Online (OSV.dev API)"
+        click.echo(f"  Mode: {mode_str}")
+        click.echo(f"  Cross-referencing findings across 3 sources...")
+
         vulnerabilities = scan_dependencies(deps_list, offline=offline)
         
         if vulnerabilities:
