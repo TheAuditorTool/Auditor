@@ -4,6 +4,17 @@
 RULE TEMPLATE DOCUMENTATION
 ================================================================================
 
+⚠️ CRITICAL: StandardFinding PARAMETER NAMES
+--------------------------------------------------------------------------------
+ALWAYS use these EXACT parameter names when creating findings:
+  ✅ file_path=     (NOT file=)
+  ✅ rule_name=     (NOT rule=)
+  ✅ cwe_id=        (NOT cwe=)
+  ✅ severity=Severity.CRITICAL (NOT severity='CRITICAL')
+
+Using wrong names will cause RUNTIME CRASHES. See examples at line 280+.
+--------------------------------------------------------------------------------
+
 This template is for JSX-SPECIFIC RULES that analyze React/Vue components and
 require access to PRESERVED JSX syntax. These rules:
 
@@ -275,10 +286,10 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> List[St
 
             if has_user_input:
                 findings.append(StandardFinding(
-                    rule_name='jsx-element-injection',
-                    message=f'Dynamic JSX element from user input: <{{{var_name}}} />',
-                    file_path=file,
+                    file_path=file,           # ✅ CORRECT: file_path= not file=
                     line=line,
+                    rule_name='jsx-element-injection',  # ✅ CORRECT: rule_name= not rule=
+                    message=f'Dynamic JSX element from user input: <{{{var_name}}} />',
                     severity=Severity.CRITICAL,
                     category='xss',
                     snippet=f'<{element_name} /> with {var_name} from props',
@@ -321,10 +332,10 @@ def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> List[
 
             if has_user_input or spread_var.startswith('props'):
                 findings.append(StandardFinding(
-                    rule_name='jsx-spread-injection',
-                    message=f'JSX spread operator with user-controlled object: {{...{spread_var}}}',
-                    file_path=file,
+                    file_path=file,           # ✅ CORRECT: file_path= not file=
                     line=line,
+                    rule_name='jsx-spread-injection',  # ✅ CORRECT: rule_name= not rule=
+                    message=f'JSX spread operator with user-controlled object: {{...{spread_var}}}',
                     severity=Severity.HIGH,
                     category='xss',
                     snippet=f'<element {{...{spread_var}}} />',
@@ -358,10 +369,10 @@ def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> List[Stan
 
         if has_user_input and not has_sanitizer:
             findings.append(StandardFinding(
-                rule_name='jsx-dangerous-html',
-                message='dangerouslySetInnerHTML with unsanitized user input',
-                file_path=file,
+                file_path=file,           # ✅ CORRECT: file_path= not file=
                 line=line,
+                rule_name='jsx-dangerous-html',  # ✅ CORRECT: rule_name= not rule=
+                message='dangerouslySetInnerHTML with unsanitized user input',
                 severity=Severity.CRITICAL,
                 category='xss',
                 snippet=source[:80],
@@ -393,10 +404,10 @@ def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> List[StandardFindi
 
         if has_user_input:
             findings.append(StandardFinding(
-                rule_name='vue-v-html-xss',
-                message='v-html directive with user input',
-                file_path=file,
+                file_path=file,           # ✅ CORRECT: file_path= not file=
                 line=line,
+                rule_name='vue-v-html-xss',  # ✅ CORRECT: rule_name= not rule=
+                message='v-html directive with user input',
                 severity=Severity.CRITICAL,
                 category='xss',
                 snippet=f'v-html="{value[:60]}"',

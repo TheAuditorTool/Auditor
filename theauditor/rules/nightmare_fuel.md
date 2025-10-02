@@ -2193,3 +2193,91 @@ COMPREHENSIVE PHASE 3 STATUS REPORT
 
 &nbsp; This is anchored in 10,000+ lines of actual code reads. No grep. No assumptions. Just facts.
 
+
+---
+
+# PHASE 3B ADDENDUM: DEPENDENCY RULES AUDIT
+
+**Date**: 2025-10-02  
+**Scope**: Complete audit of `/rules/dependency/` folder (9 rules)  
+**Auditor**: Lead Coder Opus  
+**Status**: CRITICAL BUGS FIXED
+
+## Executive Summary
+
+Audited all 9 dependency rules for compliance with gold standards. Found **3 CRITICAL RUNTIME BUGS** that would crash rules on first invocation. All bugs fixed, templates updated, and post-implementation audit completed.
+
+**Final Status**: 9/9 rules now GOLD STANDARD compliant.
+
+---
+
+## CRITICAL BUGS FOUND & FIXED
+
+### Bug #1: StandardFinding Parameter Mismatch (CRITICAL - RUNTIME CRASH)
+
+**Files Affected**: bundle_size.py, peer_conflicts.py, update_lag.py
+
+**Root Cause**: StandardFinding dataclass parameters were renamed during Phase 2 refactor (file → file_path, rule → rule_name, cwe → cwe_id). Dependency rules were written after the refactor but copied parameter names from outdated examples.
+
+**Impact**: 3/9 dependency rules would crash with TypeError on first invocation.
+
+**Fix**: Updated all 3 files with correct parameter names and Severity enum usage.
+
+---
+
+### Bug #2: Missing Table Existence Checks
+
+**Files Affected**: bundle_size.py, peer_conflicts.py
+
+**Impact**: Rules would crash with sqlite3.OperationalError if database schema did not include dependency tables.
+
+**Fix**: Added table existence checks following gold standard pattern.
+
+---
+
+### Bug #3: Suboptimal Data Structure (Performance)
+
+**File Affected**: bundle_size.py
+
+**Impact**: Slower query performance due to O(n) membership tests instead of O(1).
+
+**Fix**: Refactored into frozenset for membership + separate dict for metadata.
+
+---
+
+## FILES MODIFIED
+
+1. bundle_size.py - Refactored data structures, added table checks, fixed StandardFinding
+2. peer_conflicts.py - Added Severity import, table checks, fixed StandardFinding
+3. update_lag.py - Updated docstring, added Severity import, fixed StandardFinding
+4. TEMPLATE_STANDARD_RULE.py - Added critical warnings about parameter names
+5. TEMPLATE_JSX_RULE.py - Added critical warnings about parameter names
+
+---
+
+## VALIDATION MATRIX
+
+All 9 rules validated as GOLD STANDARD:
+- bundle_size.py ✅
+- dependency_bloat.py ✅
+- ghost_dependencies.py ✅
+- peer_conflicts.py ✅
+- suspicious_versions.py ✅
+- typosquatting.py ✅
+- unused_dependencies.py ✅
+- update_lag.py ✅ (hybrid by design)
+- version_pinning.py ✅
+
+---
+
+## RECOMMENDATION
+
+**Dependency rules folder is now PRODUCTION READY.**
+
+All 9 rules follow gold standards: database-first architecture, frozensets for O(1) lookups, table existence checks, correct StandardFinding parameters, proper METADATA for orchestrator discovery.
+
+---
+
+**Audit Completed**: 2025-10-02  
+**Lead Coder**: Opus  
+**Architect Approval**: Pending

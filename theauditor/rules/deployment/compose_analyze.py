@@ -41,7 +41,13 @@ METADATA = RuleMetadata(
 
     # Target docker-compose files (database level, not per-file)
     target_extensions=[],  # Empty = database-first rule
-    exclude_patterns=['test/', '__tests__/', 'node_modules/'],
+    exclude_patterns=[
+        'test/',
+        '__tests__/',
+        'node_modules/',
+        '.pf/',              # TheAuditor output directory
+        '.auditor_venv/'     # TheAuditor sandboxed tools
+    ],
 
     # Database-first: not JSX-specific
     requires_jsx_pass=False,

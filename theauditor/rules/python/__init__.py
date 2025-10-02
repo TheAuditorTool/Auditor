@@ -5,10 +5,19 @@ This module contains rules for detecting Python-specific issues:
 - Async/await issues
 - Threading and multiprocessing problems
 - Lock and synchronization issues
+- Cryptography vulnerabilities
+- Injection vulnerabilities (SQL, command, code, template, etc.)
+- Deserialization vulnerabilities (pickle, YAML, marshal, etc.)
 """
 
 from .async_concurrency_analyze import find_async_concurrency_issues
+from .python_crypto_analyze import find_crypto_issues
+from .python_injection_analyze import find_injection_issues
+from .python_deserialization_analyze import find_deserialization_issues
 
 __all__ = [
-    'find_async_concurrency_issues'
+    'find_async_concurrency_issues',
+    'find_crypto_issues',
+    'find_injection_issues',
+    'find_deserialization_issues'
 ]

@@ -7,7 +7,19 @@ Covers both server-side and client-side template injection.
 import sqlite3
 from typing import List, Dict, FrozenSet
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="template_injection",
+    category="xss",
+    target_extensions=['.py', '.js', '.ts', '.html', '.ejs', '.pug', '.vue', '.jinja2'],
+    exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.test.js'],
+    requires_jsx_pass=False
+)
 
 
 # Template engines and their unsafe patterns

@@ -14,7 +14,30 @@ from typing import List, Dict, Any, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata, Confidence
+
+
+# ============================================================================
+# RULE METADATA - SMART FILTERING
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="nginx_security",
+    category="deployment",
+
+    # Target nginx config files (database level, not per-file)
+    target_extensions=[],  # Empty = database-first rule (queries nginx_configs table)
+    exclude_patterns=[
+        'test/',
+        '__tests__/',
+        'node_modules/',
+        '.pf/',              # TheAuditor output directory
+        '.auditor_venv/'     # TheAuditor sandboxed tools
+    ],
+
+    # Database-first: not JSX-specific
+    requires_jsx_pass=False,
+)
 
 
 # ============================================================================
@@ -69,7 +92,7 @@ class NginxPatterns:
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def find_nginx_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Nginx security misconfigurations.
 
     Analyzes nginx_configs table for:

@@ -22,7 +22,20 @@ import sqlite3
 from typing import List, Set
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA (Phase 3B Smart Filtering)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="python_deserialization",
+    category="deserialization",
+    target_extensions=['.py'],
+    exclude_patterns=['frontend/', 'client/', 'node_modules/', 'test/', '__tests__/', 'migrations/'],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

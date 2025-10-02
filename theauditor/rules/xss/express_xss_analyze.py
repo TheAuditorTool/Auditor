@@ -7,7 +7,19 @@ Uses database-only approach with framework awareness.
 import sqlite3
 from typing import List
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="express_xss",
+    category="xss",
+    target_extensions=['.js', '.ts', '.mjs', '.cjs'],
+    exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.test.js', '*.spec.js', 'frontend/', 'client/'],
+    requires_jsx_pass=False
+)
 
 
 # Express-specific safe methods (JSON-encoded)

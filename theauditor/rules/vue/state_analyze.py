@@ -14,7 +14,21 @@ import sqlite3
 from typing import List, Set
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA (Phase 3B - Smart Filtering)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="vue_state",
+    category="vue",
+    target_extensions=['.js', '.ts'],
+    target_file_patterns=['frontend/', 'client/', 'src/store/', 'src/stores/', 'store/', 'stores/'],
+    exclude_patterns=['backend/', 'server/', 'api/', '__tests__/', '*.test.*', '*.spec.*'],
+    requires_jsx_pass=False  # State management uses standard tables
+)
 
 
 # ============================================================================
@@ -580,3 +594,16 @@ def _find_unhandled_action_errors(cursor, store_files: Set[str]) -> List[Standar
         ))
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_vue_state_issues(context)

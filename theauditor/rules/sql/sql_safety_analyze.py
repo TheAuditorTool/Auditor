@@ -9,7 +9,19 @@ Truth Courier Design: Reports facts about SQL patterns, not recommendations.
 import sqlite3
 from typing import List
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="sql_safety",
+    category="sql",
+    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
+    exclude_patterns=['frontend/', 'client/', 'migrations/', 'test/', '__tests__/'],
+    requires_jsx_pass=False
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +85,14 @@ def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding
     cursor = conn.cursor()
 
     try:
+        # Check table availability (graceful degradation)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        available_tables = {row[0] for row in cursor.fetchall()}
+
+        required_tables = {'sql_queries', 'function_call_args'}
+        if not required_tables.issubset(available_tables):
+            return findings  # Cannot run without required tables
+
         # Primary detection: sql_queries table (clean data only)
         findings.extend(_find_update_without_where(cursor))
         findings.extend(_find_delete_without_where(cursor))
@@ -97,15 +117,13 @@ def _find_update_without_where(cursor) -> List[StandardFinding]:
     findings = []
 
     # Query CLEAN sql_queries only
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file_path, line_number, query_text
         FROM sql_queries
         WHERE command = 'UPDATE'
           AND query_text NOT LIKE '%WHERE%'
           AND query_text NOT LIKE '%where%'
-          AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 15
     """)
@@ -141,6 +159,7 @@ def _find_delete_without_where(cursor) -> List[StandardFinding]:
     """Find DELETE statements without WHERE clause."""
     findings = []
 
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file_path, line_number, query_text
         FROM sql_queries
@@ -148,9 +167,6 @@ def _find_delete_without_where(cursor) -> List[StandardFinding]:
           AND query_text NOT LIKE '%WHERE%'
           AND query_text NOT LIKE '%where%'
           AND query_text NOT LIKE '%TRUNCATE%'
-          AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 15
     """)
@@ -185,6 +201,7 @@ def _find_unbounded_queries(cursor) -> List[StandardFinding]:
     """Find SELECT queries without LIMIT that might return large datasets."""
     findings = []
 
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file_path, line_number, query_text, tables
         FROM sql_queries
@@ -192,9 +209,6 @@ def _find_unbounded_queries(cursor) -> List[StandardFinding]:
           AND query_text NOT LIKE '%LIMIT%'
           AND query_text NOT LIKE '%limit%'
           AND query_text NOT LIKE '%TOP %'
-          AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 30
     """)
@@ -238,14 +252,12 @@ def _find_select_star(cursor) -> List[StandardFinding]:
     """Find SELECT * queries that fetch unnecessary columns."""
     findings = []
 
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file_path, line_number, query_text, tables
         FROM sql_queries
         WHERE command = 'SELECT'
           AND (query_text LIKE '%SELECT *%' OR query_text LIKE '%select *%')
-          AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 25
     """)
@@ -287,15 +299,13 @@ def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> 
     findings = []
 
     # Find transaction starts in function_call_args
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
         WHERE (callee_function LIKE '%transaction%'
                OR callee_function LIKE '%begin%'
                OR callee_function LIKE '%BEGIN%')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
     """)
 
@@ -346,14 +356,13 @@ def _find_connection_leaks(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find connection opens
+    # NOTE: frontend/test filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
         WHERE (callee_function LIKE '%connect%'
                OR callee_function LIKE '%createConnection%'
                OR callee_function LIKE '%getConnection%')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
         ORDER BY file, line
         LIMIT 30
     """)
@@ -407,15 +416,13 @@ def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> List[Stand
     findings = []
 
     # Find all transaction starts grouped by file
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
         WHERE (callee_function LIKE '%transaction%'
                OR callee_function LIKE '%begin%'
                OR callee_function LIKE '%BEGIN%')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
     """)
 
@@ -465,15 +472,13 @@ def _find_large_in_clauses(cursor) -> List[StandardFinding]:
     """Find queries with large IN clauses that could be inefficient."""
     findings = []
 
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE (query_text LIKE '%IN (%' OR query_text LIKE '%in (%')
           AND command != 'UNKNOWN'
           AND LENGTH(query_text) > 150
-          AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 25
     """)
@@ -534,14 +539,12 @@ def _find_missing_db_indexes(cursor) -> List[StandardFinding]:
     # Common unindexed field patterns
     unindexed_patterns = ['email', 'username', 'status', 'created_at', 'updated_at']
 
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file_path, line_number, query_text, command, tables
         FROM sql_queries
         WHERE command = 'SELECT'
           AND query_text LIKE '%WHERE%'
-          AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 30
     """)

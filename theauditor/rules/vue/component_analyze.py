@@ -14,7 +14,21 @@ import sqlite3
 from typing import List, Set
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA (Phase 3B - Smart Filtering)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="vue_component",
+    category="vue",
+    target_extensions=['.vue', '.js', '.ts', '.jsx', '.tsx'],
+    target_file_patterns=['frontend/', 'client/', 'src/components/', 'src/views/', 'src/pages/'],
+    exclude_patterns=['backend/', 'server/', 'api/', 'migrations/', '__tests__/', '*.test.*', '*.spec.*'],
+    requires_jsx_pass=False  # Uses standard tables, not JSX-preserved
+)
 
 
 # ============================================================================
@@ -509,3 +523,16 @@ def _find_complex_template_expressions(cursor, vue_files: Set[str]) -> List[Stan
         ))
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_vue_component_issues(context)

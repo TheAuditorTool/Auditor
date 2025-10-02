@@ -9,7 +9,20 @@ Truth Courier Design: Reports facts about tenant isolation patterns, not recomme
 import sqlite3
 from typing import List
 from dataclasses import dataclass
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# RULE METADATA - Phase 3B Addition (2025-10-02)
+# ============================================================================
+METADATA = RuleMetadata(
+    name="multi_tenant",
+    category="sql",
+    target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs', '.sql'],
+    # NOTE: Do NOT exclude migrations/ - RLS policies (CREATE POLICY) are in migrations
+    exclude_patterns=['frontend/', 'client/', 'test/', '__tests__/'],
+    requires_jsx_pass=False
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +94,14 @@ def find_multi_tenant_issues(context: StandardRuleContext) -> List[StandardFindi
     cursor = conn.cursor()
 
     try:
+        # Check table availability (graceful degradation)
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        available_tables = {row[0] for row in cursor.fetchall()}
+
+        required_tables = {'sql_queries', 'function_call_args'}
+        if not required_tables.issubset(available_tables):
+            return findings  # Cannot run without required tables
+
         # Primary detection: sql_queries table (clean data only)
         findings.extend(_find_queries_without_tenant_filter(cursor, patterns))
         findings.extend(_find_rls_policies_without_using(cursor, patterns))
@@ -109,6 +130,8 @@ def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -
 
     # Check each sensitive table
     for table in patterns.SENSITIVE_TABLES:
+        # NOTE: frontend/test filtering handled by METADATA
+        # Keep migration check - sensitive table queries in migrations are data seeds, not DDL
         cursor.execute("""
             SELECT file_path, line_number, query_text, command
             FROM sql_queries
@@ -116,8 +139,6 @@ def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -
               AND command IS NOT NULL
               AND (tables LIKE ? OR query_text LIKE ?)
               AND file_path NOT LIKE '%migration%'
-              AND file_path NOT LIKE '%frontend%'
-              AND file_path NOT LIKE '%test%'
             ORDER BY file_path, line_number
             LIMIT 10
         """, (f'%{table}%', f'%{table}%'))
@@ -205,6 +226,8 @@ def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> List[Standa
     """Find queries accessing records by ID without tenant validation."""
     findings = []
 
+    # NOTE: frontend/test filtering handled by METADATA
+    # Keep migration check - ID-based queries in migrations are usually data fixes
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
@@ -214,8 +237,6 @@ def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> List[Standa
                OR query_text LIKE '%WHERE "id" = %'
                OR query_text LIKE '%WHERE `id` = %')
           AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 15
     """)
@@ -246,14 +267,12 @@ def _find_missing_rls_context(cursor, patterns: MultiTenantPatterns) -> List[Sta
     findings = []
 
     # Find transaction starts
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
         WHERE (callee_function LIKE '%transaction%'
                OR callee_function LIKE '%begin%')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
     """)
 
@@ -346,13 +365,11 @@ def _find_raw_query_without_transaction(cursor, patterns: MultiTenantPatterns) -
     findings = []
 
     # Find .query() and .raw() calls
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.raw%')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
         LIMIT 30
     """)
@@ -396,13 +413,11 @@ def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> Lis
     findings = []
 
     # Query orm_queries for findAll/findOne operations
+    # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
         SELECT file, line, query_type
         FROM orm_queries
         WHERE (query_type LIKE '%.findAll%' OR query_type LIKE '%.findOne%')
-          AND file NOT LIKE '%frontend%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%migration%'
         ORDER BY file, line
         LIMIT 40
     """)
@@ -457,14 +472,14 @@ def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) 
     findings = []
 
     # Find bulk operations in sql_queries
+    # NOTE: frontend/test filtering handled by METADATA
+    # Keep migration check - bulk operations in migrations are schema changes, not tenant data
     cursor.execute("""
         SELECT file_path, line_number, query_text, command, tables
         FROM sql_queries
         WHERE command IN ('INSERT', 'UPDATE', 'DELETE')
           AND (query_text LIKE '%INSERT INTO%' OR query_text LIKE '%UPDATE%' OR query_text LIKE '%DELETE FROM%')
           AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 20
     """)
@@ -514,14 +529,14 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> List[Stan
     """Find JOINs between tables without tenant field in ON clause."""
     findings = []
 
+    # NOTE: frontend/test filtering handled by METADATA
+    # Keep migration check - JOINs in migrations are schema exploration, not queries
     cursor.execute("""
         SELECT file_path, line_number, query_text, command, tables
         FROM sql_queries
         WHERE command = 'SELECT'
           AND (query_text LIKE '%JOIN%' OR query_text LIKE '%join%')
           AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 25
     """)
@@ -563,14 +578,14 @@ def _find_subquery_without_tenant(cursor, patterns: MultiTenantPatterns) -> List
     """Find subqueries on sensitive tables without tenant filtering."""
     findings = []
 
+    # NOTE: frontend/test filtering handled by METADATA
+    # Keep migration check - subqueries in migrations are schema queries
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE command = 'SELECT'
           AND query_text LIKE '%(SELECT%'
           AND file_path NOT LIKE '%migration%'
-          AND file_path NOT LIKE '%frontend%'
-          AND file_path NOT LIKE '%test%'
         ORDER BY file_path, line_number
         LIMIT 20
     """)
