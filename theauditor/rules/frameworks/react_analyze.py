@@ -13,7 +13,20 @@ from typing import List, Dict, Any, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# METADATA (Orchestrator Discovery)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="react_security",
+    category="frameworks",
+    target_extensions=['.jsx', '.tsx', '.js', '.ts'],
+    exclude_patterns=['node_modules/', 'test/', 'spec.', '__tests__'],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

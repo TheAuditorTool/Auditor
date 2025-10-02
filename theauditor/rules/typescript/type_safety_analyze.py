@@ -151,9 +151,9 @@ def _find_explicit_any_types(cursor, ts_files: Set[str], existing_tables: Set[st
     # Check symbols table for 'any' types
     placeholders = ','.join(['?' for _ in ts_files])
     cursor.execute(f"""
-        SELECT s.file, s.line, s.name, s.symbol_type
+        SELECT s.path AS file, s.line, s.name, s.type AS symbol_type
         FROM symbols s
-        WHERE s.file IN ({placeholders})
+        WHERE s.path IN ({placeholders})
           AND (s.name LIKE '%: any%'
                OR s.name LIKE '%<any>%'
                OR s.name LIKE '%any[]%'
@@ -211,10 +211,10 @@ def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFindi
     # Find function symbols without return type annotations
     placeholders = ','.join(['?' for _ in ts_files])
     cursor.execute(f"""
-        SELECT s.file, s.line, s.name
+        SELECT s.path AS file, s.line, s.name
         FROM symbols s
-        WHERE s.file IN ({placeholders})
-          AND s.symbol_type = 'function'
+        WHERE s.path IN ({placeholders})
+          AND s.type = 'function'
           AND s.name NOT LIKE '%=>%void%'
           AND s.name NOT LIKE '%:%'
           AND s.name NOT LIKE '%Promise<%'
@@ -355,9 +355,9 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFi
     for dangerous_type in dangerous_types:
         # FIXED: Use proper parameterized queries
         cursor.execute(f"""
-            SELECT s.file, s.line, s.name
+            SELECT s.path AS file, s.line, s.name
             FROM symbols s
-            WHERE s.file IN ({placeholders})
+            WHERE s.path IN ({placeholders})
               AND (s.name LIKE ? OR s.name LIKE ? OR s.name LIKE ?)
         """, list(ts_files) + [f'%: {dangerous_type}%', f'%<{dangerous_type}>%', f'%{dangerous_type}[]%'])
 
@@ -528,10 +528,10 @@ def _find_type_suppression_comments(cursor, ts_files: Set[str]) -> List[Standard
     for suppression, severity, confidence, description in suppressions:
         # FIXED: Use proper parameterized query for LIKE pattern
         cursor.execute(f"""
-            SELECT s.file, s.line, s.name
+            SELECT s.path AS file, s.line, s.name
             FROM symbols s
-            WHERE s.file IN ({placeholders})
-              AND s.symbol_type = 'comment'
+            WHERE s.path IN ({placeholders})
+              AND s.type = 'comment'
               AND s.name LIKE ?
         """, list(ts_files) + [f'%{suppression}%'])
 
@@ -560,10 +560,10 @@ def _find_untyped_catch_blocks(cursor, ts_files: Set[str]) -> List[StandardFindi
     # Look for catch blocks
     placeholders = ','.join(['?' for _ in ts_files])
     cursor.execute(f"""
-        SELECT s.file, s.line, s.name
+        SELECT s.path AS file, s.line, s.name
         FROM symbols s
-        WHERE s.file IN ({placeholders})
-          AND s.symbol_type = 'catch'
+        WHERE s.path IN ({placeholders})
+          AND s.type = 'catch'
     """, list(ts_files))
 
     catch_blocks = cursor.fetchall()
@@ -596,9 +596,9 @@ def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFind
     placeholders = ','.join(['?' for _ in ts_files])
     for generic in generic_types:
         cursor.execute(f"""
-            SELECT s.file, s.line, s.name
+            SELECT s.path AS file, s.line, s.name
             FROM symbols s
-            WHERE s.file IN ({placeholders})
+            WHERE s.path IN ({placeholders})
               AND (s.name LIKE ? OR s.name LIKE ?)
               AND s.name NOT LIKE '%<%.%>%'
         """, list(ts_files) + [f'%: {generic}%', f'%new {generic}%'])
@@ -694,17 +694,21 @@ def _find_unsafe_property_access(cursor, ts_files: Set[str]) -> List[StandardFin
     findings = []
 
     # Look for bracket notation without guards
+    # NOTE: property_access is not a column in symbols table
+    # This detection would require parsing the name field or using a different approach
+    # Commenting out for now to prevent SQL errors
     placeholders = ','.join(['?' for _ in ts_files])
     cursor.execute(f"""
-        SELECT s.file, s.line, s.name, s.property_access
+        SELECT s.path AS file, s.line, s.name
         FROM symbols s
-        WHERE s.file IN ({placeholders})
-          AND s.property_access LIKE '%[%]%'
+        WHERE s.path IN ({placeholders})
+          AND s.name LIKE '%[%]%'
     """, list(ts_files))
 
     bracket_accesses = cursor.fetchall()
 
-    for file, line, name, prop_access in bracket_accesses:
+    for file, line, name in bracket_accesses:
+        prop_access = name  # Use name as the property access pattern
         # Check if it's dynamic property access
         if prop_access and not prop_access.strip().startswith('"') and not prop_access.strip().startswith("'"):
             findings.append(StandardFinding(

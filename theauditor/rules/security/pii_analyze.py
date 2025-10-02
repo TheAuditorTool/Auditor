@@ -23,7 +23,16 @@ from theauditor.rules.base import (
     StandardRuleContext,
     StandardFinding,
     Severity,
-    Confidence
+    Confidence,
+    RuleMetadata
+)
+
+METADATA = RuleMetadata(
+    name="pii_exposure",
+    category="security",
+    target_extensions=['.py', '.js', '.ts', '.jsx', '.tsx'],
+    exclude_patterns=['test/', 'spec.', '__tests__', 'demo/'],
+    requires_jsx_pass=False
 )
 
 # ============================================================================

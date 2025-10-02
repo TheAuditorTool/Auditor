@@ -28,6 +28,27 @@ METADATA = RuleMetadata(
 )
 
 
+# ============================================================================
+# TABLE EXISTENCE CHECKS
+# ============================================================================
+
+def _check_tables(cursor) -> Set[str]:
+    """Check which tables exist in database.
+
+    Args:
+        cursor: SQLite cursor
+
+    Returns:
+        Set of table names that exist
+    """
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN ('vue_components', 'vue_hooks', 'assignments')
+    """)
+    return {row[0] for row in cursor.fetchall()}
+
+
 def find_vue_reactivity_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """
     Detect Vue.js reactivity and props mutation issues using hybrid approach.
@@ -79,18 +100,25 @@ def _should_analyze_file(context: StandardRuleContext) -> bool:
         cursor = conn.cursor()
 
         try:
-            # Check if file imports Vue or uses Vue patterns
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM refs
-                WHERE src = ?
-                  AND (value LIKE '%vue%' OR value LIKE '%@vue%')
-            """, (context.file_path,))
+            # Check which tables exist
+            existing_tables = _check_tables(cursor)
 
-            has_vue_imports = cursor.fetchone()[0] > 0
+            # Check if file imports Vue or uses Vue patterns (if refs table exists)
+            if 'refs' in existing_tables:
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM refs
+                    WHERE src = ?
+                      AND (value LIKE '%vue%' OR value LIKE '%@vue%')
+                """, (context.file_path,))
 
-            if not has_vue_imports:
-                # Check for Vue-specific symbols
+                has_vue_imports = cursor.fetchone()[0] > 0
+
+                if has_vue_imports:
+                    return True
+
+            # Check for Vue-specific symbols (if symbols table exists)
+            if 'symbols' in existing_tables:
                 cursor.execute("""
                     SELECT COUNT(*)
                     FROM symbols
@@ -103,8 +131,12 @@ def _should_analyze_file(context: StandardRuleContext) -> bool:
 
                 has_vue_symbols = cursor.fetchone()[0] > 0
 
-                if not has_vue_symbols:
-                    return False
+                if has_vue_symbols:
+                    return True
+
+            # If neither table exists or no Vue indicators found, skip analysis
+            if not existing_tables or ('refs' not in existing_tables and 'symbols' not in existing_tables):
+                return False
 
         finally:
             conn.close()
@@ -123,6 +155,13 @@ def _find_obvious_mutations_via_database(context: StandardRuleContext) -> List[S
     cursor = conn.cursor()
 
     try:
+        # Check which tables exist
+        existing_tables = _check_tables(cursor)
+
+        # Need assignments table for this analysis
+        if 'assignments' not in existing_tables:
+            return findings
+
         # Look for assignments to common prop patterns
         # This will have false positives but is fast
         cursor.execute("""

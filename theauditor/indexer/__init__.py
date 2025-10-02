@@ -586,23 +586,43 @@ class IndexerOrchestrator:
     
     def _store_extracted_data(self, file_path: str, extracted: Dict[str, Any]):
         """Store extracted data in the database.
-        
+
         Args:
             file_path: Path to the source file
             extracted: Dictionary of extracted data
         """
         # Store imports/references
         if 'imports' in extracted:
+            import os
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] Processing {len(extracted['imports'])} imports for {file_path}")
             for kind, value in extracted['imports']:
                 # Check for resolved import
                 resolved = extracted.get('resolved_imports', {}).get(value, value)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG]   Adding ref: {file_path} -> {kind} {resolved}")
                 self.db_manager.add_ref(file_path, kind, resolved)
                 self.counts['refs'] += 1
         
-        # Store routes
+        # Store routes (api_endpoints with all 8 fields)
         if 'routes' in extracted:
-            for method, pattern, controls in extracted['routes']:
-                self.db_manager.add_endpoint(file_path, method, pattern, controls)
+            for route in extracted['routes']:
+                # Handle both old tuple format and new dictionary format for compatibility
+                if isinstance(route, dict):
+                    self.db_manager.add_endpoint(
+                        file_path=file_path,
+                        method=route.get('method', 'GET'),
+                        pattern=route.get('pattern', ''),
+                        controls=route.get('controls', []),
+                        line=route.get('line'),
+                        path=route.get('path'),
+                        has_auth=route.get('has_auth', False),
+                        handler_function=route.get('handler_function')
+                    )
+                else:
+                    # Legacy tuple format: (method, pattern, controls)
+                    method, pattern, controls = route
+                    self.db_manager.add_endpoint(file_path, method, pattern, controls)
                 self.counts['routes'] += 1
         
         # Store SQL objects

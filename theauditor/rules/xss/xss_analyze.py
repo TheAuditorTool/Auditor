@@ -79,6 +79,16 @@ COMMON_SANITIZERS = frozenset([
 ])
 
 
+def _check_tables(cursor) -> Set[str]:
+    """Check which tables exist in database."""
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN ('function_call_args', 'assignments', 'symbols', 'frameworks')
+    """)
+    return {row[0] for row in cursor.fetchall()}
+
+
 def find_xss_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Main XSS detection with framework awareness.
 

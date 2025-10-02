@@ -214,8 +214,12 @@ API_ENDPOINTS = TableSchema(
     name="api_endpoints",
     columns=[
         Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER"),
         Column("method", "TEXT", nullable=False),
         Column("pattern", "TEXT", nullable=False),
+        Column("path", "TEXT"),
+        Column("has_auth", "BOOLEAN", default="0"),
+        Column("handler_function", "TEXT"),
         Column("controls", "TEXT"),
     ],
     indexes=[

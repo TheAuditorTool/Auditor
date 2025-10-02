@@ -10,7 +10,20 @@ import sqlite3
 from typing import List
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# METADATA
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="fastapi_security",
+    category="frameworks",
+    target_extensions=['.py'],
+    exclude_patterns=['test/', 'spec.', '__tests__', 'migrations/'],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

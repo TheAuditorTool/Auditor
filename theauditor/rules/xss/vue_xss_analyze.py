@@ -5,9 +5,20 @@ Uses Vue-specific database tables for accurate detection.
 """
 
 import sqlite3
-from typing import List
+from typing import List, Set
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+def _check_tables(cursor) -> Set[str]:
+    """Check which tables exist in database."""
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN ('function_call_args', 'vue_directives', 'symbols',
+                     'frameworks', 'vue_components', 'assignments', 'vue_hooks')
+    """)
+    return {row[0] for row in cursor.fetchall()}
 
 
 # ============================================================================
@@ -69,8 +80,16 @@ def find_vue_xss(context: StandardRuleContext) -> List[StandardFinding]:
         return findings
 
     conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
 
     try:
+        # Check table existence
+        existing_tables = _check_tables(cursor)
+
+        # Need at least function_call_args for basic checks
+        if 'function_call_args' not in existing_tables:
+            return findings
+
         # Only run if Vue is detected
         if not _is_vue_app(conn):
             return findings

@@ -63,9 +63,55 @@ class JavaScriptExtractor(BaseExtractor):
         # === CORE EXTRACTION via AST parser ===
 
         # Extract imports - check both direct tree and nested tree structure
-        # TypeScript semantic parser returns imports directly in the tree
-        actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
-        imports_data = actual_tree.get("imports", [])
+        # CRITICAL: Handle different AST formats
+        # - Semantic AST: tree = {'type': 'semantic_ast', 'tree': {'imports': [...], ...}, ...}
+        # - Tree-sitter: tree = {'type': 'tree_sitter', 'tree': <TreeSitterObject>, ...}
+        # We need to extract from tree['tree'] for semantic_ast
+        tree_type = tree.get("type") if isinstance(tree, dict) else None
+
+        if tree_type == "semantic_ast":
+            # Semantic AST: imports are in tree['tree']['imports']
+            actual_tree = tree.get("tree", {})
+            imports_data = actual_tree.get("imports", [])
+        elif tree_type == "tree_sitter":
+            # Tree-sitter: Extract imports using AST parser's extract_imports method
+            actual_tree = tree
+            if self.ast_parser:
+                tree_sitter_imports = self.ast_parser.extract_imports(tree, language='javascript')
+                # Convert to expected format: [{'source': 'import', 'target': 'module', ...}, ...] -> [('import', 'module'), ...]
+                imports_data = []
+                for imp in tree_sitter_imports:
+                    kind = imp.get('source', imp.get('type', 'import'))
+                    module = imp.get('target', imp.get('module'))
+                    if module:
+                        imports_data.append({'kind': kind, 'module': module})
+            else:
+                imports_data = []
+        else:
+            # Fallback: assume imports might be at top level
+            actual_tree = tree
+            imports_data = tree.get("imports", []) if isinstance(tree, dict) else []
+
+        # DEBUG: Log import extraction
+        import os
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] JS extractor for {file_info['path']}: tree_type = {tree_type}")
+            print(f"[DEBUG] JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}")
+            print(f"[DEBUG] JS extractor: actual_tree type = {type(actual_tree)}, is_dict = {isinstance(actual_tree, dict)}")
+            if isinstance(actual_tree, dict):
+                # Show all top-level keys and sample values
+                print(f"[DEBUG] JS extractor: actual_tree keys = {list(actual_tree.keys())[:15]}")
+                for key in list(actual_tree.keys())[:10]:
+                    val = actual_tree[key]
+                    if isinstance(val, list):
+                        print(f"[DEBUG]   {key}: list with {len(val)} items")
+                        if val and len(val) < 5:
+                            print(f"[DEBUG]     items: {val}")
+                    elif isinstance(val, dict):
+                        print(f"[DEBUG]   {key}: dict with keys {list(val.keys())[:5]}")
+                    else:
+                        print(f"[DEBUG]   {key}: {type(val).__name__}")
+            print(f"[DEBUG] JS extractor: imports_data = {imports_data}")
 
         if imports_data:
             # Convert to expected format for database
@@ -75,6 +121,9 @@ class JavaScriptExtractor(BaseExtractor):
                     # Use the kind (import/require) as the type
                     kind = imp.get('kind', 'import')
                     result['imports'].append((kind, module))
+
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] JS extractor: Converted {len(result['imports'])} imports to result['imports']")
 
             # NEW: Extract import styles for bundle analysis
             result['import_styles'] = self._analyze_import_styles(imports_data, file_info['path'])
@@ -173,10 +222,22 @@ class JavaScriptExtractor(BaseExtractor):
             result['cfg'] = cfg
 
         # Extract routes using BaseExtractor's method (regex-based for now)
-        routes = self.extract_routes(content)
-        if routes:
-            # Convert to 3-tuple format (method, pattern, controls)
-            result['routes'] = [(method, path, []) for method, path in routes]
+        # Returns list of (method, path) tuples from regex extraction
+        routes_tuples = self.extract_routes(content)
+        if routes_tuples:
+            # Convert to dictionary format with all 8 api_endpoints fields
+            # Note: regex extraction doesn't provide line numbers, auth detection, or handler names
+            result['routes'] = []
+            for method, path_pattern in routes_tuples:
+                result['routes'].append({
+                    'method': method,
+                    'pattern': path_pattern,
+                    'controls': [],  # Middleware not detected from regex
+                    'line': None,  # Regex extraction has no line info
+                    'path': file_info.get('path'),  # Full file path
+                    'has_auth': False,  # Cannot detect auth from regex
+                    'handler_function': None  # Cannot detect handler from regex
+                })
 
         # === FRAMEWORK-SPECIFIC ANALYSIS ===
         # Analyze the extracted data to identify React/Vue patterns
@@ -421,17 +482,8 @@ class JavaScriptExtractor(BaseExtractor):
                     'has_transaction': has_transaction
                 })
 
-        # Detect API endpoints from route definitions
-        if result.get('routes'):
-            for method, path, middleware in result['routes']:
-                result['api_endpoints'].append({
-                    'line': 0,  # Routes are regex-extracted, no line info
-                    'http_method': method,
-                    'route_path': path,
-                    'has_auth': any('auth' in str(m).lower() for m in middleware),
-                    'has_validation': any('validat' in str(m).lower() for m in middleware),
-                    'middleware_stack': middleware[:5] if middleware else []
-                })
+        # API endpoints are now handled directly in routes extraction above
+        # (lines 175-191) using the new dictionary format with all 8 fields
 
         # === CRITICAL SECURITY PATTERN DETECTION ===
 

@@ -129,6 +129,19 @@ class ConcurrencyPatterns:
 
 
 # ============================================================================
+# HELPER: Table Existence Check
+# ============================================================================
+def _check_tables(cursor) -> Set[str]:
+    """Check which tables exist in database for graceful degradation."""
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN ('function_call_args', 'assignments', 'symbols')
+    """)
+    return {row[0] for row in cursor.fetchall()}
+
+
+# ============================================================================
 # ANALYZER CLASS (Golden Standard)
 # ============================================================================
 
@@ -159,12 +172,15 @@ class AsyncConcurrencyAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables for graceful degradation
-            self._check_table_availability()
+            # Check which tables exist (graceful degradation)
+            existing_tables = _check_tables(self.cursor)
 
-            # Must have minimum tables for any analysis
-            if not self._has_minimum_tables():
+            # Must have function_call_args for core analysis
+            if 'function_call_args' not in existing_tables:
                 return []
+
+            # Store for use in other methods
+            self.existing_tables = existing_tables
 
             # Detect if project uses concurrency
             has_concurrency = self._detect_concurrency_usage()
@@ -188,22 +204,6 @@ class AsyncConcurrencyAnalyzer:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'function_call_args', 'assignments', 'cfg_blocks',
-                'cfg_block_statements', 'symbols', 'refs', 'files'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
-    def _has_minimum_tables(self) -> bool:
-        """Check if we have minimum required tables."""
-        required = {'function_call_args', 'files'}
-        return required.issubset(self.existing_tables)
 
     def _detect_concurrency_usage(self) -> bool:
         """Check if project uses threading/async/multiprocessing."""

@@ -22,8 +22,19 @@ import json
 from typing import List, Set
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
+# ============================================================================
+# RULE METADATA (Golden Standard)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="api_authentication",
+    category="security",
+    target_extensions=['.py', '.js', '.ts'],
+    exclude_patterns=['test/', 'spec.', '__tests__'],
+    requires_jsx_pass=False
+)
 
 # ============================================================================
 # PATTERN DEFINITIONS (Golden Standard: Frozen Dataclass)

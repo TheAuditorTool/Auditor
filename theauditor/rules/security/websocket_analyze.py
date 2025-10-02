@@ -6,7 +6,20 @@ instead of traversing AST structures.
 
 import sqlite3
 from typing import List, Set
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# METADATA (Orchestrator Discovery)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="websocket_security",
+    category="security",
+    target_extensions=['.py', '.js', '.ts', '.jsx', '.tsx'],
+    exclude_patterns=['test/', 'spec.', '__tests__/', 'node_modules/'],
+    requires_jsx_pass=False
+)
 
 
 def find_websocket_issues(context: StandardRuleContext) -> List[StandardFinding]:
@@ -102,7 +115,7 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM symbols s
-                WHERE s.file = ?
+                WHERE s.path = ?
                   AND s.line BETWEEN ? AND ?
                   AND ({})
             """.format(' OR '.join([f"s.name LIKE '%{auth}%'" for auth in auth_patterns])),
@@ -124,9 +137,9 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
     
     # Check for Python async WebSocket handlers
     cursor.execute("""
-        SELECT s.file, s.line, s.name
+        SELECT s.path AS file, s.line, s.name
         FROM symbols s
-        WHERE s.symbol_type = 'function'
+        WHERE s.type = 'function'
           AND (s.name LIKE '%websocket%' OR s.name LIKE '%ws_handler%' 
                OR s.name LIKE '%socket_handler%' OR s.name LIKE '%on_connect%')
     """)
@@ -213,9 +226,9 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
     
     # Check Python message handlers
     cursor.execute("""
-        SELECT s.file, s.line, s.name
+        SELECT s.path AS file, s.line, s.name
         FROM symbols s
-        WHERE s.symbol_type = 'function'
+        WHERE s.type = 'function'
           AND (s.name LIKE '%message%' OR s.name LIKE '%recv%' 
                OR s.name LIKE '%receive%' OR s.name LIKE '%on_data%')
     """)
@@ -289,7 +302,7 @@ def _find_websocket_no_rate_limit(cursor) -> List[StandardFinding]:
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM symbols s
-                WHERE s.file = ?
+                WHERE s.path = ?
                   AND ({})
             """.format(' OR '.join([f"s.name LIKE '%{rl}%'" for rl in rate_limit_patterns])),
             (file,))
@@ -407,9 +420,9 @@ def _find_websocket_no_tls(cursor) -> List[StandardFinding]:
     
     # Find WebSocket URLs
     cursor.execute("""
-        SELECT s.file, s.line, s.name
+        SELECT s.path AS file, s.line, s.name
         FROM symbols s
-        WHERE s.symbol_type = 'string'
+        WHERE s.type = 'string'
           AND s.name LIKE 'ws://%'
           AND s.name NOT LIKE 'ws://localhost%'
           AND s.name NOT LIKE 'ws://127.0.0.1%'

@@ -138,6 +138,27 @@ def find_runtime_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def _check_tables(cursor) -> frozenset:
+    """Check which tables exist in database.
+
+    Args:
+        cursor: SQLite cursor
+
+    Returns:
+        Frozen set of existing table names
+    """
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN ('function_call_args', 'symbols', 'assignments', 'files')
+    """)
+    return frozenset(row[0] for row in cursor.fetchall())
+
+
+# ============================================================================
 # ANALYZER CLASS
 # ============================================================================
 
@@ -173,6 +194,12 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Check if files table exists
+            existing_tables = _check_tables(cursor)
+            if 'files' not in existing_tables:
+                conn.close()
+                return False
+
             cursor.execute("""
                 SELECT COUNT(*) FROM files
                 WHERE ext IN ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')
@@ -190,6 +217,12 @@ class RuntimeAnalyzer:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+
+            # Check table existence
+            existing_tables = _check_tables(cursor)
+            if 'function_call_args' not in existing_tables:
+                conn.close()
+                return
 
             # First, identify tainted variables
             self._identify_tainted_variables(cursor)
@@ -296,6 +329,12 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Check table existence
+            existing_tables = _check_tables(cursor)
+            if 'function_call_args' not in existing_tables:
+                conn.close()
+                return
+
             # Look for spawn calls
             cursor.execute("""
                 SELECT f.file, f.line, f.argument_expr
@@ -337,6 +376,12 @@ class RuntimeAnalyzer:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+
+            # Check table existence
+            existing_tables = _check_tables(cursor)
+            if 'function_call_args' not in existing_tables or 'symbols' not in existing_tables:
+                conn.close()
+                return
 
             # Check Object.assign with spread
             cursor.execute("""
@@ -462,6 +507,12 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Check table existence
+            existing_tables = _check_tables(cursor)
+            if 'function_call_args' not in existing_tables:
+                conn.close()
+                return
+
             cursor.execute("""
                 SELECT f.file, f.line, f.callee_function, f.argument_expr
                 FROM function_call_args f
@@ -521,6 +572,12 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Check table existence
+            existing_tables = _check_tables(cursor)
+            if 'function_call_args' not in existing_tables:
+                conn.close()
+                return
+
             # Look for RegExp constructor with user input
             cursor.execute("""
                 SELECT f.file, f.line, f.callee_function, f.argument_expr
@@ -572,6 +629,12 @@ class RuntimeAnalyzer:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+
+            # Check table existence
+            existing_tables = _check_tables(cursor)
+            if 'function_call_args' not in existing_tables:
+                conn.close()
+                return
 
             cursor.execute("""
                 SELECT f.file, f.line, f.callee_function, f.argument_expr
@@ -625,6 +688,11 @@ class RuntimeAnalyzer:
     def _identify_tainted_variables(self, cursor) -> None:
         """Identify variables assigned from user input sources."""
         try:
+            # Check if assignments table exists
+            existing_tables = _check_tables(cursor)
+            if 'assignments' not in existing_tables:
+                return
+
             # Find assignments from user input
             cursor.execute("""
                 SELECT DISTINCT file, line, target_var, source_expr
