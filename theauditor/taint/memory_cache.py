@@ -17,6 +17,8 @@ from collections import defaultdict
 from typing import Dict, List, Set, Any, Optional, Tuple
 import sqlite3
 
+from theauditor.indexer.schema import build_query, TABLES
+
 class MemoryCache:
     """
     Pre-loaded database cache with multiple indexes for O(1) lookups.
@@ -127,7 +129,9 @@ class MemoryCache:
 
             # Step 1: Load symbols with multi-indexing
             if 'symbols' in tables:
-                cursor.execute("SELECT path, name, type, line, col FROM symbols")
+                # SCHEMA CONTRACT: Use build_query for correct columns
+                query = build_query('symbols', ['path', 'name', 'type', 'line', 'col'])
+                cursor.execute(query)
                 symbols_data = cursor.fetchall()
 
                 for path, name, sym_type, line, col in symbols_data:
@@ -157,10 +161,11 @@ class MemoryCache:
 
             # Step 2: Load assignments with function indexing
             if 'assignments' in tables:
-                cursor.execute("""
-                    SELECT file, line, target_var, source_expr, source_vars, in_function
-                    FROM assignments
-                """)
+                # SCHEMA CONTRACT: Use build_query for correct columns
+                query = build_query('assignments', [
+                    'file', 'line', 'target_var', 'source_expr', 'source_vars', 'in_function'
+                ])
+                cursor.execute(query)
                 assignments_data = cursor.fetchall()
 
                 for file, line, target, source_expr, source_vars, func in assignments_data:
@@ -187,11 +192,12 @@ class MemoryCache:
 
             # Step 3: Load function call arguments
             if 'function_call_args' in tables:
-                cursor.execute("""
-                    SELECT file, line, caller_function, callee_function,
-                           param_name, argument_expr
-                    FROM function_call_args
-                """)
+                # SCHEMA CONTRACT: Use build_query for correct columns
+                query = build_query('function_call_args', [
+                    'file', 'line', 'caller_function', 'callee_function',
+                    'param_name', 'argument_expr'
+                ])
+                cursor.execute(query)
                 call_args_data = cursor.fetchall()
 
                 for file, line, caller, callee, param, arg_expr in call_args_data:
@@ -218,10 +224,11 @@ class MemoryCache:
 
             # Step 4: Load function returns if table exists
             if 'function_returns' in tables:
-                cursor.execute("""
-                    SELECT file, line, function_name, return_expr, return_vars
-                    FROM function_returns
-                """)
+                # SCHEMA CONTRACT: Use build_query for correct columns
+                query = build_query('function_returns', [
+                    'file', 'line', 'function_name', 'return_expr', 'return_vars'
+                ])
+                cursor.execute(query)
                 returns_data = cursor.fetchall()
 
                 for file, line, func_name, return_expr, return_vars in returns_data:
@@ -245,13 +252,11 @@ class MemoryCache:
 
             # Step 5: Load specialized tables for multi-table taint analysis (Phase 3.3)
             if 'sql_queries' in tables:
-                cursor.execute("""
-                    SELECT file_path, line_number, query_text, command
-                    FROM sql_queries
-                    WHERE query_text IS NOT NULL
-                    AND query_text != ''
-                    AND command != 'UNKNOWN'
-                """)
+                # SCHEMA CONTRACT: Use build_query for correct columns
+                query = build_query('sql_queries', [
+                    'file_path', 'line_number', 'query_text', 'command'
+                ], where="query_text IS NOT NULL AND query_text != '' AND command != 'UNKNOWN'")
+                cursor.execute(query)
                 sql_queries_data = cursor.fetchall()
 
                 for file_path, line_number, query_text, command in sql_queries_data:
@@ -272,11 +277,11 @@ class MemoryCache:
                 print(f"[MEMORY] Loaded {len(self.sql_queries)} SQL queries", file=sys.stderr)
 
             if 'orm_queries' in tables:
-                cursor.execute("""
-                    SELECT file, line, query_type, includes
-                    FROM orm_queries
-                    WHERE query_type IS NOT NULL
-                """)
+                # SCHEMA CONTRACT: Use build_query for correct columns
+                query = build_query('orm_queries', [
+                    'file', 'line', 'query_type', 'includes'
+                ], where="query_type IS NOT NULL")
+                cursor.execute(query)
                 orm_queries_data = cursor.fetchall()
 
                 for file, line, query_type, includes in orm_queries_data:
@@ -297,10 +302,11 @@ class MemoryCache:
                 print(f"[MEMORY] Loaded {len(self.orm_queries)} ORM queries", file=sys.stderr)
 
             if 'react_hooks' in tables:
-                cursor.execute("""
-                    SELECT file, line, hook_name, dependencies
-                    FROM react_hooks
-                """)
+                # SCHEMA CONTRACT: Use build_query for correct columns
+                query = build_query('react_hooks', [
+                    'file', 'line', 'hook_name', 'dependency_vars'
+                ])
+                cursor.execute(query)
                 react_hooks_data = cursor.fetchall()
 
                 for file, line, hook_name, deps in react_hooks_data:
@@ -326,25 +332,26 @@ class MemoryCache:
                 usage_count = cursor.fetchone()[0]
 
                 if usage_count < 500000:  # 500K limit for variable_usage
-                    cursor.execute("""
-                        SELECT file, line, var_name, usage_type, context
-                        FROM variable_usage
-                    """)
+                    # SCHEMA CONTRACT: Use build_query to guarantee correct columns
+                    query = build_query('variable_usage', [
+                        'file', 'line', 'variable_name', 'usage_type', 'in_component'
+                    ])
+                    cursor.execute(query)
                     variable_usage_data = cursor.fetchall()
 
-                    for file, line, var_name, usage_type, context in variable_usage_data:
+                    for file, line, variable_name, usage_type, in_component in variable_usage_data:
                         file = file.replace("\\", "/") if file else ""
 
                         usage = {
                             "file": file,
                             "line": line or 0,
-                            "var_name": var_name or "",
+                            "var_name": variable_name or "",  # API compat: keep 'var_name' key
                             "usage_type": usage_type or "",
-                            "context": context or ""
+                            "in_component": in_component or ""  # Renamed from 'context'
                         }
 
                         self.variable_usage.append(usage)
-                        self.variable_usage_by_name[var_name].append(usage)
+                        self.variable_usage_by_name[variable_name].append(usage)
                         self.variable_usage_by_file[file].append(usage)
                         self.current_memory += sys.getsizeof(usage) + 50
 

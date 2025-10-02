@@ -97,6 +97,35 @@ class DatabaseManager:
         """Close the database connection."""
         self.conn.close()
 
+    def validate_schema(self) -> bool:
+        """
+        Validate database schema matches expected definitions.
+
+        Runs after indexing to ensure all tables were created correctly.
+        Logs warnings for any mismatches.
+
+        Returns:
+            True if all schemas valid, False if mismatches found
+        """
+        from .schema import validate_all_tables
+        import sys
+
+        cursor = self.conn.cursor()
+        mismatches = validate_all_tables(cursor)
+
+        if not mismatches:
+            print("[SCHEMA] All table schemas validated successfully", file=sys.stderr)
+            return True
+
+        print("[SCHEMA] Schema validation warnings detected:", file=sys.stderr)
+        for table_name, errors in mismatches.items():
+            print(f"[SCHEMA]   Table: {table_name}", file=sys.stderr)
+            for error in errors:
+                print(f"[SCHEMA]     - {error}", file=sys.stderr)
+
+        print("[SCHEMA] Note: Some mismatches may be due to migration columns (expected)", file=sys.stderr)
+        return False
+
     def create_schema(self):
         """Create all database tables and indexes."""
         cursor = self.conn.cursor()
@@ -1300,7 +1329,7 @@ class DatabaseManager:
                 f.get('file', ''),
                 int(f.get('line', 0)),
                 f.get('column'),  # Optional
-                f.get('rule', f.get('pattern', f.get('code', 'unknown'))),  # Try multiple names
+                f.get('rule', f.get('pattern', f.get('pattern_name', f.get('code', 'unknown')))),  # Try multiple names
                 f.get('tool', tool_name),
                 f.get('message', ''),
                 f.get('severity', 'medium'),  # Default to medium if not specified

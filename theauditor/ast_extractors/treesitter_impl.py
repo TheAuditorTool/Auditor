@@ -717,5 +717,26 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
     # Recursively search children
     for child in node.children:
         returns.extend(_extract_tree_sitter_returns(child, language, content))
-    
+
     return returns
+
+
+def extract_treesitter_cfg(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
+    """Extract control flow graph from tree-sitter AST.
+
+    NOTE: CFG extraction not implemented for generic tree-sitter.
+    Python projects should use Python's ast module (type="python_ast").
+    TypeScript projects should use semantic parser (type="semantic_ast").
+    Both have language-specific CFG implementations.
+
+    This stub prevents extraction failures when tree-sitter is used as fallback.
+
+    Args:
+        tree: Parsed AST tree dictionary
+        parser_self: ASTParser instance (for compatibility)
+        language: Source language (for compatibility)
+
+    Returns:
+        Empty list (no CFG data from generic tree-sitter)
+    """
+    return []

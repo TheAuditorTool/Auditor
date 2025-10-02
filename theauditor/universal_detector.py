@@ -317,7 +317,7 @@ class UniversalPatternDetector:
                 # Convert to Finding objects
                 for finding in rule_findings:
                     local_findings.append(Finding(
-                        pattern_name=finding.get("pattern_name", finding.get("type", "UNKNOWN")),
+                        pattern_name=finding.get("rule", finding.get("pattern_name", finding.get("type", "UNKNOWN"))),
                         message=finding.get("message", "Issue detected"),
                         file=str(file_path.relative_to(self.project_path)),
                         line=finding.get("line", 0),
@@ -420,7 +420,7 @@ class UniversalPatternDetector:
             # Convert to Finding objects
             for finding in db_findings:
                 findings.append(Finding(
-                    pattern_name=finding.get("pattern_name", "DATABASE_RULE"),
+                    pattern_name=finding.get("rule", finding.get("pattern_name", "DATABASE_RULE")),
                     message=finding.get("message", "Database issue detected"),
                     file=finding.get("file", ""),
                     line=finding.get("line", 0),
