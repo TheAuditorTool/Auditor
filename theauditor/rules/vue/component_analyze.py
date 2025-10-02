@@ -337,13 +337,13 @@ def _find_complex_components(cursor, vue_files: Set[str]) -> List[StandardFindin
 
     # Count methods per component
     cursor.execute(f"""
-        SELECT file, COUNT(DISTINCT name) as method_count
+        SELECT path AS file, COUNT(DISTINCT name) as method_count
         FROM symbols
-        WHERE file IN ({placeholders})
+        WHERE path IN ({placeholders})
           AND type = 'function'
           AND name NOT LIKE 'on%'
           AND name NOT LIKE 'handle%'
-        GROUP BY file
+        GROUP BY path
         HAVING method_count > 15
     """, list(vue_files))
 
@@ -361,12 +361,12 @@ def _find_complex_components(cursor, vue_files: Set[str]) -> List[StandardFindin
 
     # Count data properties
     cursor.execute(f"""
-        SELECT file, COUNT(*) as data_count
+        SELECT path AS file, COUNT(*) as data_count
         FROM symbols
-        WHERE file IN ({placeholders})
+        WHERE path IN ({placeholders})
           AND type IN ('property', 'variable')
           AND (name LIKE 'data.%' OR name LIKE 'state.%')
-        GROUP BY file
+        GROUP BY path
         HAVING data_count > 20
     """, list(vue_files))
 

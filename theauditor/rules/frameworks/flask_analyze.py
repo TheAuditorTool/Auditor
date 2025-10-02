@@ -13,7 +13,20 @@ from typing import List, Dict, Any, Set, Optional
 from dataclasses import dataclass
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# METADATA
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="flask_security",
+    category="frameworks",
+    target_extensions=['.py'],
+    exclude_patterns=['test/', 'spec.', '__tests__', 'migrations/'],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

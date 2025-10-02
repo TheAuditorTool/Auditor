@@ -20,7 +20,20 @@ from pathlib import Path
 from typing import List, Optional, Set
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# METADATA (Orchestrator Discovery)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="sourcemap_exposure",
+    category="security",
+    target_extensions=['.js', '.js.map', '.ts.map', '.mjs', '.cjs'],
+    exclude_patterns=['node_modules/', 'test/', 'spec/', '__tests__/'],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

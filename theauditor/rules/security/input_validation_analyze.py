@@ -17,7 +17,15 @@ import re
 from typing import List, Dict, Set, Optional
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+METADATA = RuleMetadata(
+    name="input_validation",
+    category="security",
+    target_extensions=['.py', '.js', '.ts'],
+    exclude_patterns=['test/', 'spec.', '__tests__'],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

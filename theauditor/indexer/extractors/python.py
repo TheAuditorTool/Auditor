@@ -47,9 +47,15 @@ class PythonExtractor(BaseExtractor):
         # Extract imports using AST (proper Python import extraction)
         if tree and isinstance(tree, dict):
             result['imports'] = self._extract_imports_ast(tree)
+            import os
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] Python extractor found {len(result['imports'])} imports in {file_info['path']}")
         else:
             # No AST available - skip import extraction
             result['imports'] = []
+            import os
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] Python extractor: No AST for {file_info['path']}, skipping imports")
         
         # If we have an AST tree, extract Python-specific information
         if tree and isinstance(tree, dict):
@@ -137,8 +143,19 @@ class PythonExtractor(BaseExtractor):
                 result['cfg'] = self.ast_parser.extract_cfg(tree)
         else:
             # Fallback to regex extraction for routes if no AST
-            result['routes'] = [(method, path, []) 
-                               for method, path in self.extract_routes(content)]
+            # Convert regex results to dictionary format for consistency
+            fallback_routes = []
+            for method, path in self.extract_routes(content):
+                fallback_routes.append({
+                    'line': 0,  # No line info from regex
+                    'method': method,
+                    'pattern': path,
+                    'path': file_info['path'],
+                    'has_auth': False,  # Can't detect auth from regex
+                    'handler_function': '',  # No function name from regex
+                    'controls': []
+                })
+            result['routes'] = fallback_routes
         
         # Extract SQL queries from db.execute() calls using AST
         if tree and isinstance(tree, dict):
@@ -156,28 +173,43 @@ class PythonExtractor(BaseExtractor):
 
         return result
     
-    def _extract_routes_ast(self, tree: Dict[str, Any], file_path: str) -> List[tuple]:
+    def _extract_routes_ast(self, tree: Dict[str, Any], file_path: str) -> List[Dict]:
         """Extract Flask/FastAPI routes using Python AST.
-        
+
         Args:
             tree: Parsed AST tree
             file_path: Path to file being analyzed
-            
+
         Returns:
-            List of (method, pattern, controls) tuples
+            List of route dictionaries with all 8 api_endpoints fields:
+            - line: Line number of the route handler function
+            - method: HTTP method (GET, POST, etc.)
+            - pattern: Route pattern (e.g., '/api/users/<id>')
+            - path: Full file path (same as file_path)
+            - has_auth: Boolean indicating presence of auth decorators
+            - handler_function: Name of the handler function
+            - controls: List of non-route decorator names (middleware)
         """
         routes = []
-        
+
         # Check if we have a Python AST tree
         if not isinstance(tree.get("tree"), ast.Module):
             return routes
-        
+
+        # Auth decorator patterns to detect
+        AUTH_DECORATORS = frozenset([
+            'login_required', 'auth_required', 'permission_required',
+            'require_auth', 'authenticated', 'authorize', 'requires_auth',
+            'jwt_required', 'token_required', 'verify_jwt', 'check_auth'
+        ])
+
         # Walk the AST to find decorated functions
         for node in ast.walk(tree["tree"]):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 decorators = []
                 route_info = None
-                
+                has_auth = False
+
                 # Extract all decorator names
                 for decorator in node.decorator_list:
                     dec_name = None
@@ -209,14 +241,26 @@ class PythonExtractor(BaseExtractor):
                             dec_name = method_name
                         elif isinstance(decorator.func, ast.Name):
                             dec_name = decorator.func.id
-                    
+
+                    # Check if this is an auth decorator
+                    if dec_name and dec_name in AUTH_DECORATORS:
+                        has_auth = True
+
                     # Collect non-route decorators as potential middleware/controls
                     if dec_name and dec_name not in ['route', 'get', 'post', 'put', 'patch', 'delete']:
                         decorators.append(dec_name)
-                
-                # If we found a route, add it with its security decorators
+
+                # If we found a route, add it with all required fields
                 if route_info:
-                    routes.append((route_info[0], route_info[1], decorators))
+                    routes.append({
+                        'line': node.lineno,
+                        'method': route_info[0],
+                        'pattern': route_info[1],
+                        'path': file_path,
+                        'has_auth': has_auth,
+                        'handler_function': node.name,
+                        'controls': decorators
+                    })
 
         return routes
 
@@ -237,7 +281,15 @@ class PythonExtractor(BaseExtractor):
         imports = []
         actual_tree = tree.get("tree")
 
+        import os
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG]   _extract_imports_ast: tree type={type(tree)}, has 'tree' key={('tree' in tree) if isinstance(tree, dict) else False}")
+            if isinstance(tree, dict) and 'tree' in tree:
+                print(f"[DEBUG]   actual_tree type={type(actual_tree)}, isinstance(ast.Module)={isinstance(actual_tree, ast.Module)}")
+
         if not actual_tree or not isinstance(actual_tree, ast.Module):
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG]   Returning empty - actual_tree check failed")
             return imports
 
         for node in ast.walk(actual_tree):

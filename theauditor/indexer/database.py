@@ -171,13 +171,36 @@ class DatabaseManager:
             """
             CREATE TABLE IF NOT EXISTS api_endpoints(
                 file TEXT NOT NULL,
+                line INTEGER,
                 method TEXT NOT NULL,
                 pattern TEXT NOT NULL,
+                path TEXT,
                 controls TEXT,
+                has_auth BOOLEAN DEFAULT 0,
+                handler_function TEXT,
                 FOREIGN KEY(file) REFERENCES files(path)
             )
         """
         )
+
+        # Migration: Add new columns to api_endpoints table (Phase 4)
+        # For existing databases with old 4-column schema, add the 4 new columns
+        try:
+            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN line INTEGER")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN path TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN has_auth BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN handler_function TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         cursor.execute(
             """
@@ -959,10 +982,13 @@ class DatabaseManager:
         """Add a reference record to the batch."""
         self.refs_batch.append((src, kind, value))
 
-    def add_endpoint(self, file_path: str, method: str, pattern: str, controls: List[str]):
+    def add_endpoint(self, file_path: str, method: str, pattern: str, controls: List[str],
+                     line: Optional[int] = None, path: Optional[str] = None,
+                     has_auth: bool = False, handler_function: Optional[str] = None):
         """Add an API endpoint record to the batch."""
         controls_json = json.dumps(controls) if controls else "[]"
-        self.endpoints_batch.append((file_path, method, pattern, controls_json))
+        self.endpoints_batch.append((file_path, line, method, pattern, path,
+                                    controls_json, has_auth, handler_function))
 
     def add_sql_object(self, file_path: str, kind: str, name: str):
         """Add a SQL object record to the batch."""
@@ -1388,7 +1414,7 @@ class DatabaseManager:
             
             if self.endpoints_batch:
                 cursor.executemany(
-                    "INSERT INTO api_endpoints (file, method, pattern, controls) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO api_endpoints (file, line, method, pattern, path, controls, has_auth, handler_function) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     self.endpoints_batch
                 )
                 self.endpoints_batch = []

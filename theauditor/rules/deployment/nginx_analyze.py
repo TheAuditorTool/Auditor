@@ -89,6 +89,20 @@ class NginxPatterns:
 
 
 # ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def _check_tables(cursor) -> Set[str]:
+    """Check which tables exist in database."""
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN ('nginx_configs', 'config_files')
+    """)
+    return {row[0] for row in cursor.fetchall()}
+
+
+# ============================================================================
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
@@ -152,6 +166,14 @@ class NginxAnalyzer:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
+
+            # Check which tables exist
+            existing_tables = _check_tables(cursor)
+
+            # Skip if required tables don't exist
+            if 'nginx_configs' not in existing_tables and 'config_files' not in existing_tables:
+                conn.close()
+                return
 
             cursor.execute("""
                 SELECT file_path, block_type, block_context, directives, level

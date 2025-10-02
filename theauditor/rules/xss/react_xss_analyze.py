@@ -5,9 +5,19 @@ Uses database-only approach with React component awareness.
 """
 
 import sqlite3
-from typing import List
+from typing import List, Set
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+def _check_tables(cursor) -> Set[str]:
+    """Check which tables exist in database."""
+    cursor.execute("""
+        SELECT name FROM sqlite_master
+        WHERE type='table'
+        AND name IN ('function_call_args', 'react_hooks', 'symbols')
+    """)
+    return {row[0] for row in cursor.fetchall()}
 
 
 # ============================================================================
@@ -72,8 +82,15 @@ def find_react_xss(context: StandardRuleContext) -> List[StandardFinding]:
         return findings
 
     conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
 
     try:
+        # Check table existence
+        existing_tables = _check_tables(cursor)
+        if 'function_call_args' not in existing_tables:
+            # Missing critical table - cannot perform React XSS analysis
+            return findings
+
         # Only run if React is detected
         if not _is_react_app(conn):
             return findings

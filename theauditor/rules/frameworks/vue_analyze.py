@@ -14,7 +14,20 @@ import sqlite3
 from typing import List
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+
+
+# ============================================================================
+# METADATA (Orchestrator Discovery)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="vue_security",
+    category="frameworks",
+    target_extensions=['.vue', '.js', '.ts'],
+    exclude_patterns=['node_modules/', 'test/', 'spec.', '__tests__'],
+    requires_jsx_pass=False
+)
 
 
 # ============================================================================

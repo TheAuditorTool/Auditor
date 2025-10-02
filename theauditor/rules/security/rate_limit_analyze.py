@@ -21,7 +21,16 @@ from theauditor.rules.base import (
     StandardRuleContext,
     StandardFinding,
     Severity,
-    Confidence
+    Confidence,
+    RuleMetadata
+)
+
+METADATA = RuleMetadata(
+    name="rate_limiting",
+    category="security",
+    target_extensions=['.py', '.js', '.ts'],
+    exclude_patterns=['test/', 'spec.', '__tests__'],
+    requires_jsx_pass=False
 )
 
 # ============================================================================

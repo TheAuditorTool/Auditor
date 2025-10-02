@@ -21,7 +21,20 @@ from theauditor.rules.base import (
     StandardRuleContext,
     StandardFinding,
     Severity,
-    Confidence
+    Confidence,
+    RuleMetadata
+)
+
+# ============================================================================
+# RULE METADATA (Golden Standard)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="crypto_security",
+    category="security",
+    target_extensions=['.py', '.js', '.ts', '.php'],
+    exclude_patterns=['test/', 'spec.', '__tests__', 'demo/'],
+    requires_jsx_pass=False
 )
 
 # ============================================================================

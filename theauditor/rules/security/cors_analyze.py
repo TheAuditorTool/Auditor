@@ -26,8 +26,19 @@ from typing import List, Dict, Optional, Set
 from dataclasses import dataclass
 from pathlib import Path
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
+# ============================================================================
+# RULE METADATA (Golden Standard)
+# ============================================================================
+
+METADATA = RuleMetadata(
+    name="cors_security",
+    category="security",
+    target_extensions=['.py', '.js', '.ts'],
+    exclude_patterns=['test/', 'spec.', '__tests__'],
+    requires_jsx_pass=False
+)
 
 # ============================================================================
 # GOLDEN STANDARD: FROZEN DATACLASS FOR PATTERNS
