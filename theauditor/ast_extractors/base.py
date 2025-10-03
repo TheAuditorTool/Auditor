@@ -41,7 +41,7 @@ def get_node_name(node: Any) -> str:
 
 def extract_vars_from_expr(node: ast.AST) -> List[str]:
     """Extract all variable names from a Python expression.
-    
+
     Walks the AST to find all Name and Attribute nodes.
     """
     vars_list = []
@@ -59,6 +59,69 @@ def extract_vars_from_expr(node: ast.AST) -> List[str]:
                 chain.append(current.id)
                 vars_list.append(".".join(reversed(chain)))
     return vars_list
+
+
+def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> List[str]:
+    """Extract all variable names from a TypeScript/JavaScript AST node.
+
+    This is the AST-pure replacement for the gutted extract_vars_from_tree_sitter_expr().
+    Recursively traverses the TypeScript compiler API AST to find all identifiers.
+
+    Args:
+        node: TypeScript AST node (Dict from semantic parser)
+        depth: Recursion depth to prevent infinite loops
+
+    Returns:
+        List of variable names found in the expression
+
+    Example:
+        node = {"kind": "BinaryExpression", "text": "req.body.name", ...}
+        returns ["req.body.name", "req.body", "req"]
+    """
+    if depth > 50 or not isinstance(node, dict):
+        return []
+
+    vars_list = []
+    kind = node.get("kind", "")
+
+    # PropertyAccessExpression: req.body, user.name, etc.
+    if kind == "PropertyAccessExpression":
+        # Use the authoritative text from TypeScript compiler
+        full_text = node.get("text", "").strip()
+        if full_text:
+            vars_list.append(full_text)
+            # Also add prefixes: req.body.name → ["req.body.name", "req.body", "req"]
+            parts = full_text.split(".")
+            for i in range(len(parts) - 1, 0, -1):
+                prefix = ".".join(parts[:i])
+                if prefix:
+                    vars_list.append(prefix)
+
+    # Identifier: single variable name
+    elif kind == "Identifier":
+        text = node.get("text", "").strip()
+        if text:
+            vars_list.append(text)
+
+    # CallExpression: function calls - extract the callee
+    elif kind == "CallExpression":
+        # Don't include the call itself, but do include arguments
+        pass
+
+    # Recurse through children
+    for child in node.get("children", []):
+        if isinstance(child, dict):
+            vars_list.extend(extract_vars_from_typescript_node(child, depth + 1))
+
+    # Remove duplicates while preserving order
+    seen = set()
+    result = []
+    for var in vars_list:
+        if var not in seen:
+            seen.add(var)
+            result.append(var)
+
+    return result
 
 
 def extract_vars_from_tree_sitter_expr(expr: str) -> List[str]:

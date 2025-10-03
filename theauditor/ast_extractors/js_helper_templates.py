@@ -548,12 +548,85 @@ function extractSymbols(sourceFile, checker, ts) {
                     const endPos = nameNode.end !== undefined ?
                         sourceFile.getLineAndCharacterOfPosition(nameNode.end) : startPos;
 
+                    // ENHANCED: Extract rich type information using TypeChecker
+                    let typeInfo = {
+                        type_annotation: null,
+                        is_any: false,
+                        is_unknown: false,
+                        is_generic: false,
+                        has_type_params: false,
+                        type_params: null,
+                        return_type: null,
+                        extends_type: null
+                    };
+
+                    try {
+                        // Get the TypeScript type for this symbol
+                        const type = checker.getTypeOfSymbolAtLocation(symbol, nameNode);
+
+                        if (type) {
+                            // Get type string representation
+                            typeInfo.type_annotation = checker.typeToString(type);
+
+                            // Check for 'any' type
+                            if (type.flags & ts.TypeFlags.Any) {
+                                typeInfo.is_any = true;
+                            }
+
+                            // Check for 'unknown' type
+                            if (type.flags & ts.TypeFlags.Unknown) {
+                                typeInfo.is_unknown = true;
+                            }
+
+                            // Check if this is a generic type parameter
+                            if (type.isTypeParameter && type.isTypeParameter()) {
+                                typeInfo.is_generic = true;
+                            }
+
+                            // Check for type parameters (generic instantiation)
+                            if (type.aliasTypeArguments && type.aliasTypeArguments.length > 0) {
+                                typeInfo.has_type_params = true;
+                                typeInfo.type_params = type.aliasTypeArguments
+                                    .map(t => checker.typeToString(t))
+                                    .join(', ');
+                            }
+
+                            // For function types, extract return type
+                            const callSignatures = type.getCallSignatures();
+                            if (callSignatures && callSignatures.length > 0) {
+                                const returnType = callSignatures[0].getReturnType();
+                                typeInfo.return_type = checker.typeToString(returnType);
+                            }
+
+                            // For class types, extract base class
+                            const baseTypes = type.getBaseTypes ? type.getBaseTypes() : null;
+                            if (baseTypes && baseTypes.length > 0) {
+                                typeInfo.extends_type = baseTypes
+                                    .map(t => checker.typeToString(t))
+                                    .join(', ');
+                            }
+                        }
+                    } catch (typeError) {
+                        // Type extraction failed - continue with defaults
+                        console.error(`[WARN] Type extraction failed for ${symbolName}: ${typeError.message}`);
+                    }
+
                     symbols.push({
                         name: symbolName,
                         kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
-                        type: symbolType,  // Now correctly stores "function", "class", etc.
+                        type: symbolType,  // Declaration type: "function", "class", etc.
                         line: startPos.line + 1,
-                        endLine: endPos.line + 1
+                        column: startPos.character,
+                        endLine: endPos.line + 1,
+                        // Rich type information
+                        type_annotation: typeInfo.type_annotation,
+                        is_any: typeInfo.is_any,
+                        is_unknown: typeInfo.is_unknown,
+                        is_generic: typeInfo.is_generic,
+                        has_type_params: typeInfo.has_type_params,
+                        type_params: typeInfo.type_params,
+                        return_type: typeInfo.return_type,
+                        extends_type: typeInfo.extends_type
                     });
                 }
             }

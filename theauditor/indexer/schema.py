@@ -159,6 +159,7 @@ REFS = TableSchema(
         Column("src", "TEXT", nullable=False),
         Column("kind", "TEXT", nullable=False),
         Column("value", "TEXT", nullable=False),
+        Column("line", "INTEGER"),
     ],
     indexes=[
         ("idx_refs_src", ["src"]),
@@ -218,9 +219,9 @@ API_ENDPOINTS = TableSchema(
         Column("method", "TEXT", nullable=False),
         Column("pattern", "TEXT", nullable=False),
         Column("path", "TEXT"),
+        Column("controls", "TEXT"),
         Column("has_auth", "BOOLEAN", default="0"),
         Column("handler_function", "TEXT"),
-        Column("controls", "TEXT"),
     ],
     indexes=[
         ("idx_api_endpoints_file", ["file"]),

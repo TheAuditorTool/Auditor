@@ -313,37 +313,86 @@ class RulesOrchestrator:
         
         return all_findings
     
+    def _should_run_rule_on_file(self, rule_module: Any, file_path: Path) -> bool:
+        """Check if a rule should run on a specific file based on its METADATA.
+
+        Args:
+            rule_module: The imported rule module
+            file_path: Path to the file being analyzed
+
+        Returns:
+            True if rule should run on this file, False otherwise
+        """
+        if not hasattr(rule_module, 'METADATA'):
+            # If a rule has no metadata, run it everywhere for backward compatibility.
+            return True
+
+        metadata = rule_module.METADATA
+        file_path_str = str(file_path).replace('\\', '/')
+
+        # 1. Check exclude_patterns
+        if metadata.exclude_patterns:
+            for pattern in metadata.exclude_patterns:
+                if pattern in file_path_str:
+                    return False
+
+        # 2. Check target_extensions
+        if metadata.target_extensions:
+            if file_path.suffix.lower() not in metadata.target_extensions:
+                return False
+
+        # 3. Check target_file_patterns (if extensions match)
+        if metadata.target_file_patterns:
+            if not any(pattern in file_path_str for pattern in metadata.target_file_patterns):
+                return False
+
+        return True
+
     def run_rules_for_file(self, context: RuleContext) -> List[Dict[str, Any]]:
-        """Run rules applicable to a specific file.
-        
+        """Run rules applicable to a specific file, WITH METADATA FILTERING.
+
         Args:
             context: Context with file information
-            
+
         Returns:
             List of findings for this file
         """
         findings = []
-        
+
+        # This is the critical file being analyzed
+        file_to_check = context.file_path
+
         # Filter rules that need file/AST/content
         for category, rules in self.rules.items():
             for rule in rules:
                 # Skip database-only rules when processing individual files
                 if rule.requires_db and not (rule.requires_file or rule.requires_ast or rule.requires_content):
                     continue
-                
+
                 # Skip rules that need AST if we don't have it
                 if rule.requires_ast and not context.ast_tree:
                     continue
-                
+
                 try:
+                    # Import the rule's module to access its METADATA
+                    rule_module = importlib.import_module(rule.module)
+
+                    # === THE CRITICAL FIX IS HERE ===
+                    # Check the rule's metadata before running it.
+                    if not self._should_run_rule_on_file(rule_module, file_to_check):
+                        if self._debug:
+                            print(f"[ORCHESTRATOR] Skipping rule '{rule.name}' on file '{file_to_check.name}' due to metadata mismatch.")
+                        continue  # Skip this rule for this file
+
+                    # Execute the rule if it's a match
                     rule_findings = self._execute_rule(rule, context)
                     if rule_findings:
                         findings.extend(rule_findings)
-                        
+
                 except Exception as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Rule {rule.name} failed for file: {e}")
-        
+
         return findings
     
     def get_rules_by_type(self, rule_type: str) -> List[RuleInfo]:
