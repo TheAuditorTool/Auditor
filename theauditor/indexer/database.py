@@ -77,8 +77,6 @@ class DatabaseManager:
         self.lock_analysis_batch = []
         self.import_styles_batch = []
 
-<<<<<<< HEAD
-=======
         # JWT patterns batch list
         self.jwt_patterns_batch = []
 
