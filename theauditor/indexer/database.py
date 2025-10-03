@@ -124,7 +124,6 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logger.warning(f"api_endpoints table migration failed: {e}")
 
->>>>>>> 37ebf21 (fix(schema): complete refs table + api_endpoints schema implementation)
     def begin_transaction(self):
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")

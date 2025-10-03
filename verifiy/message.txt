@@ -1,0 +1,284 @@
+# /load Command Configuration
+
+## Purpose
+Analyze the current codebase and create/update agent configuration files with comprehensive project understanding.
+
+## Agent Support
+- `/load claude`: Creates/updates CLAUDE.md (default behavior)
+- `/load codex`: Creates/updates AGENTS.md for multi-agent systems
+
+## Behavior
+When `/load [agent]` is invoked:
+
+1. **Analyze Project Structure**
+   - Scan directory structure (respecting .gitignore)
+   - Identify key directories (src/, components/, api/, tests/, etc.)
+   - Map file organization and patterns
+
+2. **Detect Technology Stack**
+   - Check package.json for Node.js/JavaScript projects
+   - Check requirements.txt/setup.py for Python projects
+   - Check go.mod for Go projects
+   - Check Gemfile for Ruby projects
+   - Check composer.json for PHP projects
+   - Identify frontend frameworks (React, Vue, Angular, etc.)
+   - Identify backend frameworks (Express, Django, Rails, etc.)
+   - Detect build tools and bundlers
+
+3. **Identify Architecture**
+   - Determine architecture style (Monolith, Microservices, SPA, etc.)
+   - Detect design patterns (MVC, Component-based, Service-oriented)
+   - Identify API patterns (REST, GraphQL, gRPC)
+   - Find database/ORM usage
+
+4. **Document Commands**
+   - Extract npm/yarn/pnpm scripts from package.json
+   - Identify Makefile targets
+   - Find Docker commands
+   - Document test commands
+
+5. **Assess Code Quality**
+   - Check for test directories and coverage
+   - Detect linting configuration
+   - Find documentation
+   - Identify CI/CD configuration
+
+6. **Generate/Update Agent File**
+   - **Claude Mode**: Create/update CLAUDE.md with project documentation
+   - **Codex Mode**: Create/update AGENTS.md with agent configurations
+   - Preserve existing custom rules and sections
+   - Update only the auto-generated sections
+
+## Agent File Templates
+
+### CLAUDE.md Template (Default)
+
+```markdown
+# [Project Name] - Project Context
+
+This file contains a comprehensive understanding of the codebase, automatically generated and maintained by the /load command.
+
+## Project Overview
+
+**Project Name**: [Detected from package.json/directory]
+**Type**: [Frontend/Backend/Full-Stack/Library/etc.]
+**Root Directory**: [Current directory]
+**Last Updated**: [Timestamp]
+
+## Technology Stack
+
+### Frontend
+- [List detected frontend technologies]
+
+### Backend  
+- [List detected backend technologies]
+
+### Database
+- [List detected databases]
+
+### Tools & Infrastructure
+- [List build tools, testing, CI/CD, etc.]
+
+## Architecture
+
+**Style**: [Monolith/Microservices/SPA/etc.]
+
+### Patterns Detected
+- [List architectural patterns found]
+
+## Key Components
+
+- **src/**: Main source code
+- **components/**: UI components
+- **api/**: API endpoints
+- [Other key directories with descriptions]
+
+## Project Structure
+
+```
+[ASCII tree of directory structure]
+```
+
+## Development Commands
+
+### Package Manager: [npm/yarn/pnpm]
+
+### Available Scripts
+- `npm run dev`: Start development server
+- `npm run build`: Build for production
+- `npm test`: Run tests
+- [Other scripts from package.json]
+
+### Docker Commands (if applicable)
+- `docker-compose up`: Start containers
+- [Other Docker commands]
+
+## Code Quality
+
+- **Tests**: [Status]
+- **Test Configuration**: [Status]
+- **Linting**: [Status]
+- **Documentation**: [Status]
+
+## Key Dependencies
+
+[List important dependencies with versions]
+
+---
+
+[PRESERVE EXISTING CUSTOM SECTIONS BELOW THIS LINE]
+```
+
+### AGENTS.md Template (Codex Mode)
+
+```markdown
+# [Project Name] - Project Context
+
+This file contains a comprehensive understanding of the codebase, automatically generated and maintained by the /load command.
+
+## Project Overview
+
+**Project Name**: [Detected from package.json/directory]
+**Type**: [Frontend/Backend/Full-Stack/Library/etc.]
+**Root Directory**: [Current directory]
+**Last Updated**: [Timestamp]
+
+## Technology Stack
+
+### Frontend
+- [List detected frontend technologies]
+
+### Backend  
+- [List detected backend technologies]
+
+### Database
+- [List detected databases]
+
+### Tools & Infrastructure
+- [List build tools, testing, CI/CD, etc.]
+
+## Architecture
+
+**Style**: [Monolith/Microservices/SPA/etc.]
+
+### Patterns Detected
+- [List architectural patterns found]
+
+## Key Components
+
+- **src/**: Main source code
+- **components/**: UI components
+- **api/**: API endpoints
+- [Other key directories with descriptions]
+
+## Project Structure
+
+```
+[ASCII tree of directory structure]
+```
+
+## Development Commands
+
+### Package Manager: [npm/yarn/pnpm]
+
+### Available Scripts
+- `npm run dev`: Start development server
+- `npm run build`: Build for production
+- `npm test`: Run tests
+- [Other scripts from package.json]
+
+### Docker Commands (if applicable)
+- `docker-compose up`: Start containers
+- [Other Docker commands]
+
+## Code Quality
+
+- **Tests**: [Status]
+- **Test Configuration**: [Status]
+- **Linting**: [Status]
+- **Documentation**: [Status]
+
+## Key Dependencies
+
+[List important dependencies with versions]
+
+---
+
+[PRESERVE EXISTING CUSTOM SECTIONS BELOW THIS LINE]
+```
+
+## Implementation Instructions
+
+When `/load [agent]` is called, Claude should:
+
+### Agent Detection
+1. Parse command argument:
+   - No argument or `claude`: Use CLAUDE.md template
+   - `codex`: Use AGENTS.md template
+   - Invalid argument: Default to CLAUDE.md with warning
+
+### Analysis Phase
+
+1. Use file reading tools to examine:
+   - package.json, composer.json, requirements.txt, go.mod, Gemfile
+   - Directory structure (limit depth to 3-4 levels)
+   - Configuration files (.eslintrc, jest.config, etc.)
+   - README.md and documentation
+
+2. Analyze patterns using grep/search:
+   - React patterns (useState, useEffect, etc.)
+   - Architecture patterns (controllers, services, models)
+   - Testing patterns
+
+3. Generate structured output following the template
+
+4. Check for existing agent file:
+   - **Claude mode**: Check if CLAUDE.md exists
+   - **Codex mode**: Check if AGENTS.md exists
+   - Read existing content if found
+   - Preserve sections marked as custom/manual
+   - Update only auto-generated sections
+   - Maintain user rules and instructions
+
+5. Write the updated file to project root:
+   - **Claude mode**: Write ONLY to CLAUDE.md
+   - **Codex mode**: Write ONLY to AGENTS.md
+
+## Usage
+
+### Basic Usage
+- `/load` or `/load claude`: Analyze codebase and create/update CLAUDE.md
+- `/load codex`: Analyze codebase and create/update AGENTS.md (same content as CLAUDE.md)
+
+### What Each Mode Does
+
+**Claude Mode** (`/load` or `/load claude`):
+- Creates traditional CLAUDE.md with project context
+- Focuses on single-agent development workflow
+- Includes comprehensive project documentation
+
+**Codex Mode** (`/load codex`):
+- Creates AGENTS.md with same content as CLAUDE.md
+- Just uses a different filename for projects that prefer AGENTS.md
+
+## Example Output Sections
+
+### CLAUDE.md (Claude Mode)
+The generated CLAUDE.md will help Claude understand:
+- What type of project this is
+- What technologies are used
+- How to build and run it
+- Where key components are located
+- What commands are available
+- Current code quality status
+
+### AGENTS.md (Codex Mode)
+The generated AGENTS.md contains identical content to CLAUDE.md:
+- What type of project this is
+- What technologies are used
+- How to build and run it
+- Where key components are located
+- What commands are available
+- Current code quality status
+
+Both files provide comprehensive context for future interactions in the project.
