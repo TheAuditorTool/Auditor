@@ -77,6 +77,56 @@ class DatabaseManager:
         self.lock_analysis_batch = []
         self.import_styles_batch = []
 
+<<<<<<< HEAD
+=======
+        # JWT patterns batch list
+        self.jwt_patterns_batch = []
+
+    def _migrate_api_endpoints_table(self, cursor):
+        """Migrate api_endpoints table to include new columns for v1.1.
+
+        Adds 4 new columns to the api_endpoints table if they don't exist:
+        - line (INTEGER): Line number where endpoint is defined
+        - path (TEXT): File path context for the endpoint
+        - has_auth (BOOLEAN): Whether endpoint has authentication
+        - handler_function (TEXT): Name of the handler function
+
+        This migration is safe to run multiple times - it checks for column
+        existence before attempting to add them.
+
+        Args:
+            cursor: SQLite cursor to execute migration commands
+        """
+        from theauditor.utils.logger import setup_logger
+        logger = setup_logger(__name__)
+
+        try:
+            # Check existing columns to avoid unnecessary ALTER TABLE commands
+            cursor.execute("PRAGMA table_info(api_endpoints)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+
+            # Define new columns with their types
+            new_columns = {
+                'line': 'INTEGER',
+                'path': 'TEXT',
+                'has_auth': 'BOOLEAN DEFAULT 0',
+                'handler_function': 'TEXT'
+            }
+
+            # Add missing columns
+            for col_name, col_definition in new_columns.items():
+                if col_name not in existing_columns:
+                    try:
+                        cursor.execute(f"ALTER TABLE api_endpoints ADD COLUMN {col_name} {col_definition}")
+                        logger.info(f"Added column '{col_name}' to api_endpoints table")
+                    except sqlite3.OperationalError as e:
+                        # Table might not exist yet during initial schema creation - that's OK
+                        logger.debug(f"Could not add column '{col_name}': {e}")
+
+        except sqlite3.Error as e:
+            logger.warning(f"api_endpoints table migration failed: {e}")
+
+>>>>>>> 37ebf21 (fix(schema): complete refs table + api_endpoints schema implementation)
     def begin_transaction(self):
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -235,6 +285,20 @@ class DatabaseManager:
                 command TEXT NOT NULL CHECK(command != 'UNKNOWN'),
                 tables TEXT,
                 extraction_source TEXT NOT NULL DEFAULT 'code_execute',
+                FOREIGN KEY(file_path) REFERENCES files(path)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jwt_patterns(
+                file_path TEXT NOT NULL,
+                line_number INTEGER NOT NULL,
+                pattern_type TEXT NOT NULL,
+                pattern_text TEXT,
+                secret_source TEXT,
+                algorithm TEXT,
                 FOREIGN KEY(file_path) REFERENCES files(path)
             )
         """
@@ -770,6 +834,9 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_queries_file ON sql_queries(file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_queries_command ON sql_queries(command)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jwt_file ON jwt_patterns(file_path)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jwt_type ON jwt_patterns(pattern_type)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_jwt_secret_source ON jwt_patterns(secret_source)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_docker_images_base ON docker_images(base_image)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orm_queries_file ON orm_queries(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_orm_queries_type ON orm_queries(query_type)")
@@ -1123,12 +1190,42 @@ class DatabaseManager:
         directives_json = json.dumps(directives)
         # Use a default context if empty to avoid primary key issues
         block_context = block_context or 'default'
-        
+
         # Check for duplicates before adding
         batch_key = (file_path, block_type, block_context)
         if not any(b[:3] == batch_key for b in self.nginx_batch):
             self.nginx_batch.append((file_path, block_type, block_context,
                                    directives_json, level))
+
+    def add_jwt_pattern(self, file_path, line_number, pattern_type,
+                        pattern_text, secret_source, algorithm=None):
+        """Add JWT pattern detection."""
+        self.jwt_patterns_batch.append({
+            'file_path': file_path,
+            'line_number': line_number,
+            'pattern_type': pattern_type,
+            'pattern_text': pattern_text,
+            'secret_source': secret_source,
+            'algorithm': algorithm
+        })
+        if len(self.jwt_patterns_batch) >= self.batch_size:
+            self._flush_jwt_patterns()
+
+    def _flush_jwt_patterns(self):
+        """Flush JWT patterns batch."""
+        if not self.jwt_patterns_batch:
+            return
+        cursor = self.conn.cursor()
+        cursor.executemany("""
+            INSERT OR REPLACE INTO jwt_patterns
+            (file_path, line_number, pattern_type, pattern_text, secret_source, algorithm)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, [
+            (p['file_path'], p['line_number'], p['pattern_type'],
+             p['pattern_text'], p['secret_source'], p['algorithm'])
+            for p in self.jwt_patterns_batch
+        ])
+        self.jwt_patterns_batch.clear()
 
     def add_cfg_block(self, file_path: str, function_name: str, block_type: str,
                      start_line: int, end_line: int, condition_expr: Optional[str] = None) -> int:
@@ -1432,7 +1529,10 @@ class DatabaseManager:
                     self.sql_queries_batch
                 )
                 self.sql_queries_batch = []
-            
+
+            # Flush JWT patterns
+            self._flush_jwt_patterns()
+
             if self.symbols_batch:
                 cursor.executemany(
                     "INSERT INTO symbols (path, name, type, line, col) VALUES (?, ?, ?, ?, ?)",
@@ -1771,6 +1871,7 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.endpoints_batch = []
     manager.sql_objects_batch = []
     manager.sql_queries_batch = []
+    manager.jwt_patterns_batch = []
     manager.symbols_batch = []
     manager.orm_queries_batch = []
     manager.docker_images_batch = []

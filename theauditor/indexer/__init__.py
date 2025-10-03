@@ -596,12 +596,19 @@ class IndexerOrchestrator:
             import os
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Processing {len(extracted['imports'])} imports for {file_path}")
-            for kind, value in extracted['imports']:
+            for import_tuple in extracted['imports']:
+                # Handle both 2-tuple (kind, value) and 3-tuple (kind, value, line) formats
+                if len(import_tuple) == 3:
+                    kind, value, line = import_tuple
+                else:
+                    kind, value = import_tuple
+                    line = None
+
                 # Check for resolved import
                 resolved = extracted.get('resolved_imports', {}).get(value, value)
                 if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG]   Adding ref: {file_path} -> {kind} {resolved}")
-                self.db_manager.add_ref(file_path, kind, resolved)
+                    print(f"[DEBUG]   Adding ref: {file_path} -> {kind} {resolved} (line {line})")
+                self.db_manager.add_ref(file_path, kind, resolved, line)
                 self.counts['refs'] += 1
         
         # Store routes (api_endpoints with all 8 fields)
@@ -805,28 +812,17 @@ class IndexerOrchestrator:
         
         # Store dedicated JWT patterns
         if 'jwt_patterns' in extracted:
-                for pattern in extracted['jwt_patterns']:
-                    # Store in sql_queries table with special command type
-                    command = f"JWT_{pattern['type'].upper()}_{pattern.get('secret_type', 'UNKNOWN').upper()}"
-
-                    # Pack metadata into JSON for tables column
-                    metadata = {
-                        'algorithm': pattern.get('algorithm'),
-                        'has_expiry': pattern.get('has_expiry'),
-                        'allows_none': pattern.get('allows_none'),
-                        'has_confusion': pattern.get('has_confusion'),
-                        'sensitive_fields': pattern.get('sensitive_fields', [])
-                    }
-
-                    self.db_manager.add_sql_query(
-                        file_path,
-                        pattern['line'],
-                        pattern['full_match'],
-                        command,
-                        [json.dumps(metadata)],  # Store metadata in tables column
-                        'code_execute'  # Phase 3B: JWT patterns are always in code
-                    )
-                    self.counts['jwt'] = self.counts.get('jwt', 0) + 1
+            for pattern in extracted['jwt_patterns']:
+                # CORRECT - storing in jwt_patterns table
+                self.db_manager.add_jwt_pattern(
+                    file_path=file_path,
+                    line_number=pattern['line'],
+                    pattern_type=pattern['type'],
+                    pattern_text=pattern.get('full_match', ''),
+                    secret_source=pattern.get('secret_type', 'unknown'),
+                    algorithm=pattern.get('algorithm')
+                )
+                self.counts['jwt'] = self.counts.get('jwt', 0) + 1
 
         # Store React-specific data
         if 'react_components' in extracted:

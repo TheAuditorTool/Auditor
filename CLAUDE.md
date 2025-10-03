@@ -111,11 +111,86 @@ The `repo_index.db` schema is consumed by many downstream modules (taint_analyze
 - Maintain the same data format in JSON columns
 - Test downstream consumers after changes
 
+#### Using the Schema Contract System (v1.1+)
+
+TheAuditor v1.1 introduces a schema contract system for type-safe database access.
+
+**Key Files**:
+- `theauditor/indexer/schema.py` - Single source of truth for all 36+ table schemas
+- Column definitions, validation, and query builders
+
+**Basic Usage**:
+
+```python
+from theauditor.indexer.schema import build_query, validate_all_tables, TABLES
+
+# Build type-safe queries with validation
+query = build_query('variable_usage', ['file', 'line', 'variable_name'])
+cursor.execute(query)
+
+# With WHERE clause
+query = build_query('sql_queries', where="command != 'UNKNOWN'")
+cursor.execute(query)
+
+# Validate database schema at runtime
+mismatches = validate_all_tables(cursor)
+if mismatches:
+    for table, errors in mismatches.items():
+        logger.warning(f"Schema mismatch in {table}: {errors}")
+```
+
+**For Rule Authors**:
+
+When writing new rules, ALWAYS use `build_query()` instead of hardcoded SQL:
+
+```python
+# ❌ DON'T: Hardcoded SQL (breaks if schema changes)
+cursor.execute("SELECT file, line, var_name FROM variable_usage")
+
+# ✅ DO: Schema-compliant query (validated at runtime)
+from theauditor.indexer.schema import build_query
+query = build_query('variable_usage', ['file', 'line', 'variable_name'])
+cursor.execute(query)
+```
+
+**Schema Definitions**:
+
+See `theauditor/indexer/schema.py` for complete table schemas. Key tables:
+- `files`, `symbols`, `function_call_args` - Core code structure
+- `api_endpoints` - REST endpoints with authentication detection
+- `variable_usage`, `taint_paths` - Data flow analysis
+- `sql_queries`, `orm_queries` - Database operation tracking
+
+**Migration Guide**:
+
+If you have existing databases, the schema validation is non-fatal. Run `aud index` to see warnings:
+```bash
+aud index
+# May show warnings like: "api_endpoints missing column: line"
+# Run full re-index to apply schema updates
+```
+
 ## Architecture Overview
 
 ### Truth Courier vs Insights: Separation of Concerns
 
 TheAuditor maintains strict separation between **factual observation** and **optional interpretation**:
+
+#### Insights Modules (Optional)
+Located in `theauditor/insights/`, these modules add scoring and interpretation on top of facts from truth couriers. They follow these principles:
+
+1. **Interpretation, not detection** - Score existing findings, don't find new ones
+2. **Database-first** - Query repo_index.db for features, no file I/O during analysis
+3. **Frozensets for patterns** - O(1) lookups like rules (HTTP_LIBS, DB_LIBS, etc.)
+4. **Optional and isolated** - Never imported by truth couriers; commands layer bridges them
+5. **Graceful degradation** - ML module checks availability, falls back if dependencies missing
+
+**Available Insights**:
+- `insights/taint.py`: Severity scoring (critical/high/medium/low), vulnerability classification
+- `insights/graph.py`: Health metrics (0-100 score, A-F grades), architecture recommendations
+- `insights/ml.py`: Risk predictions from historical patterns (requires `pip install -e ".[ml]"`)
+
+All insights use the same gold standards as rules: frozensets for O(1) pattern matching, database queries instead of file I/O, and proper error handling.
 
 #### Truth Courier Modules (Core - Always Active)
 Report verifiable facts without judgment:
@@ -515,6 +590,39 @@ Ensure linters installed: `pip install -e ".[linters]"`
 - **Root Cause**: Python extractor uses regex fallback for imports (line 48)
 - **Fix Status**: P0 priority, documented in nightmare_fuel.md
 - **Impact**: Import tracking and dependency analysis incomplete
+
+## Testing TheAuditor
+
+### Running Tests
+
+```bash
+# Install test dependencies
+pip install -e ".[dev]"
+
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=theauditor --cov-report=html
+
+# Run specific test file
+pytest tests/test_schema_contract.py -v
+```
+
+### Test Categories
+
+**Unit Tests** (`tests/test_schema_contract.py`):
+- Schema definitions and validation
+- Query builder correctness
+- Column name compliance
+
+**End-to-End Tests** (`tests/test_taint_e2e.py`):
+- Full pipeline execution
+- Taint analysis on sample code
+- Database schema validation
+
+**Adding New Tests**:
+See `tests/conftest.py` for fixtures. Follow existing patterns in test files.
 
 ## Testing Vulnerable Code
 Test projects are in `fakeproj/` directory. Always use `--exclude-self` when analyzing them to avoid false positives from TheAuditor's own configuration.
