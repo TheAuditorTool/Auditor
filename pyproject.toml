@@ -23,6 +23,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest==8.4.2",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
     "ruff==0.13.2",
     "black==25.9.0",
 ]
@@ -48,6 +50,8 @@ ast = [
 all = [
     # Dev tools
     "pytest==8.4.2",
+    "pytest-cov>=4.0.0",
+    "pytest-xdist>=3.0.0",
     # Linters
     "ruff==0.13.2",
     "mypy==1.18.2",

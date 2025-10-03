@@ -274,9 +274,9 @@ class PythonExtractor(BaseExtractor):
             tree: Parsed AST tree dictionary
 
         Returns:
-            List of (kind, module) tuples:
-            - ('import', 'os')
-            - ('from', 'pathlib')
+            List of (kind, module, line_number) tuples:
+            - ('import', 'os', 15)
+            - ('from', 'pathlib', 23)
         """
         imports = []
         actual_tree = tree.get("tree")
@@ -296,14 +296,14 @@ class PythonExtractor(BaseExtractor):
             if isinstance(node, ast.Import):
                 # import os, sys, pathlib
                 for alias in node.names:
-                    imports.append(('import', alias.name))
+                    imports.append(('import', alias.name, node.lineno))
 
             elif isinstance(node, ast.ImportFrom):
                 # from pathlib import Path
                 # Store the module name (pathlib), not the imported names
                 module = node.module or ''  # Handle relative imports (module can be None)
                 if module:  # Only store if module name exists
-                    imports.append(('from', module))
+                    imports.append(('from', module, node.lineno))
 
         return imports
 

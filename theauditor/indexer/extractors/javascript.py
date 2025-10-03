@@ -120,7 +120,8 @@ class JavaScriptExtractor(BaseExtractor):
                 if module:
                     # Use the kind (import/require) as the type
                     kind = imp.get('kind', 'import')
-                    result['imports'].append((kind, module))
+                    line = imp.get('line', 0)
+                    result['imports'].append((kind, module, line))
 
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] JS extractor: Converted {len(result['imports'])} imports to result['imports']")
@@ -221,23 +222,12 @@ class JavaScriptExtractor(BaseExtractor):
         if cfg:
             result['cfg'] = cfg
 
-        # Extract routes using BaseExtractor's method (regex-based for now)
-        # Returns list of (method, path) tuples from regex extraction
-        routes_tuples = self.extract_routes(content)
-        if routes_tuples:
-            # Convert to dictionary format with all 8 api_endpoints fields
-            # Note: regex extraction doesn't provide line numbers, auth detection, or handler names
-            result['routes'] = []
-            for method, path_pattern in routes_tuples:
-                result['routes'].append({
-                    'method': method,
-                    'pattern': path_pattern,
-                    'controls': [],  # Middleware not detected from regex
-                    'line': None,  # Regex extraction has no line info
-                    'path': file_info.get('path'),  # Full file path
-                    'has_auth': False,  # Cannot detect auth from regex
-                    'handler_function': None  # Cannot detect handler from regex
-                })
+        # Extract routes from AST function calls (Express/Fastify patterns)
+        # This provides complete metadata: line, auth middleware, handler names
+        result['routes'] = self._extract_routes_from_ast(
+            result.get('function_calls', []),
+            file_info.get('path', '')
+        )
 
         # === FRAMEWORK-SPECIFIC ANALYSIS ===
         # Analyze the extracted data to identify React/Vue patterns
@@ -772,3 +762,110 @@ class JavaScriptExtractor(BaseExtractor):
                 continue
 
         return queries
+
+    def _extract_routes_from_ast(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+        """Extract API route definitions from Express/Fastify function calls.
+
+        Detects patterns like:
+        - app.get('/path', middleware, handler)
+        - router.post('/path', authMiddleware, controller.create)
+        - fastify.route({ method: 'GET', url: '/path', handler: myHandler })
+
+        Provides complete metadata including line numbers, auth detection, and handler names.
+
+        Args:
+            function_calls: List of function call dictionaries from AST parser
+            file_path: Path to the file being analyzed
+
+        Returns:
+            List of route dictionaries with all 8 api_endpoints fields populated
+        """
+        routes = []
+
+        # Route definition method names for Express/Fastify
+        ROUTE_METHODS = frozenset([
+            'get', 'post', 'put', 'patch', 'delete', 'options', 'head',
+            'all', 'use', 'route'
+        ])
+
+        # Framework prefixes for route definitions
+        ROUTE_PREFIXES = frozenset([
+            'app', 'router', 'Router', 'express', 'fastify', 'server'
+        ])
+
+        # Authentication middleware patterns
+        AUTH_PATTERNS = frozenset([
+            'auth', 'authenticate', 'requireauth', 'isauth', 'verifyauth',
+            'checkauth', 'ensureauth', 'passport', 'jwt', 'bearer', 'oauth',
+            'protected', 'secure', 'guard', 'authorize'
+        ])
+
+        # Track routes by line to collect all arguments (middleware, handler, etc.)
+        routes_by_line = {}
+
+        for call in function_calls:
+            callee = call.get('callee_function', '')
+
+            # Parse callee: "app.get" → prefix="app", method="get"
+            if '.' not in callee:
+                continue
+
+            parts = callee.split('.')
+            if len(parts) < 2:
+                continue
+
+            prefix = parts[0]
+            method_name = parts[-1]
+
+            # Check if this is a route definition
+            if prefix not in ROUTE_PREFIXES or method_name not in ROUTE_METHODS:
+                continue
+
+            line = call.get('line', 0)
+
+            # Initialize route entry if not exists
+            if line not in routes_by_line:
+                routes_by_line[line] = {
+                    'file': file_path,
+                    'line': line,
+                    'method': method_name.upper() if method_name != 'all' else 'ANY',
+                    'pattern': None,
+                    'path': file_path,
+                    'has_auth': False,
+                    'handler_function': None,
+                    'controls': []
+                }
+
+            route_entry = routes_by_line[line]
+
+            # Extract route pattern from first argument (index 0)
+            if call.get('argument_index') == 0:
+                arg_expr = call.get('argument_expr', '')
+                # Route pattern is usually a string literal
+                if arg_expr.startswith('"') or arg_expr.startswith("'"):
+                    route_entry['pattern'] = arg_expr.strip('"\'')
+                elif arg_expr.startswith('`'):
+                    # Template literal - extract static part
+                    route_entry['pattern'] = arg_expr.strip('`')
+
+            # Detect middleware and handler from subsequent arguments
+            elif call.get('argument_index', -1) >= 1:
+                arg_expr = call.get('argument_expr', '')
+
+                # Check for authentication middleware
+                arg_lower = arg_expr.lower()
+                if any(auth_pattern in arg_lower for auth_pattern in AUTH_PATTERNS):
+                    route_entry['has_auth'] = True
+                    route_entry['controls'].append(arg_expr[:100])  # Limit length
+
+                # Last argument is typically the handler function
+                # Store it, but it may get overwritten by later arguments
+                route_entry['handler_function'] = arg_expr[:100]  # Limit length
+
+        # Convert routes_by_line to list
+        for route in routes_by_line.values():
+            # Skip routes without a pattern (malformed or incomplete)
+            if route['pattern']:
+                routes.append(route)
+
+        return routes
