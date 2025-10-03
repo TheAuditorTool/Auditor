@@ -199,8 +199,10 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 WHERE f.callee_function = 'eval'
                 ORDER BY f.file, f.line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            eval_usages = cursor.fetchall()
 
-            for file, line, eval_content in cursor.fetchall():
+            for file, line, eval_content in eval_usages:
                 # Check if this file is a Vue component
                 is_vue_file = False
 
@@ -386,8 +388,10 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     WHERE f.callee_function IN ({placeholders})
                     ORDER BY f.file, f.line
                 """, dom_methods)
+                # ✅ FIX: Store results before loop to avoid cursor state bug
+                dom_manipulations = cursor.fetchall()
 
-                for file, line, dom_method in cursor.fetchall():
+                for file, line, dom_method in dom_manipulations:
                     # Check if this is a Vue file
                     cursor.execute("""
                         SELECT 1 FROM symbols
@@ -425,8 +429,10 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                        OR f.argument_expr LIKE '%key%')
                 ORDER BY f.file, f.line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            storage_operations = cursor.fetchall()
 
-            for file, line, storage_method, data in cursor.fetchall():
+            for file, line, storage_method, data in storage_operations:
                 # Check if Vue file
                 is_vue_file = file.endswith('.vue')
                 if not is_vue_file and 'refs' in existing_tables:

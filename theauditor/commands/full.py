@@ -14,7 +14,7 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
 @click.option("--subprocess-taint", is_flag=True, help="Run taint analysis as subprocess (slower but isolated)")
 def full(root, quiet, exclude_self, offline, subprocess_taint):
-    """Run comprehensive security audit pipeline (13+ phases).
+    """Run comprehensive security audit pipeline (20 phases).
 
     Executes TheAuditor's complete analysis pipeline in 4 optimized stages
     with intelligent parallelization. This is your main command for full

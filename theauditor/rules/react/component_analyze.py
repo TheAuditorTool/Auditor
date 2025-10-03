@@ -452,7 +452,7 @@ class ReactComponentAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_react_component_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect React component anti-patterns and best practices violations.
 
     Uses data from react_components and related tables for accurate detection

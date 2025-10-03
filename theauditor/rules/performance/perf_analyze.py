@@ -142,7 +142,7 @@ PROPERTY_CHAIN_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_performance_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect performance anti-patterns and inefficiencies.
 
     Detects:

@@ -332,8 +332,10 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                    OR a.source_expr LIKE '%.count%')
             ORDER BY a.file, a.line
         """)
-        
-        for file, line, expr in cursor.fetchall():
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        division_operations = cursor.fetchall()
+
+        for file, line, expr in division_operations:
             # Try to check if there's a zero check nearby
             cursor.execute("""
                 SELECT COUNT(*) FROM symbols
@@ -379,8 +381,10 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                   )
                 ORDER BY f.file, f.line
             """, file_ops_list + file_cleanup_list)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            file_operations = cursor.fetchall()
 
-            for file, line, open_func, in_function in cursor.fetchall():
+            for file, line, open_func, in_function in file_operations:
                 # Check if it's in a with statement (Python) or try-finally
                 # FIXED: Check cfg_blocks for try/finally blocks, not symbols
                 has_context_manager = False

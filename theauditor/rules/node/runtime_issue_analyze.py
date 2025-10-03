@@ -122,7 +122,7 @@ class RuntimePatterns:
 # MAIN ENTRY POINT (Orchestrator Pattern)
 # ============================================================================
 
-def find_runtime_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Node.js runtime security issues.
 
     This is the main entry point called by the orchestrator.

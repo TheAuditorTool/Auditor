@@ -60,6 +60,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             FROM package_configs
             WHERE peer_dependencies IS NOT NULL
         """)
+        # ✅ FIX: Store first query results before executing second query
+        packages_with_peers = cursor.fetchall()
 
         # Build map of installed packages and their versions
         installed_versions: Dict[str, str] = {}
@@ -71,7 +73,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                 installed_versions[pkg_name] = version
 
         # Check each package's peer dependencies
-        for file_path, pkg_name, version, peer_deps_json in cursor.fetchall():
+        for file_path, pkg_name, version, peer_deps_json in packages_with_peers:
             if not peer_deps_json:
                 continue
 

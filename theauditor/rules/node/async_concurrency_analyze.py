@@ -133,7 +133,7 @@ class AsyncPatterns:
 # MAIN ENTRY POINT (Orchestrator Pattern)
 # ============================================================================
 
-def find_async_concurrency_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect async and concurrency issues in JavaScript/TypeScript.
 
     This is the main entry point called by the orchestrator.

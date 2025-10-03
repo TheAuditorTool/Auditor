@@ -446,7 +446,7 @@ class ReactRenderAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_react_render_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect React rendering performance issues and anti-patterns.
 
     Uses data from function_call_args and react tables to identify

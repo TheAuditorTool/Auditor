@@ -267,8 +267,10 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                OR f.callee_function = 'add_task'
             ORDER BY f.file, f.line
         """)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        background_tasks = cursor.fetchall()
 
-        for file, line, func in cursor.fetchall():
+        for file, line, func in background_tasks:
             has_error_handling = False
 
             # Check if cfg_blocks table exists and has error handling nearby
@@ -303,8 +305,10 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 FROM api_endpoints e
                 WHERE e.pattern LIKE '%websocket%' OR e.pattern LIKE '%ws%'
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            websocket_endpoints = cursor.fetchall()
 
-            for file, pattern in cursor.fetchall():
+            for file, pattern in websocket_endpoints:
                 # Check if authentication functions are called in the same file
                 cursor.execute("""
                     SELECT COUNT(*) FROM function_call_args

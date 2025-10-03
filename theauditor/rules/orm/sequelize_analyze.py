@@ -219,8 +219,10 @@ class SequelizeAnalyzer:
                    OR callee_function LIKE '%.findAndCountAll')
             ORDER BY file, line
         """)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        findall_queries = self.cursor.fetchall()
 
-        for file, line, method, args in self.cursor.fetchall():
+        for file, line, method, args in findall_queries:
             # Extract model name
             model = method.split('.')[0] if '.' in method else 'Model'
 
@@ -309,8 +311,10 @@ class SequelizeAnalyzer:
                 WHERE callee_function LIKE '%.' || ?
                 ORDER BY file, line
             """, (method,))
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            race_condition_calls = self.cursor.fetchall()
 
-            for file, line, func, args in self.cursor.fetchall():
+            for file, line, func, args in race_condition_calls:
                 # Check for transaction nearby
                 has_transaction = self._check_transaction_nearby(file, line)
 

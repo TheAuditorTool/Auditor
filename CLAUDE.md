@@ -159,7 +159,16 @@ See `theauditor/indexer/schema.py` for complete table schemas. Key tables:
 - `files`, `symbols`, `function_call_args` - Core code structure
 - `api_endpoints` - REST endpoints with authentication detection
 - `variable_usage`, `taint_paths` - Data flow analysis
-- `sql_queries`, `orm_queries` - Database operation tracking
+- `sql_queries`, `orm_queries`, `jwt_patterns` - Database operation and security pattern tracking
+
+**Schema Architecture (v1.1+)**:
+
+The schema system supports comprehensive constraint definitions:
+- **Columns**: Type-safe column definitions with nullability and defaults
+- **Indexes**: Performance optimization via indexed lookups
+- **Primary Keys**: Both single-column and composite primary keys
+- **UNIQUE Constraints**: Multi-column uniqueness enforcement (e.g., frameworks table)
+- **FOREIGN KEY Pattern**: Intentionally omitted from schema definitions to avoid circular dependencies - defined exclusively in database.py CREATE TABLE statements
 
 **Migration Guide**:
 
@@ -492,6 +501,12 @@ Key environment variables for configuration:
 - `THEAUDITOR_DB_BATCH_SIZE`: Database batch insert size (default: 200)
 
 ## Recent Fixes & Known Issues
+
+### Schema Contract System Enhancements (v1.1+)
+- **jwt_patterns Table Synchronization (Fixed)**: The jwt_patterns table was fully implemented in database.py but missing from schema.py TABLES registry, breaking schema-aware query building. Fixed by adding complete TableSchema definition with all 6 columns and 3 indexes.
+- **UNIQUE Constraint Architecture (Enhanced)**: Extended TableSchema class to support UNIQUE constraints via new `unique_constraints` field. Enables full constraint representation, code generation, and validation. Applied to frameworks table: `UNIQUE(name, language, path)`.
+- **FOREIGN KEY Design Pattern (Codified)**: Documented intentional omission of FOREIGN KEY constraints from schema.py - they are defined exclusively in database.py to avoid circular dependencies and simplify schema validation. Pattern now explicit in TableSchema docstring.
+- **Current Status**: Schema contract system now comprehensive - supports columns, indexes, primary keys, UNIQUE constraints, with explicit FOREIGN KEY pattern documentation.
 
 ### Auth Rules Expansion (v1.1+)
 - **New Analyzers**: OAuth, password handling, and session management analyzers added

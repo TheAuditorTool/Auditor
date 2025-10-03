@@ -465,7 +465,7 @@ class ReactStateAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_react_state_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect React state management issues and anti-patterns.
 
     Uses data from react_hooks and related tables to identify state

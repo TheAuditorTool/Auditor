@@ -225,8 +225,10 @@ class CryptoAnalyzer:
                OR callee_function LIKE '%.sha1%'
             ORDER BY file, line
         """, list(self.patterns.WEAK_HASHES))
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        weak_hash_usages = self.cursor.fetchall()
 
-        for file, line, method, args in self.cursor.fetchall():
+        for file, line, method, args in weak_hash_usages:
             # Determine if it's used for security (vs checksums)
             is_security_context = self._check_security_context(file, line)
 
@@ -314,8 +316,10 @@ class CryptoAnalyzer:
             WHERE callee_function IN ({insecure_placeholders})
             ORDER BY file, line
         """, list(self.patterns.INSECURE_RANDOM))
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        insecure_random_usages = self.cursor.fetchall()
 
-        for file, line, method, args, caller in self.cursor.fetchall():
+        for file, line, method, args, caller in insecure_random_usages:
             # Skip random.SystemRandom (it's actually secure)
             if 'SystemRandom' in method:
                 continue

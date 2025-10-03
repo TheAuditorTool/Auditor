@@ -412,6 +412,113 @@ erDiagram
     }
 ```
 
+## Schema Contract System (v1.1+)
+
+TheAuditor enforces a strict "single source of truth" pattern for database schema management through the schema contract system located in `theauditor/indexer/schema.py`.
+
+### Architecture Overview
+
+The schema contract system provides:
+- **Type-safe query building** - Validates column names at runtime before query execution
+- **Schema validation** - Ensures database matches schema definitions
+- **Code generation** - Generates CREATE TABLE statements from schema definitions
+- **Centralized definitions** - All 40+ table schemas in one authoritative location
+
+### TableSchema Class
+
+The `TableSchema` dataclass represents a complete table definition:
+
+```python
+@dataclass
+class TableSchema:
+    name: str
+    columns: List[Column]
+    indexes: List[Tuple[str, List[str]]] = field(default_factory=list)
+    primary_key: Optional[List[str]] = None  # Composite primary keys
+    unique_constraints: List[List[str]] = field(default_factory=list)  # UNIQUE constraints
+```
+
+**Supported Constraint Types:**
+- **Column-level constraints**: NOT NULL, DEFAULT, CHECK, PRIMARY KEY
+- **Table-level constraints**: Composite PRIMARY KEY, UNIQUE(col1, col2, ...)
+- **Indexes**: Performance optimization via CREATE INDEX statements
+
+**FOREIGN KEY Design Pattern:**
+FOREIGN KEY constraints are **intentionally omitted** from TableSchema definitions. This design choice:
+- Keeps schema focused on table-level structure (columns, types, indexes)
+- Decouples schema from relational integrity
+- Avoids circular dependencies between table definitions
+- Simplifies schema validation and code generation
+
+Foreign keys are defined exclusively in `database.py` CREATE TABLE statements and are not validated by the schema contract system.
+
+### Usage Examples
+
+**Building Type-Safe Queries:**
+```python
+from theauditor.indexer.schema import build_query
+
+# Build validated query
+query = build_query('variable_usage', ['file', 'line', 'variable_name'])
+cursor.execute(query)
+
+# With WHERE clause
+query = build_query('sql_queries', where="command != 'UNKNOWN'")
+cursor.execute(query)
+```
+
+**Schema Validation:**
+```python
+from theauditor.indexer.schema import validate_all_tables
+
+mismatches = validate_all_tables(cursor)
+if mismatches:
+    for table, errors in mismatches.items():
+        logger.warning(f"Schema mismatch in {table}: {errors}")
+```
+
+### Recent Enhancements (v1.1+)
+
+**JWT Patterns Table Synchronization:**
+- Added missing `jwt_patterns` table to schema.py TABLES registry
+- Complete TableSchema with 6 columns and 3 indexes
+- Resolved P0 schema contract violation
+
+**UNIQUE Constraint Support:**
+- Extended TableSchema with `unique_constraints` field
+- Enables full constraint representation and validation
+- Example: `frameworks` table uses `UNIQUE(name, language, path)`
+- Supports multiple UNIQUE constraints per table
+
+**Design Pattern Documentation:**
+- Codified FOREIGN KEY omission pattern in TableSchema docstring
+- Explicit architectural rationale prevents future confusion
+- Maintains separation of concerns: structure vs. relationships
+
+### Key Tables
+
+**Core Structure:**
+- `files` - File metadata and hashes
+- `symbols` - Code symbols (functions, classes, variables)
+- `function_call_args` - Function call argument tracking
+
+**Security Analysis:**
+- `api_endpoints` - REST endpoint detection with auth flags
+- `sql_queries` - SQL query extraction with command classification
+- `jwt_patterns` - JWT usage pattern detection
+- `variable_usage` - Variable usage tracking for taint analysis
+
+**Data Flow (Taint Critical):**
+- `assignments` - Variable assignments
+- `function_returns` - Function return statements
+- `taint_paths` - Computed taint flow paths
+
+**Framework Detection:**
+- `frameworks` - Detected frameworks with UNIQUE constraint
+- `framework_safe_sinks` - Framework-specific safe output methods
+
+See `theauditor/indexer/schema.py` for complete table definitions.
+
 ## Command Flow Sequence
 
 ```mermaid

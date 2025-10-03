@@ -245,8 +245,10 @@ class ReactAnalyzer:
                    OR f.argument_expr LIKE '%dangerouslySetInnerHTML%'
                 ORDER BY f.file, f.line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            dangerous_html_usages = cursor.fetchall()
 
-            for file, line, html_content in cursor.fetchall():
+            for file, line, html_content in dangerous_html_usages:
                 # Check if sanitization is nearby
                 cursor.execute("""
                     SELECT COUNT(*) FROM function_call_args
@@ -569,8 +571,10 @@ class ReactAnalyzer:
                   )
                 ORDER BY f1.file, f1.line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            form_handlers = cursor.fetchall()
 
-            for file, line in cursor.fetchall():
+            for file, line in form_handlers:
                 # Also check if validation libraries are imported
                 cursor.execute("""
                     SELECT COUNT(*) FROM refs
@@ -652,8 +656,10 @@ class ReactAnalyzer:
                   )
                 LIMIT 5
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            route_files = cursor.fetchall()
 
-            for (file,) in cursor.fetchall():
+            for (file,) in route_files:
                 # Also check if auth functions are used
                 auth_funcs_str = "', '".join(self.patterns.AUTH_FUNCTIONS)
 
@@ -696,8 +702,10 @@ class ReactAnalyzer:
                 WHERE source_expr LIKE '%<form%'
                 ORDER BY file, line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            form_elements = cursor.fetchall()
 
-            for file, line, form_content in cursor.fetchall():
+            for file, line, form_content in form_elements:
                 form_lower = form_content.lower()
 
                 # Check if it's a POST/PUT/DELETE form
@@ -760,8 +768,10 @@ class ReactAnalyzer:
                   AND source_expr LIKE '%<%>%'
                 ORDER BY file, line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            jsx_with_user_input = cursor.fetchall()
 
-            for file, line, jsx_content in cursor.fetchall():
+            for file, line, jsx_content in jsx_with_user_input:
                 # Check for user input patterns in JSX
                 has_user_input = False
                 input_source = None

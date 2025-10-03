@@ -265,8 +265,10 @@ class AsyncConcurrencyAnalyzer:
                    OR a.target_var LIKE '__class__.%')
             ORDER BY a.file, a.line
         """)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        shared_state_assignments = self.cursor.fetchall()
 
-        for file, line, var, function in self.cursor.fetchall():
+        for file, line, var, function in shared_state_assignments:
             # Check for lock protection
             has_lock = self._check_lock_nearby(file, line, function)
 
@@ -544,8 +546,10 @@ class AsyncConcurrencyAnalyzer:
                     )
               )
         """, list(self.patterns.RETRY_VARIABLES))
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        retry_loops = self.cursor.fetchall()
 
-        for file, start_line, end_line in self.cursor.fetchall():
+        for file, start_line, end_line in retry_loops:
             # Check for backoff patterns
             has_backoff = self._check_backoff_pattern(file, start_line, end_line)
 
