@@ -64,6 +64,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
 
+        # ✅ FIX: Check if package_configs table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='package_configs'
+        """)
+
+        if not cursor.fetchone():
+            conn.close()
+            return findings
+
         cursor.execute("""
             SELECT file_path, package_name, version
             FROM package_configs

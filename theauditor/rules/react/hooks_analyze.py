@@ -520,7 +520,7 @@ class ReactHooksAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_react_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect React hooks violations and anti-patterns.
 
     Uses real data from react_hooks, react_components, and variable_usage

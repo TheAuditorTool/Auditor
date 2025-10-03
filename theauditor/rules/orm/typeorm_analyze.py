@@ -347,8 +347,10 @@ def find_typeorm_issues(context: StandardRuleContext) -> List[StandardFinding]:
                    OR callee_function LIKE '%getManyAndCount%'
                 ORDER BY file, line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            getmany_calls = cursor.fetchall()
 
-            for file, line, method, args in cursor.fetchall():
+            for file, line, method, args in getmany_calls:
                 # Check if there's a limit() or take() call nearby
                 cursor.execute("""
                     SELECT COUNT(*) FROM function_call_args

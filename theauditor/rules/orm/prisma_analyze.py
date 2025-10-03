@@ -264,8 +264,10 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
                 WHERE ({throw_conditions})
                 ORDER BY file, line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            orthrow_methods = cursor.fetchall()
 
-            for file, line, query_type in cursor.fetchall():
+            for file, line, query_type in orthrow_methods:
                 # Check if there's error handling nearby
                 has_error_handling = False
 

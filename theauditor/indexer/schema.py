@@ -61,11 +61,31 @@ class Column:
 
 @dataclass
 class TableSchema:
-    """Represents a complete table schema."""
+    """Represents a complete table schema.
+
+    Design Pattern - Foreign Key Constraints:
+        FOREIGN KEY constraints are intentionally omitted from TableSchema definitions.
+        This design choice keeps the schema focused on table-level structure (columns,
+        types, indexes, constraints) and decouples it from relational integrity, which
+        is managed and enforced at the database.py layer where CREATE TABLE statements
+        are defined. This simplifies schema validation and code generation by avoiding
+        circular dependencies between table definitions.
+
+        Foreign keys are defined exclusively in database.py CREATE TABLE statements
+        and are not validated by the schema contract system.
+
+    Attributes:
+        name: Table name
+        columns: List of column definitions
+        indexes: List of (index_name, [column_names]) tuples
+        primary_key: Composite primary key column list (for multi-column PKs)
+        unique_constraints: List of UNIQUE constraint column lists
+    """
     name: str
     columns: List[Column]
     indexes: List[Tuple[str, List[str]]] = field(default_factory=list)
     primary_key: Optional[List[str]] = None  # Composite primary keys
+    unique_constraints: List[List[str]] = field(default_factory=list)  # UNIQUE constraints
 
     def column_names(self) -> List[str]:
         """Get list of column names in definition order."""
@@ -79,6 +99,11 @@ class TableSchema:
         if self.primary_key:
             pk_cols = ", ".join(self.primary_key)
             col_defs.append(f"PRIMARY KEY ({pk_cols})")
+
+        # Add unique constraints if defined
+        for unique_cols in self.unique_constraints:
+            unique_str = ", ".join(unique_cols)
+            col_defs.append(f"UNIQUE({unique_str})")
 
         return f"CREATE TABLE IF NOT EXISTS {self.name} (\n    " + ",\n    ".join(col_defs) + "\n)"
 
@@ -121,6 +146,25 @@ class TableSchema:
                     f"Column {self.name}.{col.name} type mismatch: "
                     f"expected {col.type}, got {actual_cols[col.name]}"
                 )
+
+        # Validate UNIQUE constraints if defined in schema
+        if self.unique_constraints:
+            # Get the CREATE TABLE SQL from sqlite_master
+            cursor.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                (self.name,)
+            )
+            result = cursor.fetchone()
+            if result:
+                create_sql = result[0] or ""
+                # Check each expected UNIQUE constraint exists in the SQL
+                for unique_cols in self.unique_constraints:
+                    unique_str = ", ".join(unique_cols)
+                    # Match both "UNIQUE(col1, col2)" and "UNIQUE (col1, col2)" formats
+                    if f"UNIQUE({unique_str})" not in create_sql and f"UNIQUE ({unique_str})" not in create_sql:
+                        errors.append(
+                            f"UNIQUE constraint on ({unique_str}) missing in database table {self.name}"
+                        )
 
         return len(errors) == 0, errors
 
@@ -178,6 +222,7 @@ SYMBOLS = TableSchema(
         Column("type", "TEXT", nullable=False),
         Column("line", "INTEGER", nullable=False),
         Column("col", "INTEGER", nullable=False),
+        Column("end_line", "INTEGER"),
         # Migrations (added via ALTER TABLE)
         Column("type_annotation", "TEXT"),
         Column("is_typed", "BOOLEAN", default="0"),
@@ -273,6 +318,23 @@ ORM_QUERIES = TableSchema(
     indexes=[
         ("idx_orm_queries_file", ["file"]),
         ("idx_orm_queries_type", ["query_type"]),
+    ]
+)
+
+JWT_PATTERNS = TableSchema(
+    name="jwt_patterns",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("line_number", "INTEGER", nullable=False),
+        Column("pattern_type", "TEXT", nullable=False),
+        Column("pattern_text", "TEXT"),
+        Column("secret_source", "TEXT"),
+        Column("algorithm", "TEXT"),
+    ],
+    indexes=[
+        ("idx_jwt_file", ["file_path"]),
+        ("idx_jwt_type", ["pattern_type"]),
+        ("idx_jwt_secret_source", ["secret_source"]),
     ]
 )
 
@@ -769,7 +831,8 @@ FRAMEWORKS = TableSchema(
         Column("package_manager", "TEXT"),
         Column("is_primary", "BOOLEAN", default="0"),
     ],
-    indexes=[]
+    indexes=[],
+    unique_constraints=[["name", "language", "path"]]
 )
 
 FRAMEWORK_SAFE_SINKS = TableSchema(
@@ -834,6 +897,7 @@ TABLES: Dict[str, TableSchema] = {
     # SQL & database
     "sql_objects": SQL_OBJECTS,
     "sql_queries": SQL_QUERIES,
+    "jwt_patterns": JWT_PATTERNS,
     "orm_queries": ORM_QUERIES,
     "prisma_models": PRISMA_MODELS,
 

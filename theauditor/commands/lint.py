@@ -230,9 +230,7 @@ def lint_command(
 @click.option("--manifest", default=None, help="Manifest file path")
 @click.option("--timeout", default=None, type=int, help="Timeout in seconds for each linter")
 @click.option("--print-plan", is_flag=True, help="Print lint plan without executing")
-# AUTO-FIX DEPRECATED: Hidden flag kept for backward compatibility
-@click.option("--fix", is_flag=True, hidden=True, help="[DEPRECATED] No longer functional")
-def lint(root, workset, workset_path, manifest, timeout, print_plan, fix):
+def lint(root, workset, workset_path, manifest, timeout, print_plan):
     """Run code quality checks with industry-standard linters.
 
     Automatically detects and runs available linters in your project,
@@ -317,7 +315,7 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan, fix):
         manifest_path=manifest,
         timeout=timeout,
         print_plan=print_plan,
-        auto_fix=fix,
+        auto_fix=False,  # Auto-fix permanently disabled
     )
 
     if result.get("printed_plan"):

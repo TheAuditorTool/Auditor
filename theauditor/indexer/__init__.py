@@ -653,7 +653,7 @@ class IndexerOrchestrator:
             for symbol in extracted['symbols']:
                 self.db_manager.add_symbol(
                     file_path, symbol['name'], symbol['type'],
-                    symbol['line'], symbol['col']
+                    symbol['line'], symbol['col'], symbol.get('end_line')
                 )
                 self.counts['symbols'] += 1
 

@@ -37,7 +37,7 @@ class VerboseGroup(click.Group):
         # Core commands
         formatter.write_text("CORE ANALYSIS:")
         with formatter.indentation():
-            formatter.write_text("aud full                    # Complete 13-phase security audit")
+            formatter.write_text("aud full                    # Complete 20-phase security audit")
             formatter.write_text("  --offline                 # Skip network operations (deps, docs)")
             formatter.write_text("  --exclude-self            # Exclude TheAuditor's own files")
             formatter.write_text("  --quiet                   # Minimal output")
@@ -59,10 +59,12 @@ class VerboseGroup(click.Group):
             formatter.write_paragraph()
             
             formatter.write_text("aud taint-analyze           # Track data flow from sources to sinks")
+            formatter.write_text("  --no-interprocedural      # Disable cross-function tracking")
             formatter.write_paragraph()
             
             formatter.write_text("aud docker-analyze          # Analyze Docker security issues")
             formatter.write_text("  --severity critical       # Filter by severity")
+            formatter.write_text("  --check-vulns             # Enable vulnerability scanning")
         
         formatter.write_paragraph()
         formatter.write_text("DEPENDENCIES:")
@@ -72,24 +74,33 @@ class VerboseGroup(click.Group):
             formatter.write_text("  --offline                 # Use offline databases (no network)")
             formatter.write_text("  --check-latest            # Check for outdated packages")
             formatter.write_text("  --upgrade-all             # YOLO: upgrade everything to latest")
+            formatter.write_paragraph()
+
+            formatter.write_text("aud docs fetch              # Fetch documentation for dependencies")
+            formatter.write_text("aud docs summarize          # Create AI-optimized doc capsules")
+            formatter.write_text("aud docs list               # List available documentation")
+            formatter.write_text("aud docs view <package>     # View specific package docs")
         
         formatter.write_paragraph()
         formatter.write_text("CODE QUALITY:")
         with formatter.indentation():
             formatter.write_text("aud lint                    # Run all configured linters")
-            formatter.write_text("  --fix                     # Auto-fix issues where possible")
             formatter.write_text("  --workset                 # Lint only changed files")
+            formatter.write_text("  --print-plan              # Preview linters without running")
         
         formatter.write_paragraph()
         formatter.write_text("ANALYSIS & REPORTING:")
         with formatter.indentation():
             formatter.write_text("aud graph build             # Build dependency graph")
             formatter.write_text("aud graph analyze           # Find cycles and architectural issues")
+            formatter.write_text("aud graph viz               # Visualize dependency graph")
+            formatter.write_text("  --view full|cycles|hotspots|layers|impact  # Visualization mode")
             formatter.write_paragraph()
             
             formatter.write_text("aud cfg analyze             # Analyze control flow complexity")
             formatter.write_text("  --complexity-threshold 15 # Set complexity threshold")
             formatter.write_text("  --find-dead-code          # Find unreachable code")
+            formatter.write_text("  --workset                 # Analyze workset files only")
             formatter.write_text("aud cfg viz                 # Visualize function control flow")
             formatter.write_text("  --file src/auth.py        # File containing function")
             formatter.write_text("  --function validate       # Function to visualize")
@@ -108,6 +119,8 @@ class VerboseGroup(click.Group):
             formatter.write_text("aud fce                     # Run Factual Correlation Engine")
             formatter.write_text("aud report                  # Generate final report")
             formatter.write_text("aud structure               # Generate project structure report")
+            formatter.write_text("  --max-depth 5             # Directory depth limit")
+            formatter.write_text("  --output structure.json   # Custom output path")
         
         formatter.write_paragraph()
         formatter.write_text("ADVANCED:")
@@ -150,7 +163,7 @@ def cli():
 
     QUICK START:
       aud init                    # First-time setup (creates .pf/ directory)
-      aud full                    # Run complete 13+ phase security audit
+      aud full                    # Run complete 20-phase security audit
       aud full --offline          # Air-gapped analysis (no network calls)
 
     COMMON WORKFLOWS:

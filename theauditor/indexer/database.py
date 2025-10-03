@@ -269,6 +269,7 @@ class DatabaseManager:
                 type TEXT NOT NULL,
                 line INTEGER NOT NULL,
                 col INTEGER NOT NULL,
+                end_line INTEGER,
                 FOREIGN KEY(path) REFERENCES files(path)
             )
         """
@@ -925,6 +926,10 @@ class DatabaseManager:
             cursor.execute("ALTER TABLE symbols ADD COLUMN is_typed BOOLEAN DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # Column already exists
+        try:
+            cursor.execute("ALTER TABLE symbols ADD COLUMN end_line INTEGER")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         # Migration: Add extraction_source column to sql_queries table (Phase 3B)
         try:
@@ -1077,9 +1082,9 @@ class DatabaseManager:
         tables_json = json.dumps(tables) if tables else "[]"
         self.sql_queries_batch.append((file_path, line, query_text, command, tables_json, extraction_source))
 
-    def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int):
+    def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int, end_line: Optional[int] = None):
         """Add a symbol record to the batch."""
-        self.symbols_batch.append((path, name, symbol_type, line, col))
+        self.symbols_batch.append((path, name, symbol_type, line, col, end_line))
 
     def add_orm_query(self, file_path: str, line: int, query_type: str, includes: Optional[str],
                       has_limit: bool, has_transaction: bool):
@@ -1533,7 +1538,7 @@ class DatabaseManager:
 
             if self.symbols_batch:
                 cursor.executemany(
-                    "INSERT INTO symbols (path, name, type, line, col) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO symbols (path, name, type, line, col, end_line) VALUES (?, ?, ?, ?, ?, ?)",
                     self.symbols_batch
                 )
                 self.symbols_batch = []

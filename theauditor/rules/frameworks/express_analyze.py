@@ -353,8 +353,10 @@ class ExpressAnalyzer:
                 WHERE callee_function IN ('res.send', 'res.json', 'res.write', 'res.render')
                 ORDER BY file, line
             """)
+            # ✅ FIX: Store results before loop to avoid cursor state bug
+            response_outputs = cursor.fetchall()
 
-            for file, line, method, arg_expr in cursor.fetchall():
+            for file, line, method, arg_expr in response_outputs:
                 # Check if argument contains user input
                 has_user_input = False
                 input_source = None

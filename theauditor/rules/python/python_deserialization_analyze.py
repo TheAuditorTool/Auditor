@@ -216,8 +216,10 @@ class DeserializationAnalyzer:
             WHERE callee_function IN ({pickle_placeholders})
             ORDER BY file, line
         """, list(self.patterns.PICKLE_METHODS))
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        pickle_usages = self.cursor.fetchall()
 
-        for file, line, method, args, caller in self.cursor.fetchall():
+        for file, line, method, args, caller in pickle_usages:
             # Check if data comes from network (CRITICAL)
             severity = Severity.CRITICAL
             confidence = Confidence.HIGH
@@ -255,8 +257,10 @@ class DeserializationAnalyzer:
             WHERE callee_function IN ({yaml_unsafe_placeholders})
             ORDER BY file, line
         """, list(self.patterns.YAML_UNSAFE))
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        yaml_unsafe_usages = self.cursor.fetchall()
 
-        for file, line, method, args in self.cursor.fetchall():
+        for file, line, method, args in yaml_unsafe_usages:
             # Check if Loader=SafeLoader is specified
             if args and 'SafeLoader' in args:
                 continue  # This is actually safe
