@@ -6,7 +6,7 @@ This module contains all TypeScript compiler API extraction logic for semantic a
 import os
 from typing import Any, List, Dict, Optional
 
-from .base import extract_vars_from_tree_sitter_expr  # DEPRECATED: Returns [] to enforce AST purity
+from .base import extract_vars_from_typescript_node  # AST-pure variable extraction
 
 
 def extract_semantic_ast_symbols(node, depth=0):
@@ -685,7 +685,17 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                 line = node.get("line", 0)
                                 # CRITICAL FIX: Get function from scope map
                                 in_function = scope_map.get(line, "global")
-                                
+
+                                # CRITICAL FIX: Extract source_vars from AST node, not text
+                                # Try to get the initializer node from AST structure
+                                source_vars = []
+                                # Look for initializer in children
+                                for child in node.get("children", []):
+                                    if isinstance(child, dict) and child.get("kind") != "Identifier":
+                                        # This is likely the initializer expression
+                                        source_vars = extract_vars_from_typescript_node(child)
+                                        break
+
                                 if os.environ.get("THEAUDITOR_DEBUG"):
                                     import sys
                                     print(f"[AST_DEBUG] Found TS assignment: {target_var} = {source_expr[:30]}... at line {line} in {in_function}", file=sys.stderr)
@@ -694,9 +704,7 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                     "source_expr": source_expr,
                                     "line": line,
                                     "in_function": in_function,  # NOW ACCURATE!
-                                    # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
-                                    # If taint analysis breaks, extract vars from AST node, not text
-                                    "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
+                                    "source_vars": source_vars  # NOW EXTRACTED FROM AST!
                                 })
                     else:
                         # BinaryExpression - use the original logic
@@ -707,6 +715,9 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                             # --- ENHANCEMENT: Handle Destructuring ---
                             if target_node.get("kind") in ["ObjectBindingPattern", "ArrayBindingPattern"]:
                                 source_expr = source_node.get("text", "unknown_source")
+                                # CRITICAL FIX: Extract variables from source AST node
+                                source_vars = extract_vars_from_typescript_node(source_node) if isinstance(source_node, dict) else []
+
                                 # For each element in the destructuring, create a separate assignment
                                 for element in target_node.get("elements", []):
                                     if isinstance(element, dict) and element.get("name"):
@@ -715,15 +726,13 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                             line = element.get("line", node.get("line", 0))
                                             # CRITICAL FIX: Get function from scope map
                                             in_function = scope_map.get(line, "global")
-                                            
+
                                             assignments.append({
                                                 "target_var": target_var,
                                                 "source_expr": source_expr, # CRITICAL: Source is the original object/array
                                                 "line": line,
                                                 "in_function": in_function,  # NOW ACCURATE!
-                                                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
-                                                # For destructuring, extract from source_node AST, not text
-                                                "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
+                                                "source_vars": source_vars  # NOW EXTRACTED FROM AST!
                                             })
                             else:
                                 # --- Standard, non-destructured assignment ---
@@ -733,7 +742,10 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                     line = node.get("line", 0)
                                     # CRITICAL FIX: Get function from scope map
                                     in_function = scope_map.get(line, "global")
-                                    
+
+                                    # CRITICAL FIX: Extract variables from source AST node
+                                    source_vars = extract_vars_from_typescript_node(source_node) if isinstance(source_node, dict) else []
+
                                     if os.environ.get("THEAUDITOR_DEBUG"):
                                         import sys
                                         print(f"[AST_DEBUG] Found assignment: {target_var} = {source_expr[:50]}... at line {line} in {in_function}", file=sys.stderr)
@@ -742,9 +754,7 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
                                         "source_expr": source_expr,
                                         "line": line,
                                         "in_function": in_function,  # NOW ACCURATE!
-                                        # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
-                                        # Extract from source_node AST if needed for taint analysis
-                                        "source_vars": extract_vars_from_tree_sitter_expr(source_expr)
+                                        "source_vars": source_vars  # NOW EXTRACTED FROM AST!
                                     })
 
             # Recurse without tracking function context (scope map handles it)
@@ -1039,13 +1049,14 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                     has_jsx = False
                     returns_component = False
 
+            # CRITICAL FIX: Extract return_vars from AST node, not text
+            return_vars = extract_vars_from_typescript_node(expr_node) if isinstance(expr_node, dict) else []
+
             returns.append({
                 "function_name": current_function,  # NOW ACCURATE!
                 "line": line,
                 "return_expr": return_expr,
-                # EDGE CASE DISCOVERY: return_vars now [] due to regex removal
-                # Extract from expr_node AST if needed for data flow analysis
-                "return_vars": extract_vars_from_tree_sitter_expr(return_expr),
+                "return_vars": return_vars,  # NOW EXTRACTED FROM AST!
                 "has_jsx": has_jsx,  # NEW: Track JSX returns
                 "returns_component": returns_component,  # NEW: Track if returning a component
                 "return_index": return_index  # NEW: Track multiple returns per function

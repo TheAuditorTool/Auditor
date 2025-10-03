@@ -3,19 +3,25 @@
 Comprehensive JWT security coverage for React/Vite/Node.js/Python stacks.
 NO AST TRAVERSAL. NO STRING PARSING. JUST SQL QUERIES.
 
-Backend Detection (JWT categorization from indexer):
-- JWT_SIGN_HARDCODED: Hardcoded secrets (CRITICAL)
-- JWT_SIGN_ENV: Environment variables (usually safe)
-- JWT_SIGN_VAR: Variables (needs context check)
-- JWT_SIGN_CONFIG: Config object access (usually safe)
-- JWT_VERIFY#: Verify calls with algorithm options
-- JWT_DECODE#: Decode calls without verification (VULNERABLE)
+Backend Detection (queries actual function names):
+- Hardcoded secrets: jwt.sign(), jsonwebtoken.sign(), jose.JWT.sign(), jwt.encode()
+- Weak variable secrets: Checks argument patterns for obvious weaknesses
+- Missing expiration claims: Checks for expiresIn/exp/maxAge in options
+- Algorithm confusion: Detects mixed symmetric/asymmetric algorithms
+- None algorithm usage: Detects 'none' in algorithm options (critical vulnerability)
+- JWT.decode() usage: Detects decode without signature verification
 
 Frontend Detection (assignments & function_call_args):
 - localStorage/sessionStorage JWT storage (XSS vulnerability)
 - JWT in URL parameters (leaks to logs/history/referrer)
 - Cross-origin JWT transmission (CORS issues)
 - React useState/useContext JWT patterns (UX issues)
+
+KNOWN LIMITATIONS:
+- Won't detect destructured imports: import { sign } from 'jwt'; sign();
+- Won't detect renamed imports: import { sign as jwtSign } from 'jwt';
+- Library coverage: jwt, jsonwebtoken, jose, PyJWT (expand as needed)
+- For comprehensive coverage, combine with dependency analysis
 
 Filters test/demo/example files to reduce false positives by ~40%.
 """
@@ -139,12 +145,26 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
             return findings
 
         # ========================================================
-        # CHECK 1: Hardcoded JWT Secrets (CRITICAL)
+        # CHECK 1: Hardcoded JWT Secrets (CRITICAL) - CORRECTED
         # ========================================================
+        # This query now looks for actual JWT library function names.
         cursor.execute("""
-            SELECT file, line, argument_expr
+            SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function = 'JWT_SIGN_HARDCODED'
+            WHERE
+              -- Look for real function names from common libraries
+              (callee_function LIKE '%jwt.sign' OR
+               callee_function LIKE '%jsonwebtoken.sign' OR
+               callee_function LIKE '%jose.JWT.sign' OR
+               callee_function LIKE '%jwt.encode')
+
+              -- The secret is the second argument (index 1)
+              AND argument_index = 1
+
+              -- Check if the argument is a hardcoded string literal
+              AND (argument_expr LIKE '"%"' OR argument_expr LIKE "'%'")
+
+              -- Filter out test/demo files to reduce false positives
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'
               AND file NOT LIKE '%.test.%'
@@ -154,7 +174,12 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
             ORDER BY file, line
         """)
 
-        for file, line, secret_expr in cursor.fetchall():
+        for file, line, func, secret_expr in cursor.fetchall():
+            # Additional check to filter out placeholders
+            secret_clean = secret_expr.strip('"').strip("'")
+            if secret_clean.lower() in ['secret', 'your-secret', 'changeme']:
+                continue
+
             findings.append(StandardFinding(
                 rule_name='jwt-hardcoded-secret',
                 message='JWT secret is hardcoded in source code',
@@ -162,7 +187,7 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                 line=line,
                 severity=Severity.CRITICAL,
                 category='cryptography',
-                snippet=secret_expr[:100] if len(secret_expr) > 100 else secret_expr,
+                snippet=f"{func}(..., {secret_expr}, ...)",
                 cwe_id='CWE-798'
             ))
 

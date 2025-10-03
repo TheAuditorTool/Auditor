@@ -209,6 +209,7 @@ class DatabaseManager:
                 src TEXT NOT NULL,
                 kind TEXT NOT NULL,
                 value TEXT NOT NULL,
+                line INTEGER,
                 FOREIGN KEY(src) REFERENCES files(path)
             )
         """
@@ -1042,9 +1043,9 @@ class DatabaseManager:
         if not any(item[0] == path for item in self.files_batch):
             self.files_batch.append((path, sha256, ext, bytes_size, loc))
 
-    def add_ref(self, src: str, kind: str, value: str):
+    def add_ref(self, src: str, kind: str, value: str, line: Optional[int] = None):
         """Add a reference record to the batch."""
-        self.refs_batch.append((src, kind, value))
+        self.refs_batch.append((src, kind, value, line))
 
     def add_endpoint(self, file_path: str, method: str, pattern: str, controls: List[str],
                      line: Optional[int] = None, path: Optional[str] = None,
@@ -1501,7 +1502,7 @@ class DatabaseManager:
             
             if self.refs_batch:
                 cursor.executemany(
-                    "INSERT INTO refs (src, kind, value) VALUES (?, ?, ?)",
+                    "INSERT INTO refs (src, kind, value, line) VALUES (?, ?, ?, ?)",
                     self.refs_batch
                 )
                 self.refs_batch = []

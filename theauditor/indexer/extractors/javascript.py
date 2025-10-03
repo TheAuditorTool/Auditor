@@ -489,19 +489,24 @@ class JavaScriptExtractor(BaseExtractor):
         if jwt_patterns:
             result['jwt_patterns'] = jwt_patterns
 
-        # Extract TypeScript type annotations from symbols
+        # Extract TypeScript type annotations from symbols with rich type information
         for symbol in result['symbols']:
-            if symbol.get('type') == 'function':
-                # Check in original functions data for type info
-                for func in functions:
-                    if func.get('name') == symbol.get('name'):
-                        if 'type' in func or 'returnType' in func:
-                            result['type_annotations'].append({
-                                'line': symbol.get('line', 0),
-                                'symbol_name': symbol.get('name'),
-                                'annotation_type': 'return',
-                                'type_text': func.get('returnType', func.get('type', 'any'))
-                            })
+            # Only create type annotation if we have type information
+            if symbol.get('type_annotation') or symbol.get('return_type'):
+                result['type_annotations'].append({
+                    'line': symbol.get('line', 0),
+                    'column': symbol.get('column', 0),
+                    'symbol_name': symbol.get('name', ''),
+                    'symbol_kind': symbol.get('type', 'unknown'),  # Declaration type
+                    'type_annotation': symbol.get('type_annotation'),
+                    'is_any': symbol.get('is_any', False),
+                    'is_unknown': symbol.get('is_unknown', False),
+                    'is_generic': symbol.get('is_generic', False),
+                    'has_type_params': symbol.get('has_type_params', False),
+                    'type_params': symbol.get('type_params'),
+                    'return_type': symbol.get('return_type'),
+                    'extends_type': symbol.get('extends_type')
+                })
 
         # Build variable usage from assignments and symbols
         # This is CRITICAL for dead code detection and taint analysis

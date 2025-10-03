@@ -686,24 +686,7 @@ class IndexerOrchestrator:
                     query.get('has_transaction', False)
                 )
                 self.counts['orm'] += 1
-        
-        # Store Docker information
-        if 'docker_info' in extracted and extracted['docker_info']:
-            info = extracted['docker_info']
-            self.db_manager.add_docker_image(
-                file_path, info.get('base_image'), info.get('exposed_ports', []),
-                info.get('env_vars', {}), info.get('build_args', {}),
-                info.get('user'), info.get('has_healthcheck', False)
-            )
-            self.counts['docker'] += 1
-        
-        # Store Docker security issues
-        if 'docker_issues' in extracted:
-            for issue in extracted['docker_issues']:
-                self.db_manager.add_docker_issue(
-                    file_path, issue['line'], issue['issue_type'], issue['severity']
-                )
-        
+
         # Store data flow information for taint analysis
         if 'assignments' in extracted:
             if extracted['assignments']:
