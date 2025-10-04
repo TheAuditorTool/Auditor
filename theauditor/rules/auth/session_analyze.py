@@ -21,7 +21,7 @@ CWE Coverage:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -135,28 +135,20 @@ def find_session_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check which tables exist (graceful degradation)
-        existing_tables = _check_tables(cursor)
-        if not existing_tables:
-            return findings
+        # CHECK 1: Missing httpOnly flag
+        findings.extend(_check_missing_httponly(cursor))
 
-        # Run security checks
-        if 'function_call_args' in existing_tables:
-            # CHECK 1: Missing httpOnly flag
-            findings.extend(_check_missing_httponly(cursor, existing_tables))
+        # CHECK 2: Missing secure flag
+        findings.extend(_check_missing_secure(cursor))
 
-            # CHECK 2: Missing secure flag
-            findings.extend(_check_missing_secure(cursor, existing_tables))
+        # CHECK 3: Missing SameSite attribute
+        findings.extend(_check_missing_samesite(cursor))
 
-            # CHECK 3: Missing SameSite attribute
-            findings.extend(_check_missing_samesite(cursor, existing_tables))
+        # CHECK 4: Session fixation
+        findings.extend(_check_session_fixation(cursor))
 
-            # CHECK 5: Missing session timeout
-            findings.extend(_check_missing_timeout(cursor, existing_tables))
-
-        if 'function_call_args' in existing_tables and 'assignments' in existing_tables:
-            # CHECK 4: Session fixation
-            findings.extend(_check_session_fixation(cursor, existing_tables))
+        # CHECK 5: Missing session timeout
+        findings.extend(_check_missing_timeout(cursor))
 
     finally:
         conn.close()
@@ -165,29 +157,10 @@ def find_session_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
 
 # ============================================================================
-# HELPER: Table Existence Check
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database for graceful degradation."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN (
-            'function_call_args',
-            'assignments',
-            'symbols',
-            'files'
-        )
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
-
-# ============================================================================
 # CHECK 1: Missing httpOnly Flag
 # ============================================================================
 
-def _check_missing_httponly(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_missing_httponly(cursor) -> List[StandardFinding]:
     """Detect cookies set without httpOnly flag.
 
     Without httpOnly flag, JavaScript can access cookies via document.cookie,
@@ -252,7 +225,7 @@ def _check_missing_httponly(cursor, existing_tables: Set[str]) -> List[StandardF
 # CHECK 2: Missing secure Flag
 # ============================================================================
 
-def _check_missing_secure(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_missing_secure(cursor) -> List[StandardFinding]:
     """Detect cookies set without secure flag.
 
     Without secure flag, cookies can be transmitted over unencrypted HTTP,
@@ -316,7 +289,7 @@ def _check_missing_secure(cursor, existing_tables: Set[str]) -> List[StandardFin
 # CHECK 3: Missing SameSite Attribute
 # ============================================================================
 
-def _check_missing_samesite(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_missing_samesite(cursor) -> List[StandardFinding]:
     """Detect cookies set without SameSite attribute.
 
     Without SameSite attribute, cookies are sent with cross-site requests,
@@ -380,7 +353,7 @@ def _check_missing_samesite(cursor, existing_tables: Set[str]) -> List[StandardF
 # CHECK 4: Session Fixation
 # ============================================================================
 
-def _check_session_fixation(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_session_fixation(cursor) -> List[StandardFinding]:
     """Detect session fixation vulnerabilities.
 
     Session fixation occurs when session ID is not regenerated after login,
@@ -444,7 +417,7 @@ def _check_session_fixation(cursor, existing_tables: Set[str]) -> List[StandardF
 # CHECK 5: Missing Session Timeout
 # ============================================================================
 
-def _check_missing_timeout(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_missing_timeout(cursor) -> List[StandardFinding]:
     """Detect session configuration without timeout/expiration.
 
     Sessions without expiration can be valid indefinitely, increasing

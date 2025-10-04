@@ -27,7 +27,7 @@ Filters test/demo/example files to reduce false positives by ~40%.
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
@@ -89,23 +89,6 @@ JWT_STORAGE_KEYS = frozenset([
 ])
 
 
-# ============================================================================
-# HELPER: Table Existence Check
-# ============================================================================
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database for graceful degradation."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN (
-            'function_call_args',
-            'assignments',
-            'files'
-        )
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
-
 def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect JWT vulnerabilities using categorized database data.
 
@@ -139,32 +122,14 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check which tables exist (graceful degradation)
-        existing_tables = _check_tables(cursor)
-        if 'function_call_args' not in existing_tables:
-            return findings
-
         # ========================================================
         # CHECK 1: Hardcoded JWT Secrets (CRITICAL) - CORRECTED
         # ========================================================
-        # This query now looks for actual JWT library function names.
+        # Query the categorized JWT function names created by the indexer.
         cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE
-              -- Look for real function names from common libraries
-              (callee_function LIKE '%jwt.sign' OR
-               callee_function LIKE '%jsonwebtoken.sign' OR
-               callee_function LIKE '%jose.JWT.sign' OR
-               callee_function LIKE '%jwt.encode')
-
-              -- The secret is the second argument (index 1)
-              AND argument_index = 1
-
-              -- Check if the argument is a hardcoded string literal
-              AND (argument_expr LIKE '"%"' OR argument_expr LIKE "'%'")
-
-              -- Filter out test/demo files to reduce false positives
+            WHERE callee_function = 'JWT_SIGN_HARDCODED'
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'
               AND file NOT LIKE '%.test.%'

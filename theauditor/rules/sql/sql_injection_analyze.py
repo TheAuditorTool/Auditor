@@ -81,13 +81,6 @@ def find_sql_injection(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check table availability (graceful degradation)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        if 'function_call_args' not in available_tables:
-            return findings  # Cannot run without function_call_args table
-
         # Primary detection: function_call_args with SQL execution methods
         findings.extend(_find_format_injection(cursor, patterns))
         findings.extend(_find_fstring_injection(cursor, patterns))

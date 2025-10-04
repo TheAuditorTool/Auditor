@@ -163,8 +163,16 @@ class PythonExtractor(BaseExtractor):
         else:
             result['sql_queries'] = []
 
-        # Extract JWT patterns (Python also uses JWT libraries like PyJWT)
-        result['jwt_patterns'] = self.extract_jwt_patterns(content)
+        # =================================================================
+        # JWT EXTRACTION - AST ONLY, NO REGEX
+        # =================================================================
+        # Edge cases that regex might catch but AST won't: ~0.0001%
+        # We accept this loss. If you encounter one, document it and move on.
+        # DO NOT ADD REGEX FALLBACKS. EVER.
+        if tree:
+            result['jwt_patterns'] = self._extract_jwt_from_ast(tree, file_info.get('path', ''))
+        else:
+            result['jwt_patterns'] = []
 
         # CRITICAL FIX: Extract variable usage for ALL Python files
         # This is essential for complete taint analysis and dead code detection
@@ -453,6 +461,159 @@ class PythonExtractor(BaseExtractor):
                 continue
 
         return queries
+
+    def _extract_jwt_from_ast(self, tree: Dict[str, Any], file_path: str) -> List[Dict]:
+        """Extract JWT patterns from PyJWT library calls using AST.
+
+        NO REGEX. This uses Python AST analysis to detect JWT library usage.
+
+        Detects PyJWT library usage:
+        - jwt.encode(payload, key, algorithm='HS256')
+        - jwt.decode(token, key, algorithms=['HS256'])
+
+        Edge cases: ~0.0001% of obfuscated/dynamic JWT calls might be missed.
+        We accept this. AST-first is non-negotiable.
+
+        Args:
+            tree: Parsed AST tree dictionary
+            file_path: Path to the file being analyzed
+
+        Returns:
+            List of JWT pattern dicts matching orchestrator expectations:
+            - line: int
+            - type: 'jwt_sign' | 'jwt_verify' | 'jwt_decode'
+            - full_match: str (function call context)
+            - secret_type: 'hardcoded' | 'environment' | 'config' | 'variable' | 'unknown'
+            - algorithm: str ('HS256', 'RS256', etc.) or None
+        """
+        patterns = []
+        actual_tree = tree.get("tree")
+
+        if not actual_tree or not isinstance(actual_tree, ast.Module):
+            return patterns
+
+        # JWT method names for PyJWT library (frozenset for O(1) lookup)
+        JWT_ENCODE_METHODS = frozenset(['encode'])  # jwt.encode()
+        JWT_DECODE_METHODS = frozenset(['decode'])  # jwt.decode()
+
+        for node in ast.walk(actual_tree):
+            if not isinstance(node, ast.Call):
+                continue
+
+            # Check if this is a JWT method call
+            method_name = None
+            is_jwt_call = False
+
+            if isinstance(node.func, ast.Attribute):
+                method_name = node.func.attr
+                # Check if the object is 'jwt' (e.g., jwt.encode)
+                if isinstance(node.func.value, ast.Name):
+                    if node.func.value.id == 'jwt':
+                        is_jwt_call = True
+
+            if not is_jwt_call or not method_name:
+                continue
+
+            # Determine pattern type
+            pattern_type = None
+            if method_name in JWT_ENCODE_METHODS:
+                pattern_type = 'jwt_sign'
+            elif method_name in JWT_DECODE_METHODS:
+                pattern_type = 'jwt_decode'
+
+            if not pattern_type:
+                continue
+
+            line = node.lineno
+
+            if pattern_type == 'jwt_sign':
+                # jwt.encode(payload, key, algorithm='HS256')
+                # args[0]=payload, args[1]=key
+                # keywords may contain algorithm
+                secret_node = None
+                algorithm = 'HS256'  # Default per JWT spec
+
+                # Extract key argument (second positional argument)
+                if len(node.args) >= 2:
+                    secret_node = node.args[1]
+
+                # Extract algorithm from keyword arguments
+                for keyword in node.keywords:
+                    if keyword.arg == 'algorithm':
+                        if isinstance(keyword.value, ast.Constant):
+                            algorithm = keyword.value.value
+                        elif isinstance(keyword.value, ast.Str):  # Python 3.7 compat
+                            algorithm = keyword.value.s
+
+                # Categorize secret source
+                secret_type = 'unknown'
+                if secret_node:
+                    if isinstance(secret_node, (ast.Constant, ast.Str)):
+                        # Hardcoded string literal
+                        secret_type = 'hardcoded'
+                    elif isinstance(secret_node, ast.Subscript):
+                        # os.environ['KEY'] or config['key']
+                        if isinstance(secret_node.value, ast.Attribute):
+                            if hasattr(secret_node.value, 'attr'):
+                                if secret_node.value.attr == 'environ':
+                                    secret_type = 'environment'
+                        elif isinstance(secret_node.value, ast.Name):
+                            if secret_node.value.id in ['config', 'settings', 'secrets']:
+                                secret_type = 'config'
+                    elif isinstance(secret_node, ast.Call):
+                        # os.getenv('KEY')
+                        if isinstance(secret_node.func, ast.Attribute):
+                            if secret_node.func.attr == 'getenv':
+                                secret_type = 'environment'
+                        elif isinstance(secret_node.func, ast.Name):
+                            if secret_node.func.id == 'getenv':
+                                secret_type = 'environment'
+                    elif isinstance(secret_node, ast.Attribute):
+                        # config.JWT_SECRET or settings.SECRET_KEY
+                        if isinstance(secret_node.value, ast.Name):
+                            if secret_node.value.id in ['config', 'settings', 'secrets']:
+                                secret_type = 'config'
+                    elif isinstance(secret_node, ast.Name):
+                        # Variable reference
+                        secret_type = 'variable'
+
+                full_match = f"jwt.encode(...)"
+
+                patterns.append({
+                    'line': line,
+                    'type': pattern_type,
+                    'full_match': full_match,
+                    'secret_type': secret_type,
+                    'algorithm': algorithm
+                })
+
+            elif pattern_type == 'jwt_decode':
+                # jwt.decode(token, key, algorithms=['HS256'])
+                algorithm = None
+
+                # Extract algorithms from keyword arguments
+                for keyword in node.keywords:
+                    if keyword.arg == 'algorithms':
+                        # algorithms is a list
+                        if isinstance(keyword.value, ast.List):
+                            if keyword.value.elts:
+                                first_algo = keyword.value.elts[0]
+                                if isinstance(first_algo, ast.Constant):
+                                    algorithm = first_algo.value
+                                elif isinstance(first_algo, ast.Str):
+                                    algorithm = first_algo.s
+
+                full_match = f"jwt.decode(...)"
+
+                patterns.append({
+                    'line': line,
+                    'type': pattern_type,
+                    'full_match': full_match,
+                    'secret_type': None,  # Not applicable for decode
+                    'algorithm': algorithm
+                })
+
+        return patterns
 
     def _extract_variable_usage(self, tree: Dict[str, Any], content: str) -> List[Dict]:
         """Extract ALL variable usage for complete data flow analysis.

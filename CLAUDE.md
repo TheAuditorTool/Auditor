@@ -440,6 +440,50 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
 **Result:** SQL rules skip `.jsx` files, React rules skip `.py` files, migrations auto-filtered.
 
+### ABSOLUTE PROHIBITION: Fallback Logic & Regex
+
+**NO FALLBACKS. NO REGEX. NO EXCEPTIONS.**
+
+The schema contract system (`theauditor/indexer/schema.py`) guarantees table existence.
+Rules MUST assume all contracted tables exist. Any table existence check is architectural cancer.
+
+**FORBIDDEN PATTERNS:**
+```python
+# ❌ CANCER - Table existence checking
+def _check_tables(cursor):
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'...")
+    return {row[0] for row in cursor.fetchall()}
+
+# ❌ CANCER - Conditional execution based on table existence
+if 'function_call_args' not in existing_tables:
+    return findings
+
+# ❌ CANCER - Fallback execution paths
+if 'api_endpoints' not in existing_tables:
+    return _check_oauth_state_fallback(cursor)
+
+# ❌ CANCER - Regex on file content (ANY reason)
+pattern = re.compile(r'password\s*=\s*["\'](.+)["\']')
+matches = pattern.findall(content)
+```
+
+**MANDATORY PATTERN:**
+```python
+# ✅ CORRECT - Direct database query, assume table exists
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT file, line, argument_expr
+        FROM function_call_args
+        WHERE callee_function LIKE '%jwt.sign'
+    """)
+    # Process findings...
+```
+
+**If a table doesn't exist, the rule SHOULD crash. This indicates schema contract violation, not a condition to handle gracefully.**
+
 ## CRITICAL: Reading Chunked Data
 
 **IMPORTANT**: When processing files from `.pf/readthis/`, you MUST check for truncation:

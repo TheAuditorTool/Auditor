@@ -11,7 +11,7 @@ Follows golden standard patterns:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -110,76 +110,26 @@ def find_vue_render_issues(context: StandardRuleContext) -> List[StandardFinding
     if not context.db_path:
         return findings
 
+    # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+    # If tables are missing, the rule MUST crash to expose indexer bugs.
+
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'files', 'symbols', 'function_call_args',
-                'assignments', 'cfg_blocks'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required tables
-        if 'symbols' not in existing_tables:
-            return findings
-
         # Get Vue files
-        vue_files = _get_vue_files(cursor, existing_tables)
+        vue_files = _get_vue_files(cursor, {})
         if not vue_files:
             return findings
 
-        # Track available tables for graceful degradation
-        has_function_calls = 'function_call_args' in existing_tables
-        has_assignments = 'assignments' in existing_tables
-        has_cfg_blocks = 'cfg_blocks' in existing_tables
-
-        # ========================================================
-        # CHECK 1: v-if with v-for Anti-pattern
-        # ========================================================
+        # Run all checks - schema contract guarantees all tables exist
         findings.extend(_find_vif_with_vfor(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 2: Missing Keys in Lists
-        # ========================================================
         findings.extend(_find_missing_list_keys(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 3: Unnecessary Re-renders
-        # ========================================================
-        if has_function_calls:
-            findings.extend(_find_unnecessary_rerenders(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 4: Large Lists Without Virtualization
-        # ========================================================
+        findings.extend(_find_unnecessary_rerenders(cursor, vue_files))
         findings.extend(_find_unoptimized_lists(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 5: Complex Render Functions
-        # ========================================================
-        if has_function_calls:
-            findings.extend(_find_complex_render_functions(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 6: Direct DOM Manipulation
-        # ========================================================
-        if has_function_calls:
-            findings.extend(_find_direct_dom_manipulation(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 7: Inefficient Event Handlers
-        # ========================================================
-        if has_assignments:
-            findings.extend(_find_inefficient_event_handlers(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 8: Missing Render Optimizations
-        # ========================================================
+        findings.extend(_find_complex_render_functions(cursor, vue_files))
+        findings.extend(_find_direct_dom_manipulation(cursor, vue_files))
+        findings.extend(_find_inefficient_event_handlers(cursor, vue_files))
         findings.extend(_find_missing_optimizations(cursor, vue_files))
 
     finally:

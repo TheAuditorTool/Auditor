@@ -11,11 +11,13 @@ Language extractors (Python, JavaScript) MUST use AST-based extraction.
 String/regex extraction is ONLY for:
 1. Route definitions (inherently string literals in all frameworks)
 2. SQL DDL (CREATE TABLE etc in .sql files)
-3. JWT API patterns (well-defined, low false positive rate)
+
+CRITICAL ARCHITECTURAL MANDATE: NO REGEX FOR ANYTHING ELSE. USE AST.
 
 FORBIDDEN:
 - Regex-based import extraction (use AST)
 - Regex-based SQL query extraction in code files (use AST to find db.execute() calls)
+- Regex-based JWT extraction (use AST via function_calls data)
 """
 
 import os
@@ -27,10 +29,9 @@ from typing import Dict, Any, List, Optional, Tuple
 
 from ..config import (
     ROUTE_PATTERNS,
-    SQL_PATTERNS,
-    JWT_SIGN_PATTERN,
-    JWT_VERIFY_PATTERN,
-    JWT_DECODE_PATTERN
+    SQL_PATTERNS
+    # CRITICAL ARCHITECTURAL MANDATE: JWT extraction now uses AST-based
+    # approach via function_calls data. DO NOT add JWT regex imports here.
 )
 
 
@@ -153,126 +154,16 @@ class BaseExtractor(ABC):
                 objects.append((kind, name))
         return objects
 
-    def extract_jwt_patterns(self, content: str) -> List[Dict]:
-        """Extract JWT API patterns with metadata parsing.
-
-        Detects JWT library usage:
-        - jwt.sign(payload, secret, options)
-        - jwt.verify(token, secret, options)
-        - jwt.decode(token)
-
-        This has a low false positive rate because:
-        1. Matches specific JWT library API calls
-        2. Extracts structured metadata (algorithm, expiry, etc.)
-        3. Categorizes secrets (hardcoded vs environment)
-
-        Both Python (PyJWT) and JavaScript (jsonwebtoken) use similar APIs,
-        making this pattern applicable across languages.
-
-        Args:
-            content: File content
-
-        Returns:
-            List of JWT pattern dictionaries with categorized metadata
-        """
-        patterns = []
-
-        # Find jwt.sign calls and categorize
-        for match in JWT_SIGN_PATTERN.finditer(content):
-            line = content[:match.start()].count('\n') + 1
-            payload = match.group(1).strip()
-            secret = match.group(2).strip()
-            options = match.group(3).strip() if match.group(3) else '{}'
-
-            # Categorize secret type
-            secret_type = 'unknown'
-            secret_value = ''
-            if 'process.env' in secret or 'os.environ' in secret or 'os.getenv' in secret:
-                secret_type = 'environment'
-                # Extract environment variable name
-                env_match = re.search(r'(?:process\.env\.|os\.environ\[|os\.getenv\()[\'"]*(\w+)', secret)
-                secret_value = env_match.group(1) if env_match else 'UNKNOWN_ENV'
-            elif 'config.' in secret or 'secrets.' in secret or 'settings.' in secret:
-                secret_type = 'config'
-                secret_value = secret.split('.')[-1].strip('"\' )')
-            elif secret.startswith('"') or secret.startswith("'"):
-                secret_type = 'hardcoded'
-                secret_value = secret.strip('"\'')[:32]  # First 32 chars only
-            else:
-                secret_type = 'variable'
-                secret_value = secret
-
-            # Extract algorithm
-            algorithm = 'HS256'  # Default per JWT spec
-            if 'algorithm' in options:
-                algo_match = re.search(r'algorithm["\']?\s*[:=]\s*["\']([\w\d]+)', options)
-                if algo_match:
-                    algorithm = algo_match.group(1)
-
-            # Check for expiration
-            has_expiry = any(exp in options for exp in ['expiresIn', 'exp', 'notBefore', 'maxAge'])
-
-            # Check for sensitive data in payload
-            sensitive_fields = []
-            for field in ['password', 'secret', 'creditCard', 'ssn', 'apiKey']:
-                if field.lower() in payload.lower():
-                    sensitive_fields.append(field)
-
-            patterns.append({
-                'type': 'jwt_sign',
-                'line': line,
-                'secret_type': secret_type,
-                'secret_value': secret_value,
-                'algorithm': algorithm,
-                'has_expiry': has_expiry,
-                'sensitive_fields': sensitive_fields,
-                'full_match': match.group(0)[:500]  # Limit for storage
-            })
-
-        # Find jwt.verify calls
-        for match in JWT_VERIFY_PATTERN.finditer(content):
-            line = content[:match.start()].count('\n') + 1
-            token = match.group(1).strip()
-            secret = match.group(2).strip()
-            options = match.group(3).strip() if match.group(3) else '{}'
-
-            # Check for dangerous 'none' algorithm
-            allows_none = False
-            if 'algorithms' in options:
-                if 'none' in options.lower() or '"none"' in options.lower():
-                    allows_none = True
-
-            # Check for algorithm confusion (both symmetric and asymmetric)
-            algorithms_found = []
-            for algo in ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'PS256']:
-                if algo in options:
-                    algorithms_found.append(algo)
-
-            has_confusion = False
-            if algorithms_found:
-                has_symmetric = any(a.startswith('HS') for a in algorithms_found)
-                has_asymmetric = any(a.startswith(('RS', 'ES', 'PS')) for a in algorithms_found)
-                has_confusion = has_symmetric and has_asymmetric
-
-            patterns.append({
-                'type': 'jwt_verify',
-                'line': line,
-                'allows_none': allows_none,
-                'has_confusion': has_confusion,
-                'algorithms': algorithms_found,
-                'full_match': match.group(0)[:500]
-            })
-
-        # Find jwt.decode calls (often vulnerable - decodes without verification)
-        for match in JWT_DECODE_PATTERN.finditer(content):
-            line = content[:match.start()].count('\n') + 1
-            patterns.append({
-                'type': 'jwt_decode',
-                'line': line,
-                'full_match': match.group(0)[:200]
-            })
-
-        return patterns
+    # =================================================================
+    # CRITICAL ARCHITECTURAL MANDATE: NO REGEX FOR JWT
+    # =================================================================
+    # The extract_jwt_patterns() regex method was permanently deleted.
+    # JWT extraction MUST use AST-based analysis via function_calls data
+    # in language-specific extractors (e.g., JavaScriptExtractor).
+    #
+    # DO NOT RE-IMPLEMENT REGEX METHODS HERE.
+    # IF YOU BELIEVE REGEX IS REQUIRED, YOU ARE INCORRECT. USE THE AST.
+    # =================================================================
 
 
 class ExtractorRegistry:

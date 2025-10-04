@@ -778,6 +778,14 @@ def find_pii_issues(context: StandardRuleContext) -> List[StandardFinding]:
         if 'function_call_args' in existing_tables:
             findings.extend(_detect_third_party_pii(cursor, existing_tables, pii_categories))
 
+        # Layer 11: PII in parameterized route patterns
+        if 'api_endpoints' in existing_tables:
+            findings.extend(_detect_pii_in_route_patterns(cursor, existing_tables, pii_categories))
+
+        # Layer 12: PII in static API paths
+        if 'api_endpoints' in existing_tables:
+            findings.extend(_detect_pii_in_apis(cursor, existing_tables, pii_categories))
+
         # Additional advanced detection layers...
 
     finally:
@@ -1392,6 +1400,57 @@ def register_taint_patterns(taint_registry):
 # ADDITIONAL DETECTION LAYERS
 # ============================================================================
 
+def _detect_pii_in_route_patterns(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+    """Detects PII exposed in parameterized API route patterns."""
+    findings = []
+    if 'api_endpoints' not in existing_tables:
+        return findings
+
+    # Collect all PII patterns
+    all_pii_patterns = set()
+    for category_patterns in pii_categories.values():
+        all_pii_patterns.update(category_patterns)
+
+    # Regex to extract parameters: :param or {param}
+    param_regex = re.compile(r':([a-zA-Z0-9_]+)|\{([a-zA-Z0-9_]+)\}')
+
+    cursor.execute("""
+        SELECT file, line, method, pattern
+        FROM api_endpoints
+        WHERE pattern IS NOT NULL
+          AND pattern != ''
+        ORDER BY file, line
+    """)
+
+    for file, line, method, route_pattern in cursor.fetchall():
+        # Find all parameter placeholders
+        matches = param_regex.findall(route_pattern)
+        # findall returns list of tuples (group1, group2), extract non-empty groups
+        extracted_params = [m[0] or m[1] for m in matches]
+
+        for param_name in extracted_params:
+            # Normalize both sides for comparison (symmetric normalization)
+            normalized_param = param_name.lower().replace('_', '').replace('-', '')
+
+            for pii_pattern in all_pii_patterns:
+                normalized_pii = pii_pattern.lower().replace('_', '').replace('-', '')
+
+                if normalized_pii == normalized_param:
+                    findings.append(StandardFinding(
+                        rule_name='pii-in-route-parameter',
+                        message=f'PII parameter "{param_name}" exposed in API route',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category='privacy',
+                        confidence=Confidence.MEDIUM,
+                        snippet=f'{method.upper()} {route_pattern}',
+                        cwe_id='CWE-598'
+                    ))
+                    break  # One finding per parameter
+
+    return findings
+
 def _detect_pii_in_apis(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII exposed in API endpoints."""
     findings = []
@@ -1401,21 +1460,18 @@ def _detect_pii_in_apis(cursor, existing_tables: Set[str], pii_categories: Dict)
 
     # Get all API endpoints
     cursor.execute("""
-        SELECT file, line, method, path, params
+        SELECT file, line, method, path
         FROM api_endpoints
-        WHERE params IS NOT NULL
+        WHERE path IS NOT NULL
         ORDER BY file, line
     """)
 
-    for file, line, method, path, params in cursor.fetchall():
-        if not params:
-            continue
-
-        # Check for PII in API parameters
+    for file, line, method, path in cursor.fetchall():
+        # Check for PII in API path
         detected_pii = []
         for category, patterns in pii_categories.items():
             for pattern in patterns:
-                if pattern in params.lower() or pattern in path.lower():
+                if pattern in path.lower():
                     detected_pii.append((pattern, category))
 
         if detected_pii:

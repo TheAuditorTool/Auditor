@@ -19,7 +19,7 @@ CWE Coverage:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -174,26 +174,17 @@ def find_password_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check which tables exist (graceful degradation)
-        existing_tables = _check_tables(cursor)
-        if not existing_tables:
-            return findings
+        # CHECK 1: Weak password hashing
+        findings.extend(_check_weak_password_hashing(cursor))
 
-        # Run security checks
-        if 'function_call_args' in existing_tables:
-            # CHECK 1: Weak password hashing
-            findings.extend(_check_weak_password_hashing(cursor, existing_tables))
+        # CHECK 2: Hardcoded passwords
+        findings.extend(_check_hardcoded_passwords(cursor))
 
-        if 'assignments' in existing_tables:
-            # CHECK 2: Hardcoded passwords
-            findings.extend(_check_hardcoded_passwords(cursor, existing_tables))
+        # CHECK 3: Lack of password complexity enforcement
+        findings.extend(_check_weak_complexity(cursor))
 
-            # CHECK 4: Passwords in GET parameters
-            findings.extend(_check_password_in_url(cursor, existing_tables))
-
-        if 'function_call_args' in existing_tables:
-            # CHECK 3: Lack of password complexity enforcement
-            findings.extend(_check_weak_complexity(cursor, existing_tables))
+        # CHECK 4: Passwords in GET parameters
+        findings.extend(_check_password_in_url(cursor))
 
     finally:
         conn.close()
@@ -202,29 +193,10 @@ def find_password_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
 
 # ============================================================================
-# HELPER: Table Existence Check
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database for graceful degradation."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN (
-            'function_call_args',
-            'assignments',
-            'symbols',
-            'files'
-        )
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
-
-# ============================================================================
 # CHECK 1: Weak Password Hashing
 # ============================================================================
 
-def _check_weak_password_hashing(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
     """Detect weak hash algorithms used for passwords.
 
     MD5 and SHA1 are broken for password hashing - fast to brute force
@@ -329,7 +301,7 @@ def _check_weak_password_hashing(cursor, existing_tables: Set[str]) -> List[Stan
 # CHECK 2: Hardcoded Passwords
 # ============================================================================
 
-def _check_hardcoded_passwords(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_hardcoded_passwords(cursor) -> List[StandardFinding]:
     """Detect hardcoded passwords in source code.
 
     Hardcoded passwords are a critical security risk as they:
@@ -417,7 +389,7 @@ def _check_hardcoded_passwords(cursor, existing_tables: Set[str]) -> List[Standa
 # CHECK 3: Weak Password Complexity Enforcement
 # ============================================================================
 
-def _check_weak_complexity(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_weak_complexity(cursor) -> List[StandardFinding]:
     """Detect lack of password complexity enforcement.
 
     Strong passwords should enforce:
@@ -513,7 +485,7 @@ def _check_weak_complexity(cursor, existing_tables: Set[str]) -> List[StandardFi
 # CHECK 4: Password in GET Request Parameters
 # ============================================================================
 
-def _check_password_in_url(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_password_in_url(cursor) -> List[StandardFinding]:
     """Detect passwords in GET request parameters.
 
     Passwords in URLs are logged in:

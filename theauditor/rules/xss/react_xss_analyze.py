@@ -5,20 +5,13 @@ Uses database-only approach with React component awareness.
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('function_call_args', 'react_hooks', 'symbols')
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
+# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+# If tables are missing, the rule MUST crash to expose indexer bugs.
 
 # ============================================================================
 # RULE METADATA - Phase 3B Addition (2025-10-02)
@@ -85,12 +78,6 @@ def find_react_xss(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check table existence
-        existing_tables = _check_tables(cursor)
-        if 'function_call_args' not in existing_tables:
-            # Missing critical table - cannot perform React XSS analysis
-            return findings
-
         # Only run if React is detected
         if not _is_react_app(conn):
             return findings
