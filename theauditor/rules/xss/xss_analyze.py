@@ -7,7 +7,7 @@ NO AST TRAVERSAL. NO FILE I/O. Pure database queries.
 """
 
 import sqlite3
-from typing import List, Set, FrozenSet
+from typing import List, FrozenSet
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
@@ -79,14 +79,8 @@ COMMON_SANITIZERS = frozenset([
 ])
 
 
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('function_call_args', 'assignments', 'symbols', 'frameworks')
-    """)
-    return {row[0] for row in cursor.fetchall()}
+# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+# If tables are missing, the rule MUST crash to expose indexer bugs.
 
 
 def find_xss_issues(context: StandardRuleContext) -> List[StandardFinding]:

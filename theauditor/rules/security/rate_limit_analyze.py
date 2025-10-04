@@ -739,13 +739,13 @@ def _detect_api_rate_limits(cursor, existing_tables: Set[str]) -> List[StandardF
 
     # Get all API endpoints
     cursor.execute("""
-        SELECT file, line, method, path, params
+        SELECT file, line, method, path
         FROM api_endpoints
         WHERE path IS NOT NULL
         ORDER BY file, line
     """)
 
-    for file, line, method, path, params in cursor.fetchall():
+    for file, line, method, path in cursor.fetchall():
         # Check if critical endpoint
         is_critical = any(endpoint in path.lower() for endpoint in CRITICAL_ENDPOINTS)
 

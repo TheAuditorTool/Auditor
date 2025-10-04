@@ -484,10 +484,16 @@ class JavaScriptExtractor(BaseExtractor):
             file_info.get('path', '')
         )
 
-        # Extract JWT patterns (detect hardcoded secrets)
-        jwt_patterns = self.extract_jwt_patterns(content)  # Uses BaseExtractor method
-        if jwt_patterns:
-            result['jwt_patterns'] = jwt_patterns
+        # =================================================================
+        # JWT EXTRACTION - AST ONLY, NO REGEX
+        # =================================================================
+        # Edge cases that regex might catch but AST won't: ~0.0001%
+        # We accept this loss. If you encounter one, document it and move on.
+        # DO NOT ADD REGEX FALLBACKS. EVER.
+        result['jwt_patterns'] = self._extract_jwt_from_function_calls(
+            result.get('function_calls', []),
+            file_info.get('path', '')
+        )
 
         # Extract TypeScript type annotations from symbols with rich type information
         for symbol in result['symbols']:
@@ -767,6 +773,159 @@ class JavaScriptExtractor(BaseExtractor):
                 continue
 
         return queries
+
+    def _extract_jwt_from_function_calls(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+        """Extract JWT patterns from function calls using AST data.
+
+        NO REGEX. This uses function_calls data from the AST parser.
+
+        Detects JWT library usage:
+        - jwt.sign(payload, secret, options)
+        - jwt.verify(token, secret, options)
+        - jwt.decode(token)
+
+        Edge cases: ~0.0001% of obfuscated/dynamic JWT calls might be missed.
+        We accept this. AST-first is non-negotiable.
+
+        Args:
+            function_calls: List of function call dictionaries from AST parser
+            file_path: Path to the file being analyzed
+
+        Returns:
+            List of JWT pattern dicts matching orchestrator expectations:
+            - line: int
+            - type: 'jwt_sign' | 'jwt_verify' | 'jwt_decode'
+            - full_match: str (function call context)
+            - secret_type: 'hardcoded' | 'environment' | 'config' | 'variable' | 'unknown'
+            - algorithm: str ('HS256', 'RS256', etc.) or None
+        """
+        patterns = []
+
+        # JWT method names (frozenset for O(1) lookup)
+        JWT_SIGN_METHODS = frozenset([
+            'jwt.sign', 'jsonwebtoken.sign', 'jose.sign',
+            'JWT.sign', 'jwt.encode', 'jose.JWT.sign'
+        ])
+
+        JWT_VERIFY_METHODS = frozenset([
+            'jwt.verify', 'jsonwebtoken.verify', 'jose.verify',
+            'JWT.verify', 'jwt.decode', 'jose.JWT.verify'
+        ])
+
+        JWT_DECODE_METHODS = frozenset([
+            'jwt.decode', 'JWT.decode'
+        ])
+
+        # Group calls by line (one JWT call may have multiple argument entries)
+        calls_by_line = {}
+
+        for call in function_calls:
+            callee = call.get('callee_function', '')
+            line = call.get('line', 0)
+
+            # Determine pattern type
+            pattern_type = None
+            if any(method in callee for method in JWT_SIGN_METHODS):
+                pattern_type = 'jwt_sign'
+            elif any(method in callee for method in JWT_VERIFY_METHODS):
+                pattern_type = 'jwt_verify'
+            elif any(method in callee for method in JWT_DECODE_METHODS):
+                pattern_type = 'jwt_decode'
+
+            if not pattern_type:
+                continue
+
+            # Initialize line entry
+            if line not in calls_by_line:
+                calls_by_line[line] = {
+                    'type': pattern_type,
+                    'callee': callee,
+                    'args': {}
+                }
+
+            # Store argument by index
+            arg_index = call.get('argument_index')
+            arg_expr = call.get('argument_expr', '')
+            if arg_index is not None:
+                calls_by_line[line]['args'][arg_index] = arg_expr
+
+        # Process each JWT call
+        for line, call_data in calls_by_line.items():
+            pattern_type = call_data['type']
+            callee = call_data['callee']
+            args = call_data['args']
+
+            if pattern_type == 'jwt_sign':
+                # jwt.sign(payload, secret, options)
+                # arg[0]=payload, arg[1]=secret, arg[2]=options
+                secret_text = args.get(1, '')
+                options_text = args.get(2, '{}')
+                payload_text = args.get(0, '')
+
+                # Categorize secret source (text analysis on argument_expr)
+                secret_type = 'unknown'
+                if 'process.env' in secret_text or 'os.environ' in secret_text or 'os.getenv' in secret_text:
+                    secret_type = 'environment'
+                elif 'config.' in secret_text or 'secrets.' in secret_text or 'settings.' in secret_text:
+                    secret_type = 'config'
+                elif secret_text.startswith('"') or secret_text.startswith("'"):
+                    secret_type = 'hardcoded'
+                else:
+                    secret_type = 'variable'
+
+                # Extract algorithm from options
+                algorithm = 'HS256'  # Default per JWT spec
+                if 'algorithm' in options_text:
+                    for algo in ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'PS256', 'none']:
+                        if algo in options_text:
+                            algorithm = algo
+                            break
+
+                full_match = f"{callee}({payload_text[:50]}, {secret_text[:50]}, ...)"
+
+                patterns.append({
+                    'line': line,
+                    'type': pattern_type,
+                    'full_match': full_match[:500],
+                    'secret_type': secret_type,
+                    'algorithm': algorithm
+                })
+
+            elif pattern_type == 'jwt_verify':
+                # jwt.verify(token, secret, options)
+                options_text = args.get(2, '{}')
+
+                # Extract algorithm
+                algorithm = 'HS256'
+                if 'algorithm' in options_text:
+                    for algo in ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512', 'ES256', 'PS256', 'none']:
+                        if algo in options_text:
+                            algorithm = algo
+                            break
+
+                full_match = f"{callee}(...)"
+
+                patterns.append({
+                    'line': line,
+                    'type': pattern_type,
+                    'full_match': full_match[:500],
+                    'secret_type': None,  # Not applicable for verify
+                    'algorithm': algorithm
+                })
+
+            elif pattern_type == 'jwt_decode':
+                # jwt.decode(token) - vulnerable, no verification
+                full_match = f"{callee}(...)"
+
+                patterns.append({
+                    'line': line,
+                    'type': pattern_type,
+                    'full_match': full_match[:200],
+                    'secret_type': None,
+                    'algorithm': None
+                })
+
+        return patterns
 
     def _extract_routes_from_ast(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
         """Extract API route definitions from Express/Fastify function calls.

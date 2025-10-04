@@ -10,7 +10,7 @@ semantic AST analysis via js_semantic_parser.
 """
 
 import sqlite3
-from typing import List, Dict, Any, Set, Optional
+from typing import List, Dict, Any, Optional
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
@@ -28,25 +28,8 @@ METADATA = RuleMetadata(
 )
 
 
-# ============================================================================
-# TABLE EXISTENCE CHECKS
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database.
-
-    Args:
-        cursor: SQLite cursor
-
-    Returns:
-        Set of table names that exist
-    """
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('vue_components', 'vue_hooks', 'assignments')
-    """)
-    return {row[0] for row in cursor.fetchall()}
+# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+# If tables are missing, the rule MUST crash to expose indexer bugs.
 
 
 def find_vue_reactivity_issues(context: StandardRuleContext) -> List[StandardFinding]:
@@ -100,43 +83,34 @@ def _should_analyze_file(context: StandardRuleContext) -> bool:
         cursor = conn.cursor()
 
         try:
-            # Check which tables exist
-            existing_tables = _check_tables(cursor)
+            # Check if file imports Vue or uses Vue patterns
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM refs
+                WHERE src = ?
+                  AND (value LIKE '%vue%' OR value LIKE '%@vue%')
+            """, (context.file_path,))
 
-            # Check if file imports Vue or uses Vue patterns (if refs table exists)
-            if 'refs' in existing_tables:
-                cursor.execute("""
-                    SELECT COUNT(*)
-                    FROM refs
-                    WHERE src = ?
-                      AND (value LIKE '%vue%' OR value LIKE '%@vue%')
-                """, (context.file_path,))
+            has_vue_imports = cursor.fetchone()[0] > 0
 
-                has_vue_imports = cursor.fetchone()[0] > 0
+            if has_vue_imports:
+                return True
 
-                if has_vue_imports:
-                    return True
+            # Check for Vue-specific symbols
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM symbols
+                WHERE path = ?
+                  AND (name LIKE '%defineProps%'
+                       OR name LIKE '%defineEmits%'
+                       OR name LIKE '%$emit%'
+                       OR name LIKE '%$refs%')
+            """, (context.file_path,))
 
-            # Check for Vue-specific symbols (if symbols table exists)
-            if 'symbols' in existing_tables:
-                cursor.execute("""
-                    SELECT COUNT(*)
-                    FROM symbols
-                    WHERE path = ?
-                      AND (name LIKE '%defineProps%'
-                           OR name LIKE '%defineEmits%'
-                           OR name LIKE '%$emit%'
-                           OR name LIKE '%$refs%')
-                """, (context.file_path,))
+            has_vue_symbols = cursor.fetchone()[0] > 0
 
-                has_vue_symbols = cursor.fetchone()[0] > 0
-
-                if has_vue_symbols:
-                    return True
-
-            # If neither table exists or no Vue indicators found, skip analysis
-            if not existing_tables or ('refs' not in existing_tables and 'symbols' not in existing_tables):
-                return False
+            if has_vue_symbols:
+                return True
 
         finally:
             conn.close()
@@ -155,13 +129,6 @@ def _find_obvious_mutations_via_database(context: StandardRuleContext) -> List[S
     cursor = conn.cursor()
 
     try:
-        # Check which tables exist
-        existing_tables = _check_tables(cursor)
-
-        # Need assignments table for this analysis
-        if 'assignments' not in existing_tables:
-            return findings
-
         # Look for assignments to common prop patterns
         # This will have false positives but is fast
         cursor.execute("""

@@ -17,7 +17,7 @@ CWE Coverage:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -154,23 +154,14 @@ def find_oauth_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check which tables exist (graceful degradation)
-        existing_tables = _check_tables(cursor)
-        if not existing_tables:
-            return findings
+        # CHECK 1: Missing state parameter
+        findings.extend(_check_missing_oauth_state(cursor))
 
-        # Run security checks
-        if 'api_endpoints' in existing_tables and 'function_call_args' in existing_tables:
-            # CHECK 1: Missing state parameter
-            findings.extend(_check_missing_oauth_state(cursor, existing_tables))
+        # CHECK 2: Redirect URI validation bypass
+        findings.extend(_check_redirect_validation(cursor))
 
-        if 'function_call_args' in existing_tables:
-            # CHECK 2: Redirect URI validation bypass
-            findings.extend(_check_redirect_validation(cursor, existing_tables))
-
-        if 'assignments' in existing_tables:
-            # CHECK 3: Token in URL fragment/parameter
-            findings.extend(_check_token_in_url(cursor, existing_tables))
+        # CHECK 3: Token in URL fragment/parameter
+        findings.extend(_check_token_in_url(cursor))
 
     finally:
         conn.close()
@@ -179,30 +170,10 @@ def find_oauth_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
 
 # ============================================================================
-# HELPER: Table Existence Check
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database for graceful degradation."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN (
-            'api_endpoints',
-            'function_call_args',
-            'assignments',
-            'symbols',
-            'files'
-        )
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
-
-# ============================================================================
 # CHECK 1: Missing OAuth State Parameter
 # ============================================================================
 
-def _check_missing_oauth_state(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
     """Detect OAuth flows without state parameter.
 
     The state parameter prevents CSRF attacks in OAuth flows by:
@@ -218,10 +189,6 @@ def _check_missing_oauth_state(cursor, existing_tables: Set[str]) -> List[Standa
     CWE-352: Cross-Site Request Forgery (CSRF)
     """
     findings = []
-
-    if 'api_endpoints' not in existing_tables:
-        # Fallback: Check function calls for OAuth operations
-        return _check_oauth_state_fallback(cursor, existing_tables)
 
     # Find OAuth authorization endpoints
     cursor.execute("""
@@ -290,53 +257,11 @@ def _check_missing_oauth_state(cursor, existing_tables: Set[str]) -> List[Standa
     return findings
 
 
-def _check_oauth_state_fallback(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
-    """Fallback check for OAuth state when api_endpoints table unavailable."""
-    findings = []
-
-    # Find OAuth function calls
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%authorize%'
-               OR f.callee_function LIKE '%oauth%'
-               OR f.callee_function LIKE '%OAuth%'
-               OR f.callee_function LIKE '%getAuthorizationUrl%')
-          AND f.file NOT LIKE '%test%'
-          AND f.file NOT LIKE '%spec.%'
-          AND f.file NOT LIKE '%.test.%'
-          AND f.file NOT LIKE '%__tests__%'
-          AND f.file NOT LIKE '%demo%'
-          AND f.file NOT LIKE '%example%'
-        ORDER BY f.file, f.line
-    """)
-
-    for file, line, func, args in cursor.fetchall():
-        args_str = args if args else ''
-
-        # Check if state parameter is present
-        if 'state' not in args_str.lower():
-            findings.append(StandardFinding(
-                rule_name='oauth-authorize-no-state',
-                message=f'OAuth authorization call {func} without state parameter',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='authentication',
-                cwe_id='CWE-352',
-                confidence=Confidence.MEDIUM,
-                snippet=f'{func}(...)',
-                recommendation='Include state parameter in OAuth authorization URL'
-            ))
-
-    return findings
-
-
 # ============================================================================
 # CHECK 2: Redirect URI Validation Bypass
 # ============================================================================
 
-def _check_redirect_validation(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_redirect_validation(cursor) -> List[StandardFinding]:
     """Detect OAuth redirect URI validation issues.
 
     Open redirect vulnerabilities in OAuth callbacks allow attackers to:
@@ -406,52 +331,51 @@ def _check_redirect_validation(cursor, existing_tables: Set[str]) -> List[Standa
             ))
 
     # Also check for redirect_uri in assignments without validation
-    if 'assignments' in existing_tables:
+    cursor.execute("""
+        SELECT a.file, a.line, a.target_var, a.source_expr
+        FROM assignments a
+        WHERE (a.target_var LIKE '%redirect%'
+               OR a.target_var LIKE '%returnUrl%')
+          AND (a.source_expr LIKE '%req.query%'
+               OR a.source_expr LIKE '%req.params%'
+               OR a.source_expr LIKE '%request.query%')
+          AND a.file NOT LIKE '%test%'
+          AND a.file NOT LIKE '%spec.%'
+          AND a.file NOT LIKE '%.test.%'
+          AND a.file NOT LIKE '%__tests__%'
+          AND a.file NOT LIKE '%demo%'
+          AND a.file NOT LIKE '%example%'
+        ORDER BY a.file, a.line
+    """)
+
+    for file, line, var, expr in cursor.fetchall():
+        # Check for validation after assignment (within 10 lines)
         cursor.execute("""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE (a.target_var LIKE '%redirect%'
-                   OR a.target_var LIKE '%returnUrl%')
-              AND (a.source_expr LIKE '%req.query%'
-                   OR a.source_expr LIKE '%req.params%'
-                   OR a.source_expr LIKE '%request.query%')
-              AND a.file NOT LIKE '%test%'
-              AND a.file NOT LIKE '%spec.%'
-              AND a.file NOT LIKE '%.test.%'
-              AND a.file NOT LIKE '%__tests__%'
-              AND a.file NOT LIKE '%demo%'
-              AND a.file NOT LIKE '%example%'
-            ORDER BY a.file, a.line
-        """)
+            SELECT COUNT(*) FROM function_call_args
+            WHERE file = ?
+              AND line > ? AND line <= ?
+              AND (argument_expr LIKE ?
+                   OR param_name = ?)
+              AND (callee_function LIKE '%validate%'
+                   OR callee_function LIKE '%check%'
+                   OR callee_function LIKE '%whitelist%')
+        """, [file, line, line + 10, f'%{var}%', var])
 
-        for file, line, var, expr in cursor.fetchall():
-            # Check for validation after assignment (within 10 lines)
-            cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND line > ? AND line <= ?
-                  AND (argument_expr LIKE ?
-                       OR param_name = ?)
-                  AND (callee_function LIKE '%validate%'
-                       OR callee_function LIKE '%check%'
-                       OR callee_function LIKE '%whitelist%')
-            """, [file, line, line + 10, f'%{var}%', var])
+        has_validation = cursor.fetchone()[0] > 0
 
-            has_validation = cursor.fetchone()[0] > 0
-
-            if not has_validation:
-                findings.append(StandardFinding(
-                    rule_name='oauth-redirect-assignment-unvalidated',
-                    message=f'Redirect URI from user input without validation',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='authentication',
-                    cwe_id='CWE-601',
-                    confidence=Confidence.LOW,
-                    snippet=f'{var} = {expr[:40]}...',
-                    recommendation='Validate redirect_uri before use: check against whitelist'
-                ))
+        if not has_validation:
+            findings.append(StandardFinding(
+                rule_name='oauth-redirect-assignment-unvalidated',
+                message=f'Redirect URI from user input without validation',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='authentication',
+                cwe_id='CWE-601',
+                confidence=Confidence.LOW,
+                snippet=f'{var} = {expr[:40]}...',
+                recommendation='Validate redirect_uri before use: check against whitelist'
+            ))
 
     return findings
 
@@ -460,7 +384,7 @@ def _check_redirect_validation(cursor, existing_tables: Set[str]) -> List[Standa
 # CHECK 3: OAuth Token in URL Fragment/Parameter
 # ============================================================================
 
-def _check_token_in_url(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_token_in_url(cursor) -> List[StandardFinding]:
     """Detect OAuth tokens in URL fragments or parameters.
 
     Tokens in URLs are exposed in:

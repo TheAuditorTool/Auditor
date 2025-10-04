@@ -5,27 +5,13 @@ These are particularly dangerous as they can bypass server-side protections.
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database.
-
-    Args:
-        cursor: SQLite cursor
-
-    Returns:
-        Set of existing table names
-    """
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('function_call_args', 'assignments', 'symbols')
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
+# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+# If tables are missing, the rule MUST crash to expose indexer bugs.
 
 # ============================================================================
 # RULE METADATA - Phase 3B Addition (2025-10-02)
@@ -95,21 +81,14 @@ def find_dom_xss(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check which tables exist
-        existing_tables = _check_tables(cursor)
-
-        # Early return if required tables are missing
-        if 'function_call_args' not in existing_tables and 'assignments' not in existing_tables:
-            return findings
-
         # Run checks that require function_call_args or assignments
-        findings.extend(_check_direct_dom_flows(conn, existing_tables))
-        findings.extend(_check_url_manipulation(conn, existing_tables))
-        findings.extend(_check_event_handler_injection(conn, existing_tables))
-        findings.extend(_check_dom_clobbering(conn, existing_tables))
-        findings.extend(_check_client_side_templates(conn, existing_tables))
-        findings.extend(_check_web_messaging(conn, existing_tables))
-        findings.extend(_check_dom_purify_bypass(conn, existing_tables))
+        findings.extend(_check_direct_dom_flows(conn))
+        findings.extend(_check_url_manipulation(conn))
+        findings.extend(_check_event_handler_injection(conn))
+        findings.extend(_check_dom_clobbering(conn))
+        findings.extend(_check_client_side_templates(conn))
+        findings.extend(_check_web_messaging(conn))
+        findings.extend(_check_dom_purify_bypass(conn))
 
     finally:
         conn.close()
@@ -117,15 +96,12 @@ def find_dom_xss(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _check_direct_dom_flows(conn, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_direct_dom_flows(conn) -> List[StandardFinding]:
     """Check for direct data flows from sources to sinks."""
     findings = []
     cursor = conn.cursor()
 
     # Check assignments from DOM sources to dangerous sinks
-    if 'assignments' not in existing_tables:
-        return findings
-
     cursor.execute("""
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
@@ -163,9 +139,6 @@ def _check_direct_dom_flows(conn, existing_tables: Set[str]) -> List[StandardFin
             ))
 
     # Check function calls with DOM sources as arguments to sinks
-    if 'function_call_args' not in existing_tables:
-        return findings
-
     for sink in DOM_XSS_SINKS:
         if '.' in sink:
             continue  # Skip property sinks for this check
@@ -197,15 +170,12 @@ def _check_direct_dom_flows(conn, existing_tables: Set[str]) -> List[StandardFin
     return findings
 
 
-def _check_url_manipulation(conn, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_url_manipulation(conn) -> List[StandardFinding]:
     """Check for URL-based DOM XSS."""
     findings = []
     cursor = conn.cursor()
 
     # Check location assignments with user input
-    if 'assignments' not in existing_tables:
-        return findings
-
     location_sinks = ['location.href', 'location.replace', 'location.assign', 'window.location']
 
     for sink in location_sinks:
@@ -249,9 +219,6 @@ def _check_url_manipulation(conn, existing_tables: Set[str]) -> List[StandardFin
                 ))
 
     # Check window.open with user input
-    if 'function_call_args' not in existing_tables:
-        return findings
-
     cursor.execute("""
         SELECT f.file, f.line, f.argument_expr
         FROM function_call_args f
@@ -278,14 +245,10 @@ def _check_url_manipulation(conn, existing_tables: Set[str]) -> List[StandardFin
     return findings
 
 
-def _check_event_handler_injection(conn, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_event_handler_injection(conn) -> List[StandardFinding]:
     """Check for event handler injection vulnerabilities."""
     findings = []
     cursor = conn.cursor()
-
-    # Early return if required table missing
-    if 'function_call_args' not in existing_tables:
-        return findings
 
     # Event handler attributes
     event_handlers = [
@@ -349,15 +312,12 @@ def _check_event_handler_injection(conn, existing_tables: Set[str]) -> List[Stan
     return findings
 
 
-def _check_dom_clobbering(conn, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_dom_clobbering(conn) -> List[StandardFinding]:
     """Check for DOM clobbering vulnerabilities."""
     findings = []
     cursor = conn.cursor()
 
     # Check for unsafe ID/name attribute usage
-    if 'assignments' not in existing_tables:
-        return findings
-
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
@@ -383,9 +343,6 @@ def _check_dom_clobbering(conn, existing_tables: Set[str]) -> List[StandardFindi
             ))
 
     # Check for document.getElementById without null checks
-    if 'function_call_args' not in existing_tables:
-        return findings
-
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function
         FROM function_call_args f
@@ -420,15 +377,12 @@ def _check_dom_clobbering(conn, existing_tables: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _check_client_side_templates(conn, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_client_side_templates(conn) -> List[StandardFinding]:
     """Check for client-side template injection."""
     findings = []
     cursor = conn.cursor()
 
     # Check for template literal usage with innerHTML
-    if 'assignments' not in existing_tables:
-        return findings
-
     cursor.execute("""
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
@@ -455,9 +409,6 @@ def _check_client_side_templates(conn, existing_tables: Set[str]) -> List[Standa
             ))
 
     # Check for client-side templating libraries
-    if 'function_call_args' not in existing_tables:
-        return findings
-
     template_libs = ['Handlebars', 'Mustache', 'doT', 'ejs', 'underscore', 'lodash']
 
     for lib in template_libs:
@@ -487,14 +438,10 @@ def _check_client_side_templates(conn, existing_tables: Set[str]) -> List[Standa
     return findings
 
 
-def _check_web_messaging(conn, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_web_messaging(conn) -> List[StandardFinding]:
     """Check for postMessage XSS vulnerabilities."""
     findings = []
     cursor = conn.cursor()
-
-    # Early return if required tables missing
-    if 'function_call_args' not in existing_tables or 'assignments' not in existing_tables:
-        return findings
 
     # Check message event handlers
     cursor.execute("""
@@ -572,15 +519,12 @@ def _check_web_messaging(conn, existing_tables: Set[str]) -> List[StandardFindin
     return findings
 
 
-def _check_dom_purify_bypass(conn, existing_tables: Set[str]) -> List[StandardFinding]:
+def _check_dom_purify_bypass(conn) -> List[StandardFinding]:
     """Check for potential DOMPurify bypass patterns."""
     findings = []
     cursor = conn.cursor()
 
     # Check for mutation XSS patterns
-    if 'assignments' not in existing_tables:
-        return findings
-
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a

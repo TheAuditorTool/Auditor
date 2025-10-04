@@ -5,20 +5,13 @@ Covers both server-side and client-side template injection.
 """
 
 import sqlite3
-from typing import List, Dict, FrozenSet, Set
+from typing import List, Dict, FrozenSet
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 
 
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('function_call_args', 'assignments')
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
+# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+# If tables are missing, the rule MUST crash to expose indexer bugs.
 
 # ============================================================================
 # RULE METADATA - Phase 3B Addition (2025-10-02)
@@ -121,11 +114,6 @@ def find_template_injection(context: StandardRuleContext) -> List[StandardFindin
 
     try:
         cursor = conn.cursor()
-        existing_tables = _check_tables(cursor)
-
-        # Early return if function_call_args table missing (critical for most checks)
-        if 'function_call_args' not in existing_tables:
-            return findings
 
         findings.extend(_check_template_string_injection(conn))
         findings.extend(_check_unsafe_template_syntax(conn))

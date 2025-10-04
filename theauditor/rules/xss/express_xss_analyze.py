@@ -53,18 +53,8 @@ EXPRESS_INPUT_SOURCES = frozenset([
 ])
 
 
-def _check_tables(cursor) -> set:
-    """Check which tables exist in database.
-
-    Returns:
-        Set of existing table names
-    """
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('function_call_args', 'assignments', 'frameworks')
-    """)
-    return {row[0] for row in cursor.fetchall()}
+# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+# If tables are missing, the rule MUST crash to expose indexer bugs.
 
 
 def find_express_xss(context: StandardRuleContext) -> List[StandardFinding]:
@@ -82,12 +72,6 @@ def find_express_xss(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check table existence first
-        existing_tables = _check_tables(cursor)
-
-        if 'function_call_args' not in existing_tables:
-            return findings
-
         # Only run if Express is detected
         if not _is_express_app(conn):
             return findings

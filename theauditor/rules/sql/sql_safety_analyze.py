@@ -85,14 +85,6 @@ def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding
     cursor = conn.cursor()
 
     try:
-        # Check table availability (graceful degradation)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        required_tables = {'sql_queries', 'function_call_args'}
-        if not required_tables.issubset(available_tables):
-            return findings  # Cannot run without required tables
-
         # Primary detection: sql_queries table (clean data only)
         findings.extend(_find_update_without_where(cursor))
         findings.extend(_find_delete_without_where(cursor))

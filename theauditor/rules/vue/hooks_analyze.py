@@ -11,7 +11,7 @@ Follows golden standard patterns:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -108,69 +108,25 @@ def find_vue_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]
     if not context.db_path:
         return findings
 
+    # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+    # If tables are missing, the rule MUST crash to expose indexer bugs.
+
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'files', 'symbols', 'function_call_args',
-                'assignments', 'cfg_blocks'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required tables
-        if 'function_call_args' not in existing_tables:
-            return findings
-
         # Get Vue Composition API files
-        vue_files = _get_composition_api_files(cursor, existing_tables)
+        vue_files = _get_composition_api_files(cursor, {})
         if not vue_files:
             return findings
 
-        # Track available tables for graceful degradation
-        has_symbols = 'symbols' in existing_tables
-        has_assignments = 'assignments' in existing_tables
-        has_cfg_blocks = 'cfg_blocks' in existing_tables
-
-        # ========================================================
-        # CHECK 1: Hooks Outside Setup
-        # ========================================================
+        # Run all checks - schema contract guarantees all tables exist
         findings.extend(_find_hooks_outside_setup(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 2: Missing Cleanup
-        # ========================================================
         findings.extend(_find_missing_cleanup(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 3: Watch Dependency Issues
-        # ========================================================
-        if has_assignments:
-            findings.extend(_find_watch_issues(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 4: Memory Leaks
-        # ========================================================
+        findings.extend(_find_watch_issues(cursor, vue_files))
         findings.extend(_find_memory_leaks(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 5: Incorrect Hook Ordering
-        # ========================================================
         findings.extend(_find_incorrect_hook_order(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 6: Excessive Reactivity
-        # ========================================================
-        if has_symbols:
-            findings.extend(_find_excessive_reactivity(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 7: Missing Error Boundaries
-        # ========================================================
+        findings.extend(_find_excessive_reactivity(cursor, vue_files))
         findings.extend(_find_missing_error_boundaries(cursor, vue_files))
 
     finally:

@@ -94,14 +94,6 @@ def find_multi_tenant_issues(context: StandardRuleContext) -> List[StandardFindi
     cursor = conn.cursor()
 
     try:
-        # Check table availability (graceful degradation)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        required_tables = {'sql_queries', 'function_call_args'}
-        if not required_tables.issubset(available_tables):
-            return findings  # Cannot run without required tables
-
         # Primary detection: sql_queries table (clean data only)
         findings.extend(_find_queries_without_tenant_filter(cursor, patterns))
         findings.extend(_find_rls_policies_without_using(cursor, patterns))

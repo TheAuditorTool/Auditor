@@ -11,7 +11,7 @@ Follows golden standard patterns:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -116,79 +116,27 @@ def find_vue_state_issues(context: StandardRuleContext) -> List[StandardFinding]
     if not context.db_path:
         return findings
 
+    # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+    # If tables are missing, the rule MUST crash to expose indexer bugs.
+
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'files', 'symbols', 'assignments',
-                'function_call_args', 'cfg_blocks'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required tables
-        if 'assignments' not in existing_tables:
-            return findings
-
         # Get state management files
-        store_files = _get_store_files(cursor, existing_tables)
+        store_files = _get_store_files(cursor, {})
         if not store_files:
             return findings
 
-        # Track available tables for graceful degradation
-        has_symbols = 'symbols' in existing_tables
-        has_function_calls = 'function_call_args' in existing_tables
-        has_cfg_blocks = 'cfg_blocks' in existing_tables
-
-        # ========================================================
-        # CHECK 1: Direct State Mutations
-        # ========================================================
+        # Run all checks - schema contract guarantees all tables exist
         findings.extend(_find_direct_state_mutations(cursor, store_files))
-
-        # ========================================================
-        # CHECK 2: Async in Mutations
-        # ========================================================
-        if has_function_calls:
-            findings.extend(_find_async_mutations(cursor, store_files))
-
-        # ========================================================
-        # CHECK 3: Missing Module Namespacing
-        # ========================================================
-        if has_symbols:
-            findings.extend(_find_missing_namespacing(cursor, store_files))
-
-        # ========================================================
-        # CHECK 4: Memory Leaks from Subscriptions
-        # ========================================================
-        if has_function_calls:
-            findings.extend(_find_subscription_leaks(cursor, store_files))
-
-        # ========================================================
-        # CHECK 5: Circular Dependencies in Getters
-        # ========================================================
-        if has_symbols and has_function_calls:
-            findings.extend(_find_circular_getters(cursor, store_files))
-
-        # ========================================================
-        # CHECK 6: State Persistence Issues
-        # ========================================================
+        findings.extend(_find_async_mutations(cursor, store_files))
+        findings.extend(_find_missing_namespacing(cursor, store_files))
+        findings.extend(_find_subscription_leaks(cursor, store_files))
+        findings.extend(_find_circular_getters(cursor, store_files))
         findings.extend(_find_persistence_issues(cursor, store_files))
-
-        # ========================================================
-        # CHECK 7: Excessive Store Size
-        # ========================================================
-        if has_symbols:
-            findings.extend(_find_large_stores(cursor, store_files))
-
-        # ========================================================
-        # CHECK 8: Missing Error Handling in Actions
-        # ========================================================
-        if has_function_calls:
-            findings.extend(_find_unhandled_action_errors(cursor, store_files))
+        findings.extend(_find_large_stores(cursor, store_files))
+        findings.extend(_find_unhandled_action_errors(cursor, store_files))
 
     finally:
         conn.close()

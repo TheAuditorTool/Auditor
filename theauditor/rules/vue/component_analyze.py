@@ -11,7 +11,7 @@ Follows golden standard patterns:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -108,76 +108,26 @@ def find_vue_component_issues(context: StandardRuleContext) -> List[StandardFind
     if not context.db_path:
         return findings
 
+    # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+    # If tables are missing, the rule MUST crash to expose indexer bugs.
+
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'files', 'symbols', 'assignments',
-                'function_call_args', 'api_endpoints', 'cfg_blocks'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required tables
-        if 'files' not in existing_tables:
-            return findings
-
         # Get Vue files
-        vue_files = _get_vue_files(cursor, existing_tables)
+        vue_files = _get_vue_files(cursor, {})
         if not vue_files:
             return findings
 
-        # Track available tables for graceful degradation
-        has_symbols = 'symbols' in existing_tables
-        has_assignments = 'assignments' in existing_tables
-        has_function_calls = 'function_call_args' in existing_tables
-        has_cfg_blocks = 'cfg_blocks' in existing_tables
-
-        # ========================================================
-        # CHECK 1: Props Mutation
-        # ========================================================
-        if has_assignments:
-            findings.extend(_find_props_mutations(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 2: Missing Keys in v-for
-        # ========================================================
-        if has_symbols:
-            findings.extend(_find_missing_vfor_keys(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 3: Excessive Component Complexity
-        # ========================================================
-        if has_symbols and has_function_calls:
-            findings.extend(_find_complex_components(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 4: Unnecessary Re-renders
-        # ========================================================
-        if has_function_calls:
-            findings.extend(_find_unnecessary_rerenders(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 5: Missing Component Names
-        # ========================================================
-        if has_symbols:
-            findings.extend(_find_missing_component_names(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 6: Inefficient Computed Properties
-        # ========================================================
-        if has_symbols and has_function_calls:
-            findings.extend(_find_inefficient_computed(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 7: Template Expression Complexity
-        # ========================================================
-        if has_symbols:
-            findings.extend(_find_complex_template_expressions(cursor, vue_files))
+        # Run all checks - schema contract guarantees all tables exist
+        findings.extend(_find_props_mutations(cursor, vue_files))
+        findings.extend(_find_missing_vfor_keys(cursor, vue_files))
+        findings.extend(_find_complex_components(cursor, vue_files))
+        findings.extend(_find_unnecessary_rerenders(cursor, vue_files))
+        findings.extend(_find_missing_component_names(cursor, vue_files))
+        findings.extend(_find_inefficient_computed(cursor, vue_files))
+        findings.extend(_find_complex_template_expressions(cursor, vue_files))
 
     finally:
         conn.close()
@@ -268,9 +218,8 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
     """Find v-for loops without :key attribute."""
     findings = []
 
-    # First try the vue_directives table if it exists
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vue_directives'")
-    if cursor.fetchone():
+    # Try vue_directives table first
+    try:
         placeholders = ','.join('?' * len(vue_files))
 
         cursor.execute(f"""
@@ -295,8 +244,10 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
             ))
 
         return findings
+    except sqlite3.OperationalError:
+        pass  # Table doesn't exist, fall through to symbols table
 
-    # Fallback to pattern search in symbols table
+    # Pattern search in symbols table
     placeholders = ','.join('?' * len(vue_files))
 
     # Look for v-for patterns without adjacent key

@@ -11,7 +11,7 @@ Follows golden standard patterns:
 """
 
 import sqlite3
-from typing import List, Set, Dict
+from typing import List, Dict
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -118,74 +118,26 @@ def find_vue_lifecycle_issues(context: StandardRuleContext) -> List[StandardFind
     if not context.db_path:
         return findings
 
+    # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
+    # If tables are missing, the rule MUST crash to expose indexer bugs.
+
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'files', 'symbols', 'function_call_args',
-                'assignments', 'cfg_blocks'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required tables
-        if 'function_call_args' not in existing_tables:
-            return findings
-
         # Get Vue files
-        vue_files = _get_vue_files(cursor, existing_tables)
+        vue_files = _get_vue_files(cursor, {})
         if not vue_files:
             return findings
 
-        # Track available tables for graceful degradation
-        has_symbols = 'symbols' in existing_tables
-        has_assignments = 'assignments' in existing_tables
-        has_cfg_blocks = 'cfg_blocks' in existing_tables
-
-        # ========================================================
-        # CHECK 1: DOM Access Before Mount
-        # ========================================================
+        # Run all checks - schema contract guarantees all tables exist
         findings.extend(_find_dom_before_mount(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 2: Missing Cleanup
-        # ========================================================
         findings.extend(_find_missing_cleanup(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 3: Data Fetching in Wrong Hooks
-        # ========================================================
         findings.extend(_find_wrong_data_fetch(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 4: Infinite Update Loops
-        # ========================================================
-        if has_assignments:
-            findings.extend(_find_infinite_updates(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 5: Memory Leaks from Timers
-        # ========================================================
+        findings.extend(_find_infinite_updates(cursor, vue_files))
         findings.extend(_find_timer_leaks(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 6: Side Effects in Computed
-        # ========================================================
-        if has_symbols:
-            findings.extend(_find_computed_side_effects(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 7: Incorrect Hook Order
-        # ========================================================
+        findings.extend(_find_computed_side_effects(cursor, vue_files))
         findings.extend(_find_incorrect_hook_order(cursor, vue_files))
-
-        # ========================================================
-        # CHECK 8: Async Operations Without Error Handling
-        # ========================================================
         findings.extend(_find_unhandled_async(cursor, vue_files))
 
     finally:
