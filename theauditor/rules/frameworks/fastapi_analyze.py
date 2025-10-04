@@ -11,6 +11,7 @@ from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -57,7 +58,7 @@ FILE_OPERATIONS = frozenset([
 ])
 
 
-def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect FastAPI security vulnerabilities using indexed data.
 
     Detects (from database):
@@ -88,63 +89,47 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist
+        # Verify this is a FastAPI project - trust schema contract
         cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN ('refs', 'function_call_args', 'api_endpoints', 'sql_queries', 'cfg_blocks')
+            SELECT DISTINCT file FROM refs
+            WHERE value IN ('fastapi', 'FastAPI')
         """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
+        fastapi_files = cursor.fetchall()
 
-        # Minimum required tables
-        if 'function_call_args' not in existing_tables:
-            return findings  # Can't analyze without function calls
-
-        # Verify this is a FastAPI project
-        if 'refs' in existing_tables:
-            cursor.execute("""
-                SELECT DISTINCT file FROM refs
-                WHERE value IN ('fastapi', 'FastAPI')
-            """)
-            fastapi_files = cursor.fetchall()
-
-            if not fastapi_files:
-                return findings  # Not a FastAPI project
-        else:
-            # Can't verify FastAPI without refs table
-            fastapi_files = []
+        if not fastapi_files:
+            return findings  # Not a FastAPI project
         
         # ========================================================
         # CHECK 1: Synchronous Operations in Routes (DEGRADED)
         # ========================================================
         # NOTE: Cannot detect if function is async - database doesn't store this metadata
         # Checking for sync operations in ANY route handler as a fallback
-        if 'api_endpoints' in existing_tables:
-            cursor.execute("""
-                SELECT DISTINCT f.file, f.line, f.callee_function
-                FROM function_call_args f
-                JOIN api_endpoints e ON f.file = e.file
-                WHERE f.callee_function IN (
-                    'time.sleep', 'requests.get', 'requests.post', 'requests.put',
-                    'requests.delete', 'urllib.request.urlopen', 'urllib.urlopen',
-                    'subprocess.run', 'subprocess.call'
-                )
-                ORDER BY f.file, f.line
-            """)
+        cursor.execute("""
+            SELECT DISTINCT f.file, f.line, f.callee_function
+            FROM function_call_args f
+            JOIN api_endpoints e ON f.file = e.file
+            WHERE f.callee_function IN (
+                'time.sleep', 'requests.get', 'requests.post', 'requests.put',
+                'requests.delete', 'urllib.request.urlopen', 'urllib.urlopen',
+                'subprocess.run', 'subprocess.call'
+            )
+            ORDER BY f.file, f.line
+        """)
 
-            for file, line, sync_op in cursor.fetchall():
-                # Extract just the function name
-                func_name = sync_op.split('.')[-1] if '.' in sync_op else sync_op
-                if func_name in SYNC_OPERATIONS:
-                    findings.append(StandardFinding(
-                        rule_name='fastapi-potential-sync-in-async',
-                        message=f'Potentially blocking operation {sync_op} in route handler - may block event loop if in async function',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,  # Reduced severity since we can't confirm async
-                        category='performance',
-                        confidence=Confidence.LOW,  # Low confidence without async detection
-                        cwe_id='CWE-407'
-                    ))
+        for file, line, sync_op in cursor.fetchall():
+            # Extract just the function name
+            func_name = sync_op.split('.')[-1] if '.' in sync_op else sync_op
+            if func_name in SYNC_OPERATIONS:
+                findings.append(StandardFinding(
+                    rule_name='fastapi-potential-sync-in-async',
+                    message=f'Potentially blocking operation {sync_op} in route handler - may block event loop if in async function',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,  # Reduced severity since we can't confirm async
+                    category='performance',
+                    confidence=Confidence.LOW,  # Low confidence without async detection
+                    cwe_id='CWE-407'
+                ))
         
         # ========================================================
         # CHECK 2: Direct Database Access Without Dependency Injection
@@ -208,54 +193,52 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 4: Blocking File Operations (DEGRADED)
         # ========================================================
         # NOTE: Cannot detect if in async context - checking for file ops without aiofiles
-        if 'api_endpoints' in existing_tables:
-            cursor.execute("""
-                SELECT DISTINCT f.file, f.line, f.callee_function
-                FROM function_call_args f
-                JOIN api_endpoints e ON f.file = e.file
-                WHERE f.callee_function = 'open'
-                  AND NOT EXISTS (
-                      SELECT 1 FROM refs r
-                      WHERE r.src = f.file AND r.value = 'aiofiles'
-                  )
-                ORDER BY f.file, f.line
-            """)
+        cursor.execute("""
+            SELECT DISTINCT f.file, f.line, f.callee_function
+            FROM function_call_args f
+            JOIN api_endpoints e ON f.file = e.file
+            WHERE f.callee_function = 'open'
+              AND NOT EXISTS (
+                  SELECT 1 FROM refs r
+                  WHERE r.src = f.file AND r.value = 'aiofiles'
+              )
+            ORDER BY f.file, f.line
+        """)
 
-            for file, line, _ in cursor.fetchall():
-                findings.append(StandardFinding(
-                    rule_name='fastapi-potential-blocking-file-op',
-                    message='File I/O without aiofiles in route file - may block if in async route',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,  # Reduced severity
-                    category='performance',
-                    confidence=Confidence.LOW,  # Low confidence without async detection
-                    cwe_id='CWE-407'
-                ))
+        for file, line, _ in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='fastapi-potential-blocking-file-op',
+                message='File I/O without aiofiles in route file - may block if in async route',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,  # Reduced severity
+                category='performance',
+                confidence=Confidence.LOW,  # Low confidence without async detection
+                cwe_id='CWE-407'
+            ))
         
         # ========================================================
         # CHECK 5: Raw SQL in Route Handlers
         # ========================================================
-        if 'sql_queries' in existing_tables and 'api_endpoints' in existing_tables:
-            cursor.execute("""
-                SELECT DISTINCT q.file_path, q.line_number, q.command
-                FROM sql_queries q
-                JOIN api_endpoints e ON q.file_path = e.file
-                WHERE q.command IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE')
-                ORDER BY q.file_path, q.line_number
-            """)
+        cursor.execute("""
+            SELECT DISTINCT q.file_path, q.line_number, q.command
+            FROM sql_queries q
+            JOIN api_endpoints e ON q.file_path = e.file
+            WHERE q.command IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE')
+            ORDER BY q.file_path, q.line_number
+        """)
 
-            for file, line, sql_command in cursor.fetchall():
-                findings.append(StandardFinding(
-                    rule_name='fastapi-raw-sql-in-route',
-                    message=f'Raw SQL {sql_command} in route handler - use ORM or repository pattern',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='architecture',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-89'
-                ))
+        for file, line, sql_command in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='fastapi-raw-sql-in-route',
+                message=f'Raw SQL {sql_command} in route handler - use ORM or repository pattern',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='architecture',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-89'
+            ))
         
         # ========================================================
         # CHECK 6: Background Tasks Without Error Handling
@@ -271,18 +254,15 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
         background_tasks = cursor.fetchall()
 
         for file, line, func in background_tasks:
-            has_error_handling = False
+            # Check for error handling nearby - trust schema contract
+            cursor.execute("""
+                SELECT COUNT(*) FROM cfg_blocks
+                WHERE file = ?
+                  AND block_type IN ('try', 'except', 'finally')
+                  AND start_line BETWEEN ? AND ?
+            """, (file, line - 20, line + 20))
 
-            # Check if cfg_blocks table exists and has error handling nearby
-            if 'cfg_blocks' in existing_tables:
-                cursor.execute("""
-                    SELECT COUNT(*) FROM cfg_blocks
-                    WHERE file = ?
-                      AND block_type IN ('try', 'except', 'finally')
-                      AND start_line BETWEEN ? AND ?
-                """, (file, line - 20, line + 20))
-
-                has_error_handling = cursor.fetchone()[0] > 0
+            has_error_handling = cursor.fetchone()[0] > 0
 
             if not has_error_handling:
                 findings.append(StandardFinding(
@@ -292,73 +272,71 @@ def find_fastapi_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category='error-handling',
-                    confidence=Confidence.MEDIUM if 'cfg_blocks' in existing_tables else Confidence.LOW,
+                    confidence=Confidence.MEDIUM,
                     cwe_id='CWE-248'
                 ))
         
         # ========================================================
         # CHECK 7: WebSocket Endpoints Without Authentication
         # ========================================================
-        if 'api_endpoints' in existing_tables:
+        cursor.execute("""
+            SELECT DISTINCT e.file, e.pattern
+            FROM api_endpoints e
+            WHERE e.pattern LIKE '%websocket%' OR e.pattern LIKE '%ws%'
+        """)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        websocket_endpoints = cursor.fetchall()
+
+        for file, pattern in websocket_endpoints:
+            # Check if authentication functions are called in the same file
             cursor.execute("""
-                SELECT DISTINCT e.file, e.pattern
-                FROM api_endpoints e
-                WHERE e.pattern LIKE '%websocket%' OR e.pattern LIKE '%ws%'
-            """)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            websocket_endpoints = cursor.fetchall()
+                SELECT COUNT(*) FROM function_call_args
+                WHERE file = ?
+                  AND (callee_function LIKE '%auth%'
+                       OR callee_function LIKE '%verify%'
+                       OR callee_function LIKE '%current_user%'
+                       OR callee_function LIKE '%token%')
+            """, (file,))
 
-            for file, pattern in websocket_endpoints:
-                # Check if authentication functions are called in the same file
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ?
-                      AND (callee_function LIKE '%auth%'
-                           OR callee_function LIKE '%verify%'
-                           OR callee_function LIKE '%current_user%'
-                           OR callee_function LIKE '%token%')
-                """, (file,))
+            has_auth = cursor.fetchone()[0] > 0
 
-                has_auth = cursor.fetchone()[0] > 0
-
-                if not has_auth:
-                    findings.append(StandardFinding(
-                        rule_name='fastapi-websocket-no-auth',
-                        message=f'WebSocket endpoint {pattern} without authentication',
-                        file_path=file,
-                        line=1,
-                        severity=Severity.CRITICAL,
-                        category='security',
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-306'
-                    ))
+            if not has_auth:
+                findings.append(StandardFinding(
+                    rule_name='fastapi-websocket-no-auth',
+                    message=f'WebSocket endpoint {pattern} without authentication',
+                    file_path=file,
+                    line=1,
+                    severity=Severity.CRITICAL,
+                    category='security',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-306'
+                ))
         
         # ========================================================
         # CHECK 8: Exposed Debug Endpoints
         # ========================================================
-        if 'api_endpoints' in existing_tables:
-            # Build SQL IN clause from frozenset
-            debug_patterns_list = list(DEBUG_ENDPOINTS)
-            placeholders = ','.join('?' * len(debug_patterns_list))
+        # Build SQL IN clause from frozenset
+        debug_patterns_list = list(DEBUG_ENDPOINTS)
+        placeholders = ','.join('?' * len(debug_patterns_list))
 
-            cursor.execute(f"""
-                SELECT e.file, e.pattern, e.method
-                FROM api_endpoints e
-                WHERE e.pattern IN ({placeholders})
-                ORDER BY e.file
-            """, debug_patterns_list)
+        cursor.execute(f"""
+            SELECT e.file, e.pattern, e.method
+            FROM api_endpoints e
+            WHERE e.pattern IN ({placeholders})
+            ORDER BY e.file
+        """, debug_patterns_list)
 
-            for file, pattern, method in cursor.fetchall():
-                findings.append(StandardFinding(
-                    rule_name='fastapi-debug-endpoint-exposed',
-                    message=f'Debug endpoint {pattern} exposed in production',
-                    file_path=file,
-                    line=1,
-                    severity=Severity.HIGH,
-                    category='security',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-489'
-                ))
+        for file, pattern, method in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='fastapi-debug-endpoint-exposed',
+                message=f'Debug endpoint {pattern} exposed in production',
+                file_path=file,
+                line=1,
+                severity=Severity.HIGH,
+                category='security',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-489'
+            ))
         
         # ========================================================
         # CHECK 9: Form Data Used in File Operations (Path Traversal Risk)

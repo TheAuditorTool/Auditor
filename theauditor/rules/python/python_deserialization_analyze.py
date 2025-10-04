@@ -3,10 +3,10 @@
 Detects unsafe deserialization vulnerabilities in Python code using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 
 Detects:
@@ -23,6 +23,7 @@ from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -150,7 +151,6 @@ class DeserializationAnalyzer:
         self.context = context
         self.patterns = DeserializationPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -165,46 +165,20 @@ class DeserializationAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables for graceful degradation
-            self._check_table_availability()
-
-            # Must have minimum tables for any analysis
-            if not self._has_minimum_tables():
-                return []
-
-            # Run deserialization checks based on available data
-            if 'function_call_args' in self.existing_tables:
-                self._check_pickle_usage()
-                self._check_yaml_unsafe()
-                self._check_marshal_shelve()
-                self._check_json_exploitation()
-                self._check_django_flask_sessions()
-                self._check_xml_xxe()
-                self._check_base64_pickle_combo()
-
-            if 'refs' in self.existing_tables:
-                self._check_imports_context()
+            # Run all deserialization checks
+            self._check_pickle_usage()
+            self._check_yaml_unsafe()
+            self._check_marshal_shelve()
+            self._check_json_exploitation()
+            self._check_django_flask_sessions()
+            self._check_xml_xxe()
+            self._check_base64_pickle_combo()
+            self._check_imports_context()
 
         finally:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'function_call_args', 'assignments', 'refs',
-                'symbols', 'files', 'api_endpoints'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
-    def _has_minimum_tables(self) -> bool:
-        """Check if we have minimum required tables."""
-        required = {'function_call_args', 'files'}
-        return required.issubset(self.existing_tables)
 
     def _check_pickle_usage(self):
         """Detect pickle usage - CRITICAL vulnerability."""
@@ -476,24 +450,23 @@ class DeserializationAnalyzer:
                 return 'file'
 
         # Check nearby code for data source
-        if 'function_call_args' in self.existing_tables:
-            # Look for network/file operations nearby
-            self.cursor.execute("""
-                SELECT callee_function FROM function_call_args
-                WHERE file = ?
-                  AND line >= ? - 10
-                  AND line <= ?
-                ORDER BY line DESC
-                LIMIT 5
-            """, [file, line, line])
+        # Look for network/file operations nearby
+        self.cursor.execute("""
+            SELECT callee_function FROM function_call_args
+            WHERE file = ?
+              AND line >= ? - 10
+              AND line <= ?
+            ORDER BY line DESC
+            LIMIT 5
+        """, [file, line, line])
 
-            recent_calls = [row[0] for row in self.cursor.fetchall()]
+        recent_calls = [row[0] for row in self.cursor.fetchall()]
 
-            for call in recent_calls:
-                if any(net in call for net in self.patterns.NETWORK_SOURCES):
-                    return 'network'
-                if any(f in call for f in self.patterns.FILE_SOURCES):
-                    return 'file'
+        for call in recent_calls:
+            if any(net in call for net in self.patterns.NETWORK_SOURCES):
+                return 'network'
+            if any(f in call for f in self.patterns.FILE_SOURCES):
+                return 'file'
 
         return 'unknown'
 
@@ -566,7 +539,7 @@ FLAGGED: Missing database features for better deserialization detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_deserialization_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Python deserialization vulnerabilities.
 
     Args:

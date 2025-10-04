@@ -19,6 +19,7 @@ import sqlite3
 import json
 from typing import List, Set, Dict
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 METADATA = RuleMetadata(
@@ -48,14 +49,6 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        if 'package_configs' not in available_tables:
-            return findings
-        if 'import_styles' not in available_tables:
-            return findings
-
         # Get declared dependencies with file locations
         declared_deps = _get_declared_with_locations(cursor)
 
@@ -79,10 +72,8 @@ def _get_declared_with_locations(cursor) -> Dict[str, tuple]:
     """
     declared = {}
 
-    cursor.execute("""
-        SELECT file_path, dependencies, dev_dependencies, peer_dependencies
-        FROM package_configs
-    """)
+    query = build_query('package_configs', ['file_path', 'dependencies', 'dev_dependencies', 'peer_dependencies'])
+    cursor.execute(query)
 
     for file_path, deps, dev_deps, peer_deps in cursor.fetchall():
         # Production dependencies
@@ -128,7 +119,8 @@ def _get_imported_package_names(cursor) -> Set[str]:
     """
     imported = set()
 
-    cursor.execute("SELECT DISTINCT package FROM import_styles")
+    query = build_query('import_styles', ['package'])
+    cursor.execute(query)
 
     for (package,) in cursor.fetchall():
         if not package:

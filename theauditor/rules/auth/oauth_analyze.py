@@ -21,6 +21,7 @@ from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -191,22 +192,20 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find OAuth authorization endpoints
-    cursor.execute("""
-        SELECT e.file, e.method, e.pattern
-        FROM api_endpoints e
-        WHERE (e.pattern LIKE '%/oauth%'
-               OR e.pattern LIKE '%/auth%'
-               OR e.pattern LIKE '%/authorize%'
-               OR e.pattern LIKE '%/login%')
-          AND e.method IN ('GET', 'POST')
-          AND e.file NOT LIKE '%test%'
-          AND e.file NOT LIKE '%spec.%'
-          AND e.file NOT LIKE '%.test.%'
-          AND e.file NOT LIKE '%__tests__%'
-          AND e.file NOT LIKE '%demo%'
-          AND e.file NOT LIKE '%example%'
-        ORDER BY e.file
-    """)
+    query = build_query('api_endpoints', ['file', 'method', 'pattern'],
+                        where="""(pattern LIKE '%/oauth%'
+               OR pattern LIKE '%/auth%'
+               OR pattern LIKE '%/authorize%'
+               OR pattern LIKE '%/login%')
+          AND method IN ('GET', 'POST')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file")
+    cursor.execute(query)
 
     oauth_endpoints = cursor.fetchall()
 
@@ -216,27 +215,25 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
             continue
 
         # Check if state parameter is generated/validated
-        cursor.execute("""
-            SELECT COUNT(*) FROM function_call_args
-            WHERE file = ?
+        check_query = build_query('function_call_args', ['COUNT(*)'],
+                                  where="""file = ?
               AND (argument_expr LIKE '%state%'
                    OR param_name = 'state'
                    OR argument_expr LIKE '%csrf%'
-                   OR param_name = 'csrf')
-        """, [file])
+                   OR param_name = 'csrf')""")
+        cursor.execute(check_query, [file])
 
         has_state = cursor.fetchone()[0] > 0
 
         if not has_state:
             # Also check assignments for state generation
-            cursor.execute("""
-                SELECT COUNT(*) FROM assignments
-                WHERE file = ?
+            assign_query = build_query('assignments', ['COUNT(*)'],
+                                       where="""file = ?
                   AND (target_var LIKE '%state%'
                        OR target_var LIKE '%oauthState%'
                        OR target_var LIKE '%csrfToken%'
-                       OR source_expr LIKE '%state%')
-            """, [file])
+                       OR source_expr LIKE '%state%')""")
+            cursor.execute(assign_query, [file])
 
             has_state_assignment = cursor.fetchone()[0] > 0
 
@@ -279,40 +276,37 @@ def _check_redirect_validation(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find redirect operations with user-controlled URLs
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%.redirect%'
-               OR f.callee_function LIKE 'redirect%')
-          AND (f.argument_expr LIKE '%req.query%'
-               OR f.argument_expr LIKE '%req.params%'
-               OR f.argument_expr LIKE '%request.query%'
-               OR f.argument_expr LIKE '%redirect_uri%'
-               OR f.argument_expr LIKE '%redirectUri%'
-               OR f.argument_expr LIKE '%redirect_url%'
-               OR f.argument_expr LIKE '%return_url%')
-          AND f.file NOT LIKE '%test%'
-          AND f.file NOT LIKE '%spec.%'
-          AND f.file NOT LIKE '%.test.%'
-          AND f.file NOT LIKE '%__tests__%'
-          AND f.file NOT LIKE '%demo%'
-          AND f.file NOT LIKE '%example%'
-        ORDER BY f.file, f.line
-    """)
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                        where="""(callee_function LIKE '%.redirect%'
+               OR callee_function LIKE 'redirect%')
+          AND (argument_expr LIKE '%req.query%'
+               OR argument_expr LIKE '%req.params%'
+               OR argument_expr LIKE '%request.query%'
+               OR argument_expr LIKE '%redirect_uri%'
+               OR argument_expr LIKE '%redirectUri%'
+               OR argument_expr LIKE '%redirect_url%'
+               OR argument_expr LIKE '%return_url%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
         # Check if validation is performed nearby (within 10 lines before)
-        cursor.execute("""
-            SELECT COUNT(*) FROM function_call_args
-            WHERE file = ?
+        val_query = build_query('function_call_args', ['COUNT(*)'],
+                               where="""file = ?
               AND line >= ? AND line < ?
               AND (callee_function LIKE '%validate%'
                    OR callee_function LIKE '%whitelist%'
                    OR callee_function LIKE '%allowed%'
                    OR callee_function LIKE '%check%'
                    OR argument_expr LIKE '%whitelist%'
-                   OR argument_expr LIKE '%allowed%')
-        """, [file, max(1, line - 10), line])
+                   OR argument_expr LIKE '%allowed%')""")
+        cursor.execute(val_query, [file, max(1, line - 10), line])
 
         has_validation = cursor.fetchone()[0] > 0
 
@@ -331,35 +325,32 @@ def _check_redirect_validation(cursor) -> List[StandardFinding]:
             ))
 
     # Also check for redirect_uri in assignments without validation
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.target_var LIKE '%redirect%'
-               OR a.target_var LIKE '%returnUrl%')
-          AND (a.source_expr LIKE '%req.query%'
-               OR a.source_expr LIKE '%req.params%'
-               OR a.source_expr LIKE '%request.query%')
-          AND a.file NOT LIKE '%test%'
-          AND a.file NOT LIKE '%spec.%'
-          AND a.file NOT LIKE '%.test.%'
-          AND a.file NOT LIKE '%__tests__%'
-          AND a.file NOT LIKE '%demo%'
-          AND a.file NOT LIKE '%example%'
-        ORDER BY a.file, a.line
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                        where="""(target_var LIKE '%redirect%'
+               OR target_var LIKE '%returnUrl%')
+          AND (source_expr LIKE '%req.query%'
+               OR source_expr LIKE '%req.params%'
+               OR source_expr LIKE '%request.query%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, var, expr in cursor.fetchall():
         # Check for validation after assignment (within 10 lines)
-        cursor.execute("""
-            SELECT COUNT(*) FROM function_call_args
-            WHERE file = ?
+        val_query = build_query('function_call_args', ['COUNT(*)'],
+                               where="""file = ?
               AND line > ? AND line <= ?
               AND (argument_expr LIKE ?
                    OR param_name = ?)
               AND (callee_function LIKE '%validate%'
                    OR callee_function LIKE '%check%'
-                   OR callee_function LIKE '%whitelist%')
-        """, [file, line, line + 10, f'%{var}%', var])
+                   OR callee_function LIKE '%whitelist%')""")
+        cursor.execute(val_query, [file, line, line + 10, f'%{var}%', var])
 
         has_validation = cursor.fetchone()[0] > 0
 
@@ -403,22 +394,20 @@ def _check_token_in_url(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find URL construction with token in fragment (#)
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.source_expr LIKE '%#access_token=%'
-               OR a.source_expr LIKE '%#token=%'
-               OR a.source_expr LIKE '%#accessToken=%'
-               OR a.source_expr LIKE '%#id_token=%'
-               OR a.source_expr LIKE '%#refresh_token=%')
-          AND a.file NOT LIKE '%test%'
-          AND a.file NOT LIKE '%spec.%'
-          AND a.file NOT LIKE '%.test.%'
-          AND a.file NOT LIKE '%__tests__%'
-          AND a.file NOT LIKE '%demo%'
-          AND a.file NOT LIKE '%example%'
-        ORDER BY a.file, a.line
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                        where="""(source_expr LIKE '%#access_token=%'
+               OR source_expr LIKE '%#token=%'
+               OR source_expr LIKE '%#accessToken=%'
+               OR source_expr LIKE '%#id_token=%'
+               OR source_expr LIKE '%#refresh_token=%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, var, expr in cursor.fetchall():
         findings.append(StandardFinding(
@@ -435,23 +424,21 @@ def _check_token_in_url(cursor) -> List[StandardFinding]:
         ))
 
     # Find URL construction with token in query parameter (?)
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.source_expr LIKE '%?access_token=%'
-               OR a.source_expr LIKE '%&access_token=%'
-               OR a.source_expr LIKE '%?token=%'
-               OR a.source_expr LIKE '%&token=%'
-               OR a.source_expr LIKE '%?accessToken=%'
-               OR a.source_expr LIKE '%&accessToken=%')
-          AND a.file NOT LIKE '%test%'
-          AND a.file NOT LIKE '%spec.%'
-          AND a.file NOT LIKE '%.test.%'
-          AND a.file NOT LIKE '%__tests__%'
-          AND a.file NOT LIKE '%demo%'
-          AND a.file NOT LIKE '%example%'
-        ORDER BY a.file, a.line
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                        where="""(source_expr LIKE '%?access_token=%'
+               OR source_expr LIKE '%&access_token=%'
+               OR source_expr LIKE '%?token=%'
+               OR source_expr LIKE '%&token=%'
+               OR source_expr LIKE '%?accessToken=%'
+               OR source_expr LIKE '%&accessToken=%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, var, expr in cursor.fetchall():
         findings.append(StandardFinding(
@@ -468,20 +455,18 @@ def _check_token_in_url(cursor) -> List[StandardFinding]:
         ))
 
     # Also check for implicit flow usage (response_type=token)
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr LIKE '%response_type%'
-          AND (a.source_expr LIKE '%token%'
-               OR a.source_expr LIKE '%id_token%')
-          AND a.file NOT LIKE '%test%'
-          AND a.file NOT LIKE '%spec.%'
-          AND a.file NOT LIKE '%.test.%'
-          AND a.file NOT LIKE '%__tests__%'
-          AND a.file NOT LIKE '%demo%'
-          AND a.file NOT LIKE '%example%'
-        ORDER BY a.file, a.line
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                        where="""source_expr LIKE '%response_type%'
+          AND (source_expr LIKE '%token%'
+               OR source_expr LIKE '%id_token%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, var, expr in cursor.fetchall():
         # Check if it's using implicit flow (response_type=token instead of code)

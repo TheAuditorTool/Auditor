@@ -20,6 +20,7 @@ import sqlite3
 import json
 from typing import List, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -109,15 +110,6 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        if 'import_styles' not in available_tables:
-            return findings
-        if 'package_configs' not in available_tables:
-            return findings
-
         # Get all declared dependencies from package files
         declared_deps = _get_declared_dependencies(cursor)
 
@@ -154,10 +146,8 @@ def _get_declared_dependencies(cursor) -> Set[str]:
     """
     declared = set()
 
-    cursor.execute("""
-        SELECT dependencies, dev_dependencies, peer_dependencies
-        FROM package_configs
-    """)
+    query = build_query('package_configs', ['dependencies', 'dev_dependencies', 'peer_dependencies'])
+    cursor.execute(query)
 
     for deps_json, dev_deps_json, peer_deps_json in cursor.fetchall():
         # Parse dependencies JSON
@@ -188,11 +178,9 @@ def _get_imported_packages(cursor) -> dict:
     """
     imports = {}
 
-    cursor.execute("""
-        SELECT DISTINCT file, line, package, import_style
-        FROM import_styles
-        ORDER BY package, file, line
-    """)
+    query = build_query('import_styles', ['file', 'line', 'package', 'import_style'],
+                       order_by='package, file, line')
+    cursor.execute(query)
 
     for file, line, package, import_style in cursor.fetchall():
         if not package:

@@ -23,6 +23,7 @@ from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -207,28 +208,26 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find hash operations on password-like variables
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%md5%'
-               OR f.callee_function LIKE '%MD5%'
-               OR f.callee_function LIKE '%sha1%'
-               OR f.callee_function LIKE '%SHA1%'
-               OR f.callee_function LIKE 'hashlib.md5'
-               OR f.callee_function LIKE 'hashlib.sha1'
-               OR f.callee_function LIKE 'crypto.createHash')
-          AND (f.argument_expr LIKE '%password%'
-               OR f.argument_expr LIKE '%passwd%'
-               OR f.argument_expr LIKE '%pwd%'
-               OR f.argument_expr LIKE '%passphrase%')
-          AND f.file NOT LIKE '%test%'
-          AND f.file NOT LIKE '%spec.%'
-          AND f.file NOT LIKE '%.test.%'
-          AND f.file NOT LIKE '%__tests__%'
-          AND f.file NOT LIKE '%demo%'
-          AND f.file NOT LIKE '%example%'
-        ORDER BY f.file, f.line
-    """)
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                        where="""(callee_function LIKE '%md5%'
+               OR callee_function LIKE '%MD5%'
+               OR callee_function LIKE '%sha1%'
+               OR callee_function LIKE '%SHA1%'
+               OR callee_function LIKE 'hashlib.md5'
+               OR callee_function LIKE 'hashlib.sha1'
+               OR callee_function LIKE 'crypto.createHash')
+          AND (argument_expr LIKE '%password%'
+               OR argument_expr LIKE '%passwd%'
+               OR argument_expr LIKE '%pwd%'
+               OR argument_expr LIKE '%passphrase%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
         # Determine which weak algorithm is being used
@@ -248,37 +247,34 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
         ))
 
     # Also check for createHash with MD5/SHA1 in arguments
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function LIKE '%createHash%'
-          AND (f.argument_expr LIKE '%"md5"%'
-               OR f.argument_expr LIKE "%'md5'%"
-               OR f.argument_expr LIKE '%"sha1"%'
-               OR f.argument_expr LIKE "%'sha1'%")
-          AND f.file NOT LIKE '%test%'
-          AND f.file NOT LIKE '%spec.%'
-          AND f.file NOT LIKE '%.test.%'
-          AND f.file NOT LIKE '%__tests__%'
-          AND f.file NOT LIKE '%demo%'
-          AND f.file NOT LIKE '%example%'
-        ORDER BY f.file, f.line
-    """)
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                        where="""callee_function LIKE '%createHash%'
+          AND (argument_expr LIKE '%"md5"%'
+               OR argument_expr LIKE "%'md5'%"
+               OR argument_expr LIKE '%"sha1"%'
+               OR argument_expr LIKE "%'sha1'%")
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
         algo = 'MD5' if 'md5' in args.lower() else 'SHA1'
 
         # Check if this is being used in password context (nearby)
-        cursor.execute("""
-            SELECT COUNT(*) FROM assignments
-            WHERE file = ?
+        context_query = build_query('assignments', ['COUNT(*)'],
+                                    where="""file = ?
               AND ABS(line - ?) <= 5
               AND (target_var LIKE '%password%'
                    OR target_var LIKE '%passwd%'
                    OR target_var LIKE '%pwd%'
                    OR source_expr LIKE '%password%'
-                   OR source_expr LIKE '%passwd%')
-        """, [file, line])
+                   OR source_expr LIKE '%passwd%')""")
+        cursor.execute(context_query, [file, line])
 
         if cursor.fetchone()[0] > 0:
             findings.append(StandardFinding(
@@ -315,27 +311,29 @@ def _check_hardcoded_passwords(cursor) -> List[StandardFinding]:
 
     # Build query for password-related variable assignments
     password_keywords_list = list(PASSWORD_KEYWORDS)
-    keyword_conditions = ' OR '.join([f'target_var LIKE ?' for _ in password_keywords_list])
+    keyword_conditions = ' OR '.join(['target_var LIKE ?' for _ in password_keywords_list])
     params = [f'%{kw}%' for kw in password_keywords_list]
 
-    cursor.execute(f"""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE ({keyword_conditions})
-          AND source_expr NOT LIKE '%process.env%'
-          AND source_expr NOT LIKE '%import.meta.env%'
-          AND source_expr NOT LIKE '%os.environ%'
-          AND source_expr NOT LIKE '%getenv%'
-          AND source_expr NOT LIKE '%config%'
-          AND source_expr NOT LIKE '%process.argv%'
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'
-        ORDER BY file, line
-    """, params)
+    # Use build_query to ensure schema compliance
+    base_query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+    where_clause = (
+        f"({keyword_conditions}) "
+        "AND source_expr NOT LIKE '%process.env%' "
+        "AND source_expr NOT LIKE '%import.meta.env%' "
+        "AND source_expr NOT LIKE '%os.environ%' "
+        "AND source_expr NOT LIKE '%getenv%' "
+        "AND source_expr NOT LIKE '%config%' "
+        "AND source_expr NOT LIKE '%process.argv%' "
+        "AND file NOT LIKE '%test%' "
+        "AND file NOT LIKE '%spec.%' "
+        "AND file NOT LIKE '%.test.%' "
+        "AND file NOT LIKE '%__tests__%' "
+        "AND file NOT LIKE '%demo%' "
+        "AND file NOT LIKE '%example%'"
+    )
+    full_query = f"{base_query} WHERE {where_clause} ORDER BY file, line"
+
+    cursor.execute(full_query, params)
 
     for file, line, var, expr in cursor.fetchall():
         # Clean the expression
@@ -402,25 +400,23 @@ def _check_weak_complexity(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find password validation functions
-    cursor.execute("""
-        SELECT f.file, f.line, f.caller_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.argument_expr LIKE '%password%'
-               OR f.argument_expr LIKE '%passwd%'
-               OR f.argument_expr LIKE '%pwd%')
-          AND (f.callee_function LIKE '%validate%'
-               OR f.callee_function LIKE '%check%'
-               OR f.callee_function LIKE '%verify%'
-               OR f.callee_function LIKE '%test%'
-               OR f.callee_function LIKE '%.length%')
-          AND f.file NOT LIKE '%test%'
-          AND f.file NOT LIKE '%spec.%'
-          AND f.file NOT LIKE '%.test.%'
-          AND f.file NOT LIKE '%__tests__%'
-          AND f.file NOT LIKE '%demo%'
-          AND f.file NOT LIKE '%example%'
-        ORDER BY f.file, f.line
-    """)
+    query = build_query('function_call_args', ['file', 'line', 'caller_function', 'argument_expr'],
+                        where="""(argument_expr LIKE '%password%'
+               OR argument_expr LIKE '%passwd%'
+               OR argument_expr LIKE '%pwd%')
+          AND (callee_function LIKE '%validate%'
+               OR callee_function LIKE '%check%'
+               OR callee_function LIKE '%verify%'
+               OR callee_function LIKE '%test%'
+               OR callee_function LIKE '%.length%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     validation_calls = cursor.fetchall()
 
@@ -445,24 +441,22 @@ def _check_weak_complexity(cursor) -> List[StandardFinding]:
                 ))
 
     # Also check for simple length checks in assignments
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.source_expr LIKE '%password.length%'
-               OR a.source_expr LIKE '%pwd.length%'
-               OR a.source_expr LIKE '%passwd.length%')
-          AND (a.source_expr LIKE '%> 6%'
-               OR a.source_expr LIKE '%> 7%'
-               OR a.source_expr LIKE '%> 8%'
-               OR a.source_expr LIKE '%>= 8%')
-          AND a.file NOT LIKE '%test%'
-          AND a.file NOT LIKE '%spec.%'
-          AND a.file NOT LIKE '%.test.%'
-          AND a.file NOT LIKE '%__tests__%'
-          AND a.file NOT LIKE '%demo%'
-          AND a.file NOT LIKE '%example%'
-        ORDER BY a.file, a.line
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                        where="""(source_expr LIKE '%password.length%'
+               OR source_expr LIKE '%pwd.length%'
+               OR source_expr LIKE '%passwd.length%')
+          AND (source_expr LIKE '%> 6%'
+               OR source_expr LIKE '%> 7%'
+               OR source_expr LIKE '%> 8%'
+               OR source_expr LIKE '%>= 8%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, var, expr in cursor.fetchall():
         findings.append(StandardFinding(
@@ -499,23 +493,21 @@ def _check_password_in_url(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find URL construction with password parameters
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE (a.source_expr LIKE '%?password=%'
-               OR a.source_expr LIKE '%&password=%'
-               OR a.source_expr LIKE '%?passwd=%'
-               OR a.source_expr LIKE '%&passwd=%'
-               OR a.source_expr LIKE '%?pwd=%'
-               OR a.source_expr LIKE '%&pwd=%')
-          AND a.file NOT LIKE '%test%'
-          AND a.file NOT LIKE '%spec.%'
-          AND a.file NOT LIKE '%.test.%'
-          AND a.file NOT LIKE '%__tests__%'
-          AND a.file NOT LIKE '%demo%'
-          AND a.file NOT LIKE '%example%'
-        ORDER BY a.file, a.line
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                        where="""(source_expr LIKE '%?password=%'
+               OR source_expr LIKE '%&password=%'
+               OR source_expr LIKE '%?passwd=%'
+               OR source_expr LIKE '%&passwd=%'
+               OR source_expr LIKE '%?pwd=%'
+               OR source_expr LIKE '%&pwd=%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, var, expr in cursor.fetchall():
         findings.append(StandardFinding(
@@ -532,26 +524,24 @@ def _check_password_in_url(cursor) -> List[StandardFinding]:
         ))
 
     # Also check function calls that build URLs
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%url%'
-               OR f.callee_function LIKE '%URL%'
-               OR f.callee_function LIKE '%uri%'
-               OR f.callee_function LIKE '%query%')
-          AND (f.argument_expr LIKE '%password%'
-               OR f.argument_expr LIKE '%passwd%'
-               OR f.argument_expr LIKE '%pwd%')
-          AND (f.argument_expr LIKE '%?%'
-               OR f.argument_expr LIKE '%&%')
-          AND f.file NOT LIKE '%test%'
-          AND f.file NOT LIKE '%spec.%'
-          AND f.file NOT LIKE '%.test.%'
-          AND f.file NOT LIKE '%__tests__%'
-          AND f.file NOT LIKE '%demo%'
-          AND f.file NOT LIKE '%example%'
-        ORDER BY f.file, f.line
-    """)
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                        where="""(callee_function LIKE '%url%'
+               OR callee_function LIKE '%URL%'
+               OR callee_function LIKE '%uri%'
+               OR callee_function LIKE '%query%')
+          AND (argument_expr LIKE '%password%'
+               OR argument_expr LIKE '%passwd%'
+               OR argument_expr LIKE '%pwd%')
+          AND (argument_expr LIKE '%?%'
+               OR argument_expr LIKE '%&%')
+          AND file NOT LIKE '%test%'
+          AND file NOT LIKE '%spec.%'
+          AND file NOT LIKE '%.test.%'
+          AND file NOT LIKE '%__tests__%'
+          AND file NOT LIKE '%demo%'
+          AND file NOT LIKE '%example%'""",
+                        order_by="file, line")
+    cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
         findings.append(StandardFinding(

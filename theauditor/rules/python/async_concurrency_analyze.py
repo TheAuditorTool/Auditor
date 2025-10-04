@@ -3,10 +3,10 @@
 Detects race conditions, async issues, and concurrency problems using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
 
@@ -15,6 +15,7 @@ from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -129,19 +130,6 @@ class ConcurrencyPatterns:
 
 
 # ============================================================================
-# HELPER: Table Existence Check
-# ============================================================================
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database for graceful degradation."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('function_call_args', 'assignments', 'symbols')
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
-
-# ============================================================================
 # ANALYZER CLASS (Golden Standard)
 # ============================================================================
 
@@ -157,7 +145,6 @@ class AsyncConcurrencyAnalyzer:
         self.context = context
         self.patterns = ConcurrencyPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -172,33 +159,18 @@ class AsyncConcurrencyAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check which tables exist (graceful degradation)
-            existing_tables = _check_tables(self.cursor)
-
-            # Must have function_call_args for core analysis
-            if 'function_call_args' not in existing_tables:
-                return []
-
-            # Store for use in other methods
-            self.existing_tables = existing_tables
-
             # Detect if project uses concurrency
             has_concurrency = self._detect_concurrency_usage()
 
-            # Run appropriate checks based on available data
-            if 'function_call_args' in self.existing_tables:
-                self._check_race_conditions()
-                self._check_async_without_await()
-                self._check_parallel_writes()
-                self._check_threading_issues()
-                self._check_lock_issues()
-
-            if 'assignments' in self.existing_tables:
-                self._check_shared_state_no_lock(has_concurrency)
-
-            if 'cfg_blocks' in self.existing_tables:
-                self._check_sleep_in_loops()
-                self._check_retry_without_backoff()
+            # Run all checks
+            self._check_race_conditions()
+            self._check_async_without_await()
+            self._check_parallel_writes()
+            self._check_threading_issues()
+            self._check_lock_issues()
+            self._check_shared_state_no_lock(has_concurrency)
+            self._check_sleep_in_loops()
+            self._check_retry_without_backoff()
 
         finally:
             conn.close()
@@ -207,9 +179,6 @@ class AsyncConcurrencyAnalyzer:
 
     def _detect_concurrency_usage(self) -> bool:
         """Check if project uses threading/async/multiprocessing."""
-        if 'refs' not in self.existing_tables:
-            return True  # Assume yes if we can't check
-
         placeholders = ','.join('?' * len(self.patterns.CONCURRENCY_IMPORTS))
         self.cursor.execute(f"""
             SELECT COUNT(*) FROM refs
@@ -313,9 +282,6 @@ class AsyncConcurrencyAnalyzer:
 
     def _check_lock_nearby(self, file: str, line: int, function: str) -> bool:
         """Check if there's lock protection nearby."""
-        if 'function_call_args' not in self.existing_tables:
-            return False
-
         lock_placeholders = ','.join('?' * len(self.patterns.LOCK_METHODS))
         params = list(self.patterns.LOCK_METHODS) + [file, line, line]
 
@@ -494,9 +460,6 @@ class AsyncConcurrencyAnalyzer:
 
     def _check_sleep_in_loops(self):
         """Find sleep operations in loops."""
-        if 'cfg_blocks' not in self.existing_tables:
-            return
-
         sleep_placeholders = ','.join('?' * len(self.patterns.SLEEP_METHODS))
 
         self.cursor.execute(f"""
@@ -524,9 +487,6 @@ class AsyncConcurrencyAnalyzer:
 
     def _check_retry_without_backoff(self):
         """Find retry loops without exponential backoff."""
-        if 'cfg_blocks' not in self.existing_tables or 'assignments' not in self.existing_tables:
-            return
-
         # Find loops with retry variables
         retry_placeholders = ','.join('?' * len(self.patterns.RETRY_VARIABLES))
 
@@ -571,9 +531,6 @@ class AsyncConcurrencyAnalyzer:
 
     def _check_backoff_pattern(self, file: str, start: int, end: int) -> bool:
         """Check if there's exponential backoff in range."""
-        if 'assignments' not in self.existing_tables:
-            return False
-
         # Check for backoff patterns in assignments
         for pattern in self.patterns.BACKOFF_PATTERNS:
             self.cursor.execute("""
@@ -592,9 +549,6 @@ class AsyncConcurrencyAnalyzer:
 
     def _check_sleep_in_range(self, file: str, start: int, end: int) -> bool:
         """Check if there's sleep in line range."""
-        if 'function_call_args' not in self.existing_tables:
-            return False
-
         sleep_placeholders = ','.join('?' * len(self.patterns.SLEEP_METHODS))
 
         self.cursor.execute(f"""
@@ -659,39 +613,38 @@ class AsyncConcurrencyAnalyzer:
                 ))
 
         # Check singleton without synchronization
-        if 'assignments' in self.existing_tables:
-            singleton_placeholders = ','.join('?' * len(self.patterns.SINGLETON_VARS))
+        singleton_placeholders = ','.join('?' * len(self.patterns.SINGLETON_VARS))
 
-            self.cursor.execute(f"""
-                SELECT a.file, a.line, a.target_var
-                FROM assignments a
-                WHERE a.target_var IN ({singleton_placeholders})
-                  AND NOT EXISTS (
-                      SELECT 1 FROM function_call_args f
-                      WHERE f.file = a.file
-                        AND f.callee_function IN ({lock_placeholders})
-                        AND ABS(f.line - a.line) <= 5
-                  )
-            """, list(self.patterns.SINGLETON_VARS) + list(self.patterns.LOCK_METHODS))
+        self.cursor.execute(f"""
+            SELECT a.file, a.line, a.target_var
+            FROM assignments a
+            WHERE a.target_var IN ({singleton_placeholders})
+              AND NOT EXISTS (
+                  SELECT 1 FROM function_call_args f
+                  WHERE f.file = a.file
+                    AND f.callee_function IN ({lock_placeholders})
+                    AND ABS(f.line - a.line) <= 5
+              )
+        """, list(self.patterns.SINGLETON_VARS) + list(self.patterns.LOCK_METHODS))
 
-            for file, line, var in self.cursor.fetchall():
-                self.findings.append(StandardFinding(
-                    rule_name='python-singleton-race',
-                    message=f'Singleton "{var}" without synchronization',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='concurrency',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-362'
-                ))
+        for file, line, var in self.cursor.fetchall():
+            self.findings.append(StandardFinding(
+                rule_name='python-singleton-race',
+                message=f'Singleton "{var}" without synchronization',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='concurrency',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-362'
+            ))
 
 
 # ============================================================================
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_async_concurrency_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Python async and concurrency issues.
 
     Args:

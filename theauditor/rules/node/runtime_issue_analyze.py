@@ -5,6 +5,7 @@ Demonstrates database-aware rule pattern using finite pattern matching.
 
 MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
 Signature: context: StandardRuleContext -> List[StandardFinding]
+Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
 import json
@@ -14,6 +15,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -138,27 +140,6 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
 
 # ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
-def _check_tables(cursor) -> frozenset:
-    """Check which tables exist in database.
-
-    Args:
-        cursor: SQLite cursor
-
-    Returns:
-        Frozen set of existing table names
-    """
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('function_call_args', 'symbols', 'assignments', 'files')
-    """)
-    return frozenset(row[0] for row in cursor.fetchall())
-
-
-# ============================================================================
 # ANALYZER CLASS
 # ============================================================================
 
@@ -194,14 +175,8 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check if files table exists
-            existing_tables = _check_tables(cursor)
-            if 'files' not in existing_tables:
-                conn.close()
-                return False
-
-            cursor.execute("""
-                SELECT COUNT(*) FROM files
+            query = build_query('files', ['COUNT(*)'])
+            cursor.execute(query + """
                 WHERE ext IN ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')
             """)
 
@@ -218,19 +193,12 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check table existence
-            existing_tables = _check_tables(cursor)
-            if 'function_call_args' not in existing_tables:
-                conn.close()
-                return
-
             # First, identify tainted variables
             self._identify_tainted_variables(cursor)
 
             # Check direct exec calls with user input
-            cursor.execute("""
-                SELECT DISTINCT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
                    OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
                 ORDER BY f.file, f.line
@@ -276,9 +244,8 @@ class RuntimeAnalyzer:
                         ))
 
             # Check for template literals with user input
-            cursor.execute("""
-                SELECT DISTINCT a.file, a.line, a.source_expr
-                FROM assignments a
+            query = build_query('assignments', ['file', 'line', 'source_expr'])
+            cursor.execute(query + """
                 WHERE a.source_expr LIKE '%`%'
                   AND a.source_expr LIKE '%$%'
                   AND (a.file LIKE '%.js' OR a.file LIKE '%.jsx'
@@ -329,16 +296,9 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check table existence
-            existing_tables = _check_tables(cursor)
-            if 'function_call_args' not in existing_tables:
-                conn.close()
-                return
-
             # Look for spawn calls
-            cursor.execute("""
-                SELECT f.file, f.line, f.argument_expr
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE f.callee_function LIKE '%spawn%'
                   AND f.argument_expr LIKE '%shell%'
                 ORDER BY f.file, f.line
@@ -377,16 +337,9 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check table existence
-            existing_tables = _check_tables(cursor)
-            if 'function_call_args' not in existing_tables or 'symbols' not in existing_tables:
-                conn.close()
-                return
-
             # Check Object.assign with spread
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
                    OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
                 ORDER BY f.file, f.line
@@ -418,9 +371,8 @@ class RuntimeAnalyzer:
                                 break
 
             # Check for for...in loops without validation
-            cursor.execute("""
-                SELECT s.path, s.line, s.name
-                FROM symbols s
+            query = build_query('symbols', ['path', 'line', 'name'])
+            cursor.execute(query + """
                 WHERE s.name IN ('for', 'in')
                   AND (s.path LIKE '%.js' OR s.path LIKE '%.jsx'
                        OR s.path LIKE '%.ts' OR s.path LIKE '%.tsx')
@@ -451,9 +403,8 @@ class RuntimeAnalyzer:
                     ))
 
             # Check recursive merge patterns
-            cursor.execute("""
-                SELECT s.path, s.line, s.name
-                FROM symbols s
+            query = build_query('symbols', ['path', 'line', 'name'])
+            cursor.execute(query + """
                 WHERE s.type = 'function'
                   AND (s.name LIKE '%merge%' OR s.name LIKE '%extend%')
                   AND (s.path LIKE '%.js' OR s.path LIKE '%.jsx'
@@ -507,15 +458,8 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check table existence
-            existing_tables = _check_tables(cursor)
-            if 'function_call_args' not in existing_tables:
-                conn.close()
-                return
-
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
                    OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
                 ORDER BY f.file, f.line
@@ -572,16 +516,9 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check table existence
-            existing_tables = _check_tables(cursor)
-            if 'function_call_args' not in existing_tables:
-                conn.close()
-                return
-
             # Look for RegExp constructor with user input
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE (f.callee_function = 'RegExp'
                        OR f.callee_function = 'new RegExp'
                        OR f.callee_function LIKE '%RegExp%')
@@ -630,15 +567,8 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check table existence
-            existing_tables = _check_tables(cursor)
-            if 'function_call_args' not in existing_tables:
-                conn.close()
-                return
-
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
                    OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
                 ORDER BY f.file, f.line
@@ -688,15 +618,9 @@ class RuntimeAnalyzer:
     def _identify_tainted_variables(self, cursor) -> None:
         """Identify variables assigned from user input sources."""
         try:
-            # Check if assignments table exists
-            existing_tables = _check_tables(cursor)
-            if 'assignments' not in existing_tables:
-                return
-
             # Find assignments from user input
-            cursor.execute("""
-                SELECT DISTINCT file, line, target_var, source_expr
-                FROM assignments
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+            cursor.execute(query + """
                 WHERE file LIKE '%.js' OR file LIKE '%.jsx'
                    OR file LIKE '%.ts' OR file LIKE '%.tsx'
                 ORDER BY file, line

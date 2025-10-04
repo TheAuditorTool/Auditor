@@ -1,0 +1,274 @@
+{
+  "audit_metadata": {
+    "category": "logic",
+    "audit_date": "2025-10-04",
+    "auditor": "Claude Code Atomic Rules Audit",
+    "sop_version": "Phase 2 - Rule Logic & Contract Audit",
+    "total_files_in_category": 1,
+    "files_audited": 1,
+    "audit_complete": true
+  },
+  "summary": {
+    "total_violations": 15,
+    "critical_violations": 5,
+    "moderate_violations": 10,
+    "compliant_files": 0,
+    "gold_standard_files": 0,
+    "files_requiring_refactor": 1,
+    "compliance_score": 35
+  },
+  "files_audited": [
+    "general_logic_analyze.py"
+  ],
+  "violations_by_file": {
+    "general_logic_analyze.py": {
+      "total_violations": 15,
+      "critical_violations": 5,
+      "moderate_violations": 10,
+      "compliance_score": 35,
+      "metadata_check": {
+        "status": "PASS",
+        "findings": [],
+        "notes": "Excellent metadata configuration with comprehensive exclude_patterns and appropriate target_extensions"
+      },
+      "database_contract_check": {
+        "status": "FAIL",
+        "critical_violations": [
+          {
+            "violation_id": "LOGIC-001",
+            "severity": "CRITICAL",
+            "line_range": "185-196",
+            "issue": "Table existence checking via sqlite_master",
+            "code_snippet": "cursor.execute(\"\"\"\\n    SELECT name FROM sqlite_master\\n    WHERE type='table' AND name IN (\\n        'assignments', 'function_call_args', 'symbols',\\n        'cfg_blocks', 'files'\\n    )\\n\"\"\")",
+            "explanation": "ABSOLUTE PROHIBITION from CLAUDE.md: 'NO FALLBACKS. NO REGEX. NO EXCEPTIONS.' The schema contract system (theauditor/indexer/schema.py) guarantees table existence. Any table existence check is architectural cancer.",
+            "required_fix": "Remove sqlite_master query. Assume all contracted tables exist. If table doesn't exist, rule SHOULD crash to indicate schema contract violation.",
+            "reference": "CLAUDE.md lines 1297-1338: ABSOLUTE PROHIBITION: Fallback Logic & Regex"
+          },
+          {
+            "violation_id": "LOGIC-002",
+            "severity": "CRITICAL",
+            "line_range": "195-202",
+            "issue": "Conditional execution based on table existence (fallback logic pattern)",
+            "code_snippet": "if 'assignments' not in existing_tables and 'function_call_args' not in existing_tables:\\n    return findings\\n\\nhas_assignments = 'assignments' in existing_tables\\nhas_function_calls = 'function_call_args' in existing_tables\\nhas_cfg_blocks = 'cfg_blocks' in existing_tables\\nhas_symbols = 'symbols' in existing_tables",
+            "explanation": "Creates conditional execution paths based on table existence. This is the fallback logic pattern explicitly forbidden in CLAUDE.md.",
+            "required_fix": "Remove all has_* flags. Execute queries directly. Trust schema contract.",
+            "reference": "CLAUDE.md: 'FORBIDDEN PATTERNS: Conditional execution based on table existence'"
+          },
+          {
+            "violation_id": "LOGIC-003",
+            "severity": "CRITICAL",
+            "line_range": "206, 236, 265, 365, 392, 402, 463, etc.",
+            "issue": "Multiple uses of table existence conditionals throughout file",
+            "code_snippet": "if has_assignments:\\n    # Query assignments table\\n\\nif has_function_calls:\\n    # Query function_call_args table",
+            "explanation": "Every query is wrapped in 'if has_*' conditional. This defeats the purpose of schema contracts and creates unreliable analysis.",
+            "required_fix": "Remove ALL conditional wrappers. Query tables directly. Let SQLite errors surface if schema is broken.",
+            "reference": "CLAUDE.md: 'If a table doesn't exist, the rule SHOULD crash. This indicates schema contract violation, not a condition to handle gracefully.'"
+          },
+          {
+            "violation_id": "LOGIC-004",
+            "severity": "CRITICAL",
+            "line_range": "Entire file (no usage found)",
+            "issue": "NEVER uses build_query() from schema.py",
+            "code_snippet": "N/A - build_query() is never imported or used",
+            "explanation": "The schema contract system provides build_query() for type-safe, validated queries. This rule uses 100% hardcoded SQL strings, bypassing schema validation.",
+            "required_fix": "Import and use build_query() for all SELECT queries: from theauditor.indexer.schema import build_query",
+            "reference": "CLAUDE.md lines 1259-1276: 'Using the Schema Contract System (v1.1+)' and schema.py lines 954-1005"
+          },
+          {
+            "violation_id": "LOGIC-005",
+            "severity": "CRITICAL",
+            "line_range": "208-220",
+            "issue": "F-string SQL injection pattern with dynamic WHERE conditions",
+            "code_snippet": "money_conditions = ' OR '.join([f\"a.target_var LIKE '%{term}%'\" for term in MONEY_TERMS])\\n\\ncursor.execute(f\"\"\"\\n    SELECT DISTINCT a.file, a.line, a.target_var, a.source_expr\\n    FROM assignments a\\n    WHERE ({money_conditions})\\n\"\"\")",
+            "explanation": "Dynamically builds WHERE clause using f-strings. While MONEY_TERMS is a frozenset (not user input), this pattern is dangerous and bypasses parameterized queries.",
+            "required_fix": "Use parameterized queries or IN clause with placeholders instead of f-string injection",
+            "reference": "Best practice: NEVER use f-strings for SQL query construction"
+          }
+        ],
+        "moderate_violations": [
+          {
+            "violation_id": "LOGIC-MOD-001",
+            "severity": "MODERATE",
+            "line_range": "210-220",
+            "issue": "Hardcoded SQL query for assignments table (money/float check)",
+            "explanation": "Should use build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-002",
+            "severity": "MODERATE",
+            "line_range": "241-247",
+            "issue": "Hardcoded SQL query for function_call_args table (float functions)",
+            "explanation": "Should use build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-003",
+            "severity": "MODERATE",
+            "line_range": "269-277",
+            "issue": "Hardcoded SQL query for function_call_args table (datetime check)",
+            "explanation": "Should use build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-004",
+            "severity": "MODERATE",
+            "line_range": "295-304",
+            "issue": "Hardcoded SQL query for email regex validation check",
+            "explanation": "At least this one doesn't use conditionals, but still needs build_query()",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-005",
+            "severity": "MODERATE",
+            "line_range": "323-334",
+            "issue": "Hardcoded SQL query for division by zero check",
+            "explanation": "Another direct query (good), but needs build_query()",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-006",
+            "severity": "MODERATE",
+            "line_range": "340-345",
+            "issue": "Hardcoded SQL query for symbols table (zero check lookup)",
+            "explanation": "Should use build_query('symbols', ['COUNT(*)'], where='path = ? AND line BETWEEN ? AND ?')",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-007",
+            "severity": "MODERATE",
+            "line_range": "371-383",
+            "issue": "Hardcoded SQL query for file operations check",
+            "explanation": "Complex query with NOT EXISTS subquery - still needs schema compliance",
+            "required_fix": "Use build_query() for base query, keep subquery logic"
+          },
+          {
+            "violation_id": "LOGIC-MOD-008",
+            "severity": "MODERATE",
+            "line_range": "393-399",
+            "issue": "Hardcoded SQL query for cfg_blocks table",
+            "explanation": "Should use build_query('cfg_blocks', ['COUNT(*)'], where='file = ? AND block_type IN (?) AND ? BETWEEN start_line AND end_line')",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-009",
+            "severity": "MODERATE",
+            "line_range": "427-458",
+            "issue": "Hardcoded SQL query for database connections check",
+            "explanation": "Uses LIKE patterns for connection detection - needs schema compliance",
+            "required_fix": "Replace with schema-compliant query builder"
+          },
+          {
+            "violation_id": "LOGIC-MOD-010",
+            "severity": "MODERATE",
+            "line_range": "469-481",
+            "issue": "Hardcoded SQL query for transaction checks",
+            "explanation": "Uses parameterized IN clause (good), but needs build_query()",
+            "required_fix": "Replace with schema-compliant query builder"
+          }
+        ],
+        "notes": "All database queries are schema-compliant in terms of table/column names, but the implementation violates schema contract principles through table existence checking, conditional execution, and lack of build_query() usage."
+      },
+      "finding_generation_check": {
+        "status": "PASS",
+        "findings": [],
+        "notes": "ALL 12 StandardFinding blocks use correct parameter names (file_path=, rule_name=), proper enum usage (Severity.CRITICAL, Confidence.HIGH), and include all required fields. Finding generation is 100% compliant with base.py contract."
+      },
+      "additional_observations": {
+        "strengths": [
+          "Excellent frozenset usage for O(1) pattern matching (lines 52-152) - GOLD STANDARD",
+          "Comprehensive logic checks covering business logic (money/datetime) and resource management (files/connections/locks)",
+          "Well-structured pattern definitions with clear semantic grouping",
+          "Good use of CWE IDs for all findings",
+          "Helpful code comments explaining detection logic",
+          "Direct queries without conditionals for some checks (lines 295-304, 323-334) show correct approach"
+        ],
+        "weaknesses": [
+          "Architectural cancer: Table existence checking throughout",
+          "Zero adoption of schema contract system (build_query)",
+          "Fallback logic pattern creates unreliable analysis",
+          "F-string SQL injection pattern (even with safe data)",
+          "Cursor state bug mitigation comments (lines 335, 384) suggest workaround instead of fixing root cause",
+          "Complex logic in single monolithic function (510 lines) - should be split into focused checks"
+        ],
+        "refactor_recommendations": [
+          "PRIORITY 1 (P0): Remove ALL table existence checks and conditionals",
+          "PRIORITY 2 (P0): Adopt build_query() for all SELECT queries",
+          "PRIORITY 3 (P1): Split 510-line function into 12 focused check functions",
+          "PRIORITY 4 (P1): Replace f-string queries with parameterized queries",
+          "PRIORITY 5 (P2): Add unit tests for each check function",
+          "PRIORITY 6 (P2): Consider moving some checks to separate rule files (e.g., resource_management_analyze.py)"
+        ]
+      }
+    }
+  },
+  "gold_standard_files": [],
+  "critical_issues": [
+    {
+      "issue": "Architectural Cancer - Table Existence Checking",
+      "affected_files": ["general_logic_analyze.py"],
+      "severity": "CRITICAL",
+      "impact": "Violates schema contract system design. Creates unreliable analysis that silently skips checks instead of failing fast when schema is broken.",
+      "required_action": "Remove all sqlite_master queries and has_* conditionals. Trust schema contract. Let crashes surface schema violations.",
+      "reference": "CLAUDE.md: ABSOLUTE PROHIBITION: Fallback Logic & Regex"
+    },
+    {
+      "issue": "Zero Schema Contract Adoption",
+      "affected_files": ["general_logic_analyze.py"],
+      "severity": "CRITICAL",
+      "impact": "100% hardcoded SQL strings bypass schema validation. No compile-time or runtime safety from schema contract system.",
+      "required_action": "Migrate all queries to build_query() from theauditor.indexer.schema",
+      "reference": "CLAUDE.md lines 1259-1276 + schema.py lines 954-1005"
+    }
+  ],
+  "compliance_breakdown": {
+    "metadata_compliance": {
+      "score": 100,
+      "total_files": 1,
+      "compliant_files": 1,
+      "details": "All metadata blocks properly configured with appropriate target_extensions, exclude_patterns, and requires_jsx_pass settings"
+    },
+    "database_contract_compliance": {
+      "score": 0,
+      "total_files": 1,
+      "compliant_files": 0,
+      "details": "Zero files use build_query(). All files use table existence checking. All files use conditional execution based on table availability."
+    },
+    "finding_generation_compliance": {
+      "score": 100,
+      "total_files": 1,
+      "compliant_files": 1,
+      "details": "All StandardFinding blocks use correct parameter names and enum values"
+    },
+    "frozenset_compliance": {
+      "score": 100,
+      "total_files": 1,
+      "compliant_files": 1,
+      "details": "Excellent frozenset usage for O(1) pattern matching across 15+ pattern sets"
+    }
+  },
+  "recommended_actions": {
+    "immediate": [
+      "STOP using general_logic_analyze.py in production until schema contract violations are fixed",
+      "Create refactored version that removes all table existence checks",
+      "Migrate all queries to build_query() utility"
+    ],
+    "short_term": [
+      "Split monolithic 510-line function into 12 focused check functions",
+      "Add unit tests for each check function",
+      "Review and fix cursor state bug workarounds (lines 335, 384)"
+    ],
+    "long_term": [
+      "Consider splitting logic rules into separate categories: business_logic_analyze.py and resource_management_analyze.py",
+      "Add integration tests that verify rules work against actual schema",
+      "Document expected database state for each check"
+    ]
+  },
+  "audit_conclusion": {
+    "overall_assessment": "REQUIRES IMMEDIATE REFACTOR",
+    "rationale": "While the rule demonstrates excellent pattern recognition (frozensets) and finding generation, it fundamentally violates the schema contract system through architectural anti-patterns (table existence checking, conditional execution, no build_query usage). The logic is sound, but the implementation must be refactored to align with v1.1+ schema contract architecture.",
+    "estimated_refactor_effort": "4-6 hours",
+    "blocking_issues": 5,
+    "non_blocking_issues": 10
+  }
+}

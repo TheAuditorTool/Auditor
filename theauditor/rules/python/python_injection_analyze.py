@@ -3,10 +3,10 @@
 Detects various injection vulnerabilities in Python code using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 
 Detects:
@@ -24,6 +24,7 @@ from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -151,7 +152,6 @@ class InjectionAnalyzer:
         self.context = context
         self.patterns = InjectionPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -166,46 +166,20 @@ class InjectionAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables for graceful degradation
-            self._check_table_availability()
-
-            # Must have minimum tables for any analysis
-            if not self._has_minimum_tables():
-                return []
-
-            # Run injection checks based on available data
-            if 'function_call_args' in self.existing_tables:
-                self._check_sql_injection()
-                self._check_command_injection()
-                self._check_code_injection()
-                self._check_template_injection()
-                self._check_ldap_injection()
-                self._check_nosql_injection()
-                self._check_xpath_injection()
-
-            if 'sql_queries' in self.existing_tables:
-                self._check_raw_sql_construction()
+            # Run injection checks
+            self._check_sql_injection()
+            self._check_command_injection()
+            self._check_code_injection()
+            self._check_template_injection()
+            self._check_ldap_injection()
+            self._check_nosql_injection()
+            self._check_xpath_injection()
+            self._check_raw_sql_construction()
 
         finally:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'function_call_args', 'assignments', 'sql_queries',
-                'symbols', 'refs', 'files', 'api_endpoints'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
-    def _has_minimum_tables(self) -> bool:
-        """Check if we have minimum required tables."""
-        required = {'function_call_args', 'files'}
-        return required.issubset(self.existing_tables)
 
     def _check_sql_injection(self):
         """Detect SQL injection vulnerabilities."""
@@ -489,9 +463,6 @@ class InjectionAnalyzer:
 
     def _check_raw_sql_construction(self):
         """Check for SQL constructed in assignments."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Look for SQL keyword assignments
         sql_keyword_list = list(self.patterns.SQL_KEYWORDS)
         for keyword in sql_keyword_list[:10]:  # Check top keywords to avoid too many queries
@@ -554,7 +525,7 @@ FLAGGED: Missing database features that would improve injection detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_injection_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Python injection vulnerabilities.
 
     Args:

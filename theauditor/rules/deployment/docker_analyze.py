@@ -3,17 +3,19 @@
 Detects security misconfigurations in Dockerfile images.
 Uses pre-extracted data from docker_images table - NO FILE I/O.
 
-This rule queries docker_images table populated by the indexer
-with Dockerfile configuration data (USER instruction, ENV/ARG, base images).
+Tables Used (guaranteed by schema contract):
+- docker_images: Dockerfile metadata (USER, ENV, ARG, base_image, exposed_ports, has_healthcheck)
 
 Detects:
 - Root user containers (missing USER instruction)
 - Hardcoded secrets in ENV/ARG
 - High-entropy strings (potential secrets)
 - Vulnerable/outdated base images
+- Missing HEALTHCHECK instruction
+- Sensitive ports exposed
 - Base image CVE scanning (optional)
 
-Migration Status: Gold Standard - Database-First Architecture
+Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
 import json
@@ -130,16 +132,6 @@ def find_docker_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if docker_images table exists
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='docker_images'
-        """)
-
-        if not cursor.fetchone():
-            # No Dockerfiles in project - return empty
-            return findings
-
         # Run security checks
         findings.extend(_check_root_user(cursor, patterns))
         findings.extend(_check_exposed_secrets(cursor, patterns))
@@ -170,7 +162,9 @@ def _check_root_user(cursor, patterns: DockerfilePatterns) -> List[StandardFindi
     """
     findings = []
 
-    cursor.execute("SELECT file_path, env_vars FROM docker_images")
+    from theauditor.indexer.schema import build_query
+    query = build_query('docker_images', ['file_path', 'env_vars'])
+    cursor.execute(query)
 
     for row in cursor.fetchall():
         file_path = row[0]
@@ -217,7 +211,9 @@ def _check_exposed_secrets(cursor, patterns: DockerfilePatterns) -> List[Standar
     """
     findings = []
 
-    cursor.execute("SELECT file_path, env_vars, build_args FROM docker_images")
+    from theauditor.indexer.schema import build_query
+    query = build_query('docker_images', ['file_path', 'env_vars', 'build_args'])
+    cursor.execute(query)
 
     for row in cursor.fetchall():
         file_path = row[0]
@@ -331,7 +327,9 @@ def _check_vulnerable_images(cursor, patterns: DockerfilePatterns) -> List[Stand
     """
     findings = []
 
-    cursor.execute("SELECT DISTINCT file_path, base_image FROM docker_images WHERE base_image IS NOT NULL")
+    from theauditor.indexer.schema import build_query
+    query = build_query('docker_images', ['file_path', 'base_image'], where="base_image IS NOT NULL")
+    cursor.execute(query)
 
     for row in cursor.fetchall():
         file_path = row[0]
@@ -439,7 +437,9 @@ def _check_missing_healthcheck(cursor) -> List[StandardFinding]:
     """
     findings = []
 
-    cursor.execute("SELECT file_path FROM docker_images WHERE has_healthcheck = 0 OR has_healthcheck IS NULL")
+    from theauditor.indexer.schema import build_query
+    query = build_query('docker_images', ['file_path'], where="has_healthcheck = 0 OR has_healthcheck IS NULL")
+    cursor.execute(query)
 
     for row in cursor.fetchall():
         file_path = row[0]
@@ -483,7 +483,9 @@ def _check_sensitive_ports(cursor) -> List[StandardFinding]:
         '9200',  # Elasticsearch
     ])
 
-    cursor.execute("SELECT file_path, exposed_ports FROM docker_images WHERE exposed_ports IS NOT NULL AND exposed_ports != '[]'")
+    from theauditor.indexer.schema import build_query
+    query = build_query('docker_images', ['file_path', 'exposed_ports'], where="exposed_ports IS NOT NULL AND exposed_ports != '[]'")
+    cursor.execute(query)
 
     for row in cursor.fetchall():
         file_path = row[0]

@@ -6,7 +6,11 @@ indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 This analyzer uses function_call_args table since orm_queries is not
 populated by the standard indexer.
 
-Follows golden standard patterns from compose_analyze.py.
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
+- Proper confidence levels
 """
 
 import sqlite3
@@ -15,6 +19,7 @@ from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -126,7 +131,6 @@ class SequelizeAnalyzer:
         self.context = context
         self.patterns = SequelizePatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -141,13 +145,6 @@ class SequelizeAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables
-            self._check_table_availability()
-
-            # Must have function_call_args for any analysis
-            if 'function_call_args' not in self.existing_tables:
-                return []
-
             # Run all checks
             self._check_death_queries()
             self._check_n_plus_one_patterns()
@@ -163,17 +160,6 @@ class SequelizeAnalyzer:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'function_call_args', 'cfg_blocks', 'assignments',
-                'sql_queries', 'files', 'symbols'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
 
     def _check_death_queries(self):
         """Detect death queries with all:true and nested:true."""
@@ -256,9 +242,6 @@ class SequelizeAnalyzer:
         Returns:
             0 if no associations, 1 if maybe, 2 if definitely
         """
-        if 'function_call_args' not in self.existing_tables:
-            return 1  # Default to maybe
-
         # Check for association definitions
         self.cursor.execute("""
             SELECT COUNT(*) FROM function_call_args
@@ -345,19 +328,16 @@ class SequelizeAnalyzer:
         if self.cursor.fetchone()[0] > 0:
             return True
 
-        # Check in assignments if available
-        if 'assignments' in self.existing_tables:
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM assignments
-                WHERE file = ?
-                  AND ABS(line - ?) <= 30
-                  AND (target_var LIKE '%transaction%'
-                       OR source_expr LIKE '%transaction%')
-            """, (file, line))
+        # Check in assignments
+        self.cursor.execute("""
+            SELECT COUNT(*) FROM assignments
+            WHERE file = ?
+              AND ABS(line - ?) <= 30
+              AND (target_var LIKE '%transaction%'
+                   OR source_expr LIKE '%transaction%')
+        """, (file, line))
 
-            return self.cursor.fetchone()[0] > 0
-
-        return False
+        return self.cursor.fetchone()[0] > 0
 
     def _check_missing_transactions(self):
         """Check for multiple write operations without transactions."""
@@ -547,9 +527,6 @@ class SequelizeAnalyzer:
 
     def _check_raw_sql_bypass(self):
         """Check for raw SQL that bypasses ORM protections."""
-        if 'sql_queries' not in self.existing_tables:
-            return
-
         # Note: sql_queries uses different column names
         self.cursor.execute("""
             SELECT file_path, line_number, query_text, command
@@ -586,7 +563,7 @@ class SequelizeAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_sequelize_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Sequelize ORM anti-patterns and performance issues.
 
     Args:

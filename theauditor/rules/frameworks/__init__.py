@@ -10,11 +10,12 @@ Database-first framework-specific security rules for:
 
 Total: 62 security patterns across 6 frameworks.
 
-All rules follow the database-first architecture:
+All rules follow schema contract architecture (v1.1+):
 - NO file I/O operations
 - Pure SQL queries against repo_index.db
 - Frozenset patterns for O(1) lookups
-- Table existence checks for graceful degradation
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
 - Standardized contracts (StandardRuleContext -> List[StandardFinding])
 
 Orchestrator Discovery:
@@ -25,11 +26,11 @@ Orchestrator Discovery:
 
 # Import and rename for consistent `find_*` pattern required by orchestrator
 from .express_analyze import analyze as find_express_issues
-from .fastapi_analyze import find_fastapi_issues
+from .fastapi_analyze import analyze as find_fastapi_issues
 from .flask_analyze import analyze as find_flask_issues
-from .nextjs_analyze import find_nextjs_issues
+from .nextjs_analyze import analyze as find_nextjs_issues
 from .react_analyze import analyze as find_react_issues
-from .vue_analyze import find_vue_issues
+from .vue_analyze import analyze as find_vue_issues
 
 __all__ = [
     'find_express_issues',

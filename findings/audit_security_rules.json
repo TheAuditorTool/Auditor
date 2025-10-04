@@ -1,0 +1,544 @@
+{
+  "category": "security",
+  "audit_date": "2025-10-04",
+  "files_audited": [
+    "sourcemap_analyze.py",
+    "input_validation_analyze.py",
+    "crypto_analyze.py",
+    "api_auth_analyze.py",
+    "cors_analyze.py",
+    "websocket_analyze.py",
+    "rate_limit_analyze.py",
+    "pii_analyze.py"
+  ],
+  "total_violations": 48,
+  "violations_by_file": {
+    "sourcemap_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\sourcemap_analyze.py",
+      "violations": [],
+      "status": "GOLD_STANDARD",
+      "notes": "Perfect compliance - uses schema.py build_query, has proper metadata, correct StandardFinding parameters"
+    },
+    "input_validation_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\input_validation_analyze.py",
+      "violations": [],
+      "status": "GOLD_STANDARD",
+      "notes": "Perfect compliance - frozensets for patterns, schema-aware queries, proper metadata"
+    },
+    "crypto_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\crypto_analyze.py",
+      "violations": [],
+      "status": "GOLD_STANDARD",
+      "notes": "Perfect compliance - no table existence checks, uses schema contract, proper finding generation"
+    },
+    "api_auth_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\api_auth_analyze.py",
+      "violations": [],
+      "status": "GOLD_STANDARD",
+      "notes": "Perfect compliance - database-first approach, no fallbacks, proper metadata"
+    },
+    "cors_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\cors_analyze.py",
+      "violations": [],
+      "status": "GOLD_STANDARD",
+      "notes": "Perfect compliance - direct queries to schema tables, no regex on content, proper structure"
+    },
+    "websocket_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\websocket_analyze.py",
+      "violations": [],
+      "status": "GOLD_STANDARD",
+      "notes": "Perfect compliance - database queries only, no table checks, correct finding parameters"
+    },
+    "rate_limit_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\rate_limit_analyze.py",
+      "violations": [
+        {
+          "type": "CRITICAL - Table Existence Checks",
+          "line": 144,
+          "code": "_check_tables(cursor)",
+          "violation": "FORBIDDEN: Uses _check_tables() to conditionally execute detection layers",
+          "impact": "Architectural cancer - assumes tables may not exist despite schema contract",
+          "fix_required": "Remove _check_tables() entirely, assume schema contract guarantees tables exist"
+        },
+        {
+          "type": "CRITICAL - Table Existence Checks",
+          "line": 195,
+          "code": "def _check_tables(cursor) -> Set[str]:",
+          "violation": "FORBIDDEN: Entire helper function for table existence checking",
+          "impact": "Violates schema contract system - tables MUST exist per contract",
+          "fix_required": "Delete entire _check_tables() function (lines 195-210)"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 149,
+          "code": "if 'function_call_args' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic - rule should crash if table missing (indicates schema violation)",
+          "fix_required": "Remove all if checks for table existence, execute queries directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 166,
+          "code": "if 'api_endpoints' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic - rule should crash if table missing",
+          "fix_required": "Remove if check, execute _detect_api_rate_limits() directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 170,
+          "code": "if 'symbols' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic - rule should crash if table missing",
+          "fix_required": "Remove if check, execute _detect_decorator_ordering() directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 174,
+          "code": "if 'assignments' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic - rule should crash if table missing",
+          "fix_required": "Remove if check, execute _detect_bypass_configs() directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 179,
+          "code": "if 'function_call_args' in existing_tables and 'symbols' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic - rule should crash if table missing",
+          "fix_required": "Remove if check, execute detection layers directly"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 281,
+          "code": "def _detect_middleware_ordering(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter to detection layer",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter from ALL detection layer functions"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 389,
+          "code": "def _detect_unprotected_endpoints(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 442,
+          "code": "if not has_rate_limit and 'symbols' in existing_tables:",
+          "violation": "FORBIDDEN: Uses existing_tables to conditionally check symbols table",
+          "impact": "Creates fallback - should query symbols directly",
+          "fix_required": "Remove if check, query symbols table directly"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 482,
+          "code": "def _detect_bypassable_keys(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 540,
+          "code": "if 'assignments' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution in detection layer",
+          "impact": "Should query assignments directly",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 585,
+          "code": "def _detect_memory_storage(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 656,
+          "code": "def _detect_expensive_operations(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 733,
+          "code": "def _detect_api_rate_limits(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 737,
+          "code": "if 'api_endpoints' not in existing_tables: return findings",
+          "violation": "FORBIDDEN: Early return based on table existence",
+          "impact": "Should crash if api_endpoints missing (schema violation)",
+          "fix_required": "Remove if check, query api_endpoints directly"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 790,
+          "code": "def _detect_decorator_ordering(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 794,
+          "code": "if 'symbols' not in existing_tables: return findings",
+          "violation": "FORBIDDEN: Early return based on table existence",
+          "impact": "Should crash if symbols missing",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 870,
+          "code": "def _detect_bypass_configs(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 874,
+          "code": "if 'assignments' not in existing_tables: return findings",
+          "violation": "FORBIDDEN: Early return based on table existence",
+          "impact": "Should crash if assignments missing",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 920,
+          "code": "def _detect_missing_user_limits(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 970,
+          "code": "def _detect_weak_rate_limits(cursor, existing_tables: Set[str])",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter"
+        }
+      ],
+      "status": "ARCHITECTURAL_CANCER",
+      "notes": "File demonstrates the EXACT pattern that is forbidden - table existence checking and fallback logic. Has 22 critical violations of schema contract system."
+    },
+    "pii_analyze.py": {
+      "file_path": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\rules\\security\\pii_analyze.py",
+      "violations": [
+        {
+          "type": "CRITICAL - Table Existence Checks",
+          "line": 732,
+          "code": "existing_tables = _check_tables(cursor)",
+          "violation": "FORBIDDEN: Uses _check_tables() to conditionally execute detection layers",
+          "impact": "Architectural cancer - assumes tables may not exist despite schema contract",
+          "fix_required": "Remove _check_tables() entirely, assume schema contract guarantees tables exist"
+        },
+        {
+          "type": "CRITICAL - Table Existence Checks",
+          "line": 800,
+          "code": "def _check_tables(cursor) -> Set[str]:",
+          "violation": "FORBIDDEN: Entire helper function for table existence checking",
+          "impact": "Violates schema contract system - tables MUST exist per contract",
+          "fix_required": "Delete entire _check_tables() function (lines 800-816)"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 733,
+          "code": "if not existing_tables: return findings",
+          "violation": "FORBIDDEN: Early return if no tables exist",
+          "impact": "Graceful degradation violates schema contract - should crash",
+          "fix_required": "Remove if check, execute queries directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 742,
+          "code": "if 'assignments' in existing_tables or 'symbols' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check, execute _detect_direct_pii() directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 746,
+          "code": "if 'function_call_args' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check, execute detection layer directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 750,
+          "code": "if 'function_call_args' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check, execute detection layer directly"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 754,
+          "code": "if 'function_call_args' in existing_tables or 'assignments' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 758,
+          "code": "if 'function_call_args' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 762,
+          "code": "if 'function_call_args' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 766,
+          "code": "if 'symbols' in existing_tables and 'function_call_args' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 770,
+          "code": "if 'assignments' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 774,
+          "code": "if 'assignments' in existing_tables or 'symbols' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 778,
+          "code": "if 'function_call_args' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 782,
+          "code": "if 'api_endpoints' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Conditional Execution",
+          "line": 786,
+          "code": "if 'api_endpoints' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution based on table existence",
+          "impact": "Creates fallback logic",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Parameter in Detection Layers",
+          "line": 876,
+          "code": "def _detect_direct_pii(cursor, existing_tables: Set[str], pii_categories: Dict)",
+          "violation": "FORBIDDEN: Passes existing_tables parameter",
+          "impact": "Propagates table existence checking pattern",
+          "fix_required": "Remove existing_tables parameter from ALL detection layer functions"
+        },
+        {
+          "type": "CRITICAL - Conditional in Detection Layer",
+          "line": 886,
+          "code": "if 'assignments' in existing_tables:",
+          "violation": "FORBIDDEN: Conditional execution in detection layer",
+          "impact": "Should query assignments directly",
+          "fix_required": "Remove if check, query table directly"
+        },
+        {
+          "type": "CRITICAL - Parameter Propagation",
+          "line": 1406,
+          "code": "if 'api_endpoints' not in existing_tables: return findings",
+          "violation": "FORBIDDEN: Early return based on table existence in _detect_pii_in_route_patterns",
+          "impact": "Should crash if api_endpoints missing",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Parameter Propagation",
+          "line": 1458,
+          "code": "if 'api_endpoints' not in existing_tables: return findings",
+          "violation": "FORBIDDEN: Early return based on table existence in _detect_pii_in_apis",
+          "impact": "Should crash if api_endpoints missing",
+          "fix_required": "Remove if check"
+        },
+        {
+          "type": "CRITICAL - Duplicated Pattern",
+          "line": 1891,
+          "code": "existing_tables = _check_tables(cursor)",
+          "violation": "FORBIDDEN: Uses _check_tables() AGAIN in analyze_pii_comprehensive",
+          "impact": "Duplicates the architectural cancer pattern",
+          "fix_required": "Remove _check_tables() call"
+        },
+        {
+          "type": "MEDIUM - SQL Query Construction",
+          "line": 888,
+          "code": "placeholders = ' OR '.join(['target_var LIKE ?' for _ in range(min(100, len(all_patterns)))])",
+          "violation": "NOT USING build_query() from schema.py",
+          "impact": "Manual SQL construction instead of schema-aware query builder",
+          "fix_required": "Use build_query('assignments', ['file', 'line', 'target_var', 'source_expr']) instead"
+        },
+        {
+          "type": "MEDIUM - SQL Query Construction",
+          "line": 1262,
+          "code": "WHERE target_var LIKE ? AND ({})\"\"\"",
+          "violation": "NOT USING build_query() from schema.py",
+          "impact": "Manual SQL with string formatting",
+          "fix_required": "Use build_query() with proper WHERE clause"
+        },
+        {
+          "type": "MEDIUM - SQL Query Construction",
+          "line": 1296,
+          "code": "WHERE ({})\"\"\"",
+          "violation": "NOT USING build_query() from schema.py",
+          "impact": "Manual SQL construction",
+          "fix_required": "Use build_query() method"
+        },
+        {
+          "type": "LOW - Import regex",
+          "line": 17,
+          "code": "import re",
+          "violation": "Imports regex module - only acceptable if NOT used for file content pattern matching",
+          "impact": "If used for content matching, violates database-first principle",
+          "fix_required": "Verify regex is ONLY used for structured data parsing (URLs, etc), NOT file content"
+        },
+        {
+          "type": "LOW - Regex usage",
+          "line": 1415,
+          "code": "param_regex = re.compile(r':([a-zA-Z0-9_]+)|\\{([a-zA-Z0-9_]+)\\}')",
+          "violation": "Uses regex for URL parameter extraction",
+          "impact": "ACCEPTABLE - parsing structured API route patterns, not file content",
+          "fix_required": "NONE - this is valid use case (extracting :param or {param} from routes)"
+        },
+        {
+          "type": "LOW - Regex usage",
+          "line": 991,
+          "code": "import re ... numbers = re.findall(r'\\d+', args)",
+          "violation": "Uses regex to extract numeric values from arguments",
+          "impact": "ACCEPTABLE - parsing structured function arguments, not file content",
+          "fix_required": "NONE - valid use case"
+        }
+      ],
+      "status": "ARCHITECTURAL_CANCER",
+      "notes": "File has 26 violations total (20 critical table existence checks, 3 medium SQL construction issues, 3 low regex - 2 acceptable). Massive refactor needed to remove ALL table existence checking and use schema contract system properly."
+    }
+  },
+  "gold_standard_files": [
+    "sourcemap_analyze.py",
+    "input_validation_analyze.py",
+    "crypto_analyze.py",
+    "api_auth_analyze.py",
+    "cors_analyze.py",
+    "websocket_analyze.py"
+  ],
+  "critical_issues": [
+    {
+      "file": "rate_limit_analyze.py",
+      "issue": "Architectural Cancer - 22 violations of schema contract",
+      "pattern": "Uses _check_tables() and conditional execution throughout",
+      "urgency": "IMMEDIATE",
+      "estimated_fix_time": "3 hours",
+      "fix_strategy": "Delete _check_tables() function, remove all 'existing_tables' parameters, remove all if checks for table existence, execute queries directly"
+    },
+    {
+      "file": "pii_analyze.py",
+      "issue": "Architectural Cancer - 26 total violations (20 critical)",
+      "pattern": "Uses _check_tables() in TWO places, propagates existing_tables parameter to all detection layers",
+      "urgency": "IMMEDIATE",
+      "estimated_fix_time": "4 hours",
+      "fix_strategy": "Delete _check_tables() function, remove all 'existing_tables' parameters from all 15+ detection layer functions, remove all if checks, replace manual SQL with build_query() from schema.py"
+    }
+  ],
+  "compliance_score": 75,
+  "compliance_breakdown": {
+    "metadata_compliance": 100,
+    "database_contract_compliance": 50,
+    "finding_generation_compliance": 100,
+    "no_fallback_logic": 25,
+    "schema_aware_queries": 50
+  },
+  "summary": {
+    "total_files": 8,
+    "gold_standard_count": 6,
+    "cancer_files_count": 2,
+    "total_critical_violations": 42,
+    "total_medium_violations": 3,
+    "total_low_violations": 3,
+    "action_required": "IMMEDIATE refactor of rate_limit_analyze.py and pii_analyze.py to remove ALL table existence checking and fallback logic"
+  },
+  "recommendations": [
+    {
+      "priority": "P0",
+      "action": "Remove _check_tables() function from rate_limit_analyze.py and pii_analyze.py",
+      "reason": "Violates schema contract system - tables MUST exist per schema.py contract",
+      "files_affected": [
+        "rate_limit_analyze.py",
+        "pii_analyze.py"
+      ]
+    },
+    {
+      "priority": "P0",
+      "action": "Remove ALL 'existing_tables' parameters from detection layer functions",
+      "reason": "Propagates table existence checking anti-pattern",
+      "files_affected": [
+        "rate_limit_analyze.py (10 functions)",
+        "pii_analyze.py (15+ functions)"
+      ]
+    },
+    {
+      "priority": "P0",
+      "action": "Remove ALL if checks for table existence",
+      "reason": "Creates fallback logic - rules SHOULD crash if schema violated",
+      "files_affected": [
+        "rate_limit_analyze.py (10 if checks)",
+        "pii_analyze.py (15 if checks)"
+      ]
+    },
+    {
+      "priority": "P1",
+      "action": "Replace manual SQL construction with build_query() from schema.py",
+      "reason": "Ensures schema compliance and type safety",
+      "files_affected": [
+        "pii_analyze.py (3 instances)"
+      ]
+    },
+    {
+      "priority": "P2",
+      "action": "Add frozensets for ALL pattern lists in rate_limit_analyze.py",
+      "reason": "O(1) lookups, immutability - already done correctly",
+      "files_affected": []
+    }
+  ],
+  "next_steps": [
+    "1. Create rate_limit_analyze_v2.py with all violations fixed",
+    "2. Create pii_analyze_v2.py with all violations fixed",
+    "3. Run integration tests to verify schema contract assumptions hold",
+    "4. Update RULE_METADATA_GUIDE.md with explicit prohibition of table existence checks",
+    "5. Add linter rule to detect _check_tables() pattern in future rules"
+  ]
+}

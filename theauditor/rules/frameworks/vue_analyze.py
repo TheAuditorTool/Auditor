@@ -3,11 +3,11 @@
 Analyzes Vue.js applications for security vulnerabilities using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
-- Focus on Vue-specific security issues only
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
+- Proper confidence levels
 """
 
 import sqlite3
@@ -15,6 +15,7 @@ from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -78,7 +79,7 @@ DOM_MANIPULATION = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Vue.js security vulnerabilities using indexed data.
 
     Detects (from database):
@@ -112,32 +113,15 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist
+        # Verify this is a Vue project - trust schema contract
         cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'refs', 'function_call_args', 'assignments',
-                'files', 'symbols'
-            )
+            SELECT DISTINCT file FROM refs
+            WHERE value IN ('vue', 'Vue', '@vue/composition-api', 'vuex', 'vue-router')
+            LIMIT 1
         """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
+        is_vue = cursor.fetchone() is not None
 
-        # Minimum required tables for any analysis
-        if 'assignments' not in existing_tables and 'function_call_args' not in existing_tables:
-            return findings  # Can't analyze without basic data
-
-        # Verify this is a Vue project
-        is_vue = False
-
-        if 'refs' in existing_tables:
-            cursor.execute("""
-                SELECT DISTINCT file FROM refs
-                WHERE value IN ('vue', 'Vue', '@vue/composition-api', 'vuex', 'vue-router')
-                LIMIT 1
-            """)
-            is_vue = cursor.fetchone() is not None
-
-        if not is_vue and 'files' in existing_tables:
+        if not is_vue:
             # Check for .vue files as fallback
             cursor.execute("""
                 SELECT path FROM files
@@ -146,7 +130,7 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
             """)
             is_vue = cursor.fetchone() is not None
 
-        if not is_vue and 'symbols' in existing_tables:
+        if not is_vue:
             # Check for Vue component markers
             vue_markers_list = list(VUE_COMPONENT_MARKERS)
             placeholders = ','.join('?' * len(vue_markers_list))
@@ -163,131 +147,202 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 1: v-html and innerHTML Directives (XSS Risk)
         # ========================================================
-        if 'assignments' in existing_tables:
-            # Check for v-html and similar XSS-prone patterns
-            xss_patterns = ['%v-html%', '%:innerHTML%', '%v-bind:innerHTML%',
-                           '%:outerHTML%', '%v-bind:outerHTML%']
-            conditions = ' OR '.join(['source_expr LIKE ?' for _ in xss_patterns])
+        # Check for v-html and similar XSS-prone patterns
+        xss_patterns = ['%v-html%', '%:innerHTML%', '%v-bind:innerHTML%',
+                       '%:outerHTML%', '%v-bind:outerHTML%']
+        conditions = ' OR '.join(['source_expr LIKE ?' for _ in xss_patterns])
 
-            cursor.execute(f"""
-                SELECT file, line, source_expr
-                FROM assignments
-                WHERE {conditions}
-                ORDER BY file, line
-            """, xss_patterns)
+        cursor.execute(f"""
+            SELECT file, line, source_expr
+            FROM assignments
+            WHERE {conditions}
+            ORDER BY file, line
+        """, xss_patterns)
 
-            for file, line, html_content in cursor.fetchall():
-                findings.append(StandardFinding(
-                    rule_name='vue-v-html-xss',
-                    message='Use of v-html or innerHTML binding - primary XSS vector in Vue',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='xss',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-79'
-                ))
+        for file, line, html_content in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='vue-v-html-xss',
+                message='Use of v-html or innerHTML binding - primary XSS vector in Vue',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='xss',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-79'
+            ))
 
         # ========================================================
         # CHECK 2: eval() in Vue Components
         # ========================================================
-        if 'function_call_args' in existing_tables:
-            # Check for eval in files that are Vue components
+        # Check for eval in files that are Vue components
+        cursor.execute("""
+            SELECT DISTINCT f.file, f.line, f.argument_expr
+            FROM function_call_args f
+            WHERE f.callee_function = 'eval'
+            ORDER BY f.file, f.line
+        """)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        eval_usages = cursor.fetchall()
+
+        for file, line, eval_content in eval_usages:
+            # Check if this file is a Vue component
             cursor.execute("""
-                SELECT DISTINCT f.file, f.line, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function = 'eval'
-                ORDER BY f.file, f.line
-            """)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            eval_usages = cursor.fetchall()
+                SELECT 1 FROM refs
+                WHERE src = ? AND value IN ('vue', 'Vue')
+                LIMIT 1
+            """, (file,))
+            is_vue_file = cursor.fetchone() is not None
 
-            for file, line, eval_content in eval_usages:
-                # Check if this file is a Vue component
-                is_vue_file = False
+            if not is_vue_file and file.endswith('.vue'):
+                is_vue_file = True
 
-                if 'refs' in existing_tables:
-                    cursor.execute("""
-                        SELECT 1 FROM refs
-                        WHERE src = ? AND value IN ('vue', 'Vue')
-                        LIMIT 1
-                    """, (file,))
-                    is_vue_file = cursor.fetchone() is not None
+            if not is_vue_file:
+                # Check for Vue lifecycle hooks
+                cursor.execute("""
+                    SELECT 1 FROM symbols
+                    WHERE path = ?
+                      AND name IN ('mounted', 'created', 'methods', 'computed')
+                    LIMIT 1
+                """, (file,))
+                is_vue_file = cursor.fetchone() is not None
 
-                if not is_vue_file and file.endswith('.vue'):
-                    is_vue_file = True
-
-                if not is_vue_file and 'symbols' in existing_tables:
-                    # Check for Vue lifecycle hooks
-                    cursor.execute("""
-                        SELECT 1 FROM symbols
-                        WHERE path = ?
-                          AND name IN ('mounted', 'created', 'methods', 'computed')
-                        LIMIT 1
-                    """, (file,))
-                    is_vue_file = cursor.fetchone() is not None
-
-                if is_vue_file:
-                    findings.append(StandardFinding(
-                        rule_name='vue-eval-injection',
-                        message='Using eval() in Vue component - code injection risk',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category='injection',
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-95'
-                    ))
+            if is_vue_file:
+                findings.append(StandardFinding(
+                    rule_name='vue-eval-injection',
+                    message='Using eval() in Vue component - code injection risk',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='injection',
+                    confidence=Confidence.HIGH,
+                    cwe_id='CWE-95'
+                ))
 
         # ========================================================
         # CHECK 3: Exposed API Keys in Frontend
         # ========================================================
-        if 'assignments' in existing_tables:
-            # Build query for Vue environment variables with sensitive patterns
-            env_prefixes = list(VUE_ENV_PREFIXES)
-            sensitive = list(SENSITIVE_PATTERNS)
+        # Build query for Vue environment variables with sensitive patterns
+        env_prefixes = list(VUE_ENV_PREFIXES)
+        sensitive = list(SENSITIVE_PATTERNS)
 
-            # Create conditions for env prefixes and sensitive patterns
-            prefix_conditions = ' OR '.join([f"target_var LIKE '{prefix}%'" for prefix in env_prefixes])
-            sensitive_conditions = ' OR '.join([f"target_var LIKE '%{pattern}%'" for pattern in sensitive])
+        # Create conditions for env prefixes and sensitive patterns
+        prefix_conditions = ' OR '.join([f"target_var LIKE '{prefix}%'" for prefix in env_prefixes])
+        sensitive_conditions = ' OR '.join([f"target_var LIKE '%{pattern}%'" for pattern in sensitive])
 
-            cursor.execute(f"""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE ({prefix_conditions})
-                  AND ({sensitive_conditions})
-                  AND source_expr NOT LIKE '%process.env%'
-                  AND source_expr NOT LIKE '%import.meta.env%'
-                ORDER BY file, line
-            """)
+        cursor.execute(f"""
+            SELECT file, line, target_var, source_expr
+            FROM assignments
+            WHERE ({prefix_conditions})
+              AND ({sensitive_conditions})
+              AND source_expr NOT LIKE '%process.env%'
+              AND source_expr NOT LIKE '%import.meta.env%'
+            ORDER BY file, line
+        """)
 
-            for file, line, var_name, value in cursor.fetchall():
-                findings.append(StandardFinding(
-                    rule_name='vue-exposed-api-key',
-                    message=f'API key/secret {var_name} hardcoded in Vue component',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='security',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-200'
-                ))
+        for file, line, var_name, value in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='vue-exposed-api-key',
+                message=f'API key/secret {var_name} hardcoded in Vue component',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='security',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-200'
+            ))
 
         # ========================================================
         # CHECK 4: Triple Mustache Unescaped Interpolation
         # ========================================================
-        if 'assignments' in existing_tables:
-            cursor.execute("""
-                SELECT file, line, source_expr
-                FROM assignments
-                WHERE source_expr LIKE '%{{{%}}}%'
-                ORDER BY file, line
-            """)
+        cursor.execute("""
+            SELECT file, line, source_expr
+            FROM assignments
+            WHERE source_expr LIKE '%{{{%}}}%'
+            ORDER BY file, line
+        """)
 
-            for file, line, interpolation in cursor.fetchall():
+        for file, line, interpolation in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='vue-unescaped-interpolation',
+                message='Triple mustache {{{ }}} unescaped interpolation - XSS risk',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='xss',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-79'
+            ))
+
+        # ========================================================
+        # CHECK 5: Dynamic Component Injection
+        # ========================================================
+        # Look for <component :is="userInput"> patterns
+        user_input_sources = ['$route', 'params', 'query', 'user', 'input', 'data']
+        conditions = ' OR '.join([f"source_expr LIKE '%{src}%'" for src in user_input_sources])
+
+        cursor.execute(f"""
+            SELECT file, line, source_expr
+            FROM assignments
+            WHERE source_expr LIKE '%<component%:is%'
+              AND ({conditions})
+            ORDER BY file, line
+        """)
+
+        for file, line, component_code in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='vue-dynamic-component-injection',
+                message='Dynamic component with user-controlled input - component injection risk',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='injection',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-470'
+            ))
+
+        # ========================================================
+        # CHECK 6: Unsafe target="_blank" Links
+        # ========================================================
+        cursor.execute("""
+            SELECT file, line, source_expr
+            FROM assignments
+            WHERE (source_expr LIKE '%target="_blank"%'
+                   OR source_expr LIKE "%target='_blank'%")
+              AND source_expr NOT LIKE '%noopener%'
+              AND source_expr NOT LIKE '%noreferrer%'
+            ORDER BY file, line
+        """)
+
+        for file, line, link_code in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='vue-unsafe-target-blank',
+                message='External link without rel="noopener" - reverse tabnabbing vulnerability',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='security',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-1022'
+            ))
+
+        # ========================================================
+        # CHECK 7: Direct DOM Manipulation via $refs
+        # ========================================================
+        # Check for $refs with innerHTML manipulation
+        cursor.execute("""
+            SELECT f.file, f.line, f.callee_function, f.argument_expr
+            FROM function_call_args f
+            WHERE (f.callee_function LIKE '%$refs%'
+                   OR f.callee_function LIKE '%this.$refs%')
+            ORDER BY f.file, f.line
+        """)
+
+        for file, line, func, args in cursor.fetchall():
+            # Check if using innerHTML or other dangerous properties
+            if args and any(danger in args for danger in ['innerHTML', 'outerHTML']):
                 findings.append(StandardFinding(
-                    rule_name='vue-unescaped-interpolation',
-                    message='Triple mustache {{{ }}} unescaped interpolation - XSS risk',
+                    rule_name='vue-direct-dom-manipulation',
+                    message='Direct DOM manipulation via $refs bypassing Vue security',
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -296,165 +351,82 @@ def find_vue_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     cwe_id='CWE-79'
                 ))
 
-        # ========================================================
-        # CHECK 5: Dynamic Component Injection
-        # ========================================================
-        if 'assignments' in existing_tables:
-            # Look for <component :is="userInput"> patterns
-            user_input_sources = ['$route', 'params', 'query', 'user', 'input', 'data']
-            conditions = ' OR '.join([f"source_expr LIKE '%{src}%'" for src in user_input_sources])
+            # Also check for document.* DOM methods in Vue files
+        dom_methods = list(DOM_MANIPULATION)
+        placeholders = ','.join('?' * len(dom_methods))
 
-            cursor.execute(f"""
-                SELECT file, line, source_expr
-                FROM assignments
-                WHERE source_expr LIKE '%<component%:is%'
-                  AND ({conditions})
-                ORDER BY file, line
-            """)
+        cursor.execute(f"""
+            SELECT DISTINCT f.file, f.line, f.callee_function
+            FROM function_call_args f
+            WHERE f.callee_function IN ({placeholders})
+            ORDER BY f.file, f.line
+        """, dom_methods)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        dom_manipulations = cursor.fetchall()
 
-            for file, line, component_code in cursor.fetchall():
-                findings.append(StandardFinding(
-                    rule_name='vue-dynamic-component-injection',
-                    message='Dynamic component with user-controlled input - component injection risk',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-470'
-                ))
-
-        # ========================================================
-        # CHECK 6: Unsafe target="_blank" Links
-        # ========================================================
-        if 'assignments' in existing_tables:
+        for file, line, dom_method in dom_manipulations:
+            # Check if this is a Vue file
             cursor.execute("""
-                SELECT file, line, source_expr
-                FROM assignments
-                WHERE (source_expr LIKE '%target="_blank"%'
-                       OR source_expr LIKE "%target='_blank'%")
-                  AND source_expr NOT LIKE '%noopener%'
-                  AND source_expr NOT LIKE '%noreferrer%'
-                ORDER BY file, line
-            """)
+                SELECT 1 FROM symbols
+                WHERE path = ?
+                  AND name IN ('mounted', 'created', 'methods', 'computed')
+                LIMIT 1
+            """, (file,))
 
-            for file, line, link_code in cursor.fetchall():
+            if cursor.fetchone() or file.endswith('.vue'):
                 findings.append(StandardFinding(
-                    rule_name='vue-unsafe-target-blank',
-                    message='External link without rel="noopener" - reverse tabnabbing vulnerability',
+                    rule_name='vue-anti-pattern-dom',
+                    message=f'Direct DOM access with {dom_method} - anti-pattern in Vue',
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
-                    category='security',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-1022'
+                    category='best-practice',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-1061'
                 ))
-
-        # ========================================================
-        # CHECK 7: Direct DOM Manipulation via $refs
-        # ========================================================
-        if 'function_call_args' in existing_tables:
-            # Check for $refs with innerHTML manipulation
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
-                WHERE (f.callee_function LIKE '%$refs%'
-                       OR f.callee_function LIKE '%this.$refs%')
-                ORDER BY f.file, f.line
-            """)
-
-            for file, line, func, args in cursor.fetchall():
-                # Check if using innerHTML or other dangerous properties
-                if args and any(danger in args for danger in ['innerHTML', 'outerHTML']):
-                    findings.append(StandardFinding(
-                        rule_name='vue-direct-dom-manipulation',
-                        message='Direct DOM manipulation via $refs bypassing Vue security',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='xss',
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-79'
-                    ))
-
-            # Also check for document.* DOM methods in Vue files
-            if 'symbols' in existing_tables:
-                dom_methods = list(DOM_MANIPULATION)
-                placeholders = ','.join('?' * len(dom_methods))
-
-                cursor.execute(f"""
-                    SELECT DISTINCT f.file, f.line, f.callee_function
-                    FROM function_call_args f
-                    WHERE f.callee_function IN ({placeholders})
-                    ORDER BY f.file, f.line
-                """, dom_methods)
-                # ✅ FIX: Store results before loop to avoid cursor state bug
-                dom_manipulations = cursor.fetchall()
-
-                for file, line, dom_method in dom_manipulations:
-                    # Check if this is a Vue file
-                    cursor.execute("""
-                        SELECT 1 FROM symbols
-                        WHERE path = ?
-                          AND name IN ('mounted', 'created', 'methods', 'computed')
-                        LIMIT 1
-                    """, (file,))
-
-                    if cursor.fetchone() or file.endswith('.vue'):
-                        findings.append(StandardFinding(
-                            rule_name='vue-anti-pattern-dom',
-                            message=f'Direct DOM access with {dom_method} - anti-pattern in Vue',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.MEDIUM,
-                            category='best-practice',
-                            confidence=Confidence.MEDIUM,
-                            cwe_id='CWE-1061'
-                        ))
 
         # ========================================================
         # CHECK 8: localStorage/sessionStorage for Sensitive Data
         # ========================================================
-        if 'function_call_args' in existing_tables:
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function IN (
-                    'localStorage.setItem', 'sessionStorage.setItem'
-                )
-                  AND (f.argument_expr LIKE '%token%'
-                       OR f.argument_expr LIKE '%password%'
-                       OR f.argument_expr LIKE '%secret%'
-                       OR f.argument_expr LIKE '%jwt%'
-                       OR f.argument_expr LIKE '%key%')
-                ORDER BY f.file, f.line
-            """)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            storage_operations = cursor.fetchall()
+        cursor.execute("""
+            SELECT f.file, f.line, f.callee_function, f.argument_expr
+            FROM function_call_args f
+            WHERE f.callee_function IN (
+                'localStorage.setItem', 'sessionStorage.setItem'
+            )
+              AND (f.argument_expr LIKE '%token%'
+                   OR f.argument_expr LIKE '%password%'
+                   OR f.argument_expr LIKE '%secret%'
+                   OR f.argument_expr LIKE '%jwt%'
+                   OR f.argument_expr LIKE '%key%')
+            ORDER BY f.file, f.line
+        """)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        storage_operations = cursor.fetchall()
 
-            for file, line, storage_method, data in storage_operations:
-                # Check if Vue file
-                is_vue_file = file.endswith('.vue')
-                if not is_vue_file and 'refs' in existing_tables:
-                    cursor.execute("""
-                        SELECT 1 FROM refs
-                        WHERE src = ? AND value IN ('vue', 'Vue')
-                        LIMIT 1
-                    """, (file,))
-                    is_vue_file = cursor.fetchone() is not None
+        for file, line, storage_method, data in storage_operations:
+            # Check if Vue file
+            is_vue_file = file.endswith('.vue')
+            if not is_vue_file:
+                cursor.execute("""
+                    SELECT 1 FROM refs
+                    WHERE src = ? AND value IN ('vue', 'Vue')
+                    LIMIT 1
+                """, (file,))
+                is_vue_file = cursor.fetchone() is not None
 
-                if is_vue_file:
-                    storage_type = 'localStorage' if 'localStorage' in storage_method else 'sessionStorage'
-                    findings.append(StandardFinding(
-                        rule_name='vue-insecure-storage',
-                        message=f'Sensitive data in {storage_type} - accessible to XSS attacks',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='security',
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-922'
-                    ))
+            if is_vue_file:
+                storage_type = 'localStorage' if 'localStorage' in storage_method else 'sessionStorage'
+                findings.append(StandardFinding(
+                    rule_name='vue-insecure-storage',
+                    message=f'Sensitive data in {storage_type} - accessible to XSS attacks',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='security',
+                    confidence=Confidence.HIGH,
+                    cwe_id='CWE-922'
+                ))
 
     finally:
         conn.close()

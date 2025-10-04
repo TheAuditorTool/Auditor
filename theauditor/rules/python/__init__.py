@@ -10,10 +10,10 @@ This module contains rules for detecting Python-specific issues:
 - Deserialization vulnerabilities (pickle, YAML, marshal, etc.)
 """
 
-from .async_concurrency_analyze import find_async_concurrency_issues
-from .python_crypto_analyze import find_crypto_issues
-from .python_injection_analyze import find_injection_issues
-from .python_deserialization_analyze import find_deserialization_issues
+from .async_concurrency_analyze import analyze as find_async_concurrency_issues
+from .python_crypto_analyze import analyze as find_crypto_issues
+from .python_injection_analyze import analyze as find_injection_issues
+from .python_deserialization_analyze import analyze as find_deserialization_issues
 
 __all__ = [
     'find_async_concurrency_issues',

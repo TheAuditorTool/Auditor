@@ -17,6 +17,7 @@ import sqlite3
 import json
 from typing import List
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 from .config import SUSPICIOUS_VERSIONS
 
 
@@ -47,16 +48,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        if 'package_configs' not in available_tables:
-            return findings
-
-        cursor.execute("""
-            SELECT file_path, dependencies, dev_dependencies
-            FROM package_configs
-        """)
+        query = build_query('package_configs', ['file_path', 'dependencies', 'dev_dependencies'])
+        cursor.execute(query)
 
         for file_path, deps, dev_deps in cursor.fetchall():
             # Check production dependencies

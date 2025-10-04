@@ -20,7 +20,8 @@ Database Tables Used:
 
 import sqlite3
 from typing import List, Dict, Set
-from theauditor.rules.base import StandardRuleContext, StandardFinding, RuleMetadata
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 METADATA = RuleMetadata(
@@ -41,14 +42,14 @@ LARGE_PACKAGES = frozenset([
 
 # Package metadata: (recommended_alternative, typical_size_mb, severity)
 PACKAGE_METADATA = {
-    'lodash': ('lodash/[function]', 1.4, 'MEDIUM'),
-    'moment': ('date-fns or dayjs', 0.7, 'MEDIUM'),
-    'antd': ('antd/es/[component]', 2.0, 'MEDIUM'),
-    'element-plus': ('element-plus/es/[component]', 2.5, 'MEDIUM'),
-    'element-ui': ('element-ui/lib/[component]', 2.0, 'MEDIUM'),
-    '@mui/material': ('@mui/material/[Component]', 1.5, 'LOW'),  # Tree-shakes well in modern bundlers
-    'rxjs': ('rxjs/operators', 0.5, 'LOW'),
-    'recharts': ('recharts/[Chart]', 0.8, 'LOW'),
+    'lodash': ('lodash/[function]', 1.4, Severity.MEDIUM),
+    'moment': ('date-fns or dayjs', 0.7, Severity.MEDIUM),
+    'antd': ('antd/es/[component]', 2.0, Severity.MEDIUM),
+    'element-plus': ('element-plus/es/[component]', 2.5, Severity.MEDIUM),
+    'element-ui': ('element-ui/lib/[component]', 2.0, Severity.MEDIUM),
+    '@mui/material': ('@mui/material/[Component]', 1.5, Severity.LOW),  # Tree-shakes well in modern bundlers
+    'rxjs': ('rxjs/operators', 0.5, Severity.LOW),
+    'recharts': ('recharts/[Chart]', 0.8, Severity.LOW),
 }
 
 # Import styles that indicate full-package imports
@@ -77,19 +78,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
 
-        # Check if required tables exist (graceful degradation)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        if 'import_styles' not in available_tables or 'package_configs' not in available_tables:
-            conn.close()
-            return findings
-
         # Check if this is a frontend project by looking for framework dependencies
-        cursor.execute("""
-            SELECT package_name FROM package_configs
-            WHERE package_name IN ('react', 'vue', '@vue/cli', 'next', 'nuxt', '@angular/core', 'svelte')
-        """)
+        query = build_query('package_configs', ['package_name'],
+                           where="package_name IN ('react', 'vue', '@vue/cli', 'next', 'nuxt', '@angular/core', 'svelte')")
+        cursor.execute(query)
 
         if not cursor.fetchall():
             # Not a frontend project - skip this rule
@@ -97,12 +89,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             return findings
 
         # Query all imports from frontend files
-        cursor.execute("""
-            SELECT DISTINCT file, line, package, import_style
-            FROM import_styles
-            WHERE package IN ({})
-        """.format(','.join(['?' for _ in LARGE_PACKAGES])),
-        list(LARGE_PACKAGES))
+        placeholders = ','.join(['?' for _ in LARGE_PACKAGES])
+        query = build_query('import_styles', ['file', 'line', 'package', 'import_style'],
+                           where=f"package IN ({placeholders})")
+        cursor.execute(query, list(LARGE_PACKAGES))
 
         seen_issues: Set[str] = set()  # Deduplicate findings
 
@@ -112,7 +102,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                 continue
 
             # Get package metadata
-            alternative, size_mb, severity = PACKAGE_METADATA.get(package, ('', 0, 'LOW'))
+            alternative, size_mb, severity = PACKAGE_METADATA.get(package, ('', 0, Severity.LOW))
 
             # Create deduplication key
             issue_key = f"{file_path}:{package}"

@@ -3,8 +3,8 @@
 Detects security misconfigurations in Docker Compose services.
 Uses pre-extracted data from compose_services table - NO FILE I/O.
 
-This rule requires the compose_services table populated by the indexer
-with Docker Compose configuration data (17 fields - Phase 3C enhanced).
+Tables Used (guaranteed by schema contract):
+- compose_services: Docker Compose service configurations (17 fields - Phase 3C enhanced)
 
 Detects 11 security issues:
 - Privileged containers
@@ -20,7 +20,7 @@ Detects 11 security issues:
 - Command injection risk (Phase 3C)
 - Missing cap_drop (Phase 3C)
 
-Migration Status: Gold Standard - Database-First Architecture
+Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
 import json
@@ -214,25 +214,16 @@ def find_compose_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if compose_services table exists
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='compose_services'
-        """)
-
-        if not cursor.fetchone():
-            # Table doesn't exist - indexer hasn't extracted compose data yet
-            return findings
-
         # Load all compose services (ALL 17 fields - Phase 3C enhancement)
-        cursor.execute("""
-            SELECT file_path, service_name, image, ports, volumes,
-                   environment, is_privileged, network_mode,
-                   user, cap_add, cap_drop, security_opt, restart,
-                   command, entrypoint, depends_on, healthcheck
-            FROM compose_services
-            ORDER BY file_path, service_name
-        """)
+        from theauditor.indexer.schema import build_query
+
+        query = build_query('compose_services', [
+            'file_path', 'service_name', 'image', 'ports', 'volumes',
+            'environment', 'is_privileged', 'network_mode',
+            'user', 'cap_add', 'cap_drop', 'security_opt', 'restart',
+            'command', 'entrypoint', 'depends_on', 'healthcheck'
+        ])
+        cursor.execute(query + " ORDER BY file_path, service_name")
 
         for row in cursor.fetchall():
             service_findings = analyze_service(row)

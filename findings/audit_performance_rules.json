@@ -1,0 +1,245 @@
+{
+  "category": "performance",
+  "audit_date": "2025-10-04",
+  "files_audited": [
+    "perf_analyze.py"
+  ],
+  "total_files": 1,
+  "total_violations": 8,
+  "violations_by_file": {
+    "perf_analyze.py": {
+      "total_violations": 8,
+      "critical_issues": 1,
+      "high_priority_issues": 3,
+      "medium_priority_issues": 4,
+      "violations": [
+        {
+          "check": "Check 2: Database Contracts",
+          "severity": "CRITICAL",
+          "line": 173,
+          "violation_type": "TABLE_EXISTENCE_CHECK_FORBIDDEN",
+          "message": "ABSOLUTE PROHIBITION VIOLATED: Table existence check via sqlite_master query",
+          "evidence": "cursor.execute(\"\"\"SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cfg_blocks', 'function_call_args', 'assignments', 'symbols', 'api_endpoints', 'sql_queries', 'files')\"\"\")",
+          "required_fix": "REMOVE lines 173-192. Schema contract system guarantees table existence. Rules MUST assume all contracted tables exist. Rule should crash if table missing (indicates schema contract violation).",
+          "architectural_cancer": true
+        },
+        {
+          "check": "Check 2: Database Contracts",
+          "severity": "HIGH",
+          "line": 183,
+          "violation_type": "FALLBACK_LOGIC_FORBIDDEN",
+          "message": "Conditional execution based on table existence - graceful degradation pattern is architectural cancer",
+          "evidence": "if 'function_call_args' not in existing_tables: return findings",
+          "required_fix": "REMOVE all table existence checks and graceful degradation logic. Rules MUST execute assuming tables exist.",
+          "architectural_cancer": true
+        },
+        {
+          "check": "Check 2: Database Contracts",
+          "severity": "HIGH",
+          "line": 187,
+          "violation_type": "FALLBACK_LOGIC_FORBIDDEN",
+          "message": "Multiple conditional execution paths based on table existence flags",
+          "evidence": "has_cfg_blocks = 'cfg_blocks' in existing_tables; has_assignments = ...; has_symbols = ...; has_api_endpoints = ...; has_sql_queries = ...; has_files = ...",
+          "required_fix": "REMOVE all has_* flags and conditional execution. Execute analysis unconditionally.",
+          "architectural_cancer": true
+        },
+        {
+          "check": "Check 2: Database Contracts",
+          "severity": "HIGH",
+          "line": 197,
+          "violation_type": "FALLBACK_LOGIC_FORBIDDEN",
+          "message": "Analysis functions gated by table existence checks throughout analyze() function",
+          "evidence": "if has_cfg_blocks: findings.extend(...) - Lines 197, 203, 209, 215, 225, 231, 242",
+          "required_fix": "REMOVE all conditional gates. Call analysis functions unconditionally.",
+          "architectural_cancer": true
+        },
+        {
+          "check": "Check 1: Rule Metadata",
+          "severity": "MEDIUM",
+          "line": 8,
+          "violation_type": "MISLEADING_DOCSTRING",
+          "message": "Docstring claims 'Follows golden standard patterns' but violates absolute prohibition against table existence checks",
+          "evidence": "Lines 6-10 claim 'Follows golden standard patterns from compose_analyze.py: Frozensets for all patterns, Table existence checks, Graceful degradation'",
+          "required_fix": "UPDATE docstring to remove 'Table existence checks' and 'Graceful degradation' from golden standard patterns. These are explicitly forbidden.",
+          "architectural_cancer": false
+        },
+        {
+          "check": "Check 2: Database Contracts",
+          "severity": "MEDIUM",
+          "line": 255,
+          "violation_type": "REDUNDANT_PARAMETER",
+          "message": "_find_queries_in_loops() accepts has_cfg_blocks parameter for conditional logic",
+          "evidence": "def _find_queries_in_loops(cursor, has_cfg_blocks: bool) - Line 255; if not has_cfg_blocks: return findings - Line 259",
+          "required_fix": "REMOVE has_cfg_blocks parameter and conditional early return. Function should execute unconditionally.",
+          "architectural_cancer": true
+        },
+        {
+          "check": "Check 2: Database Contracts",
+          "severity": "MEDIUM",
+          "line": 464,
+          "violation_type": "REDUNDANT_PARAMETER",
+          "message": "_find_synchronous_io_patterns() accepts has_api_endpoints parameter for conditional logic",
+          "evidence": "def _find_synchronous_io_patterns(cursor, has_api_endpoints: bool) - Line 464; Conditional query at lines 491-499",
+          "required_fix": "REMOVE has_api_endpoints parameter. Execute api_endpoints query unconditionally.",
+          "architectural_cancer": true
+        },
+        {
+          "check": "Check 2: Database Contracts",
+          "severity": "MEDIUM",
+          "line": 0,
+          "violation_type": "MISSING_SCHEMA_IMPORT",
+          "message": "Rule does NOT use build_query() from schema.py for type-safe queries",
+          "evidence": "No import from theauditor.indexer.schema. All queries are hardcoded SQL strings.",
+          "required_fix": "ADD: from theauditor.indexer.schema import build_query. CONVERT all hardcoded queries to use build_query() with validated column names.",
+          "architectural_cancer": false
+        }
+      ]
+    }
+  },
+  "gold_standard_files": [],
+  "compliance_score": 0,
+  "summary": {
+    "metadata_compliance": "PASS - Metadata block correctly structured with proper target_extensions, exclude_patterns, and requires_jsx_pass=False",
+    "database_contract_compliance": "CRITICAL FAILURE - Multiple violations of ABSOLUTE PROHIBITION against table existence checks and fallback logic",
+    "finding_generation_compliance": "PASS - All StandardFinding calls use correct parameter names (file_path=, rule_name=, severity=Severity.*, confidence=Confidence.*)",
+    "critical_architectural_issues": [
+      "Lines 173-192: Table existence checking via sqlite_master - ABSOLUTE PROHIBITION VIOLATED",
+      "Lines 187-192: Graceful degradation flags (has_cfg_blocks, has_assignments, etc.) - ARCHITECTURAL CANCER",
+      "Lines 197-242: Conditional execution gates based on table existence - FALLBACK LOGIC FORBIDDEN",
+      "Line 255: _find_queries_in_loops() accepts has_cfg_blocks parameter for conditional logic",
+      "Line 464: _find_synchronous_io_patterns() accepts has_api_endpoints parameter"
+    ],
+    "recommended_actions": [
+      "1. IMMEDIATE: REMOVE lines 173-192 (entire table existence check block)",
+      "2. IMMEDIATE: REMOVE all has_* flags and conditional if statements",
+      "3. IMMEDIATE: REMOVE has_cfg_blocks and has_api_endpoints parameters from helper functions",
+      "4. RECOMMENDED: Import build_query from theauditor.indexer.schema",
+      "5. RECOMMENDED: Convert hardcoded SQL to schema-validated queries using build_query()",
+      "6. UPDATE: Docstring to remove 'Table existence checks' and 'Graceful degradation' from claimed patterns"
+    ],
+    "schema_contract_violations": {
+      "tables_referenced_correctly": [
+        "cfg_blocks",
+        "function_call_args",
+        "assignments",
+        "symbols",
+        "api_endpoints",
+        "sql_queries",
+        "files"
+      ],
+      "queries_with_hardcoded_columns": 25,
+      "queries_using_build_query": 0,
+      "queries_with_potential_typos": 0
+    }
+  },
+  "detailed_analysis": {
+    "check_1_metadata": {
+      "status": "PASS",
+      "findings": [
+        "✅ METADATA block present at lines 25-50",
+        "✅ name='performance_issues' - correct",
+        "✅ category='performance' - correct",
+        "✅ target_extensions includes ['.py', '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs'] - comprehensive for performance analysis",
+        "✅ exclude_patterns properly filters tests, migrations, build artifacts, TheAuditor folders",
+        "✅ requires_jsx_pass=False - correct (database-only analysis)",
+        "⚠️  Docstring claims 'golden standard patterns' including 'Table existence checks' - this is FORBIDDEN"
+      ]
+    },
+    "check_2_database_contracts": {
+      "status": "CRITICAL FAILURE",
+      "findings": [
+        "❌ CRITICAL: Lines 173-179 - sqlite_master query for table existence checking (ABSOLUTE PROHIBITION)",
+        "❌ CRITICAL: Lines 180-192 - Conditional execution based on existing_tables set (FALLBACK LOGIC FORBIDDEN)",
+        "❌ HIGH: Lines 197-242 - Analysis calls gated by has_* flags (GRACEFUL DEGRADATION FORBIDDEN)",
+        "❌ MEDIUM: Line 255 - has_cfg_blocks parameter enables conditional logic in helper function",
+        "❌ MEDIUM: Line 464 - has_api_endpoints parameter enables conditional logic",
+        "⚠️  MEDIUM: No usage of build_query() from schema.py - all queries hardcoded",
+        "✅ All referenced tables exist in schema.py TABLES dict",
+        "✅ All column names appear correct (spot-checked against schema.py)",
+        "✅ Frozensets used correctly for O(1) pattern matching (lines 58-138)"
+      ],
+      "tables_queried": {
+        "cfg_blocks": {
+          "lines": [267, 269, 292, 351, 411],
+          "columns_used": ["file", "function_name", "start_line", "end_line", "block_type"],
+          "schema_valid": true,
+          "uses_build_query": false
+        },
+        "function_call_args": {
+          "lines": [279, 317, 364, 471, 523, 553, 730],
+          "columns_used": ["file", "line", "callee_function", "caller_function", "argument_index", "argument_expr", "param_name"],
+          "schema_valid": true,
+          "uses_build_query": false
+        },
+        "assignments": {
+          "lines": [421, 769, 801],
+          "columns_used": ["file", "line", "target_var", "source_expr", "source_vars", "in_function"],
+          "schema_valid": true,
+          "uses_build_query": false
+        },
+        "symbols": {
+          "lines": [617, 649, 680],
+          "columns_used": ["path", "name", "line", "type"],
+          "schema_valid": true,
+          "uses_build_query": false
+        },
+        "api_endpoints": {
+          "lines": [492],
+          "columns_used": ["file", "line"],
+          "schema_valid": true,
+          "uses_build_query": false
+        }
+      }
+    },
+    "check_3_finding_generation": {
+      "status": "PASS",
+      "findings": [
+        "✅ All StandardFinding calls use file_path= (not file=)",
+        "✅ All StandardFinding calls use rule_name= (not rule=)",
+        "✅ All severity values use Severity enum (Severity.CRITICAL, .HIGH, .MEDIUM, .LOW)",
+        "✅ All confidence values use Confidence enum (Confidence.HIGH, .MEDIUM, .LOW)",
+        "✅ All findings include cwe_id parameter",
+        "✅ All findings include category parameter",
+        "✅ All findings include message parameter"
+      ],
+      "finding_types_generated": [
+        "perf-query-in-loop (line 303)",
+        "perf-query-in-array-method (line 332)",
+        "perf-expensive-in-loop (line 392)",
+        "perf-string-concat-loop (line 450)",
+        "perf-sync-io (line 503)",
+        "perf-unbounded-query (line 541)",
+        "perf-large-file-read (line 568)",
+        "perf-memory-intensive (line 597)",
+        "perf-deep-property-chain (line 637)",
+        "perf-repeated-property-access (line 661)",
+        "perf-unoptimized-taint (line 708)",
+        "perf-repeated-expensive-call (line 750)",
+        "perf-large-json-operation (line 789)",
+        "perf-large-object-copy (line 811)"
+      ]
+    }
+  },
+  "comparison_to_gold_standard": {
+    "reference_file": "theauditor/rules/auth/jwt_analyze.py",
+    "differences": [
+      "❌ perf_analyze.py has table existence checks (lines 173-192) - jwt_analyze.py does NOT",
+      "❌ perf_analyze.py uses graceful degradation flags - jwt_analyze.py does NOT",
+      "❌ perf_analyze.py has conditional execution paths - jwt_analyze.py does NOT",
+      "✅ Both use frozensets for pattern matching",
+      "✅ Both use StandardFinding with correct parameters",
+      "✅ Both use Severity and Confidence enums correctly",
+      "⚠️  jwt_analyze.py uses build_query() from schema.py - perf_analyze.py does NOT"
+    ]
+  },
+  "certification": {
+    "is_gold_standard_compliant": false,
+    "blocking_issues": [
+      "Table existence checking via sqlite_master (ABSOLUTE PROHIBITION)",
+      "Graceful degradation with has_* flags (ARCHITECTURAL CANCER)",
+      "Conditional execution based on table availability (FALLBACK LOGIC FORBIDDEN)"
+    ],
+    "can_be_fixed": true,
+    "estimated_fix_effort": "30 minutes - Remove 19 lines of table checking code, remove conditional gates, remove parameters from 2 helper functions"
+  }
+}
