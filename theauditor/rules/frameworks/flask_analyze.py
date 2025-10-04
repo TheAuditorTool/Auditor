@@ -1,10 +1,13 @@
-"""Golden Standard Flask Security Analyzer.
+"""Flask Framework Security Analyzer - Database-First Approach.
 
-Detects Flask security misconfigurations via database analysis.
-Demonstrates database-aware rule pattern using finite pattern matching.
+Analyzes Flask applications for security vulnerabilities using ONLY
+indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
-Signature: context: StandardRuleContext -> List[StandardFinding]
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
+- Proper confidence levels
 """
 
 import json
@@ -14,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -377,35 +381,29 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check sql_queries table if it exists
+            # Directly query sql_queries - trust schema contract
             cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='sql_queries'
+                SELECT file_path, line_number, query_text
+                FROM sql_queries
+                WHERE (query_text LIKE '%' || '%' || '%'
+                       OR query_text LIKE '%.format(%'
+                       OR query_text LIKE '%f"%'
+                       OR query_text LIKE "%f'%")
+                ORDER BY file_path, line_number
             """)
 
-            if cursor.fetchone():
-                cursor.execute("""
-                    SELECT file_path, line_number, query_text
-                    FROM sql_queries
-                    WHERE (query_text LIKE '%' || '%' || '%'
-                           OR query_text LIKE '%.format(%'
-                           OR query_text LIKE '%f"%'
-                           OR query_text LIKE "%f'%")
-                    ORDER BY file_path, line_number
-                """)
-
-                for file, line, query in cursor.fetchall():
-                    self.findings.append(StandardFinding(
-                        rule_name='flask-sql-injection-risk',
-                        message='String formatting in SQL query - SQL injection vulnerability',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category='injection',
-                        confidence=Confidence.HIGH,
-                        snippet=query[:100] if len(query) > 100 else query,
-                        cwe_id='CWE-89'  # SQL Injection
-                    ))
+            for file, line, query in cursor.fetchall():
+                self.findings.append(StandardFinding(
+                    rule_name='flask-sql-injection-risk',
+                    message='String formatting in SQL query - SQL injection vulnerability',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='injection',
+                    confidence=Confidence.HIGH,
+                    snippet=query[:100] if len(query) > 100 else query,
+                    cwe_id='CWE-89'  # SQL Injection
+                ))
 
             conn.close()
 
@@ -612,31 +610,25 @@ class FlaskAnalyzer:
             has_csrf = cursor.fetchone()[0] > 0
 
             if not has_csrf:
-                # Check if there are state-changing endpoints
+                # Check if there are state-changing endpoints - trust schema contract
                 cursor.execute("""
-                    SELECT name FROM sqlite_master
-                    WHERE type='table' AND name='api_endpoints'
+                    SELECT COUNT(*) FROM api_endpoints
+                    WHERE method IN ('POST', 'PUT', 'DELETE', 'PATCH')
                 """)
+                has_state_changing = cursor.fetchone()[0] > 0
 
-                if cursor.fetchone():
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM api_endpoints
-                        WHERE method IN ('POST', 'PUT', 'DELETE', 'PATCH')
-                    """)
-                    has_state_changing = cursor.fetchone()[0] > 0
-
-                    if has_state_changing and self.flask_files:
-                        self.findings.append(StandardFinding(
-                            rule_name='flask-missing-csrf',
-                            message='State-changing endpoints without CSRF protection',
-                            file_path=self.flask_files[0],
-                            line=1,
-                            severity=Severity.HIGH,
-                            category='security',
-                            confidence=Confidence.MEDIUM,
-                            snippet='Missing CSRF protection for POST/PUT/DELETE/PATCH endpoints',
-                            cwe_id='CWE-352'  # Cross-Site Request Forgery
-                        ))
+                if has_state_changing and self.flask_files:
+                    self.findings.append(StandardFinding(
+                        rule_name='flask-missing-csrf',
+                        message='State-changing endpoints without CSRF protection',
+                        file_path=self.flask_files[0],
+                        line=1,
+                        severity=Severity.HIGH,
+                        category='security',
+                        confidence=Confidence.MEDIUM,
+                        snippet='Missing CSRF protection for POST/PUT/DELETE/PATCH endpoints',
+                        cwe_id='CWE-352'  # Cross-Site Request Forgery
+                    ))
 
             conn.close()
 

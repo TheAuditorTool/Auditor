@@ -1,10 +1,13 @@
-"""Golden Standard Express.js Security Analyzer.
+"""Express.js Framework Security Analyzer - Database-First Approach.
 
-Detects Express.js security misconfigurations via database analysis.
-Demonstrates database-aware rule pattern using finite pattern matching.
+Analyzes Express.js applications for security vulnerabilities using ONLY
+indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
-Signature: context: StandardRuleContext -> List[StandardFinding]
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
+- Proper confidence levels
 """
 
 import json
@@ -14,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -157,16 +161,7 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check if refs table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='refs'
-            """)
-            if not cursor.fetchone():
-                conn.close()
-                return False  # Can't verify Express without refs table
-
-            # Check if this is an Express project
+            # Check if this is an Express project - trust schema contract
             cursor.execute("""
                 SELECT DISTINCT src FROM refs
                 WHERE value = 'express'
@@ -219,16 +214,7 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check if cfg_blocks table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='cfg_blocks'
-            """)
-            if not cursor.fetchone():
-                conn.close()
-                return  # Graceful degradation - can't check without CFG data
-
-            # Check each route handler for try/catch blocks
+            # Check each route handler for try/catch blocks - trust schema contract
             for endpoint in self.api_endpoints:
                 # Get the handler function name (might be in handler field)
                 handler = endpoint.get('handler', '')

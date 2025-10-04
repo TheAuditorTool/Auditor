@@ -5,6 +5,7 @@ Demonstrates database-aware rule pattern using finite pattern matching.
 
 MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
 Signature: context: StandardRuleContext -> List[StandardFinding]
+Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
 import json
@@ -14,6 +15,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -191,8 +193,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT COUNT(*) FROM files
+            query = build_query('files', ['COUNT(*)'])
+            cursor.execute(query + """
                 WHERE ext IN ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')
             """)
 
@@ -210,9 +212,8 @@ class AsyncConcurrencyAnalyzer:
             cursor = conn.cursor()
 
             # Get all function calls that look async
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function, f.caller_function
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'])
+            cursor.execute(query + """
                 WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
                    OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
                    OR f.file LIKE '%.mjs' OR f.file LIKE '%.cjs'
@@ -261,9 +262,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+            cursor.execute(query + """
                 WHERE f.callee_function LIKE '%.then%'
                   AND NOT EXISTS (
                       SELECT 1 FROM function_call_args f2
@@ -298,9 +298,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line'])
+            cursor.execute(query + """
                 WHERE f.callee_function IN ('Promise.all', 'Promise.allSettled', 'Promise.race')
                   AND NOT EXISTS (
                       SELECT 1 FROM function_call_args f2
@@ -334,9 +333,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line, f.argument_expr
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE f.callee_function IN ('Promise.all', 'Promise.allSettled')
                 ORDER BY f.file, f.line
             """)
@@ -372,9 +370,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+            cursor.execute(query + """
                 WHERE file LIKE '%.js' OR file LIKE '%.jsx'
                    OR file LIKE '%.ts' OR file LIKE '%.tsx'
                 ORDER BY file, line
@@ -411,9 +408,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT a.file, a.line, a.target_var, a.source_expr
-                FROM assignments a
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+            cursor.execute(query + """
                 WHERE (a.source_expr LIKE '%++%'
                        OR a.source_expr LIKE '%--%'
                        OR a.source_expr LIKE '%+= 1%'
@@ -466,9 +462,8 @@ class AsyncConcurrencyAnalyzer:
             cursor = conn.cursor()
 
             # Check by function context
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+            cursor.execute(query + """
                 WHERE f.callee_function IN ('setTimeout', 'setInterval', 'sleep', 'delay')
                   AND f.caller_function LIKE '%loop%'
                 ORDER BY f.file, f.line
@@ -487,9 +482,8 @@ class AsyncConcurrencyAnalyzer:
                 ))
 
             # Check by proximity to loop keywords
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+            cursor.execute(query + """
                 WHERE f.callee_function IN ('setTimeout', 'setInterval')
                   AND EXISTS (
                       SELECT 1 FROM symbols s
@@ -523,9 +517,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+            cursor.execute(query + """
                 WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
                    OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
                 ORDER BY f.file, f.line
@@ -585,9 +578,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+            cursor.execute(query + """
                 WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
                    OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
                 ORDER BY f.file, f.line
@@ -728,9 +720,8 @@ class AsyncConcurrencyAnalyzer:
             cursor = conn.cursor()
 
             # Get all function calls with arguments
-            cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE file LIKE '%.js' OR file LIKE '%.jsx'
                    OR file LIKE '%.ts' OR file LIKE '%.tsx'
                 ORDER BY file, line
@@ -817,9 +808,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+            cursor.execute(query + """
                 WHERE (target_var LIKE '%retry%'
                        OR target_var LIKE '%attempt%'
                        OR target_var LIKE '%tries%')
@@ -856,9 +846,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, target_var
-                FROM assignments
+            query = build_query('assignments', ['file', 'line', 'target_var'])
+            cursor.execute(query + """
                 WHERE source_expr LIKE '%new %'
                   AND (file LIKE '%.js' OR file LIKE '%.jsx'
                        OR file LIKE '%.ts' OR file LIKE '%.tsx')
@@ -908,9 +897,8 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line, f.callee_function
-                FROM function_call_args f
+            query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+            cursor.execute(query + """
                 WHERE (f.callee_function LIKE '%.on%'
                        OR f.callee_function LIKE '%.addEventListener%'
                        OR f.callee_function LIKE '%.addListener%')
@@ -949,9 +937,8 @@ class AsyncConcurrencyAnalyzer:
             cursor = conn.cursor()
 
             # Look for nested function patterns in arguments
-            cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+            cursor.execute(query + """
                 WHERE (argument_expr LIKE '%function%function%'
                        OR argument_expr LIKE '%=>%=>%'
                        OR argument_expr LIKE '%callback%callback%')

@@ -3,10 +3,10 @@
 Detects weak cryptography and insecure crypto practices using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 
 Detects:
@@ -24,6 +24,7 @@ from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -154,7 +155,6 @@ class CryptoAnalyzer:
         self.context = context
         self.patterns = CryptoPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -169,49 +169,21 @@ class CryptoAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables for graceful degradation
-            self._check_table_availability()
-
-            # Must have minimum tables for any analysis
-            if not self._has_minimum_tables():
-                return []
-
-            # Run crypto checks based on available data
-            if 'function_call_args' in self.existing_tables:
-                self._check_weak_hashes()
-                self._check_broken_crypto()
-                self._check_ecb_mode()
-                self._check_insecure_random()
-                self._check_weak_kdf()
-                self._check_jwt_issues()
-                self._check_ssl_issues()
-
-            if 'assignments' in self.existing_tables:
-                self._check_hardcoded_keys()
-
-            if 'function_call_args' in self.existing_tables and 'assignments' in self.existing_tables:
-                self._check_key_reuse()
+            # Run all crypto checks
+            self._check_weak_hashes()
+            self._check_broken_crypto()
+            self._check_ecb_mode()
+            self._check_insecure_random()
+            self._check_weak_kdf()
+            self._check_jwt_issues()
+            self._check_ssl_issues()
+            self._check_hardcoded_keys()
+            self._check_key_reuse()
 
         finally:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'function_call_args', 'assignments', 'symbols',
-                'refs', 'files', 'api_endpoints'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
-    def _has_minimum_tables(self) -> bool:
-        """Check if we have minimum required tables."""
-        required = {'function_call_args', 'files'}
-        return required.issubset(self.existing_tables)
 
     def _check_weak_hashes(self):
         """Detect weak hash algorithm usage."""
@@ -341,9 +313,6 @@ class CryptoAnalyzer:
 
     def _check_hardcoded_keys(self):
         """Detect hardcoded cryptographic keys."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         key_placeholders = ','.join('?' * len(self.patterns.KEY_VARIABLES))
 
         # Look for hardcoded key assignments
@@ -502,9 +471,6 @@ class CryptoAnalyzer:
 
     def _check_key_reuse(self):
         """Detect key reuse across different contexts."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find all key assignments
         self.cursor.execute("""
             SELECT file, target_var, COUNT(*) as usage_count
@@ -600,7 +566,7 @@ FLAGGED: Missing database features for better crypto detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_crypto_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Python cryptography vulnerabilities.
 
     Args:

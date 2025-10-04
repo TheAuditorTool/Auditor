@@ -1,0 +1,157 @@
+{
+  "category": "build",
+  "audit_timestamp": "2025-10-04T00:00:00Z",
+  "files_audited": [
+    "bundle_analyze.py"
+  ],
+  "total_violations": 5,
+  "violations_by_file": {
+    "bundle_analyze.py": {
+      "total_violations": 5,
+      "metadata_violations": 0,
+      "database_contract_violations": 5,
+      "finding_generation_violations": 0,
+      "details": {
+        "metadata_check": {
+          "status": "COMPLIANT",
+          "issues": []
+        },
+        "database_contract_check": {
+          "status": "CRITICAL_VIOLATIONS",
+          "issues": [
+            {
+              "line": 77,
+              "type": "ARCHITECTURAL_CANCER",
+              "severity": "CRITICAL",
+              "description": "Table existence check via sqlite_master for 'lock_analysis'",
+              "code": "SELECT name FROM sqlite_master WHERE type='table' AND name='lock_analysis'",
+              "fix": "REMOVE table existence check - schema contract guarantees table exists"
+            },
+            {
+              "line": 115,
+              "type": "ARCHITECTURAL_CANCER",
+              "severity": "CRITICAL",
+              "description": "Table existence check via sqlite_master for 'package_configs'",
+              "code": "SELECT name FROM sqlite_master WHERE type='table' AND name='package_configs'",
+              "fix": "REMOVE table existence check - schema contract guarantees table exists"
+            },
+            {
+              "line": 172,
+              "type": "ARCHITECTURAL_CANCER",
+              "severity": "CRITICAL",
+              "description": "Table existence check via sqlite_master for 'import_styles'",
+              "code": "SELECT name FROM sqlite_master WHERE type='table' AND name='import_styles'",
+              "fix": "REMOVE table existence check - schema contract guarantees table exists"
+            },
+            {
+              "line": 204,
+              "type": "ARCHITECTURAL_CANCER",
+              "severity": "CRITICAL",
+              "description": "Table existence check via sqlite_master for 'package_configs' (duplicate)",
+              "code": "SELECT name FROM sqlite_master WHERE type='table' AND name='package_configs'",
+              "fix": "REMOVE table existence check - schema contract guarantees table exists"
+            },
+            {
+              "line": 297,
+              "type": "ARCHITECTURAL_CANCER",
+              "severity": "CRITICAL",
+              "description": "Table existence check via sqlite_master for 'package_configs' (duplicate)",
+              "code": "SELECT name FROM sqlite_master WHERE type='table' AND name='package_configs'",
+              "fix": "REMOVE table existence check - schema contract guarantees table exists"
+            }
+          ],
+          "schema_validation": {
+            "lock_analysis": {
+              "status": "VALID",
+              "columns_used": ["file_path", "duplicate_packages", "lock_type"],
+              "schema_match": "ALL_COLUMNS_MATCH"
+            },
+            "package_configs": {
+              "status": "VALID",
+              "columns_used": ["dev_dependencies", "dependencies", "file_path"],
+              "schema_match": "ALL_COLUMNS_MATCH"
+            },
+            "import_styles": {
+              "status": "VALID",
+              "columns_used": ["file", "line", "package", "full_statement", "import_style"],
+              "schema_match": "ALL_COLUMNS_MATCH"
+            },
+            "refs": {
+              "status": "VALID",
+              "columns_used": ["src", "value", "kind"],
+              "schema_match": "ALL_COLUMNS_MATCH"
+            },
+            "files": {
+              "status": "VALID",
+              "columns_used": ["path", "ext"],
+              "schema_match": "ALL_COLUMNS_MATCH"
+            }
+          },
+          "recommendations": [
+            "REMOVE all 5 table existence checks (lines 77, 115, 172, 204, 297)",
+            "Consider using build_query() from schema.py for type-safe query construction",
+            "Remove fallback logic (lines 294-322) - if tables don't exist, rule SHOULD crash"
+          ]
+        },
+        "finding_generation_check": {
+          "status": "COMPLIANT",
+          "issues": [],
+          "findings_count": 6,
+          "all_use_severity_enum": true,
+          "all_use_correct_parameters": true
+        },
+        "gold_standard_compliance": {
+          "frozensets_used": true,
+          "database_first": true,
+          "no_file_io": true,
+          "proper_error_handling": true,
+          "table_existence_checks": false
+        }
+      }
+    }
+  },
+  "gold_standard_files": [],
+  "critical_issues": [
+    {
+      "file": "bundle_analyze.py",
+      "issue": "5x table existence checks via sqlite_master (ARCHITECTURAL CANCER)",
+      "lines": [77, 115, 172, 204, 297],
+      "priority": "P0",
+      "impact": "Violates schema contract system - if tables don't exist, rule should crash not fallback"
+    },
+    {
+      "file": "bundle_analyze.py",
+      "issue": "Fallback logic contradicts fail-fast principle",
+      "lines": [294, 322],
+      "priority": "P1",
+      "impact": "Lines 294-322 implement fallback when package_configs doesn't exist. Should be removed."
+    }
+  ],
+  "compliance_score": 0,
+  "compliance_breakdown": {
+    "metadata_compliance": "100% (1/1 files)",
+    "database_contract_compliance": "0% (0/1 files) - CRITICAL VIOLATIONS",
+    "finding_generation_compliance": "100% (1/1 files)"
+  },
+  "summary": {
+    "total_files": 1,
+    "compliant_files": 0,
+    "files_with_violations": 1,
+    "categories_of_violations": [
+      "table_existence_checks (5 violations)",
+      "fallback_logic (1 violation)"
+    ],
+    "recommended_actions": [
+      "IMMEDIATE: Remove all 5 table existence checks",
+      "IMMEDIATE: Remove fallback logic (lines 294-322)",
+      "OPTIONAL: Migrate raw SQL to build_query() for consistency"
+    ]
+  },
+  "notes": [
+    "bundle_analyze.py is otherwise well-structured with proper frozensets and database-first approach",
+    "Column usage is 100% schema-compliant across all 5 tables queried",
+    "Finding generation is perfect - all use Severity enum and correct parameter names",
+    "Main issue is reliance on table existence checks which violates schema contract guarantees",
+    "The rule contains comment 'This rule requires enhanced extraction during indexing' suggesting awareness of database dependencies"
+  ]
+}

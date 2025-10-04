@@ -3,10 +3,10 @@
 Detects Prisma ORM anti-patterns and performance issues using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
 
@@ -16,6 +16,7 @@ from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -97,7 +98,7 @@ CONNECTION_DANGER_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect Prisma ORM anti-patterns and performance issues.
 
     Detects:
@@ -124,337 +125,301 @@ def find_prisma_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'orm_queries', 'prisma_models', 'function_call_args',
-                'assignments', 'cfg_blocks', 'symbols', 'files'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required table for ORM analysis
-        if 'orm_queries' not in existing_tables:
-            return findings  # Can't analyze without ORM query data
-
-        # Track which tables are available for graceful degradation
-        has_orm_queries = 'orm_queries' in existing_tables
-        has_prisma_models = 'prisma_models' in existing_tables
-        has_function_calls = 'function_call_args' in existing_tables
-        has_assignments = 'assignments' in existing_tables
-        has_cfg_blocks = 'cfg_blocks' in existing_tables
-        has_symbols = 'symbols' in existing_tables
-        has_files = 'files' in existing_tables
-
         # ========================================================
         # CHECK 1: Unbounded Queries Without Pagination
         # ========================================================
-        if has_orm_queries:
-            # Build conditions for unbounded methods
-            method_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in UNBOUNDED_METHODS])
+        # Build conditions for unbounded methods
+        method_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in UNBOUNDED_METHODS])
 
-            cursor.execute(f"""
-                SELECT file, line, query_type
-                FROM orm_queries
-                WHERE ({method_conditions})
-                  AND (has_limit = 0 OR has_limit IS NULL)
-                ORDER BY file, line
-            """)
+        cursor.execute(f"""
+            SELECT file, line, query_type
+            FROM orm_queries
+            WHERE ({method_conditions})
+              AND (has_limit = 0 OR has_limit IS NULL)
+            ORDER BY file, line
+        """)
 
-            for file, line, query_type in cursor.fetchall():
-                model = query_type.split('.')[0] if '.' in query_type else 'unknown'
-                method = query_type.split('.')[-1] if '.' in query_type else query_type
+        for file, line, query_type in cursor.fetchall():
+            model = query_type.split('.')[0] if '.' in query_type else 'unknown'
+            method = query_type.split('.')[-1] if '.' in query_type else query_type
 
-                findings.append(StandardFinding(
-                    rule_name='prisma-unbounded-query',
-                    message=f'Unbounded {method} on {model} - missing take/skip pagination',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='orm-performance',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-400'
-                ))
+            findings.append(StandardFinding(
+                rule_name='prisma-unbounded-query',
+                message=f'Unbounded {method} on {model} - missing take/skip pagination',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='orm-performance',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-400'
+            ))
 
         # ========================================================
         # CHECK 2: N+1 Query Patterns
         # ========================================================
-        if has_orm_queries:
-            cursor.execute("""
-                SELECT file, line, query_type, includes
-                FROM orm_queries
-                WHERE query_type LIKE '%.findMany'
-                  AND (includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = '')
-                ORDER BY file, line
-            """)
+        cursor.execute("""
+            SELECT file, line, query_type, includes
+            FROM orm_queries
+            WHERE query_type LIKE '%.findMany'
+              AND (includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = '')
+            ORDER BY file, line
+        """)
 
-            for file, line, query_type, includes in cursor.fetchall():
-                model = query_type.split('.')[0] if '.' in query_type else 'unknown'
+        for file, line, query_type, includes in cursor.fetchall():
+            model = query_type.split('.')[0] if '.' in query_type else 'unknown'
 
-                findings.append(StandardFinding(
-                    rule_name='prisma-n-plus-one',
-                    message=f'Potential N+1: findMany on {model} without includes',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category='orm-performance',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-400'
-                ))
+            findings.append(StandardFinding(
+                rule_name='prisma-n-plus-one',
+                message=f'Potential N+1: findMany on {model} without includes',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='orm-performance',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-400'
+            ))
 
         # ========================================================
         # CHECK 3: Missing Transactions for Multiple Writes
         # ========================================================
-        if has_orm_queries:
-            # Build conditions for write methods
-            write_conditions = ' OR '.join([f"query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
+        # Build conditions for write methods
+        write_conditions = ' OR '.join([f"query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
 
-            cursor.execute(f"""
-                SELECT file, line, query_type, has_transaction
-                FROM orm_queries
-                WHERE ({write_conditions})
-                ORDER BY file, line
-            """)
+        cursor.execute(f"""
+            SELECT file, line, query_type, has_transaction
+            FROM orm_queries
+            WHERE ({write_conditions})
+            ORDER BY file, line
+        """)
 
-            # Group operations by file
-            file_operations = {}
-            for file, line, query_type, has_transaction in cursor.fetchall():
-                if file not in file_operations:
-                    file_operations[file] = []
-                file_operations[file].append({
-                    'line': line,
-                    'query': query_type,
-                    'has_transaction': has_transaction
-                })
+        # Group operations by file
+        file_operations = {}
+        for file, line, query_type, has_transaction in cursor.fetchall():
+            if file not in file_operations:
+                file_operations[file] = []
+            file_operations[file].append({
+                'line': line,
+                'query': query_type,
+                'has_transaction': has_transaction
+            })
 
-            # Check for close operations without transactions
-            for file, operations in file_operations.items():
-                for i in range(len(operations) - 1):
-                    op1 = operations[i]
-                    op2 = operations[i + 1]
+        # Check for close operations without transactions
+        for file, operations in file_operations.items():
+            for i in range(len(operations) - 1):
+                op1 = operations[i]
+                op2 = operations[i + 1]
 
-                    # Operations within 30 lines without transaction
-                    if (op2['line'] - op1['line'] <= 30 and
-                        not op1['has_transaction'] and
-                        not op2['has_transaction']):
+                # Operations within 30 lines without transaction
+                if (op2['line'] - op1['line'] <= 30 and
+                    not op1['has_transaction'] and
+                    not op2['has_transaction']):
 
-                        findings.append(StandardFinding(
-                            rule_name='prisma-missing-transaction',
-                            message=f"Multiple writes without transaction: {op1['query']} and {op2['query']}",
-                            file_path=file,
-                            line=op1['line'],
-                            severity=Severity.HIGH,
-                            category='orm-data-integrity',
-                            confidence=Confidence.HIGH,
-                            cwe_id='CWE-662'
-                        ))
-                        break  # One finding per cluster
+                    findings.append(StandardFinding(
+                        rule_name='prisma-missing-transaction',
+                        message=f"Multiple writes without transaction: {op1['query']} and {op2['query']}",
+                        file_path=file,
+                        line=op1['line'],
+                        severity=Severity.HIGH,
+                        category='orm-data-integrity',
+                        confidence=Confidence.HIGH,
+                        cwe_id='CWE-662'
+                    ))
+                    break  # One finding per cluster
 
         # ========================================================
         # CHECK 4: Unhandled OrThrow Methods
         # ========================================================
-        if has_orm_queries:
-            # Build conditions for throw methods
-            throw_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in THROW_METHODS])
+        # Build conditions for throw methods
+        throw_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in THROW_METHODS])
 
-            cursor.execute(f"""
-                SELECT file, line, query_type
-                FROM orm_queries
-                WHERE ({throw_conditions})
-                ORDER BY file, line
-            """)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            orthrow_methods = cursor.fetchall()
+        cursor.execute(f"""
+            SELECT file, line, query_type
+            FROM orm_queries
+            WHERE ({throw_conditions})
+            ORDER BY file, line
+        """)
+        # ✅ FIX: Store results before loop to avoid cursor state bug
+        orthrow_methods = cursor.fetchall()
 
-            for file, line, query_type in orthrow_methods:
-                # Check if there's error handling nearby
-                has_error_handling = False
+        for file, line, query_type in orthrow_methods:
+            # Check if there's error handling nearby
+            cursor.execute("""
+                SELECT COUNT(*) FROM cfg_blocks
+                WHERE file = ?
+                  AND block_type IN ('try', 'catch', 'except', 'finally')
+                  AND ? BETWEEN start_line - 5 AND end_line + 5
+            """, (file, line))
+            has_error_handling = cursor.fetchone()[0] > 0
 
-                # Check cfg_blocks for try/catch if available
-                if has_cfg_blocks:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM cfg_blocks
-                        WHERE file = ?
-                          AND block_type IN ('try', 'catch', 'except', 'finally')
-                          AND ? BETWEEN start_line - 5 AND end_line + 5
-                    """, (file, line))
-                    has_error_handling = cursor.fetchone()[0] > 0
-
-                if not has_error_handling:
-                    method = query_type.split('.')[-1] if '.' in query_type else query_type
-                    findings.append(StandardFinding(
-                        rule_name='prisma-unhandled-throw',
-                        message=f'OrThrow method {method} without visible error handling',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.LOW,
-                        category='orm-error-handling',
-                        confidence=Confidence.LOW if not has_cfg_blocks else Confidence.MEDIUM,
-                        cwe_id='CWE-755'
-                    ))
+            if not has_error_handling:
+                method = query_type.split('.')[-1] if '.' in query_type else query_type
+                findings.append(StandardFinding(
+                    rule_name='prisma-unhandled-throw',
+                    message=f'OrThrow method {method} without visible error handling',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.LOW,
+                    category='orm-error-handling',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-755'
+                ))
 
         # ========================================================
         # CHECK 5: Unsafe Raw SQL Queries
         # ========================================================
-        if has_function_calls:
-            # Build query for raw query methods
-            raw_methods_list = list(RAW_QUERY_METHODS)
-            placeholders = ','.join('?' * len(raw_methods_list))
+        # Build query for raw query methods
+        raw_methods_list = list(RAW_QUERY_METHODS)
+        placeholders = ','.join('?' * len(raw_methods_list))
 
-            cursor.execute(f"""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function IN ({placeholders})
-                   OR f.callee_function LIKE '%queryRaw%'
-                   OR f.callee_function LIKE '%executeRaw%'
-                ORDER BY f.file, f.line
-            """, raw_methods_list)
+        cursor.execute(f"""
+            SELECT f.file, f.line, f.callee_function, f.argument_expr
+            FROM function_call_args f
+            WHERE f.callee_function IN ({placeholders})
+               OR f.callee_function LIKE '%queryRaw%'
+               OR f.callee_function LIKE '%executeRaw%'
+            ORDER BY f.file, f.line
+        """, raw_methods_list)
 
-            for file, line, func, args in cursor.fetchall():
-                # Check for unsafe patterns
-                is_unsafe = 'Unsafe' in func
-                has_interpolation = False
+        for file, line, func, args in cursor.fetchall():
+            # Check for unsafe patterns
+            is_unsafe = 'Unsafe' in func
+            has_interpolation = False
 
-                if args:
-                    # Check for template literal or concatenation
-                    has_interpolation = ('${' in args or '+' in args or
-                                       '`' in args or 'concat' in args.lower())
+            if args:
+                # Check for template literal or concatenation
+                has_interpolation = ('${' in args or '+' in args or
+                                   '`' in args or 'concat' in args.lower())
 
-                if is_unsafe or has_interpolation:
-                    findings.append(StandardFinding(
-                        rule_name='prisma-sql-injection',
-                        message=f'Potential SQL injection in {func} with {"unsafe method" if is_unsafe else "string interpolation"}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL if is_unsafe else Severity.HIGH,
-                        category='orm-security',
-                        confidence=Confidence.HIGH if is_unsafe else Confidence.MEDIUM,
-                        cwe_id='CWE-89'
-                    ))
+            if is_unsafe or has_interpolation:
+                findings.append(StandardFinding(
+                    rule_name='prisma-sql-injection',
+                    message=f'Potential SQL injection in {func} with {"unsafe method" if is_unsafe else "string interpolation"}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL if is_unsafe else Severity.HIGH,
+                    category='orm-security',
+                    confidence=Confidence.HIGH if is_unsafe else Confidence.MEDIUM,
+                    cwe_id='CWE-89'
+                ))
 
         # ========================================================
         # CHECK 6: Missing Database Indexes
         # ========================================================
-        if has_prisma_models:
-            # Get models with very few indexes
+        # Get models with very few indexes (FIXED: removed invalid is_id column)
+        cursor.execute("""
+            SELECT model_name, COUNT(DISTINCT field_name) as indexed_count
+            FROM prisma_models
+            WHERE is_indexed = 1 OR is_unique = 1
+            GROUP BY model_name
+            HAVING indexed_count < 2
+        """)
+
+        poorly_indexed_models = {row[0]: row[1] for row in cursor.fetchall()}
+
+        if poorly_indexed_models:
+            # Find queries on these models
             cursor.execute("""
-                SELECT model_name, COUNT(DISTINCT field_name) as indexed_count
-                FROM prisma_models
-                WHERE is_indexed = 1 OR is_unique = 1 OR is_id = 1
-                GROUP BY model_name
-                HAVING indexed_count < 2
+                SELECT file, line, query_type
+                FROM orm_queries
+                WHERE query_type LIKE '%.findMany%'
+                   OR query_type LIKE '%.findFirst%'
+                   OR query_type LIKE '%.findUnique%'
+                ORDER BY file, line
             """)
 
-            poorly_indexed_models = {row[0]: row[1] for row in cursor.fetchall()}
+            for file, line, query_type in cursor.fetchall():
+                model = query_type.split('.')[0] if '.' in query_type else None
 
-            if poorly_indexed_models and has_orm_queries:
-                # Find queries on these models
-                cursor.execute("""
-                    SELECT file, line, query_type
-                    FROM orm_queries
-                    WHERE query_type LIKE '%.findMany%'
-                       OR query_type LIKE '%.findFirst%'
-                       OR query_type LIKE '%.findUnique%'
-                    ORDER BY file, line
-                """)
-
-                for file, line, query_type in cursor.fetchall():
-                    model = query_type.split('.')[0] if '.' in query_type else None
-
-                    if model in poorly_indexed_models:
-                        indexed_count = poorly_indexed_models[model]
-                        findings.append(StandardFinding(
-                            rule_name='prisma-missing-index',
-                            message=f'Query on {model} with only {indexed_count} indexed field(s) - verify performance',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.MEDIUM,
-                            category='orm-performance',
-                            confidence=Confidence.MEDIUM,
-                            cwe_id='CWE-400'
-                        ))
+                if model in poorly_indexed_models:
+                    indexed_count = poorly_indexed_models[model]
+                    findings.append(StandardFinding(
+                        rule_name='prisma-missing-index',
+                        message=f'Query on {model} with only {indexed_count} indexed field(s) - verify performance',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category='orm-performance',
+                        confidence=Confidence.MEDIUM,
+                        cwe_id='CWE-400'
+                    ))
 
         # ========================================================
         # CHECK 7: Connection Pool Configuration Issues
         # ========================================================
-        if has_files and has_assignments:
-            # Look for schema.prisma files
+        # Look for schema.prisma files
+        cursor.execute("""
+            SELECT path FROM files
+            WHERE path LIKE '%schema.prisma%'
+               OR path LIKE '%prisma/schema%'
+            LIMIT 1
+        """)
+        schema_file = cursor.fetchone()
+
+        if schema_file:
+            # Check for DATABASE_URL configuration
             cursor.execute("""
-                SELECT path FROM files
-                WHERE path LIKE '%schema.prisma%'
-                   OR path LIKE '%prisma/schema%'
-                LIMIT 1
+                SELECT file, line, target_var, source_expr
+                FROM assignments
+                WHERE target_var LIKE '%DATABASE_URL%'
+                   OR target_var LIKE '%DATABASE%'
+                   OR target_var LIKE '%POSTGRES%'
+                   OR target_var LIKE '%MYSQL%'
+                ORDER BY file, line
             """)
-            schema_file = cursor.fetchone()
 
-            if schema_file:
-                # Check for DATABASE_URL configuration
-                cursor.execute("""
-                    SELECT file, line, target_var, source_expr
-                    FROM assignments
-                    WHERE target_var LIKE '%DATABASE_URL%'
-                       OR target_var LIKE '%DATABASE%'
-                       OR target_var LIKE '%POSTGRES%'
-                       OR target_var LIKE '%MYSQL%'
-                    ORDER BY file, line
-                """)
+            for file, line, var, expr in cursor.fetchall():
+                # Check for missing connection limit
+                if expr and 'connection_limit' not in expr.lower():
+                    findings.append(StandardFinding(
+                        rule_name='prisma-no-connection-limit',
+                        message=f'Database URL in {var} without connection_limit parameter',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category='orm-configuration',
+                        confidence=Confidence.MEDIUM,
+                        cwe_id='CWE-770'
+                    ))
 
-                for file, line, var, expr in cursor.fetchall():
-                    # Check for missing connection limit
-                    if expr and 'connection_limit' not in expr.lower():
-                        findings.append(StandardFinding(
-                            rule_name='prisma-no-connection-limit',
-                            message=f'Database URL in {var} without connection_limit parameter',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.MEDIUM,
-                            category='orm-configuration',
-                            confidence=Confidence.MEDIUM,
-                            cwe_id='CWE-770'
-                        ))
-
-                    # Check for dangerous connection limits
-                    if expr:
-                        for danger_pattern in CONNECTION_DANGER_PATTERNS:
-                            if danger_pattern in expr.lower():
-                                findings.append(StandardFinding(
-                                    rule_name='prisma-high-connection-limit',
-                                    message=f'Connection limit too high in {var} - may exhaust database',
-                                    file_path=file,
-                                    line=line,
-                                    severity=Severity.HIGH,
-                                    category='orm-configuration',
-                                    confidence=Confidence.HIGH,
-                                    cwe_id='CWE-770'
-                                ))
-                                break
+                # Check for dangerous connection limits
+                if expr:
+                    for danger_pattern in CONNECTION_DANGER_PATTERNS:
+                        if danger_pattern in expr.lower():
+                            findings.append(StandardFinding(
+                                rule_name='prisma-high-connection-limit',
+                                message=f'Connection limit too high in {var} - may exhaust database',
+                                file_path=file,
+                                line=line,
+                                severity=Severity.HIGH,
+                                category='orm-configuration',
+                                confidence=Confidence.HIGH,
+                                cwe_id='CWE-770'
+                            ))
+                            break
 
         # ========================================================
         # CHECK 8: Common Field Indexing Issues
         # ========================================================
-        if has_prisma_models:
-            # Check if common fields are indexed
-            cursor.execute("""
-                SELECT DISTINCT model_name, field_name
-                FROM prisma_models
-                WHERE field_name IN ('email', 'username', 'userId', 'user_id', 'slug', 'uuid')
-                  AND is_indexed = 0
-                  AND is_unique = 0
-                  AND is_id = 0
-            """)
+        # Check if common fields are indexed (FIXED: removed invalid is_id column)
+        cursor.execute("""
+            SELECT DISTINCT model_name, field_name
+            FROM prisma_models
+            WHERE field_name IN ('email', 'username', 'userId', 'user_id', 'slug', 'uuid')
+              AND is_indexed = 0
+              AND is_unique = 0
+        """)
 
-            for model_name, field_name in cursor.fetchall():
-                findings.append(StandardFinding(
-                    rule_name='prisma-unindexed-common-field',
-                    message=f'Common field {field_name} in {model_name} is not indexed',
-                    file_path='schema.prisma',
-                    line=0,
-                    severity=Severity.MEDIUM,
-                    category='orm-performance',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-400'
-                ))
+        for model_name, field_name in cursor.fetchall():
+            findings.append(StandardFinding(
+                rule_name='prisma-unindexed-common-field',
+                message=f'Common field {field_name} in {model_name} is not indexed',
+                file_path='schema.prisma',
+                line=0,
+                severity=Severity.MEDIUM,
+                category='orm-performance',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-400'
+            ))
 
     finally:
         conn.close()

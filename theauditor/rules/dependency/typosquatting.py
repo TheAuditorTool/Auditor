@@ -18,6 +18,7 @@ import sqlite3
 import json
 from typing import List, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 from .config import TYPOSQUATTING_MAP
 
 
@@ -48,16 +49,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
         # Check declared dependencies
-        if 'package_configs' in available_tables:
-            findings.extend(_check_declared_packages(cursor))
+        findings.extend(_check_declared_packages(cursor))
 
         # Check imported packages
-        if 'import_styles' in available_tables:
-            findings.extend(_check_imported_packages(cursor))
+        findings.extend(_check_imported_packages(cursor))
 
     finally:
         conn.close()
@@ -77,10 +73,8 @@ def _check_declared_packages(cursor) -> List[StandardFinding]:
     findings = []
     seen = set()
 
-    cursor.execute("""
-        SELECT file_path, dependencies, dev_dependencies
-        FROM package_configs
-    """)
+    query = build_query('package_configs', ['file_path', 'dependencies', 'dev_dependencies'])
+    cursor.execute(query)
 
     for file_path, deps, dev_deps in cursor.fetchall():
         for deps_json in [deps, dev_deps]:
@@ -133,11 +127,9 @@ def _check_imported_packages(cursor) -> List[StandardFinding]:
     findings = []
     seen = set()
 
-    cursor.execute("""
-        SELECT DISTINCT file, line, package
-        FROM import_styles
-        ORDER BY package, file, line
-    """)
+    query = build_query('import_styles', ['file', 'line', 'package'],
+                       order_by='package, file, line')
+    cursor.execute(query)
 
     for file, line, package in cursor.fetchall():
         if not package:

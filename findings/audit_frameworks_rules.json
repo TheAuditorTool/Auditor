@@ -1,0 +1,289 @@
+{
+  "category": "frameworks",
+  "audit_date": "2025-10-04",
+  "files_audited": [
+    "nextjs_analyze.py",
+    "flask_analyze.py",
+    "express_analyze.py",
+    "fastapi_analyze.py",
+    "react_analyze.py",
+    "vue_analyze.py"
+  ],
+  "total_violations": 21,
+  "violations_by_file": {
+    "nextjs_analyze.py": {
+      "total": 3,
+      "violations": [
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 131,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table'...\")",
+          "fix": "Remove table existence check. Assume all contracted tables exist per schema.py"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 138,
+          "issue": "Conditional execution based on table existence - ARCHITECTURAL CANCER",
+          "code": "if 'function_call_args' not in existing_tables: return findings",
+          "fix": "Execute queries directly. Rule SHOULD crash if table doesn't exist (indicates schema violation)"
+        },
+        {
+          "check": "Finding Generation",
+          "severity": "HIGH",
+          "line": 193,
+          "issue": "Using file_path parameter instead of file",
+          "code": "StandardFinding(... file_path=file, ...)",
+          "fix": "Verify parameter name - should be file_path per base.py StandardFinding signature"
+        }
+      ]
+    },
+    "flask_analyze.py": {
+      "total": 2,
+      "violations": [
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 382,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='sql_queries'\")",
+          "fix": "Remove check. Query sql_queries directly - assume it exists per schema contract"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 617,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='api_endpoints'\")",
+          "fix": "Remove check. Query api_endpoints directly per schema contract"
+        }
+      ]
+    },
+    "express_analyze.py": {
+      "total": 2,
+      "violations": [
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 160,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='refs'\")",
+          "fix": "Remove check. Query refs directly - assume it exists per schema contract"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 223,
+          "issue": "Table existence check with graceful degradation - ARCHITECTURAL CANCER",
+          "code": "if not cursor.fetchone(): conn.close(); return  # Graceful degradation",
+          "fix": "Remove degradation logic. Execute CFG query directly - crash if table missing"
+        }
+      ]
+    },
+    "fastapi_analyze.py": {
+      "total": 5,
+      "violations": [
+        {
+          "check": "Metadata",
+          "severity": "MEDIUM",
+          "line": 60,
+          "issue": "Wrong entry point function name - should be 'analyze' not 'find_fastapi_issues'",
+          "code": "def find_fastapi_issues(context: StandardRuleContext)",
+          "fix": "Rename to: def analyze(context: StandardRuleContext)"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 92,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table'...\")",
+          "fix": "Remove all table existence checks. Query tables directly per schema contract"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 99,
+          "issue": "Conditional execution based on table existence - ARCHITECTURAL CANCER",
+          "code": "if 'function_call_args' not in existing_tables: return findings",
+          "fix": "Execute queries directly without checks"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 277,
+          "issue": "Table existence check with degraded confidence - ARCHITECTURAL CANCER",
+          "code": "if 'cfg_blocks' in existing_tables: ... confidence=Confidence.MEDIUM ... else: ... confidence=Confidence.LOW",
+          "fix": "Remove check. Query cfg_blocks directly - crash if missing"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "HIGH",
+          "line": 156,
+          "issue": "Direct SQL with hardcoded column names - no schema contract usage",
+          "code": "f.callee_function LIKE '%.query%'",
+          "fix": "Consider using schema.py TABLES to validate columns exist"
+        }
+      ]
+    },
+    "react_analyze.py": {
+      "total": 3,
+      "violations": [
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 186,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='refs'\")",
+          "fix": "Remove check. Query refs directly per schema contract"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 210,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table' AND name='symbols'\")",
+          "fix": "Remove check. Query symbols directly per schema contract"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "MEDIUM",
+          "line": 579,
+          "issue": "Nested cursor reuse causing potential state bug - should store results before loop",
+          "code": "for file, line in form_handlers: cursor.execute(...)",
+          "fix": "Already has FIX comment at line 574 - verify fix is applied"
+        }
+      ]
+    },
+    "vue_analyze.py": {
+      "total": 6,
+      "violations": [
+        {
+          "check": "Metadata",
+          "severity": "MEDIUM",
+          "line": 81,
+          "issue": "Wrong entry point function name - should be 'analyze' not 'find_vue_issues'",
+          "code": "def find_vue_issues(context: StandardRuleContext)",
+          "fix": "Rename to: def analyze(context: StandardRuleContext)"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 116,
+          "issue": "Table existence check using sqlite_master - ABSOLUTE PROHIBITION violated",
+          "code": "cursor.execute(\"SELECT name FROM sqlite_master WHERE type='table'...\")",
+          "fix": "Remove all table existence checks. Query tables directly per schema contract"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 126,
+          "issue": "Conditional execution based on table existence - ARCHITECTURAL CANCER",
+          "code": "if 'assignments' not in existing_tables and 'function_call_args' not in existing_tables: return findings",
+          "fix": "Execute queries directly without checks"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 166,
+          "issue": "Conditional query execution based on table existence",
+          "code": "if 'assignments' in existing_tables: cursor.execute(...)",
+          "fix": "Remove conditional - execute query directly"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "CRITICAL",
+          "line": 194,
+          "issue": "Multiple conditional table checks with fallback logic",
+          "code": "if 'function_call_args' in existing_tables: ... if 'refs' in existing_tables: ... if 'symbols' in existing_tables:",
+          "fix": "Remove all conditionals - query tables directly per schema contract"
+        },
+        {
+          "check": "Database Contracts",
+          "severity": "MEDIUM",
+          "line": 209,
+          "issue": "Nested cursor reuse causing potential state bug - should store results before loop",
+          "code": "for file, line, eval_content in eval_usages: cursor.execute(...)",
+          "fix": "Already has FIX comment at line 202 - verify fix is applied"
+        }
+      ]
+    }
+  },
+  "gold_standard_files": [],
+  "critical_issues": [
+    {
+      "pattern": "Table Existence Checks",
+      "files_affected": 6,
+      "total_occurrences": 15,
+      "severity": "CRITICAL",
+      "description": "All framework rules violate ABSOLUTE PROHIBITION against table existence checking. Per CLAUDE.md: 'NO FALLBACKS. NO REGEX. NO EXCEPTIONS.' Schema contract system guarantees table existence. Rules MUST assume all contracted tables exist. Any table existence check is architectural cancer.",
+      "impact": "Violates core architectural principle. If table doesn't exist, rule SHOULD crash to indicate schema contract violation, not gracefully degrade."
+    },
+    {
+      "pattern": "Wrong Entry Point Function Name",
+      "files_affected": 2,
+      "files": ["fastapi_analyze.py", "vue_analyze.py"],
+      "severity": "MEDIUM",
+      "description": "Functions named 'find_*_issues' instead of standard 'analyze' entry point. Orchestrator expects analyze() signature.",
+      "impact": "May prevent orchestrator from discovering these rules correctly"
+    },
+    {
+      "pattern": "Direct SQL Without Schema Validation",
+      "files_affected": 6,
+      "severity": "HIGH",
+      "description": "Hardcoded SQL queries with column names not validated against schema.py TABLES. Should use build_query() or at minimum verify columns exist in TableSchema definitions.",
+      "impact": "Brittle queries that break silently if schema changes. No compile-time or runtime validation."
+    }
+  ],
+  "compliance_score": 0,
+  "summary": {
+    "total_files": 6,
+    "files_with_violations": 6,
+    "files_compliant": 0,
+    "most_common_violation": "Table existence checks (15 occurrences across all files)",
+    "architectural_violations": 15,
+    "metadata_violations": 2,
+    "database_contract_violations": 17,
+    "finding_generation_violations": 1
+  },
+  "recommendations": [
+    {
+      "priority": "P0",
+      "action": "Remove ALL table existence checks from all framework rules",
+      "rationale": "Violates ABSOLUTE PROHIBITION. Schema contract guarantees table existence. Rules must crash if table missing (indicates contract violation).",
+      "affected_files": 6,
+      "estimated_effort": "2 hours"
+    },
+    {
+      "priority": "P1",
+      "action": "Standardize entry point function names to 'analyze'",
+      "rationale": "Orchestrator expects analyze(context: StandardRuleContext) signature. Non-standard names may break discovery.",
+      "affected_files": ["fastapi_analyze.py", "vue_analyze.py"],
+      "estimated_effort": "15 minutes"
+    },
+    {
+      "priority": "P2",
+      "action": "Replace direct SQL with build_query() from schema.py",
+      "rationale": "Validates columns exist at runtime. Prevents silent breakage on schema changes. Follows gold standard pattern.",
+      "affected_files": 6,
+      "estimated_effort": "4 hours"
+    },
+    {
+      "priority": "P3",
+      "action": "Add frozensets for all pattern lists (if any non-frozenset found)",
+      "rationale": "O(1) lookups vs O(n) list membership. Performance and immutability.",
+      "affected_files": "Review needed",
+      "estimated_effort": "1 hour"
+    }
+  ],
+  "next_steps": [
+    "1. Create fix branch: git checkout -b fix/frameworks-table-existence-cancer",
+    "2. Remove all table existence checks (lines identified above)",
+    "3. Standardize function names to 'analyze' entry point",
+    "4. Add schema validation using build_query() where appropriate",
+    "5. Run tests: pytest tests/test_frameworks_rules.py -v",
+    "6. Verify no graceful degradation logic remains",
+    "7. Commit with message: 'fix(frameworks): remove table existence checks per schema contract'"
+  ]
+}

@@ -4,6 +4,7 @@ Detects React component anti-patterns and performance issues using data from
 react_components, react_hooks, and function_call_args tables.
 
 Focuses on component structure, organization, and best practices.
+Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
 import sqlite3
@@ -12,6 +13,7 @@ from typing import List, Set, Dict, Any, Optional
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================

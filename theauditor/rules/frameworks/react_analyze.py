@@ -1,10 +1,13 @@
-"""Golden Standard React Security Analyzer.
+"""React Framework Security Analyzer - Database-First Approach.
 
-Detects React security vulnerabilities via database analysis.
-Demonstrates database-aware rule pattern using finite pattern matching.
+Analyzes React applications for security vulnerabilities using ONLY
+indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
-Signature: context: StandardRuleContext -> List[StandardFinding]
+Follows schema contract architecture (v1.1+):
+- Frozensets for all patterns (O(1) lookups)
+- Schema-validated queries via build_query()
+- Assume all contracted tables exist (crash if missing)
+- Proper confidence levels
 """
 
 import json
@@ -14,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -177,29 +181,19 @@ class ReactAnalyzer:
         return self.findings
 
     def _detect_react_project(self) -> bool:
-        """Check if this is a React project."""
+        """Check if this is a React project - trust schema contract."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check if refs table exists
+            # Check for React imports - trust schema contract
             cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='refs'
+                SELECT DISTINCT src FROM refs
+                WHERE value IN ('react', 'react-dom', 'React')
+                   OR value LIKE 'react/%'
+                   OR value LIKE 'react-dom/%'
             """)
-            has_refs_table = cursor.fetchone() is not None
-
-            # Check for React imports
-            if has_refs_table:
-                cursor.execute("""
-                    SELECT DISTINCT src FROM refs
-                    WHERE value IN ('react', 'react-dom', 'React')
-                       OR value LIKE 'react/%'
-                       OR value LIKE 'react-dom/%'
-                """)
-                react_refs = cursor.fetchall()
-            else:
-                react_refs = []
+            react_refs = cursor.fetchall()
 
             if react_refs:
                 self.react_files = [ref[0] for ref in react_refs]
@@ -207,23 +201,16 @@ class ReactAnalyzer:
             else:
                 # Also check for React-specific symbols
                 cursor.execute("""
-                    SELECT name FROM sqlite_master
-                    WHERE type='table' AND name='symbols'
+                    SELECT DISTINCT path FROM symbols
+                    WHERE name IN ('useState', 'useEffect', 'useContext',
+                                   'useReducer', 'Component', 'createElement')
+                    LIMIT 1
                 """)
-                has_symbols_table = cursor.fetchone() is not None
+                react_symbols = cursor.fetchall()
 
-                if has_symbols_table:
-                    cursor.execute("""
-                        SELECT DISTINCT path FROM symbols
-                        WHERE name IN ('useState', 'useEffect', 'useContext',
-                                       'useReducer', 'Component', 'createElement')
-                        LIMIT 1
-                    """)
-                    react_symbols = cursor.fetchall()
-
-                    if react_symbols:
-                        self.react_files = [sym[0] for sym in react_symbols]
-                        self.has_react = True
+                if react_symbols:
+                    self.react_files = [sym[0] for sym in react_symbols]
+                    self.has_react = True
 
             conn.close()
             return self.has_react

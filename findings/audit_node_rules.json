@@ -1,0 +1,243 @@
+{
+  "audit_metadata": {
+    "category": "node",
+    "audit_date": "2025-10-04",
+    "auditor": "Claude Code (Sonnet 4.5)",
+    "sop_version": "3-Step SOP from rulecheck_sop.md",
+    "total_files_audited": 2
+  },
+  "files_audited": [
+    "runtime_issue_analyze.py",
+    "async_concurrency_analyze.py"
+  ],
+  "summary": {
+    "total_violations": 4,
+    "critical_violations": 2,
+    "gold_standard_files": 0,
+    "compliant_files": 0,
+    "compliance_score": 0
+  },
+  "violations_by_file": {
+    "runtime_issue_analyze.py": {
+      "total_violations": 2,
+      "check_1_metadata": {
+        "status": "PASS",
+        "violations": []
+      },
+      "check_2_database_contracts": {
+        "status": "FAIL",
+        "violations": [
+          {
+            "type": "FORBIDDEN_TABLE_EXISTENCE_CHECK",
+            "severity": "CRITICAL",
+            "lines": [144, 153, 198, 222, 332, 381, 511, 576, 634, 692],
+            "description": "ARCHITECTURAL CANCER: _check_tables() function implements table existence checking with fallback logic",
+            "evidence": "Lines 144-158 define _check_tables() that queries sqlite_master. This function is called 9 times throughout the file.",
+            "violation_detail": "Per CLAUDE.md ABSOLUTE PROHIBITION section: 'NO FALLBACKS. NO REGEX. NO EXCEPTIONS.' Schema contract guarantees table existence. ANY table existence check is architectural cancer.",
+            "required_fix": "DELETE _check_tables() function entirely. Remove all 'existing_tables = _check_tables(cursor)' calls. Remove all 'if table not in existing_tables: return' checks. Direct database queries MUST assume tables exist per schema contract."
+          },
+          {
+            "type": "CONDITIONAL_EXECUTION_BASED_ON_TABLE_EXISTENCE",
+            "severity": "CRITICAL",
+            "lines": [198, 223, 332, 381, 511, 576, 634, 692],
+            "description": "Conditional execution paths based on table existence checks",
+            "evidence": "8 instances of 'if TABLE not in existing_tables: conn.close(); return'",
+            "violation_detail": "Each detection method checks table existence before executing. This creates fallback execution paths forbidden by schema contract system.",
+            "required_fix": "Remove all conditional checks. Execute queries directly. If table doesn't exist, rule SHOULD crash to indicate schema contract violation."
+          }
+        ]
+      },
+      "check_3_finding_generation": {
+        "status": "PASS",
+        "violations": []
+      }
+    },
+    "async_concurrency_analyze.py": {
+      "total_violations": 2,
+      "check_1_metadata": {
+        "status": "PASS",
+        "violations": []
+      },
+      "check_2_database_contracts": {
+        "status": "FAIL",
+        "violations": [
+          {
+            "type": "MISSING_SCHEMA_VALIDATION",
+            "severity": "MEDIUM",
+            "lines": [194, 213, 264, 301, 338, 376, 414, 469, 527, 588, 731, 820, 859, 911, 952],
+            "description": "Direct database queries without schema.build_query() usage",
+            "evidence": "15 direct cursor.execute() calls with hardcoded SQL instead of using schema.build_query()",
+            "violation_detail": "While table names and column names appear correct, the rule doesn't use the schema contract system's build_query() utility. This bypasses compile-time column validation.",
+            "recommended_fix": "Import 'from theauditor.indexer.schema import build_query' and replace hardcoded queries with build_query() calls for schema compliance."
+          },
+          {
+            "type": "NO_TABLE_EXISTENCE_CHECKS",
+            "severity": "INFO",
+            "lines": [],
+            "description": "POSITIVE: This file does NOT check table existence - correct pattern",
+            "evidence": "No _check_tables() function, no sqlite_master queries, no conditional execution based on table existence",
+            "violation_detail": "This is actually CORRECT behavior per schema contract. File assumes tables exist and would crash if they don't, indicating schema contract violation.",
+            "note": "This is the gold standard pattern that runtime_issue_analyze.py should follow."
+          }
+        ]
+      },
+      "check_3_finding_generation": {
+        "status": "PASS",
+        "violations": []
+      }
+    }
+  },
+  "detailed_findings": {
+    "critical_issues": [
+      {
+        "issue": "Table Existence Checking Anti-Pattern",
+        "affected_files": ["runtime_issue_analyze.py"],
+        "severity": "CRITICAL",
+        "description": "runtime_issue_analyze.py implements the FORBIDDEN table existence checking pattern with _check_tables() function. This is explicitly prohibited in CLAUDE.md under 'ABSOLUTE PROHIBITION: Fallback Logic & Regex' section.",
+        "impact": "Violates schema contract system architecture. Creates silent failures instead of crashing on schema violations. Adds unnecessary database overhead with sqlite_master queries.",
+        "gold_standard_reference": "async_concurrency_analyze.py demonstrates correct pattern: NO table existence checks, direct queries that crash on schema violations.",
+        "remediation": "1. DELETE lines 144-158 (_check_tables function)\n2. DELETE all 'existing_tables = _check_tables(cursor)' calls (lines 198, 222, 332, 381, 511, 576, 634, 692)\n3. DELETE all 'if TABLE not in existing_tables: return' conditionals\n4. Execute queries directly, allowing crashes on schema violations"
+      },
+      {
+        "issue": "Missing Schema Contract System Integration",
+        "affected_files": ["runtime_issue_analyze.py", "async_concurrency_analyze.py"],
+        "severity": "MEDIUM",
+        "description": "Neither file uses build_query() from schema.py for query construction, missing compile-time column validation benefits.",
+        "impact": "Queries may break silently if schema changes. No automatic validation of column names against schema contract.",
+        "remediation": "Import 'from theauditor.indexer.schema import build_query' and refactor queries to use build_query() for type-safe column access."
+      }
+    ],
+    "compliance_analysis": {
+      "check_1_metadata_compliance": {
+        "runtime_issue_analyze.py": "PASS - All required metadata fields present, correct template used (STANDARD)",
+        "async_concurrency_analyze.py": "PASS - All required metadata fields present, correct template used (STANDARD)"
+      },
+      "check_2_database_contract_compliance": {
+        "runtime_issue_analyze.py": "FAIL - Critical violations: table existence checking, conditional execution based on table checks",
+        "async_concurrency_analyze.py": "PARTIAL - No forbidden patterns, but missing build_query() usage"
+      },
+      "check_3_finding_generation_compliance": {
+        "runtime_issue_analyze.py": "PASS - All StandardFinding calls use correct parameters (rule_name, message, file_path, line, severity, category, confidence, snippet). Severity uses enum.",
+        "async_concurrency_analyze.py": "PASS - All StandardFinding calls use correct parameters (rule_name, message, file_path, line, severity, category, confidence, snippet). Severity uses enum."
+      }
+    }
+  },
+  "gold_standard_patterns_observed": {
+    "positive_patterns": [
+      {
+        "pattern": "No Table Existence Checking",
+        "file": "async_concurrency_analyze.py",
+        "description": "Directly executes queries without checking table existence - correct per schema contract",
+        "lines": "Entire file"
+      },
+      {
+        "pattern": "Correct Metadata Structure",
+        "files": ["runtime_issue_analyze.py", "async_concurrency_analyze.py"],
+        "description": "Both files use RuleMetadata with correct fields: name, category, target_extensions, exclude_patterns, requires_jsx_pass=False"
+      },
+      {
+        "pattern": "Frozenset Pattern Matching",
+        "files": ["runtime_issue_analyze.py", "async_concurrency_analyze.py"],
+        "description": "Both use @dataclass(frozen=True) with frozensets for O(1) pattern lookups (RuntimePatterns, AsyncPatterns)"
+      },
+      {
+        "pattern": "Correct Finding Generation",
+        "files": ["runtime_issue_analyze.py", "async_concurrency_analyze.py"],
+        "description": "Both use StandardFinding with Severity enum, correct parameter names (file_path not file, rule_name not rule)"
+      }
+    ],
+    "anti_patterns": [
+      {
+        "pattern": "Table Existence Checking",
+        "file": "runtime_issue_analyze.py",
+        "description": "Implements _check_tables() function and conditional execution based on table existence",
+        "lines": [144, 153, 198, 222, 332, 381, 511, 576, 634, 692],
+        "severity": "CRITICAL",
+        "forbidden_by": "CLAUDE.md section 'ABSOLUTE PROHIBITION: Fallback Logic & Regex'"
+      },
+      {
+        "pattern": "Missing Schema Contract Integration",
+        "files": ["runtime_issue_analyze.py", "async_concurrency_analyze.py"],
+        "description": "Neither file imports or uses build_query() from schema.py",
+        "severity": "MEDIUM"
+      }
+    ]
+  },
+  "schema_contract_verification": {
+    "tables_referenced": [
+      "files",
+      "function_call_args",
+      "symbols",
+      "assignments"
+    ],
+    "schema_validation": {
+      "files": {
+        "exists_in_schema": true,
+        "columns_used": ["path", "ext"],
+        "columns_valid": true
+      },
+      "function_call_args": {
+        "exists_in_schema": true,
+        "columns_used": ["file", "line", "callee_function", "argument_expr", "caller_function"],
+        "columns_valid": true,
+        "note": "All column names match schema.py FUNCTION_CALL_ARGS definition"
+      },
+      "symbols": {
+        "exists_in_schema": true,
+        "columns_used": ["path", "line", "name", "type"],
+        "columns_valid": true,
+        "note": "All column names match schema.py SYMBOLS definition"
+      },
+      "assignments": {
+        "exists_in_schema": true,
+        "columns_used": ["file", "line", "target_var", "source_expr"],
+        "columns_valid": true,
+        "note": "All column names match schema.py ASSIGNMENTS definition"
+      }
+    }
+  },
+  "recommendations": {
+    "immediate_actions": [
+      {
+        "priority": "P0",
+        "action": "Remove table existence checking from runtime_issue_analyze.py",
+        "rationale": "CRITICAL violation of schema contract architecture",
+        "effort": "15 minutes",
+        "files": ["runtime_issue_analyze.py"]
+      },
+      {
+        "priority": "P1",
+        "action": "Integrate build_query() from schema.py",
+        "rationale": "Enable compile-time column validation and schema contract compliance",
+        "effort": "30 minutes",
+        "files": ["runtime_issue_analyze.py", "async_concurrency_analyze.py"]
+      }
+    ],
+    "best_practices_to_adopt": [
+      {
+        "practice": "Use async_concurrency_analyze.py as reference for table handling",
+        "description": "It demonstrates correct pattern: no table existence checks, direct query execution"
+      },
+      {
+        "practice": "Import and use build_query() from schema.py",
+        "example": "query = build_query('function_call_args', ['file', 'line', 'callee_function'])\ncursor.execute(query)"
+      }
+    ]
+  },
+  "conclusion": {
+    "overall_assessment": "Node category rules are partially compliant. async_concurrency_analyze.py follows most gold standards but lacks schema contract integration. runtime_issue_analyze.py has CRITICAL violations with table existence checking that must be removed immediately.",
+    "compliance_score": 0,
+    "compliance_breakdown": {
+      "metadata_compliance": "100% (2/2 files)",
+      "database_contract_compliance": "0% (0/2 files fully compliant)",
+      "finding_generation_compliance": "100% (2/2 files)",
+      "schema_contract_integration": "0% (0/2 files use build_query)"
+    },
+    "next_steps": [
+      "1. Remove _check_tables() from runtime_issue_analyze.py (P0 - CRITICAL)",
+      "2. Integrate build_query() in both files (P1 - HIGH)",
+      "3. Add automated tests to prevent table existence checking regression",
+      "4. Document async_concurrency_analyze.py as reference implementation for table handling"
+    ]
+  }
+}

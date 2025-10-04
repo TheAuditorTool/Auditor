@@ -24,6 +24,7 @@ import sqlite3
 from pathlib import Path
 from typing import List
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 METADATA = RuleMetadata(
@@ -64,20 +65,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
 
-        # ✅ FIX: Check if package_configs table exists
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='package_configs'
-        """)
-
-        if not cursor.fetchone():
-            conn.close()
-            return findings
-
-        cursor.execute("""
-            SELECT file_path, package_name, version
-            FROM package_configs
-        """)
+        query = build_query('package_configs', ['file_path', 'package_name', 'version'])
+        cursor.execute(query)
 
         package_files = {}
         for file_path, pkg_name, version in cursor.fetchall():

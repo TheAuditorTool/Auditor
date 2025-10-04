@@ -3,10 +3,10 @@
 Detects performance anti-patterns and inefficiencies using ONLY
 indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows golden standard patterns:
+- Frozensets for O(1) pattern matching
+- Direct database queries (fail-fast on missing tables)
+- Schema contract compliance (v1.1+ - uses build_query())
 - Proper confidence levels
 """
 
@@ -16,6 +16,7 @@ from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -169,50 +170,25 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'cfg_blocks', 'function_call_args', 'assignments',
-                'symbols', 'api_endpoints', 'sql_queries', 'files'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required tables for any analysis
-        if 'function_call_args' not in existing_tables:
-            return findings  # Can't analyze without function call data
-
-        # Track which tables are available for graceful degradation
-        has_cfg_blocks = 'cfg_blocks' in existing_tables
-        has_assignments = 'assignments' in existing_tables
-        has_symbols = 'symbols' in existing_tables
-        has_api_endpoints = 'api_endpoints' in existing_tables
-        has_sql_queries = 'sql_queries' in existing_tables
-        has_files = 'files' in existing_tables
-
         # ========================================================
         # CHECK 1: Database Queries in Loops (N+1 Problem)
         # ========================================================
-        if has_cfg_blocks:
-            findings.extend(_find_queries_in_loops(cursor, has_cfg_blocks))
+        findings.extend(_find_queries_in_loops(cursor))
 
         # ========================================================
         # CHECK 2: Expensive Operations in Loops
         # ========================================================
-        if has_cfg_blocks:
-            findings.extend(_find_expensive_operations_in_loops(cursor))
+        findings.extend(_find_expensive_operations_in_loops(cursor))
 
         # ========================================================
         # CHECK 3: Inefficient String Concatenation
         # ========================================================
-        if has_assignments and has_cfg_blocks:
-            findings.extend(_find_inefficient_string_concat(cursor))
+        findings.extend(_find_inefficient_string_concat(cursor))
 
         # ========================================================
         # CHECK 4: Synchronous I/O Operations
         # ========================================================
-        findings.extend(_find_synchronous_io_patterns(cursor, has_api_endpoints))
+        findings.extend(_find_synchronous_io_patterns(cursor))
 
         # ========================================================
         # CHECK 5: Unbounded Operations
@@ -222,14 +198,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Deep Property Access Chains
         # ========================================================
-        if has_symbols:
-            findings.extend(_find_deep_property_chains(cursor))
+        findings.extend(_find_deep_property_chains(cursor))
 
         # ========================================================
         # CHECK 7: Unoptimized Taint Flows
         # ========================================================
-        if has_symbols:
-            findings.extend(_find_unoptimized_taint_flows(cursor))
+        findings.extend(_find_unoptimized_taint_flows(cursor))
 
         # ========================================================
         # CHECK 8: Repeated Expensive Calls
@@ -239,8 +213,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 9: Large Object Operations
         # ========================================================
-        if has_assignments:
-            findings.extend(_find_large_object_operations(cursor))
+        findings.extend(_find_large_object_operations(cursor))
 
     finally:
         conn.close()
@@ -252,21 +225,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_queries_in_loops(cursor, has_cfg_blocks: bool) -> List[StandardFinding]:
+def _find_queries_in_loops(cursor) -> List[StandardFinding]:
     """Find database queries executed inside loops (N+1 problem)."""
     findings = []
-
-    if not has_cfg_blocks:
-        return findings
 
     # Build query conditions for DB operations
     db_ops_list = list(DB_OPERATIONS)
     placeholders = ','.join('?' * len(db_ops_list))
 
     # Find all loop blocks
-    cursor.execute("""
-        SELECT DISTINCT cb.file, cb.function_name, cb.start_line, cb.end_line
-        FROM cfg_blocks cb
+    query = build_query('cfg_blocks', ['file', 'function_name', 'start_line', 'end_line'])
+    cursor.execute(query + """
         WHERE cb.block_type IN ('loop', 'for_loop', 'while_loop', 'do_while')
            OR cb.block_type LIKE '%loop%'
         ORDER BY cb.file, cb.start_line
@@ -276,9 +245,8 @@ def _find_queries_in_loops(cursor, has_cfg_blocks: bool) -> List[StandardFinding
 
     for file, function, loop_start, loop_end in loops:
         # Find DB operations within loop
-        cursor.execute(f"""
-            SELECT f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
+        query = build_query('function_call_args', ['line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + f"""
             WHERE f.file = ?
               AND f.line >= ?
               AND f.line <= ?
@@ -288,8 +256,8 @@ def _find_queries_in_loops(cursor, has_cfg_blocks: bool) -> List[StandardFinding
 
         for line, operation, args in cursor.fetchall():
             # Check for nested loops
-            cursor.execute("""
-                SELECT COUNT(*) FROM cfg_blocks
+            query = build_query('cfg_blocks', ['COUNT(*)'])
+            cursor.execute(query + """
                 WHERE file = ?
                   AND start_line < ?
                   AND end_line > ?
@@ -314,9 +282,8 @@ def _find_queries_in_loops(cursor, has_cfg_blocks: bool) -> List[StandardFinding
     array_methods_list = list(ARRAY_METHODS)
     array_placeholders = ','.join('?' * len(array_methods_list))
 
-    cursor.execute(f"""
-        SELECT DISTINCT f1.file, f1.line, f1.callee_function, f1.caller_function
-        FROM function_call_args f1
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'])
+    cursor.execute(query + f"""
         WHERE f1.callee_function IN ({array_placeholders})
           AND EXISTS (
               SELECT 1 FROM function_call_args f2
@@ -348,9 +315,8 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
     findings = []
 
     # Get all loops
-    cursor.execute("""
-        SELECT DISTINCT file, start_line, end_line
-        FROM cfg_blocks
+    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line'])
+    cursor.execute(query + """
         WHERE block_type LIKE '%loop%'
     """)
 
@@ -361,9 +327,8 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
         expensive_ops_list = list(EXPENSIVE_OPS)
         placeholders = ','.join('?' * len(expensive_ops_list))
 
-        cursor.execute(f"""
-            SELECT line, callee_function, argument_expr
-            FROM function_call_args
+        query = build_query('function_call_args', ['line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + f"""
             WHERE file = ?
               AND line >= ?
               AND line <= ?
@@ -408,9 +373,8 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find loops
-    cursor.execute("""
-        SELECT DISTINCT file, start_line, end_line, function_name
-        FROM cfg_blocks
+    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line', 'function_name'])
+    cursor.execute(query + """
         WHERE block_type LIKE '%loop%'
     """)
 
@@ -418,9 +382,8 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
 
     for file, loop_start, loop_end, function in loops:
         # Find string concatenation assignments within loop
-        cursor.execute("""
-            SELECT line, target_var, source_expr
-            FROM assignments
+        query = build_query('assignments', ['line', 'target_var', 'source_expr'])
+        cursor.execute(query + """
             WHERE file = ?
               AND line >= ?
               AND line <= ?
@@ -461,16 +424,15 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_synchronous_io_patterns(cursor, has_api_endpoints: bool) -> List[StandardFinding]:
+def _find_synchronous_io_patterns(cursor) -> List[StandardFinding]:
     """Find synchronous I/O operations that block the event loop."""
     findings = []
 
     sync_ops_list = list(SYNC_BLOCKERS)
     placeholders = ','.join('?' * len(sync_ops_list))
 
-    cursor.execute(f"""
-        SELECT file, line, callee_function, caller_function, argument_expr
-        FROM function_call_args
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function', 'argument_expr'])
+    cursor.execute(query + f"""
         WHERE callee_function IN ({placeholders})
         ORDER BY file, line
     """, sync_ops_list)
@@ -488,15 +450,14 @@ def _find_synchronous_io_patterns(cursor, has_api_endpoints: bool) -> List[Stand
                 confidence = Confidence.HIGH
 
         # Check if in API route context
-        if has_api_endpoints:
-            cursor.execute("""
-                SELECT COUNT(*) FROM api_endpoints
-                WHERE file = ? AND ? BETWEEN line - 50 AND line + 50
-            """, (file, line))
+        query = build_query('api_endpoints', ['COUNT(*)'])
+        cursor.execute(query + """
+            WHERE file = ? AND ? BETWEEN line - 50 AND line + 50
+        """, (file, line))
 
-            if cursor.fetchone()[0] > 0:
-                is_async_context = True
-                confidence = Confidence.HIGH
+        if cursor.fetchone()[0] > 0:
+            is_async_context = True
+            confidence = Confidence.HIGH
 
         severity = Severity.CRITICAL if is_async_context else Severity.HIGH
 
@@ -519,9 +480,8 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
     findings = []
 
     # Check for database queries without limits
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+    cursor.execute(query + """
         WHERE callee_function IN ('find', 'findMany', 'findAll', 'select', 'query', 'all')
           AND (argument_expr IS NULL OR argument_expr = '' OR (
               argument_expr NOT LIKE '%limit%'
@@ -550,9 +510,8 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
         ))
 
     # Check for readFile on potentially large files
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+    cursor.execute(query + """
         WHERE callee_function IN ('readFile', 'readFileSync', 'read')
           AND (
               argument_expr LIKE '%.log%'
@@ -580,9 +539,8 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
     memory_ops_list = list(MEMORY_OPS)
     placeholders = ','.join('?' * len(memory_ops_list))
 
-    cursor.execute(f"""
-        SELECT file, line, callee_function
-        FROM function_call_args
+    query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+    cursor.execute(query + f"""
         WHERE callee_function IN ({placeholders})
           AND line IN (
               SELECT line FROM function_call_args
@@ -613,9 +571,8 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find property accesses with multiple dots
-    cursor.execute("""
-        SELECT path, name, line
-        FROM symbols
+    query = build_query('symbols', ['path', 'name', 'line'])
+    cursor.execute(query + """
         WHERE type = 'property'
           AND LENGTH(name) - LENGTH(REPLACE(name, '.', '')) >= 3
         ORDER BY path, line
@@ -646,9 +603,8 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
         ))
 
     # Check for repeated deep property access in same function
-    cursor.execute("""
-        SELECT path, name, COUNT(*) as count, MIN(line) as first_line
-        FROM symbols
+    query = build_query('symbols', ['path', 'name', 'COUNT(*) as count', 'MIN(line) as first_line'])
+    cursor.execute(query + """
         WHERE type = 'property'
           AND LENGTH(name) - LENGTH(REPLACE(name, '.', '')) >= 2
         GROUP BY path, name
@@ -727,9 +683,8 @@ def _find_repeated_expensive_calls(cursor) -> List[StandardFinding]:
     expensive_ops_list = list(EXPENSIVE_OPS)
     placeholders = ','.join('?' * len(expensive_ops_list))
 
-    cursor.execute(f"""
-        SELECT file, caller_function, callee_function, COUNT(*) as count, MIN(line) as first_line
-        FROM function_call_args
+    query = build_query('function_call_args', ['file', 'caller_function', 'callee_function', 'COUNT(*) as count', 'MIN(line) as first_line'])
+    cursor.execute(query + f"""
         WHERE callee_function IN ({placeholders})
           AND caller_function IS NOT NULL
         GROUP BY file, caller_function, callee_function
@@ -766,9 +721,8 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find JSON operations on large data
-    cursor.execute("""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+    cursor.execute(query + """
         WHERE (source_expr LIKE '%JSON.parse%' OR source_expr LIKE '%JSON.stringify%')
           AND LENGTH(source_expr) > 500
         ORDER BY file, line
@@ -798,9 +752,8 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
         ))
 
     # Find very long assignment expressions (potential large object copies)
-    cursor.execute("""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+    cursor.execute(query + """
         WHERE LENGTH(source_expr) > 1000
           AND (source_expr LIKE '%{%}%' OR source_expr LIKE '%[%]%')
         ORDER BY LENGTH(source_expr) DESC

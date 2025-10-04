@@ -1,0 +1,365 @@
+{
+  "audit_metadata": {
+    "category": "deployment",
+    "audit_date": "2025-10-04",
+    "total_files_audited": 3,
+    "sop_version": "3-Step Atomic Rules Audit",
+    "auditor": "Claude Code Agent",
+    "schema_reference": "C:\\Users\\santa\\Desktop\\TheAuditor\\theauditor\\indexer\\schema.py"
+  },
+  "files_audited": [
+    "compose_analyze.py",
+    "docker_analyze.py",
+    "nginx_analyze.py"
+  ],
+  "total_violations": 6,
+  "violations_by_file": {
+    "compose_analyze.py": [
+      {
+        "check": 2,
+        "line": 218,
+        "issue": "Table existence check using sqlite_master - PROHIBITED PATTERN",
+        "severity": "critical",
+        "explanation": "Lines 218-221 check if compose_services table exists. Schema contract system guarantees table existence. This is architectural cancer.",
+        "code_snippet": "cursor.execute(\"\"\"\n    SELECT name FROM sqlite_master\n    WHERE type='table' AND name='compose_services'\n\"\"\")",
+        "required_fix": "REMOVE lines 218-225. Assume table exists per schema contract. If missing, rule SHOULD crash.",
+        "cwe_reference": "Violates schema contract system - fallback logic pattern"
+      },
+      {
+        "check": 2,
+        "line": 228,
+        "issue": "Hardcoded column names instead of using build_query()",
+        "severity": "high",
+        "explanation": "Direct SQL query hardcodes all 17 column names. If schema changes, query breaks silently. Should use schema.py TABLES['compose_services'].",
+        "code_snippet": "cursor.execute(\"\"\"\n    SELECT file_path, service_name, image, ports, volumes,\n           environment, is_privileged, network_mode,\n           user, cap_add, cap_drop, security_opt, restart,\n           command, entrypoint, depends_on, healthcheck\n    FROM compose_services\n\"\"\")",
+        "required_fix": "Import build_query from schema.py and use: query = build_query('compose_services', ['file_path', 'service_name', ...])",
+        "gold_standard_reference": "See auth/jwt_analyze.py for correct pattern"
+      }
+    ],
+    "docker_analyze.py": [
+      {
+        "check": 2,
+        "line": 134,
+        "issue": "Table existence check using sqlite_master - PROHIBITED PATTERN",
+        "severity": "critical",
+        "explanation": "Lines 134-137 check if docker_images table exists. This is forbidden fallback logic. Schema contract guarantees existence.",
+        "code_snippet": "cursor.execute(\"\"\"\n    SELECT name FROM sqlite_master\n    WHERE type='table' AND name='docker_images'\n\"\"\")",
+        "required_fix": "REMOVE lines 134-141. Direct query assumed. Let it crash if table missing - indicates schema violation.",
+        "cwe_reference": "Violates schema contract system"
+      },
+      {
+        "check": 2,
+        "line": 173,
+        "issue": "Hardcoded column names instead of schema-aware query",
+        "severity": "high",
+        "explanation": "Direct query hardcodes 'file_path, env_vars'. Not using build_query() or validating against TABLES['docker_images'].",
+        "code_snippet": "cursor.execute(\"SELECT file_path, env_vars FROM docker_images\")",
+        "required_fix": "Use build_query('docker_images', ['file_path', 'env_vars'])",
+        "multiple_occurrences": "Lines 173, 220, 334, 442, 486 - ALL queries hardcode columns"
+      }
+    ],
+    "nginx_analyze.py": [
+      {
+        "check": 2,
+        "line": 95,
+        "issue": "CANCER PATTERN: _check_tables() function implements table existence checking",
+        "severity": "critical",
+        "explanation": "Lines 95-102 define helper function to check table existence. This is EXACTLY the prohibited pattern from CLAUDE.md.",
+        "code_snippet": "def _check_tables(cursor) -> Set[str]:\n    cursor.execute(\"\"\"\n        SELECT name FROM sqlite_master\n        WHERE type='table'\n        AND name IN ('nginx_configs', 'config_files')\n    \"\"\")\n    return {row[0] for row in cursor.fetchall()}",
+        "required_fix": "DELETE entire _check_tables() function. Remove call at line 171. Direct query nginx_configs table.",
+        "cwe_reference": "Explicitly forbidden in CLAUDE.md 'ABSOLUTE PROHIBITION: Fallback Logic & Regex'"
+      },
+      {
+        "check": 2,
+        "line": 178,
+        "issue": "Hardcoded column names in query + conditional execution based on table existence",
+        "severity": "high",
+        "explanation": "Lines 178-182 hardcode columns AND use table existence check to conditionally skip execution. Double violation.",
+        "code_snippet": "if 'nginx_configs' not in existing_tables and 'config_files' not in existing_tables:\n    conn.close()\n    return\n\ncursor.execute(\"\"\"\n    SELECT file_path, block_type, block_context, directives, level\n    FROM nginx_configs\n\"\"\")",
+        "required_fix": "Remove conditional. Use build_query('nginx_configs', ['file_path', 'block_type', 'block_context', 'directives', 'level'])",
+        "gold_standard_violation": "Template STANDARD_RULE.py shows correct pattern without fallbacks"
+      }
+    ]
+  },
+  "gold_standard_files": [],
+  "critical_issues": [
+    {
+      "file": "nginx_analyze.py",
+      "issue": "_check_tables() helper function - EXACT PROHIBITED PATTERN",
+      "impact": "This file contains the EXACT anti-pattern documented in CLAUDE.md Section 'ABSOLUTE PROHIBITION'",
+      "priority": "P0",
+      "remediation": "Delete lines 95-102, remove usage at line 171, assume table exists"
+    },
+    {
+      "file": "compose_analyze.py",
+      "issue": "Table existence fallback logic",
+      "impact": "Returns empty findings instead of crashing when compose_services table missing",
+      "priority": "P0",
+      "remediation": "Remove lines 218-225, query table directly"
+    },
+    {
+      "file": "docker_analyze.py",
+      "issue": "Table existence fallback logic",
+      "impact": "Silently returns empty when docker_images missing - masks schema contract violations",
+      "priority": "P0",
+      "remediation": "Remove lines 134-141, let database error propagate"
+    }
+  ],
+  "compliance_score": 0,
+  "compliance_breakdown": {
+    "metadata_compliance": 100,
+    "database_contract_compliance": 0,
+    "finding_generation_compliance": 100,
+    "overall_assessment": "FAILED"
+  },
+  "detailed_analysis": {
+    "check_1_metadata": {
+      "compose_analyze.py": {
+        "status": "PASS",
+        "metadata_present": true,
+        "fields_verified": {
+          "name": "compose_security",
+          "category": "deployment",
+          "target_extensions": "[] (database-first)",
+          "exclude_patterns": "Present",
+          "requires_jsx_pass": false
+        },
+        "template_used": "STANDARD (correct)",
+        "violations": []
+      },
+      "docker_analyze.py": {
+        "status": "PASS",
+        "metadata_present": true,
+        "fields_verified": {
+          "name": "dockerfile_security",
+          "category": "deployment",
+          "target_extensions": "[] (database-first)",
+          "exclude_patterns": "Present",
+          "requires_jsx_pass": false
+        },
+        "template_used": "STANDARD (correct)",
+        "violations": []
+      },
+      "nginx_analyze.py": {
+        "status": "PASS",
+        "metadata_present": true,
+        "fields_verified": {
+          "name": "nginx_security",
+          "category": "deployment",
+          "target_extensions": "[] (database-first)",
+          "exclude_patterns": "Present",
+          "requires_jsx_pass": false
+        },
+        "template_used": "STANDARD (correct)",
+        "violations": []
+      }
+    },
+    "check_2_database_contracts": {
+      "compose_analyze.py": {
+        "status": "FAIL",
+        "tables_queried": [
+          "compose_services"
+        ],
+        "schema_validation": {
+          "compose_services": {
+            "exists_in_schema": true,
+            "columns_validated": false,
+            "hardcoded_columns": [
+              "file_path",
+              "service_name",
+              "image",
+              "ports",
+              "volumes",
+              "environment",
+              "is_privileged",
+              "network_mode",
+              "user",
+              "cap_add",
+              "cap_drop",
+              "security_opt",
+              "restart",
+              "command",
+              "entrypoint",
+              "depends_on",
+              "healthcheck"
+            ],
+            "build_query_used": false,
+            "column_validation_result": "All columns exist in schema.py COMPOSE_SERVICES table - but query hardcodes them instead of using build_query()"
+          }
+        },
+        "table_existence_check": true,
+        "frozensets_used": true,
+        "violations": [
+          "Table existence check at line 218 (CRITICAL)",
+          "Hardcoded columns instead of build_query() at line 228 (HIGH)"
+        ]
+      },
+      "docker_analyze.py": {
+        "status": "FAIL",
+        "tables_queried": [
+          "docker_images"
+        ],
+        "schema_validation": {
+          "docker_images": {
+            "exists_in_schema": true,
+            "columns_validated": false,
+            "hardcoded_columns": [
+              "file_path",
+              "env_vars",
+              "build_args",
+              "base_image",
+              "has_healthcheck",
+              "exposed_ports"
+            ],
+            "build_query_used": false,
+            "column_validation_result": "All columns exist in schema.py DOCKER_IMAGES table - but ALL 5 queries hardcode columns"
+          }
+        },
+        "table_existence_check": true,
+        "frozensets_used": true,
+        "violations": [
+          "Table existence check at line 134 (CRITICAL)",
+          "5 separate queries hardcode columns instead of build_query(): lines 173, 220, 334, 442, 486 (HIGH)"
+        ]
+      },
+      "nginx_analyze.py": {
+        "status": "FAIL",
+        "tables_queried": [
+          "nginx_configs",
+          "config_files"
+        ],
+        "schema_validation": {
+          "nginx_configs": {
+            "exists_in_schema": true,
+            "columns_validated": false,
+            "hardcoded_columns": [
+              "file_path",
+              "block_type",
+              "block_context",
+              "directives",
+              "level"
+            ],
+            "build_query_used": false,
+            "column_validation_result": "All columns exist in schema.py NGINX_CONFIGS table - but hardcoded"
+          }
+        },
+        "table_existence_check": true,
+        "helper_function_for_checking": true,
+        "frozensets_used": true,
+        "violations": [
+          "_check_tables() helper function at lines 95-102 - EXACT PROHIBITED PATTERN (CRITICAL)",
+          "Conditional execution based on table existence at lines 174-176 (CRITICAL)",
+          "Hardcoded columns at line 178 instead of build_query() (HIGH)"
+        ]
+      }
+    },
+    "check_3_finding_generation": {
+      "compose_analyze.py": {
+        "status": "PASS",
+        "findings_reviewed": 16,
+        "standard_finding_calls": [
+          "compose-privileged-container (line 298)",
+          "compose-host-network (line 311)",
+          "compose-docker-socket (line 328)",
+          "compose-dangerous-mount (line 339)",
+          "compose-weak-password (line 365)",
+          "compose-hardcoded-secret (line 376)",
+          "compose-database-exposed (line 515)",
+          "compose-admin-exposed (line 529)",
+          "compose-unpinned-image (line 558)",
+          "compose-vulnerable-image (line 572)",
+          "compose-unofficial-image (line 592)",
+          "compose-root-user (line 407)",
+          "compose-dangerous-capability (line 422)",
+          "compose-disabled-security (line 437)",
+          "compose-command-injection-risk (line 454)",
+          "compose-missing-cap-drop (line 467)"
+        ],
+        "field_verification": {
+          "rule_name": "CORRECT (all use rule_name=)",
+          "message": "CORRECT (all use message=)",
+          "severity": "CORRECT (all use Severity enum)",
+          "file_path": "CORRECT (all use file_path=)",
+          "line": "CORRECT (all use line=)",
+          "cwe_id": "CORRECT (all use cwe_id=)"
+        },
+        "violations": []
+      },
+      "docker_analyze.py": {
+        "status": "PASS",
+        "findings_reviewed": 10,
+        "standard_finding_calls": [
+          "dockerfile-root-user (line 192)",
+          "dockerfile-weak-password (line 250)",
+          "dockerfile-hardcoded-secret (line 261)",
+          "dockerfile-secret-pattern (line 276)",
+          "dockerfile-high-entropy (line 290)",
+          "dockerfile-arg-secret (line 310)",
+          "dockerfile-vulnerable-image (line 343)",
+          "dockerfile-unpinned-version (line 357)",
+          "dockerfile-unofficial-image (line 381)",
+          "dockerfile-missing-healthcheck (line 447)",
+          "dockerfile-sensitive-port-exposed (line 519)"
+        ],
+        "field_verification": {
+          "rule_name": "CORRECT (all use rule_name=)",
+          "message": "CORRECT (all use message=)",
+          "severity": "CORRECT (all use Severity enum)",
+          "file_path": "CORRECT (all use file_path=)",
+          "line": "CORRECT (all use line=)",
+          "cwe_id": "CORRECT (all use cwe_id=)"
+        },
+        "violations": []
+      },
+      "nginx_analyze.py": {
+        "status": "PASS",
+        "findings_reviewed": 7,
+        "standard_finding_calls": [
+          "nginx-proxy-no-rate-limit (line 287)",
+          "nginx-missing-header (line 310)",
+          "nginx-exposed-path (line 331)",
+          "nginx-deprecated-protocol (line 358)",
+          "nginx-weak-cipher (line 374)",
+          "nginx-server-tokens (line 388)"
+        ],
+        "field_verification": {
+          "rule_name": "CORRECT (all use rule_name=)",
+          "message": "CORRECT (all use message=)",
+          "severity": "CORRECT (all use Severity enum)",
+          "file_path": "CORRECT (all use file_path=)",
+          "line": "CORRECT (all use line=)",
+          "cwe_id": "NOT PRESENT in all findings (missing parameter)"
+        },
+        "violations": [
+          "Missing cwe_id parameter in ALL findings - should add CWE references for completeness (MEDIUM priority)"
+        ]
+      }
+    }
+  },
+  "recommendations": {
+    "immediate_actions": [
+      "DELETE _check_tables() function from nginx_analyze.py (lines 95-102)",
+      "REMOVE all table existence checks (compose_analyze.py line 218, docker_analyze.py line 134, nginx_analyze.py line 171)",
+      "REPLACE all hardcoded SQL queries with build_query() from schema.py",
+      "ADD cwe_id parameter to all nginx_analyze.py findings"
+    ],
+    "refactoring_pattern": {
+      "before": "cursor.execute('SELECT name FROM sqlite_master WHERE type=\"table\" AND name=\"compose_services\"')\nif not cursor.fetchone():\n    return findings\ncursor.execute('SELECT file_path, service_name FROM compose_services')",
+      "after": "from theauditor.indexer.schema import build_query\nquery = build_query('compose_services', ['file_path', 'service_name'])\ncursor.execute(query)"
+    },
+    "gold_standard_references": [
+      "theauditor/rules/auth/jwt_analyze.py - Uses build_query() correctly",
+      "theauditor/rules/TEMPLATE_STANDARD_RULE.py - Shows correct database-first pattern",
+      "theauditor/rules/xss/dom_xss_analyze.py - No table existence checks, direct queries"
+    ]
+  },
+  "summary": {
+    "overall_status": "FAILED - All 3 files violate schema contract system",
+    "critical_violations": 3,
+    "high_violations": 3,
+    "medium_violations": 0,
+    "passing_checks": "Metadata and Finding Generation compliance 100%",
+    "failing_checks": "Database Contract compliance 0% - all files use prohibited patterns",
+    "next_steps": "Immediate refactor required for all 3 files before deployment category can be considered gold standard"
+  }
+}

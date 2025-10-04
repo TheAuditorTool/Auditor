@@ -1,10 +1,20 @@
-"""Golden Standard Nginx Security Analyzer.
+"""Nginx Security Analyzer - Database-First Approach.
 
 Detects security misconfigurations in Nginx configurations via database analysis.
-Demonstrates database-aware rule pattern for TheAuditor.
+Uses pre-extracted data from nginx_configs table - NO FILE I/O.
 
-MIGRATION STATUS: Golden Standard Reference [2024-12-13]
-Signature: context: StandardRuleContext -> List[StandardFinding]
+Tables Used (guaranteed by schema contract):
+- nginx_configs: Nginx configuration blocks (directives, SSL, locations, etc.)
+
+Detects:
+- proxy_pass without rate limiting
+- Missing critical security headers
+- Exposed sensitive paths
+- Deprecated SSL/TLS protocols
+- Weak SSL ciphers
+- Server version disclosure
+
+Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
 
 import json
@@ -89,20 +99,6 @@ class NginxPatterns:
 
 
 # ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in database."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN ('nginx_configs', 'config_files')
-    """)
-    return {row[0] for row in cursor.fetchall()}
-
-
-# ============================================================================
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
@@ -167,19 +163,11 @@ class NginxAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check which tables exist
-            existing_tables = _check_tables(cursor)
-
-            # Skip if required tables don't exist
-            if 'nginx_configs' not in existing_tables and 'config_files' not in existing_tables:
-                conn.close()
-                return
-
-            cursor.execute("""
-                SELECT file_path, block_type, block_context, directives, level
-                FROM nginx_configs
-                ORDER BY file_path, level
-            """)
+            from theauditor.indexer.schema import build_query
+            query = build_query('nginx_configs', [
+                'file_path', 'block_type', 'block_context', 'directives', 'level'
+            ])
+            cursor.execute(query + " ORDER BY file_path, level")
 
             for row in cursor.fetchall():
                 self._parse_config_block(row)
@@ -292,6 +280,7 @@ class NginxAnalyzer:
                         severity=Severity.HIGH,
                         category='security',
                         snippet=f'proxy_pass {proxy.proxy_pass}',
+                        cwe_id='CWE-770'  # Allocation of Resources Without Limits
                     ))
 
     def _check_security_headers(self) -> None:
@@ -315,6 +304,7 @@ class NginxAnalyzer:
                         severity=Severity.MEDIUM,
                         category='security',
                         snippet=f'Missing: add_header {header_name}',
+                        cwe_id='CWE-693'  # Protection Mechanism Failure
                     ))
 
     def _check_exposed_paths(self) -> None:
@@ -336,6 +326,7 @@ class NginxAnalyzer:
                             severity=Severity.HIGH,
                             category='security',
                             snippet=f'location {location_pattern}',
+                            cwe_id='CWE-552'  # Files or Directories Accessible to External Parties
                         ))
 
     def _check_ssl_configurations(self) -> None:
@@ -363,6 +354,7 @@ class NginxAnalyzer:
                     severity=Severity.CRITICAL,
                     category='security',
                     snippet=f'ssl_protocols {config.protocols}',
+                    cwe_id='CWE-327'  # Use of a Broken or Risky Cryptographic Algorithm
                 ))
 
     def _check_ssl_ciphers(self, config: 'NginxSSLConfig') -> None:
@@ -379,6 +371,7 @@ class NginxAnalyzer:
                     severity=Severity.HIGH,
                     category='security',
                     snippet=self._truncate_snippet(f'ssl_ciphers {config.ciphers}', 100),
+                    cwe_id='CWE-327'  # Use of a Broken or Risky Cryptographic Algorithm
                 ))
 
     def _check_server_tokens(self) -> None:
@@ -393,6 +386,7 @@ class NginxAnalyzer:
                     severity=Severity.LOW,
                     category='security',
                     snippet=f'server_tokens {value}',
+                    cwe_id='CWE-200'  # Exposure of Sensitive Information to an Unauthorized Actor
                 ))
 
     def _extract_location_pattern(self, context: str) -> str:

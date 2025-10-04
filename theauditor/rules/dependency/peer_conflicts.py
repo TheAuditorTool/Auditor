@@ -17,6 +17,7 @@ import json
 import sqlite3
 from typing import List, Dict
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 METADATA = RuleMetadata(
@@ -46,28 +47,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
 
-        # Check if required tables exist (graceful degradation)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        if 'package_configs' not in available_tables:
-            conn.close()
-            return findings
-
         # Load all packages with their versions and peer dependencies
-        cursor.execute("""
-            SELECT file_path, package_name, version, peer_dependencies
-            FROM package_configs
-            WHERE peer_dependencies IS NOT NULL
-        """)
-        # ✅ FIX: Store first query results before executing second query
+        query = build_query('package_configs', ['file_path', 'package_name', 'version', 'peer_dependencies'],
+                           where='peer_dependencies IS NOT NULL')
+        cursor.execute(query)
+        # ✅ FIX: Store first query results before executing second query (Phase 3C fix preserved)
         packages_with_peers = cursor.fetchall()
 
         # Build map of installed packages and their versions
         installed_versions: Dict[str, str] = {}
-        cursor.execute("""
-            SELECT package_name, version FROM package_configs
-        """)
+        query = build_query('package_configs', ['package_name', 'version'])
+        cursor.execute(query)
         for pkg_name, version in cursor.fetchall():
             if version:
                 installed_versions[pkg_name] = version

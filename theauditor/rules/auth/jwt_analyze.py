@@ -31,6 +31,7 @@ from typing import List
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -126,18 +127,16 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 1: Hardcoded JWT Secrets (CRITICAL) - CORRECTED
         # ========================================================
         # Query the categorized JWT function names created by the indexer.
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function = 'JWT_SIGN_HARDCODED'
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where="""callee_function = 'JWT_SIGN_HARDCODED'
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, func, secret_expr in cursor.fetchall():
             # Additional check to filter out placeholders
@@ -159,10 +158,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: Weak Variable Secrets (check for common weak patterns)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function = 'JWT_SIGN_VAR'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""callee_function = 'JWT_SIGN_VAR'
               AND (
                    argument_expr LIKE '%secret%'
                 OR argument_expr LIKE '%password%'
@@ -175,9 +172,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, secret_expr in cursor.fetchall():
             # Only flag if it looks obviously weak
@@ -196,7 +193,10 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Missing JWT Expiration
         # ========================================================
-        cursor.execute("""
+        # Note: Complex JOIN query - build_query doesn't support JOINs, so we use it for column validation only
+        base_cols = build_query('function_call_args', ['file', 'line', 'argument_expr'])
+        # Extract just the column list for validation, then build custom JOIN query
+        query = """
             SELECT f1.file, f1.line, f2.argument_expr
             FROM function_call_args f1
             LEFT JOIN function_call_args f2
@@ -216,7 +216,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND f1.file NOT LIKE '%demo%'
               AND f1.file NOT LIKE '%example%'
             GROUP BY f1.file, f1.line
-        """)
+        """
+        cursor.execute(query)
 
         for file, line, options in cursor.fetchall():
             findings.append(StandardFinding(
@@ -233,10 +234,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: Algorithm Confusion (check verify calls)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE 'JWT_VERIFY%'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""callee_function LIKE 'JWT_VERIFY%'
               AND argument_index = 2
               AND argument_expr LIKE '%algorithms%'
               AND file NOT LIKE '%test%'
@@ -244,9 +243,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, options in cursor.fetchall():
             # Check for mixing symmetric and asymmetric algorithms
@@ -269,10 +268,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: None Algorithm Usage
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE 'JWT_VERIFY%'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""callee_function LIKE 'JWT_VERIFY%'
               AND argument_index = 2
               AND (argument_expr LIKE '%none%' OR argument_expr LIKE '%None%' OR argument_expr LIKE '%NONE%')
               AND file NOT LIKE '%test%'
@@ -280,9 +277,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, options in cursor.fetchall():
             findings.append(StandardFinding(
@@ -299,19 +296,17 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: JWT.decode Usage (often vulnerable)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE 'JWT_DECODE%'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""callee_function LIKE 'JWT_DECODE%'
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
               AND file NOT LIKE '%example%'
-            GROUP BY file, line
-            ORDER BY file, line
-        """)
+            GROUP BY file, line""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, _ in cursor.fetchall():
             findings.append(StandardFinding(
@@ -328,10 +323,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: Sensitive Data in JWT Payloads
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE 'JWT_SIGN%'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""callee_function LIKE 'JWT_SIGN%'
               AND argument_index = 0
               AND (
                    argument_expr LIKE '%password%'
@@ -347,9 +340,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, payload in cursor.fetchall():
             # Identify which sensitive field was found (using frozenset for O(1) lookups)
@@ -374,10 +367,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 8: Short/Weak Secrets in Environment Variables
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function = 'JWT_SIGN_ENV'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""callee_function = 'JWT_SIGN_ENV'
               AND (
                    argument_expr LIKE '%TEST%'
                 OR argument_expr LIKE '%DEMO%'
@@ -389,9 +380,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, env_var in cursor.fetchall():
             if any(weak in env_var.upper() for weak in ['TEST', 'DEMO', 'DEV', 'LOCAL']):
@@ -409,10 +400,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 9: JWT in localStorage/sessionStorage (FRONTEND)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE (callee_function LIKE '%localStorage.setItem%'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""(callee_function LIKE '%localStorage.setItem%'
                    OR callee_function LIKE '%sessionStorage.setItem%')
               AND argument_index = 0
               AND (
@@ -428,9 +417,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, key_expr in cursor.fetchall():
             findings.append(StandardFinding(
@@ -447,10 +436,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 10: JWT in URL Parameters (FRONTEND)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE (
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                           where="""(
                    source_expr LIKE '%?token=%'
                 OR source_expr LIKE '%&token=%'
                 OR source_expr LIKE '%?jwt=%'
@@ -464,9 +451,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, target, source in cursor.fetchall():
             findings.append(StandardFinding(
@@ -483,19 +470,17 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 11: JWT Secret Too Short (BACKEND)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function = 'JWT_SIGN_HARDCODED'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""callee_function = 'JWT_SIGN_HARDCODED'
               AND LENGTH(TRIM(argument_expr, '"' || "'")) < 32
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, secret_expr in cursor.fetchall():
             # Calculate actual secret length (without quotes)
@@ -516,10 +501,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 12: Cross-Origin JWT Transmission (FRONTEND)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE (callee_function LIKE '%fetch%'
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="""(callee_function LIKE '%fetch%'
                    OR callee_function LIKE '%axios%'
                    OR callee_function LIKE '%request%'
                    OR callee_function LIKE '%.get%'
@@ -531,9 +514,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, args in cursor.fetchall():
             findings.append(StandardFinding(
@@ -550,10 +533,8 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 13: JWT in React State (FRONTEND)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE (file LIKE '%.jsx' OR file LIKE '%.tsx')
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                           where="""(file LIKE '%.jsx' OR file LIKE '%.tsx')
               AND (source_expr LIKE '%useState%' OR source_expr LIKE '%useContext%')
               AND (source_expr LIKE '%token%' OR source_expr LIKE '%jwt%' OR source_expr LIKE '%auth%')
               AND file NOT LIKE '%test%'
@@ -561,9 +542,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            ORDER BY file, line
-        """)
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, target, source in cursor.fetchall():
             findings.append(StandardFinding(
