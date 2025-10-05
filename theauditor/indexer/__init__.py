@@ -391,10 +391,10 @@ class IndexerOrchestrator:
                 if not tree:
                     continue
 
-                # Read file content (cap at 256KB)
+                # Read file content (cap at 1MB)
                 try:
                     with open(file_path, encoding="utf-8", errors="ignore") as f:
-                        content = f.read(256 * 1024)
+                        content = f.read(1024 * 1024)
                 except Exception:
                     continue
 
@@ -483,11 +483,11 @@ class IndexerOrchestrator:
         )
         self.counts['files'] += 1
         
-        # Read file content (cap at 256KB)
+        # Read file content (cap at 1MB)
         file_path = self.root_path / file_info['path']
         try:
             with open(file_path, encoding="utf-8", errors="ignore") as f:
-                content = f.read(256 * 1024)
+                content = f.read(1024 * 1024)
         except Exception as e:
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"Debug: Cannot read {file_path}: {e}")

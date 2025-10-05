@@ -7,7 +7,8 @@ from typing import Any, List, Dict, Optional
 
 from .base import (
     find_containing_function_tree_sitter,
-    extract_vars_from_tree_sitter_expr  # DEPRECATED: Returns [] to enforce AST purity
+    extract_vars_from_tree_sitter_expr,  # DEPRECATED: Returns [] to enforce AST purity
+    sanitize_call_name,
 )
 
 
@@ -196,25 +197,40 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any
         # Parse based on node type
         if node.type == "import_statement":
             # Handle: import foo from 'bar'
-            source_node = None
-            specifiers = []
-            
+            module_name = None
+            default_import = None
+            namespace_import = None
+            named_imports = []
+
             for child in node.children:
                 if child.type == "string":
-                    source_node = child.text.decode("utf-8", errors="ignore").strip("\"'")
+                    module_name = child.text.decode("utf-8", errors="ignore").strip("\"'")
                 elif child.type == "import_clause":
-                    # Extract imported names
                     for spec_child in child.children:
-                        if spec_child.type == "identifier":
-                            specifiers.append(spec_child.text.decode("utf-8", errors="ignore"))
-            
-            if source_node:
+                        if spec_child.type == "identifier" and default_import is None:
+                            default_import = spec_child.text.decode("utf-8", errors="ignore")
+                        elif spec_child.type == "namespace_import":
+                            name_node = spec_child.child_by_field_name('name')
+                            if name_node and name_node.text:
+                                namespace_import = name_node.text.decode("utf-8", errors="ignore")
+                        elif spec_child.type == "named_imports":
+                            for element in spec_child.children:
+                                if element.type == "import_specifier":
+                                    name_node = element.child_by_field_name('name')
+                                    if name_node and name_node.text:
+                                        named_imports.append(name_node.text.decode("utf-8", errors="ignore"))
+
+            if module_name:
                 imports.append({
                     "source": "import",
-                    "target": source_node,
+                    "target": module_name,
                     "type": "import",
                     "line": node.start_point[0] + 1,
-                    "specifiers": specifiers
+                    "specifiers": named_imports,
+                    "namespace": namespace_import,
+                    "default": default_import,
+                    "names": named_imports,
+                    "text": None,
                 })
         
         elif node.type == "require_call":
@@ -227,7 +243,11 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any
                         "target": target,
                         "type": "require",
                         "line": node.start_point[0] + 1,
-                        "specifiers": []
+                        "specifiers": [],
+                        "names": [],
+                        "namespace": None,
+                        "default": None,
+                        "text": None,
                     })
     
     # Recursively search children
@@ -583,7 +603,9 @@ def _extract_tree_sitter_calls_with_args(
                 if child.type in ["identifier", "member_expression"]:
                     func_name = child.text.decode("utf-8", errors="ignore") if child.text else "unknown"
                     break
-        
+
+        func_name = sanitize_call_name(func_name)
+
         # Find caller function
         caller_function = find_containing_function_tree_sitter(node, content, language) or "global"
         
@@ -617,6 +639,8 @@ def _extract_tree_sitter_calls_with_args(
             if child.type in ["identifier", "attribute"]:
                 func_name = child.text.decode("utf-8", errors="ignore") if child.text else "unknown"
                 break
+
+        func_name = sanitize_call_name(func_name)
         
         caller_function = find_containing_function_tree_sitter(node, content, language) or "global"
         callee_params = function_params.get(func_name.split(".")[-1], [])

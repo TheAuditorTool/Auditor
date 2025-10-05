@@ -185,7 +185,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
         "-m", "pip",
         "install",
         "--no-cache-dir",
-        "-e", str(theauditor_root)
+        f"-e", f"{theauditor_root}[dev]"
     ]
     
     try:

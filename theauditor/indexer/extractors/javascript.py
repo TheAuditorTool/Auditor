@@ -70,27 +70,80 @@ class JavaScriptExtractor(BaseExtractor):
         tree_type = tree.get("type") if isinstance(tree, dict) else None
 
         if tree_type == "semantic_ast":
-            # Semantic AST: imports are in tree['tree']['imports']
-            actual_tree = tree.get("tree", {})
+            # Semantic AST: imports live directly on the semantic payload
+            actual_tree = tree.get("tree")
+            if not isinstance(actual_tree, dict):
+                actual_tree = tree
             imports_data = actual_tree.get("imports", [])
         elif tree_type == "tree_sitter":
             # Tree-sitter: Extract imports using AST parser's extract_imports method
             actual_tree = tree
             if self.ast_parser:
-                tree_sitter_imports = self.ast_parser.extract_imports(tree, language='javascript')
-                # Convert to expected format: [{'source': 'import', 'target': 'module', ...}, ...] -> [('import', 'module'), ...]
-                imports_data = []
-                for imp in tree_sitter_imports:
-                    kind = imp.get('source', imp.get('type', 'import'))
-                    module = imp.get('target', imp.get('module'))
-                    if module:
-                        imports_data.append({'kind': kind, 'module': module})
+                imports_data = self.ast_parser.extract_imports(tree, language='javascript')
             else:
                 imports_data = []
         else:
             # Fallback: assume imports might be at top level
             actual_tree = tree
             imports_data = tree.get("imports", []) if isinstance(tree, dict) else []
+
+        # Normalize import metadata for downstream analysis (styles, refs)
+        normalized_imports = []
+        for imp in imports_data:
+            if not isinstance(imp, dict):
+                normalized_imports.append(imp)
+                continue
+
+            specifiers = imp.get('specifiers') or []
+            namespace = imp.get('namespace')
+            default = imp.get('default')
+            names = imp.get('names')
+
+            extracted_names = []
+            for spec in specifiers:
+                if isinstance(spec, dict):
+                    if spec.get('isNamespace') and not namespace:
+                        namespace = spec.get('name')
+                    if spec.get('isDefault') and not default:
+                        default = spec.get('name')
+                    if spec.get('isNamed') and spec.get('name'):
+                        extracted_names.append(spec.get('name'))
+                elif isinstance(spec, str):
+                    extracted_names.append(spec)
+
+            if names is None:
+                names = extracted_names
+            elif extracted_names:
+                names = list(dict.fromkeys(list(names) + extracted_names))
+
+            if names is None:
+                names = []
+
+            imp['namespace'] = namespace
+            imp['default'] = default
+            imp['names'] = names
+
+            if not imp.get('target') and imp.get('module'):
+                imp['target'] = imp.get('module')
+
+            if not imp.get('text'):
+                module_ref = imp.get('target') or imp.get('module') or ''
+                parts = []
+                if default:
+                    parts.append(default)
+                if namespace:
+                    parts.append(f"* as {namespace}")
+                if names:
+                    parts.append('{ ' + ', '.join(names) + ' }')
+
+                if parts:
+                    imp['text'] = f"import {', '.join(parts)} from '{module_ref}'"
+                else:
+                    imp['text'] = f"import '{module_ref}'"
+
+            normalized_imports.append(imp)
+
+        imports_data = normalized_imports
 
         # DEBUG: Log import extraction
         import os
@@ -116,10 +169,10 @@ class JavaScriptExtractor(BaseExtractor):
         if imports_data:
             # Convert to expected format for database
             for imp in imports_data:
-                module = imp.get('module')
+                module = imp.get('target', imp.get('module'))
                 if module:
                     # Use the kind (import/require) as the type
-                    kind = imp.get('kind', 'import')
+                    kind = imp.get('source', imp.get('kind', 'import'))
                     line = imp.get('line', 0)
                     result['imports'].append((kind, module, line))
 
@@ -132,21 +185,49 @@ class JavaScriptExtractor(BaseExtractor):
         # Extract symbols (functions, classes, calls, properties)
         functions = self.ast_parser.extract_functions(tree)
         for func in functions:
-            result['symbols'].append({
+            symbol_entry = {
                 'name': func.get('name', ''),
                 'type': 'function',
                 'line': func.get('line', 0),
-                'col': func.get('col', 0)
-            })
+                'col': func.get('col', func.get('column', 0)),
+                'column': func.get('column', func.get('col', 0)),
+            }
+
+            for key in (
+                'type_annotation',
+                'return_type',
+                'type_params',
+                'has_type_params',
+                'is_any',
+                'is_unknown',
+                'is_generic',
+                'extends_type',
+            ):
+                if key in func:
+                    symbol_entry[key] = func.get(key)
+
+            result['symbols'].append(symbol_entry)
 
         classes = self.ast_parser.extract_classes(tree)
         for cls in classes:
-            result['symbols'].append({
+            symbol_entry = {
                 'name': cls.get('name', ''),
                 'type': 'class',
                 'line': cls.get('line', 0),
-                'col': cls.get('column', 0)
-            })
+                'col': cls.get('col', cls.get('column', 0)),
+                'column': cls.get('column', cls.get('col', 0)),
+            }
+
+            for key in (
+                'type_annotation',
+                'extends_type',
+                'type_params',
+                'has_type_params',
+            ):
+                if key in cls:
+                    symbol_entry[key] = cls.get(key)
+
+            result['symbols'].append(symbol_entry)
 
         # ============================================================================
         # DATABASE CONTRACT: Symbols Table Schema
@@ -550,11 +631,23 @@ class JavaScriptExtractor(BaseExtractor):
 
         # Module resolution for imports (CRITICAL for taint tracking across modules)
         # This maps import names to their actual module paths
-        for imp_type, imp_path in result.get('imports', []):
-            # Extract module name from path
-            if imp_path:
-                # For now, simple mapping - would need more complex resolution
-                module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
+        for import_entry in result.get('imports', []):
+            # Imports are stored as 3-tuples (kind, module, line) but older code
+            # – and some fallback paths – may produce dicts. Handle both safely.
+            imp_path = None
+
+            if isinstance(import_entry, (tuple, list)):
+                if len(import_entry) >= 2:
+                    imp_path = import_entry[1]
+            elif isinstance(import_entry, dict):
+                imp_path = import_entry.get('module') or import_entry.get('value')
+
+            if not imp_path:
+                continue
+
+            # Simplistic module name extraction (preserve previous behavior)
+            module_name = imp_path.split('/')[-1].replace('.js', '').replace('.ts', '')
+            if module_name:
                 result['resolved_imports'][module_name] = imp_path
 
         return result
