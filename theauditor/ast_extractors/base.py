@@ -154,6 +154,32 @@ def extract_vars_from_tree_sitter_expr(expr: str) -> List[str]:
     return []
 
 
+def sanitize_call_name(name: Any) -> str:
+    """Normalize call expression names for downstream analysis.
+
+    Removes argument lists, trailing dots, and extra whitespace so that
+    `app.get('/users', handler)` and `router.post(`/foo`)` both normalize to
+    `app.get` / `router.post`.
+    """
+    if not isinstance(name, str):
+        return ""
+
+    cleaned = name.strip()
+    if not cleaned:
+        return ""
+
+    # Remove everything after the first parenthesis (argument list)
+    paren_idx = cleaned.find('(')
+    if paren_idx != -1:
+        cleaned = cleaned[:paren_idx]
+
+    # Collapse internal whitespace and trim trailing property separators
+    cleaned = " ".join(cleaned.split())
+    cleaned = cleaned.rstrip('.')
+
+    return cleaned
+
+
 def find_containing_function_python(tree: ast.AST, line: int) -> Optional[str]:
     """Find the function containing a given line in Python AST."""
     containing_func = None

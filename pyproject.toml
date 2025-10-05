@@ -25,11 +25,11 @@ dev = [
     "pytest==8.4.2",
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
-    "ruff==0.13.2",
+    "ruff==0.13.3",
     "black==25.9.0",
 ]
 linters = [
-    "ruff==0.13.2",
+    "ruff==0.13.3",
     "mypy==1.18.2",
     "black==25.9.0",
     "bandit==1.8.6",
@@ -42,7 +42,7 @@ ml = [
     "joblib==1.5.2",
 ]
 ast = [
-    "tree-sitter==0.23.2",  # Downgrade to match tree-sitter-language-pack requirement
+    "tree-sitter==0.25.2",  # Downgrade to match tree-sitter-language-pack requirement
     "tree-sitter-language-pack==0.9.1",
     "sqlparse==0.5.3",
     "dockerfile-parse==2.0.1",
@@ -53,7 +53,7 @@ all = [
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
     # Linters
-    "ruff==0.13.2",
+    "ruff==0.13.3",
     "mypy==1.18.2",
     "black==25.9.0",
     "bandit==1.8.6",

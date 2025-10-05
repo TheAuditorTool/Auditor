@@ -6,7 +6,122 @@ This module contains all TypeScript compiler API extraction logic for semantic a
 import os
 from typing import Any, List, Dict, Optional
 
-from .base import extract_vars_from_typescript_node  # AST-pure variable extraction
+
+def _strip_comment_prefix(text: Optional[str]) -> str:
+    """Return the first non-comment, non-empty line from the given text."""
+    if not text:
+        return ""
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*") or stripped == "*/":
+            continue
+        return stripped
+
+    return text.strip()
+
+
+def _identifier_from_node(node: Any) -> str:
+    """Extract a single identifier string from a semantic AST node."""
+    if not isinstance(node, dict):
+        return ""
+
+    # Preferred fields in priority order
+    candidates: List[str] = []
+
+    text_value = node.get("text")
+    if isinstance(text_value, str):
+        candidates.append(text_value)
+
+    escaped_text = node.get("escapedText")
+    if isinstance(escaped_text, str):
+        candidates.append(escaped_text)
+
+    name_field = node.get("name")
+    if isinstance(name_field, str):
+        candidates.append(name_field)
+    elif isinstance(name_field, dict):
+        nested = _identifier_from_node(name_field)
+        if nested:
+            candidates.append(nested)
+
+    for candidate in candidates:
+        cleaned = _strip_comment_prefix(candidate)
+        if cleaned:
+            return cleaned
+
+    return ""
+
+
+def _canonical_member_name(node: Any) -> str:
+    """Build a canonical member path (e.g., app.get) from a semantic AST node."""
+    if not isinstance(node, dict):
+        return ""
+
+    kind = node.get("kind")
+
+    if kind == "Identifier" or kind == "PrivateIdentifier":
+        return _identifier_from_node(node)
+
+    if kind == "ThisKeyword":
+        return "this"
+
+    if kind == "SuperKeyword":
+        return "super"
+
+    if kind == "PropertyAccessExpression":
+        left = _canonical_member_name(node.get("expression"))
+
+        right_node = node.get("name")
+        if isinstance(right_node, dict):
+            right = _canonical_member_name(right_node)
+        elif isinstance(right_node, str):
+            right = _strip_comment_prefix(right_node)
+        else:
+            right = ""
+
+        if not right and isinstance(node.get("children"), list):
+            for child in node["children"]:
+                if isinstance(child, dict) and child.get("kind") == "Identifier":
+                    right = _canonical_member_name(child)
+                    if right:
+                        break
+
+        if left and right:
+            return f"{left}.{right}"
+        return right or left
+
+    if kind == "CallExpression":
+        return _canonical_member_name(node.get("expression"))
+
+    if kind == "ElementAccessExpression":
+        base = _canonical_member_name(node.get("expression"))
+        argument = _canonical_member_name(node.get("argumentExpression"))
+        if base and argument:
+            return f"{base}[{argument}]"
+        return base
+
+    return _identifier_from_node(node)
+
+
+def _canonical_callee_from_call(node: Dict[str, Any]) -> str:
+    """Return a sanitized callee name for a CallExpression node."""
+    if not isinstance(node, dict):
+        return ""
+
+    expression = node.get("expression")
+    name = _canonical_member_name(expression)
+    if name:
+        return sanitize_call_name(_strip_comment_prefix(name))
+
+    return sanitize_call_name(_strip_comment_prefix(_identifier_from_node(node)))
+
+from .base import (
+    extract_vars_from_typescript_node,
+    sanitize_call_name,
+)  # AST-pure variable extraction and call normalization
 
 
 def extract_semantic_ast_symbols(node, depth=0):
@@ -22,38 +137,13 @@ def extract_semantic_ast_symbols(node, depth=0):
     
     # PropertyAccessExpression: req.body, req.params, res.send, etc.
     if kind == "PropertyAccessExpression":
-        # Use the authoritative text from TypeScript compiler (now restored)
-        full_name = node.get("text", "").strip()
-        
-        # Only fall back to reconstruction if text is missing (shouldn't happen now)
-        if not full_name:
-            # Build the full property access chain
-            name_parts = []
-            current = node
-            while current and isinstance(current, dict):
-                if current.get("name"):
-                    if isinstance(current["name"], dict) and current["name"].get("name"):
-                        name_parts.append(str(current["name"]["name"]))
-                    elif isinstance(current["name"], str):
-                        name_parts.append(current["name"])
-                # Look for the expression part
-                if current.get("children"):
-                    for child in current["children"]:
-                        if isinstance(child, dict) and child.get("kind") == "Identifier":
-                            if child.get("text"):
-                                name_parts.append(child["text"])
-                current = current.get("expression")
-            
-            if name_parts:
-                full_name = ".".join(reversed(name_parts))
-            else:
-                full_name = None
-        
+        full_name = _canonical_member_name(node)
+
         if full_name:
             # CRITICAL FIX: Extract ALL property accesses for taint analysis
             # The taint analyzer will filter for the specific sources it needs
             # This ensures we capture req.body, req.query, request.params, etc.
-            
+
             # Default all property accesses as "property" type
             db_type = "property"
             
@@ -70,27 +160,8 @@ def extract_semantic_ast_symbols(node, depth=0):
     
     # CallExpression: function calls including method calls
     elif kind == "CallExpression":
-        # Use text field first if available (now restored)
-        name = None
-        if node.get("text"):
-            # Extract function name from text
-            text = node["text"]
-            if "(" in text:
-                name = text.split("(")[0].strip()
-        elif node.get("name"):
-            name = node["name"]
-        
-        # Also check for method calls on children
-        if not name and node.get("children"):
-            for child in node["children"]:
-                if isinstance(child, dict):
-                    if child.get("kind") == "PropertyAccessExpression":
-                        name = child.get("text", "").split("(")[0].strip()
-                        break
-                    elif child.get("text") and "." in child.get("text", ""):
-                        name = child["text"].split("(")[0].strip()
-                        break
-        
+        name = _canonical_callee_from_call(node)
+
         if name:
             symbols.append({
                 "name": name,
@@ -98,10 +169,10 @@ def extract_semantic_ast_symbols(node, depth=0):
                 "column": node.get("column", 0),
                 "type": "call"
             })
-    
+
     # Identifier nodes that might be property accesses or function references
     elif kind == "Identifier":
-        text = node.get("text", "")
+        text = _strip_comment_prefix(node.get("text", ""))
         # Check if it looks like a property access pattern
         if "." in text:
             # Determine type based on pattern
@@ -378,12 +449,30 @@ def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Di
                 is_function = True
         
         if is_function:
-            functions.append({
+            func_entry = {
                 "name": symbol_name,
                 "line": symbol.get("line", 0),
+                "col": symbol.get("column", symbol.get("col", 0)),
+                "column": symbol.get("column", 0),
                 "type": "function",
-                "kind": ts_kind
-            })
+                "kind": ts_kind,
+            }
+
+            # Preserve rich type metadata from semantic parser
+            for key in (
+                "type_annotation",
+                "is_any",
+                "is_unknown",
+                "is_generic",
+                "has_type_params",
+                "type_params",
+                "return_type",
+                "extends_type",
+            ):
+                if key in symbol:
+                    func_entry[key] = symbol.get(key)
+
+            functions.append(func_entry)
     
     return functions
 
@@ -467,13 +556,25 @@ def extract_typescript_classes(tree: Dict, parser_self) -> List[Dict]:
                 is_class = True
         
         if is_class:
-            classes.append({
+            class_entry = {
                 "name": symbol_name,
                 "line": symbol.get("line", 0),
-                "column": 0,
+                "col": symbol.get("column", symbol.get("col", 0)),
+                "column": symbol.get("column", 0),
                 "type": "class",
-                "kind": ts_kind
-            })
+                "kind": ts_kind,
+            }
+
+            for key in (
+                "type_annotation",
+                "extends_type",
+                "type_params",
+                "has_type_params",
+            ):
+                if key in symbol:
+                    class_entry[key] = symbol.get(key)
+
+            classes.append(class_entry)
     
     return classes
 
@@ -488,9 +589,9 @@ def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
     # Use the symbols already extracted by TypeScript compiler
     # CRITICAL FIX: Symbols are at tree["symbols"], not tree["tree"]["symbols"]
     for symbol in tree.get("symbols", []):
-        symbol_name = symbol.get("name", "")
+        symbol_name = _strip_comment_prefix(symbol.get("name", ""))
         ts_kind = symbol.get("kind", 0)
-        
+
         # Skip empty/anonymous symbols
         if not symbol_name or symbol_name == "anonymous":
             continue
@@ -585,13 +686,49 @@ def extract_typescript_imports(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     
     # Use TypeScript compiler API data
     for imp in tree.get("imports", []):
-        imports.append({
+        specifiers = imp.get("specifiers", []) or []
+        namespace = None
+        default = None
+        named = []
+
+        for spec in specifiers:
+            if isinstance(spec, dict):
+                if spec.get("isNamespace"):
+                    namespace = spec.get("name")
+                elif spec.get("isDefault"):
+                    default = spec.get("name")
+                elif spec.get("isNamed"):
+                    named.append(spec.get("name"))
+            elif isinstance(spec, str):
+                named.append(spec)
+
+        import_entry = {
             "source": imp.get("kind", "import"),
             "target": imp.get("module"),
             "type": imp.get("kind", "import"),
             "line": imp.get("line", 0),
-            "specifiers": imp.get("specifiers", [])
-        })
+            "specifiers": specifiers,
+            "namespace": imp.get("namespace", namespace),
+            "default": imp.get("default", default),
+            "names": imp.get("names", named),
+        }
+
+        if not import_entry.get("text"):
+            module = import_entry.get("target") or ""
+            parts = []
+            if import_entry["default"]:
+                parts.append(import_entry["default"])
+            if import_entry["namespace"]:
+                parts.append(f"* as {import_entry['namespace']}")
+            if import_entry["names"]:
+                parts.append("{ " + ", ".join(import_entry["names"]) + " }")
+
+            if parts:
+                import_entry["text"] = f"import {', '.join(parts)} from '{module}'"
+            else:
+                import_entry["text"] = f"import '{module}'"
+
+        imports.append(import_entry)
     
     return imports
 
@@ -890,7 +1027,8 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                 
                 # CRITICAL FIX: Get caller from scope map using line number
                 # This is O(1) and accurate, unlike the old recursive tracking
-                caller_function = scope_map.get(line, "global")
+                caller_function_raw = scope_map.get(line, "global") or "global"
+                caller_function = _strip_comment_prefix(caller_function_raw) or "global"
                 
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG] Found CallExpression at line {line}, caller={caller_function}")
@@ -906,10 +1044,8 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                     expression = children[0] if len(children) > 0 else {}
                     arguments = children[1:] if len(children) > 1 else []
                 
-                # Get function name from expression
-                callee_name = "unknown"
-                if isinstance(expression, dict):
-                    callee_name = expression.get("text", "unknown")
+                # Get function name from expression (canonicalised)
+                callee_name = _canonical_callee_from_call(node) or "unknown"
                 
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG] CallExpression: caller={caller_function}, callee={callee_name}, args={len(arguments)}")
@@ -920,7 +1056,8 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                 # Process arguments
                 for i, arg in enumerate(arguments):
                     if isinstance(arg, dict):
-                        arg_text = arg.get("text", "")
+                        raw_arg_text = arg.get("text", "")
+                        arg_text = _strip_comment_prefix(raw_arg_text) or raw_arg_text.strip()
                         param_name = callee_params[i] if i < len(callee_params) else f"arg{i}"
 
                         calls.append({

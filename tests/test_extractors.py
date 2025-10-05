@@ -14,9 +14,28 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from theauditor.ast_extractors.base import sanitize_call_name
 from theauditor.indexer.extractors import BaseExtractor
 from theauditor.indexer.extractors.python import PythonExtractor
 from theauditor.indexer.extractors.javascript import JavaScriptExtractor
+
+
+# ============================================================================
+# Helper Sanitizer Tests
+# ============================================================================
+
+
+class TestCallNameSanitizer:
+    """Unit tests for sanitize_call_name helper."""
+
+    def test_sanitize_strips_argument_list(self):
+        assert sanitize_call_name("router.get('/users', handler)") == 'router.get'
+
+    def test_sanitize_handles_whitespace_and_trailing_dots(self):
+        assert sanitize_call_name("  app.use .  ") == 'app.use'
+
+    def test_sanitize_non_string_returns_empty(self):
+        assert sanitize_call_name(None) == ''
 
 
 # ============================================================================
@@ -362,6 +381,136 @@ class TestJavaScriptExtractor:
         assert 'react' in modules
         assert 'express' in modules
         assert 'lodash' in modules
+
+        # VERIFY: resolved_imports maps module names without raising errors
+        assert result['resolved_imports']['react'] == 'react'
+        assert result['resolved_imports']['express'] == 'express'
+        assert result['resolved_imports']['lodash'] == 'lodash'
+
+        # VERIFY: import metadata enriched for style analysis
+        normalized = tree['tree']['imports']
+        for imp in normalized:
+            assert 'names' in imp
+            assert 'namespace' in imp
+            assert 'default' in imp
+
+    def test_resolved_imports_handles_tuple_shape(self):
+        """Ensure resolved_imports handles 3-tuple import records without crashing."""
+        mock_parser = MagicMock()
+        mock_parser.extract_functions.return_value = []
+        mock_parser.extract_classes.return_value = []
+        mock_parser.extract_calls.return_value = []
+        mock_parser.extract_properties.return_value = []
+        mock_parser.extract_assignments.return_value = []
+        mock_parser.extract_function_calls_with_args.return_value = []
+        mock_parser.extract_returns.return_value = []
+        mock_parser.extract_cfg.return_value = []
+
+        extractor = JavaScriptExtractor(root_path=Path('.'), ast_parser=mock_parser)
+
+        tree = {
+            'type': 'semantic_ast',
+            'tree': {
+                'imports': [
+                    {'kind': 'import', 'module': 'react', 'line': 1},
+                    {'kind': 'import', 'module': '@scope/pkg', 'line': 2}
+                ]
+            }
+        }
+
+        file_info = {'path': 'component.jsx', 'ext': '.jsx'}
+        # Exercise extraction; prior bug would raise ValueError here
+        result = extractor.extract(file_info, '', tree=tree)
+
+        # VERIFY: resolved_imports contains normalized keys for both modules
+        assert result['resolved_imports']['react'] == 'react'
+        assert result['resolved_imports']['pkg'] == '@scope/pkg'
+
+    def test_import_styles_detected_from_normalized_imports(self):
+        """Verify namespace/default/named imports classify into import_styles."""
+        mock_parser = MagicMock()
+        mock_parser.extract_functions.return_value = []
+        mock_parser.extract_classes.return_value = []
+        mock_parser.extract_calls.return_value = []
+        mock_parser.extract_properties.return_value = []
+        mock_parser.extract_assignments.return_value = []
+        mock_parser.extract_function_calls_with_args.return_value = []
+        mock_parser.extract_returns.return_value = []
+        mock_parser.extract_cfg.return_value = []
+
+        tree = {
+            'type': 'semantic_ast',
+            'tree': {
+                'imports': [
+                    {
+                        'kind': 'import',
+                        'module': 'lodash',
+                        'line': 1,
+                        'specifiers': [{'name': '_', 'isNamespace': True}],
+                    },
+                    {
+                        'kind': 'import',
+                        'module': 'react',
+                        'line': 2,
+                        'specifiers': [{'name': 'React', 'isDefault': True}],
+                    },
+                    {
+                        'kind': 'import',
+                        'module': 'rxjs',
+                        'line': 3,
+                        'specifiers': [
+                            {'name': 'map', 'isNamed': True},
+                            {'name': 'filter', 'isNamed': True},
+                        ],
+                    },
+                ]
+            }
+        }
+
+        extractor = JavaScriptExtractor(root_path=Path('.'), ast_parser=mock_parser)
+        file_info = {'path': 'sample.ts', 'ext': '.ts'}
+        result = extractor.extract(file_info, '', tree=tree)
+
+        styles = result['import_styles']
+        assert len(styles) == 3
+        styles_by_package = {entry['package']: entry for entry in styles}
+        assert styles_by_package['lodash']['import_style'] == 'namespace'
+        assert styles_by_package['react']['import_style'] == 'default'
+        assert styles_by_package['rxjs']['import_style'] == 'named'
+
+    def test_type_annotations_collected_from_symbols(self):
+        """Ensure type metadata flows into type_annotations output."""
+        mock_parser = MagicMock()
+        mock_parser.extract_functions.return_value = [
+            {
+                'name': 'makeService',
+                'line': 10,
+                'col': 2,
+                'column': 2,
+                'type_annotation': 'ServiceFactory',
+                'return_type': 'Promise<Service>',
+                'type_params': 'T',
+                'has_type_params': True,
+                'is_any': False,
+            }
+        ]
+        mock_parser.extract_classes.return_value = []
+        mock_parser.extract_calls.return_value = []
+        mock_parser.extract_properties.return_value = []
+        mock_parser.extract_assignments.return_value = []
+        mock_parser.extract_function_calls_with_args.return_value = []
+        mock_parser.extract_returns.return_value = []
+        mock_parser.extract_cfg.return_value = []
+
+        tree = {'type': 'semantic_ast', 'tree': {'imports': []}}
+        file_info = {'path': 'typed.ts', 'ext': '.ts'}
+        extractor = JavaScriptExtractor(root_path=Path('.'), ast_parser=mock_parser)
+        result = extractor.extract(file_info, '', tree=tree)
+
+        assert len(result['type_annotations']) == 1
+        annotation = result['type_annotations'][0]
+        assert annotation['type_annotation'] == 'ServiceFactory'
+        assert annotation['return_type'] == 'Promise<Service>'
 
     def test_extract_sql_from_function_calls(self):
         """Verify SQL extraction from db.execute() calls."""
