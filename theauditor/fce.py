@@ -458,7 +458,10 @@ def run_fce(
                     graph_data = json.load(f)
                 # Index hotspots by file for O(1) lookup during correlation
                 for hotspot in graph_data.get('hotspots', []):
-                    hotspot_files[hotspot['id']] = hotspot
+                    file_key = hotspot.get('file') or hotspot.get('id')
+                    if not file_key:
+                        continue
+                    hotspot_files[file_key] = hotspot
                 cycles = graph_data.get('cycles', [])
                 print(f"[FCE] Loaded graph analysis: {len(hotspot_files)} hotspots, {len(cycles)} cycles")
             except (json.JSONDecodeError, KeyError) as e:
@@ -575,7 +578,9 @@ def run_fce(
         
         # Check for build scripts
         package_json = Path(root_path) / "package.json"
-        if package_json.exists():
+        run_build = os.environ.get("THEAUDITOR_FCE_RUN_BUILD", "0") == "1"
+
+        if package_json.exists() and run_build:
             try:
                 with open(package_json) as f:
                     package = json.load(f)
@@ -588,6 +593,8 @@ def run_fce(
                     })
             except json.JSONDecodeError:
                 pass
+        elif package_json.exists() and not run_build:
+            print("[FCE] Skipping npm build (set THEAUDITOR_FCE_RUN_BUILD=1 to enable)")
         
         if print_plan:
             print("Detected tools:")
@@ -816,30 +823,36 @@ def run_fce(
         
         # 1. ARCHITECTURAL_RISK_ESCALATION - Critical issues in architectural hotspots
         if hotspot_files and consolidated_findings:
-            # Get top 5 hotspots sorted by score
-            top_hotspots = sorted(hotspot_files.values(), 
-                                 key=lambda x: x.get('score', 0), 
-                                 reverse=True)[:5]
-            
+            # Get top 5 hotspots sorted by connectivity/score
+            top_hotspots = sorted(
+                hotspot_files.values(),
+                key=lambda x: x.get('score', x.get('total_connections', 0)),
+                reverse=True
+            )[:5]
+
             for hotspot in top_hotspots:
-                hotspot_file = hotspot['id']
+                hotspot_file = hotspot.get('file') or hotspot.get('id')
+                if not hotspot_file or str(hotspot_file).startswith('external::'):
+                    continue
                 # Find critical/high severity findings in this hotspot file
                 critical_in_hotspot = [
-                    f for f in consolidated_findings 
-                    if f.get('file') == hotspot_file and 
+                    f for f in consolidated_findings
+                    if f.get('file') == hotspot_file and
                     f.get('severity', '').lower() in ['critical', 'high']
                 ]
                 
                 if critical_in_hotspot:
+                    hotspot_score = hotspot.get('score', hotspot.get('total_connections', 0))
                     meta_findings.append({
                         'type': 'ARCHITECTURAL_RISK_ESCALATION',
                         'file': hotspot_file,
                         'severity': 'critical',
-                        'message': f"Critical security issues in architectural hotspot (connectivity score: {hotspot.get('score', 0):.2f})",
+                        'message': f"Critical security issues in architectural hotspot (connectivity score: {hotspot_score:.2f})",
                         'description': f"File {hotspot_file} is a key architectural component with {len(critical_in_hotspot)} critical/high issues. Changes here affect many other components.",
                         'finding_count': len(critical_in_hotspot),
                         'hotspot_in_degree': hotspot.get('in_degree', 0),
                         'hotspot_out_degree': hotspot.get('out_degree', 0),
+                        'hotspot_total_connections': hotspot.get('total_connections', hotspot_score),
                         'hotspot_centrality': hotspot.get('centrality', 0),
                         'original_findings': critical_in_hotspot[:3]  # Sample of findings
                     })
@@ -1078,19 +1091,43 @@ def run_fce(
                 print(f"[FCE] First: {first.get('severity')} from {first.get('tool')}")
                 print(f"[FCE] Last: {last.get('severity')} from {last.get('tool')}")
         
+        meta_count = len(meta_findings)
+        factual_count = len(factual_clusters)
+        path_cluster_count = len(path_clusters)
+        test_failure_count = len(all_failures)
+        correlated_failures = meta_count + factual_count + path_cluster_count + test_failure_count
+
+        results["summary"] = {
+            "raw_findings": len(results.get("all_findings", [])),
+            "test_failures": test_failure_count,
+            "meta_findings": meta_count,
+            "factual_clusters": factual_count,
+            "path_clusters": path_cluster_count,
+        }
+
         # Write results to JSON
         raw_dir.mkdir(parents=True, exist_ok=True)
         fce_path = raw_dir / "fce.json"
         fce_path.write_text(json.dumps(results, indent=2))
-        
-        # Count total failures/findings
-        failures_found = len(results.get("all_findings", []))
-        
+
+        failures_payload = {
+            "generated_at": datetime.now(UTC).isoformat(),
+            "meta_findings": meta_findings,
+            "factual_clusters": factual_clusters,
+            "path_clusters": path_clusters,
+            "test_failures": all_failures,
+        }
+        failures_path = raw_dir / "fce_failures.json"
+        failures_path.write_text(json.dumps(failures_payload, indent=2))
+
+        # Count total correlated failures
+        failures_found = correlated_failures
+
         # Return success structure
         return {
             "success": True,
             "failures_found": failures_found,
-            "output_files": [str(fce_path)],
+            "output_files": [str(fce_path), str(failures_path)],
             "results": results
         }
         

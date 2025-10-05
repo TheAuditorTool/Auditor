@@ -14,12 +14,7 @@ from .sql import (
     find_multi_tenant_issues
 )
 from .security.api_auth_analyze import find_apiauth_issues
-from .performance import (
-    find_queries_in_loops,
-    find_inefficient_string_concatenation,
-    find_expensive_operations_in_loops,
-    find_performance_issues
-)
+from .performance import find_performance_issues
 
 __all__ = [
     'find_hardcoded_secrets',
@@ -29,8 +24,6 @@ __all__ = [
     'find_all_xss_issues',
     'find_node_runtime_issues',
     'find_type_safety_issues',
-    'find_queries_in_loops',
-    'find_inefficient_string_concatenation',
-    'find_expensive_operations_in_loops',
+    'find_performance_issues',
     'find_apiauth_issues',
 ]

@@ -171,11 +171,14 @@ def summary(root, raw_dir, out):
     fce = load_json(raw_path / "fce.json")
     if fce:
         correlations = fce.get("correlations", {})
+        summary_block = fce.get("summary", {})
         audit_summary["metrics_by_phase"]["fce"] = {
-            "total_findings": len(fce.get("all_findings", [])),
-            "test_failures": len(fce.get("test_results", {}).get("failures", [])),
+            "raw_findings": summary_block.get("raw_findings", len(fce.get("all_findings", []))),
+            "test_failures": summary_block.get("test_failures", len(fce.get("test_results", {}).get("failures", []))),
+            "meta_findings": summary_block.get("meta_findings", len(correlations.get("meta_findings", []))),
+            "factual_clusters": summary_block.get("factual_clusters", len(correlations.get("factual_clusters", []))),
+            "path_clusters": summary_block.get("path_clusters", correlations.get("total_path_clusters", 0)),
             "hotspots_correlated": correlations.get("total_hotspots", 0),
-            "factual_clusters": len(correlations.get("factual_clusters", []))
         }
     
     # Calculate overall status based on severity counts
