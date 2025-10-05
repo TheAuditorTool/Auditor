@@ -75,6 +75,7 @@ METADATA = RuleMetadata(
 
     # JSX settings (for standard rules, always False)
     requires_jsx_pass=False,  # This rule uses STANDARD tables, not *_jsx
+    execution_scope='database',  # Use 'file' for per-file/AST rules
 
     # Optional: Target specific file patterns (include, not exclude)
     # target_file_patterns=['backend/', 'server/', 'api/']

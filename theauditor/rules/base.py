@@ -5,7 +5,7 @@ Created as part of the Great Refactor to eliminate signature chaos.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Callable, Union
+from typing import Any, Dict, List, Optional, Callable, Union, Literal
 from pathlib import Path
 from enum import Enum
 import logging
@@ -228,6 +228,8 @@ class RuleMetadata:
     target_extensions: Optional[List[str]] = None  # ['.py', '.js'] - ONLY these files
     exclude_patterns: Optional[List[str]] = None  # ['migrations/', 'test/'] - SKIP these
     target_file_patterns: Optional[List[str]] = None  # ['backend/', 'server/'] - INCLUDE these
+
+    execution_scope: Optional[Literal['database', 'file']] = None  # Orchestrator scope hint ('database' runs once, 'file' per file)
 
     # JSX-specific settings
     requires_jsx_pass: bool = False  # True = query *_jsx tables instead of standard tables

@@ -48,6 +48,7 @@ class RuleInfo:
     param_count: int = 0
     param_names: List[str] = field(default_factory=list)
     rule_type: str = "standalone"  # standalone, discovery, taint-dependent
+    execution_scope: str = "database"
 
 
 @dataclass
@@ -142,7 +143,7 @@ class RulesOrchestrator:
                         if name.startswith('find_'):
                             # Check if function is defined in this module (not imported)
                             if obj.__module__ == module_name:
-                                rule_info = self._analyze_rule(name, obj, module_name, category)
+                                rule_info = self._analyze_rule(name, obj, module, module_name, category)
                                 rules_by_category[category].append(rule_info)
                                 
                                 if self._debug:
@@ -176,7 +177,7 @@ class RulesOrchestrator:
                 for name, obj in inspect.getmembers(module, inspect.isfunction):
                     if name.startswith('find_'):
                         if obj.__module__ == module_name:
-                            rule_info = self._analyze_rule(name, obj, module_name, category)
+                            rule_info = self._analyze_rule(name, obj, module, module_name, category)
                             rules_by_category[category].append(rule_info)
                             
             except ImportError:
@@ -187,76 +188,87 @@ class RulesOrchestrator:
         
         return rules_by_category
     
-    def _analyze_rule(self, name: str, func: Callable, module: str, category: str) -> RuleInfo:
+    def _analyze_rule(self, name: str, func: Callable, module_obj: Any, module_name: str, category: str) -> RuleInfo:
         """Analyze a rule function to determine its requirements.
-        
-        Now detects standardized vs legacy rules for dual-mode support.
-        
+
         Args:
             name: Function name
             func: The function object
-            module: Module name
+            module_obj: Imported module containing the rule
+            module_name: Module name string
             category: Category name
-            
+
         Returns:
             RuleInfo object with metadata about the rule
         """
         sig = inspect.signature(func)
         params = list(sig.parameters.keys())
-        
+        metadata = getattr(module_obj, 'METADATA', None)
+
         # Check if this is a standardized rule (Phase 1 addition)
         is_standardized = False
         if STANDARD_CONTRACTS_AVAILABLE:
             is_standardized = validate_rule_signature(func)
-        
+
+        execution_scope_default = 'database' if is_standardized else 'file'
+        execution_scope = execution_scope_default
+        if metadata is not None:
+            execution_scope = getattr(metadata, 'execution_scope', execution_scope_default) or execution_scope_default
+
+        if execution_scope not in {'database', 'file'}:
+            execution_scope = execution_scope_default
+
         if is_standardized:
-            # New standardized rule - simple case
             if self._debug:
                 print(f"[ORCHESTRATOR] Found STANDARDIZED rule: {category}/{name}")
-            
+
+            requires_db = execution_scope == 'database'
+            requires_file = execution_scope == 'file'
+            requires_content = execution_scope == 'file'
+
             return RuleInfo(
                 name=name,
-                module=module,
+                module=module_name,
                 function=func,
                 signature=sig,
                 category=category,
                 is_standardized=True,
-                # Standardized rules handle their own requirements
                 requires_ast=False,
-                requires_db=False,
-                requires_file=True,
-                requires_content=True,
+                requires_db=requires_db,
+                requires_file=requires_file,
+                requires_content=requires_content,
                 param_count=1,
                 param_names=['context'],
-                rule_type="standard"
+                rule_type='standard',
+                execution_scope=execution_scope
             )
-        
-        # Legacy rule - maintain compatibility
+
         if self._debug and STANDARD_CONTRACTS_AVAILABLE:
             print(f"[ORCHESTRATOR] Found LEGACY rule: {category}/{name} with params: {params}")
-        
-        # Determine what the rule needs based on parameter names
+
         requires_ast = any(p in ['ast', 'tree', 'ast_tree', 'python_ast'] for p in params)
-        requires_db = any(p in ['db_path', 'database', 'conn'] for p in params)
-        requires_file = any(p in ['file_path', 'filepath', 'path', 'filename'] for p in params)
-        requires_content = any(p in ['content', 'source', 'code', 'text'] for p in params)
-        
-        # CRITICAL: Auto-detect rule type based on parameters
-        rule_type = "standalone"  # Default
-        
-        # Discovery rules: register new sinks/sources to the registry
-        if 'taint_registry' in params:
-            rule_type = "discovery"
-        # Taint-dependent rules: use taint analysis results
-        elif 'taint_checker' in params or 'trace_taint' in params:
-            rule_type = "taint-dependent"
-        # Everything else is standalone (doesn't need taint infrastructure)
+        requires_db_param = any(p in ['db_path', 'database', 'conn'] for p in params)
+        requires_file_param = any(p in ['file_path', 'filepath', 'path', 'filename'] for p in params)
+        requires_content_param = any(p in ['content', 'source', 'code', 'text'] for p in params)
+
+        if execution_scope == 'database':
+            requires_db = True
+            requires_file = False
+            requires_content = False
         else:
-            rule_type = "standalone"
-        
+            requires_db = requires_db_param
+            requires_file = requires_file_param or execution_scope == 'file'
+            requires_content = requires_content_param
+
+        rule_type = 'standalone'
+        if 'taint_registry' in params:
+            rule_type = 'discovery'
+        elif 'taint_checker' in params or 'trace_taint' in params:
+            rule_type = 'taint-dependent'
+
         return RuleInfo(
             name=name,
-            module=module,
+            module=module_name,
             function=func,
             signature=sig,
             category=category,
@@ -266,9 +278,10 @@ class RulesOrchestrator:
             requires_content=requires_content,
             param_count=len(params),
             param_names=params,
-            rule_type=rule_type
+            rule_type=rule_type,
+            execution_scope=execution_scope
         )
-    
+
     def run_all_rules(self, context: Optional[RuleContext] = None) -> List[Dict[str, Any]]:
         """Execute ALL discovered rules with appropriate parameters.
         
@@ -295,6 +308,9 @@ class RulesOrchestrator:
                 print(f"[ORCHESTRATOR] Running {len(rules)} rules in category: {category}")
             
             for rule in rules:
+                if rule.execution_scope == 'database' and context.file_path:
+                    continue
+
                 try:
                     findings = self._execute_rule(rule, context)
                     if findings:
@@ -365,6 +381,9 @@ class RulesOrchestrator:
         # Filter rules that need file/AST/content
         for category, rules in self.rules.items():
             for rule in rules:
+                if rule.execution_scope == 'database':
+                    continue
+
                 # Skip database-only rules when processing individual files
                 if rule.requires_db and not (rule.requires_file or rule.requires_ast or rule.requires_content):
                     continue
@@ -554,15 +573,17 @@ class RulesOrchestrator:
         # Filter rules that need database
         for category, rules in self.rules.items():
             for rule in rules:
-                if rule.requires_db:
-                    try:
-                        rule_findings = self._execute_rule(rule, context)
-                        if rule_findings:
-                            findings.extend(rule_findings)
-                            
-                    except Exception as e:
-                        if self._debug:
-                            print(f"[ORCHESTRATOR] Database rule {rule.name} failed: {e}")
+                if rule.execution_scope != 'database':
+                    continue
+
+                try:
+                    rule_findings = self._execute_rule(rule, context)
+                    if rule_findings:
+                        findings.extend(rule_findings)
+
+                except Exception as e:
+                    if self._debug:
+                        print(f"[ORCHESTRATOR] Database rule {rule.name} failed: {e}")
         
         return findings
     
