@@ -7,7 +7,7 @@ NO AST TRAVERSAL. NO FILE I/O. Pure database queries.
 """
 
 import sqlite3
-from typing import List, FrozenSet
+from typing import List, FrozenSet, Set
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata

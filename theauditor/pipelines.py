@@ -767,13 +767,38 @@ def run_full_pipeline(
             # Get intelligent memory limit based on system resources
             memory_limit = get_recommended_memory_limit()
             log_output(f"[CACHE] Memory limit set to {memory_limit}MB based on system resources")
-            
+
             # Create cache with dynamic memory limit
             pipeline_cache = MemoryCache(max_memory_mb=memory_limit)
-            
-            # Preload database into cache
+
+            # Preload database into cache with framework-aware patterns
             conn = sqlite3.connect(str(db_path))
-            cache_loaded = pipeline_cache.preload(conn.cursor())
+            cursor = conn.cursor()
+
+            frameworks = []
+            try:
+                cursor.execute("SELECT name, version, language, path FROM frameworks")
+                for name, version, language, path in cursor.fetchall():
+                    frameworks.append({
+                        "framework": name or "",
+                        "version": version or "",
+                        "language": language or "",
+                        "path": path or "."
+                    })
+            except sqlite3.Error:
+                frameworks = []
+
+            from theauditor.taint.config import TaintConfig
+
+            taint_config = TaintConfig.from_defaults()
+            if frameworks:
+                taint_config = taint_config.with_frameworks(frameworks)
+
+            cache_loaded = pipeline_cache.preload(
+                cursor,
+                sources_dict=taint_config.sources,
+                sinks_dict=taint_config.sinks,
+            )
             conn.close()
             
             if cache_loaded:

@@ -381,7 +381,12 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     if use_memory_cache:
         if cache is None:  # Only create if not provided
             from .memory_cache import attempt_cache_preload
-            cache = attempt_cache_preload(cursor, memory_limit_mb)
+            cache = attempt_cache_preload(
+                cursor,
+                memory_limit_mb,
+                sources_dict=config.sources,
+                sinks_dict=config.sinks,
+            )
             if cache:
                 print(f"[TAINT] Memory cache enabled: {cache.get_memory_usage_mb():.1f}MB used", file=sys.stderr)
             else:

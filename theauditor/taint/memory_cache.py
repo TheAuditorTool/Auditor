@@ -95,11 +95,22 @@ class MemoryCache:
         self.precomputed_sinks = {}    # pattern -> [matching symbols]
         self.call_graph = {}            # func -> [called_funcs]
 
+        # Track active pattern maps for dynamic framework/registry support
+        self.sources_dict: Dict[str, List[str]] = {}
+        self.sinks_dict: Dict[str, List[str]] = {}
+        self._sources_signature: Optional[str] = None
+        self._sinks_signature: Optional[str] = None
+
         # Cache status
         self.is_loaded = False
         self.load_error = None
 
-    def preload(self, cursor: sqlite3.Cursor) -> bool:
+    def preload(
+        self,
+        cursor: sqlite3.Cursor,
+        sources_dict: Optional[Dict[str, List[str]]] = None,
+        sinks_dict: Optional[Dict[str, List[str]]] = None,
+    ) -> bool:
         """
         Load entire database into memory with multiple indexes.
 
@@ -363,7 +374,7 @@ class MemoryCache:
             self._precompute_call_graph()
 
             # Step 7: Pre-compute common patterns (NEW OPTIMIZATION!)
-            self._precompute_patterns()
+            self._update_pattern_sets(sources_dict, sinks_dict)
 
             print(f"[MEMORY] Total memory used: {self.current_memory / 1024 / 1024:.1f}MB", file=sys.stderr)
             print(f"[MEMORY] Indexes built: 19 primary (11 base + 8 specialized), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
@@ -417,15 +428,68 @@ class MemoryCache:
 
         print(f"[MEMORY] Pre-computed call graph for {len(self.call_graph)} functions", file=sys.stderr)
 
-    def _precompute_patterns(self):
-        """Pre-compute common taint source and sink patterns for TRUE O(1) lookup."""
+    def _clone_pattern_map(self, pattern_map: Optional[Dict[str, List[str]]]) -> Dict[str, List[str]]:
+        """Create a defensive copy of a pattern map."""
+        if not pattern_map:
+            return {}
+        return {category: list(patterns) for category, patterns in pattern_map.items()}
+
+    def _compute_signature(self, pattern_map: Dict[str, List[str]]) -> str:
+        """Create a stable signature for a pattern map (used for change detection)."""
+        normalized = {category: sorted(patterns) for category, patterns in pattern_map.items()}
+        return json.dumps(normalized, sort_keys=True)
+
+    def _update_pattern_sets(
+        self,
+        sources_dict: Optional[Dict[str, List[str]]],
+        sinks_dict: Optional[Dict[str, List[str]]]
+    ) -> None:
+        """Ensure in-memory pattern maps reflect the latest configuration."""
         from .sources import TAINT_SOURCES, SECURITY_SINKS
-        
+
+        updated = False
+
+        if sources_dict is None:
+            base_sources = self.sources_dict if self.sources_dict else TAINT_SOURCES
+        else:
+            base_sources = sources_dict
+
+        cloned_sources = self._clone_pattern_map(base_sources)
+        new_sources_sig = self._compute_signature(cloned_sources)
+        if self._sources_signature != new_sources_sig:
+            self.sources_dict = cloned_sources
+            self._sources_signature = new_sources_sig
+            updated = True
+
+        if sinks_dict is None:
+            base_sinks = self.sinks_dict if self.sinks_dict else SECURITY_SINKS
+        else:
+            base_sinks = sinks_dict
+
+        cloned_sinks = self._clone_pattern_map(base_sinks)
+        new_sinks_sig = self._compute_signature(cloned_sinks)
+        if self._sinks_signature != new_sinks_sig:
+            self.sinks_dict = cloned_sinks
+            self._sinks_signature = new_sinks_sig
+            updated = True
+
+        if updated:
+            self._precompute_patterns(self.sources_dict, self.sinks_dict)
+
+    def _precompute_patterns(
+        self,
+        sources_dict: Dict[str, List[str]],
+        sinks_dict: Dict[str, List[str]]
+    ) -> None:
+        """Pre-compute common taint source and sink patterns for TRUE O(1) lookup."""
+        self.precomputed_sources.clear()
+        self.precomputed_sinks.clear()
+
         # Pre-compute ALL taint source patterns
-        for category, patterns in TAINT_SOURCES.items():
+        for category, patterns in sources_dict.items():
             for pattern in patterns:
                 matching_symbols = []
-                
+
                 # CRITICAL FIX: Pre-compute all possible matches
                 if "." in pattern:
                     # Property access pattern - exact match first
@@ -451,7 +515,7 @@ class MemoryCache:
                 self.precomputed_sources[pattern] = matching_symbols
 
         # Pre-compute ALL security sink patterns (Phase 3.3: Multi-table strategy)
-        for category, patterns in SECURITY_SINKS.items():
+        for category, patterns in sinks_dict.items():
             for pattern in patterns:
                 matching_results = []
 
@@ -646,10 +710,11 @@ class MemoryCache:
         
         Returns same format as database.find_taint_sources for compatibility.
         """
-        from .sources import TAINT_SOURCES
-        
         sources = []
-        sources_to_use = sources_dict if sources_dict is not None else TAINT_SOURCES
+        # Ensure pattern maps are up-to-date with provided overrides
+        self._update_pattern_sets(sources_dict, None)
+
+        sources_to_use = sources_dict if sources_dict is not None else self.sources_dict
         
         # Combine all source patterns
         all_sources = []
@@ -727,10 +792,11 @@ class MemoryCache:
 
         Returns same format as database.find_security_sinks for compatibility.
         """
-        from .sources import SECURITY_SINKS
-
         sinks = []
-        sinks_to_use = sinks_dict if sinks_dict is not None else SECURITY_SINKS
+        # Ensure pattern maps are up-to-date with provided overrides
+        self._update_pattern_sets(None, sinks_dict)
+
+        sinks_to_use = sinks_dict if sinks_dict is not None else self.sinks_dict
 
         # Combine all sink patterns
         all_sinks = []
@@ -796,13 +862,23 @@ class MemoryCache:
         self.precomputed_sinks.clear()
         self.call_graph.clear()
 
+        self.sources_dict.clear()
+        self.sinks_dict.clear()
+        self._sources_signature = None
+        self._sinks_signature = None
+
         self.current_memory = 0
         self.is_loaded = False
 
         print("[MEMORY] Cache cleared", file=sys.stderr)
 
 
-def attempt_cache_preload(cursor: sqlite3.Cursor, memory_limit_mb: int = 4000) -> Optional[MemoryCache]:
+def attempt_cache_preload(
+    cursor: sqlite3.Cursor,
+    memory_limit_mb: int = 4000,
+    sources_dict: Optional[Dict[str, List[str]]] = None,
+    sinks_dict: Optional[Dict[str, List[str]]] = None,
+) -> Optional[MemoryCache]:
     """
     Attempt to preload database into memory cache with graceful fallback.
     
@@ -838,7 +914,7 @@ def attempt_cache_preload(cursor: sqlite3.Cursor, memory_limit_mb: int = 4000) -
         
         # Create and load cache
         cache = MemoryCache(max_memory_mb=memory_limit_mb)
-        if cache.preload(cursor):
+        if cache.preload(cursor, sources_dict=sources_dict, sinks_dict=sinks_dict):
             print(f"[MEMORY] Successfully loaded cache using {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
             return cache
         else:
