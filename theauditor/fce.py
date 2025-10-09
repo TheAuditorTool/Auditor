@@ -9,7 +9,7 @@ import subprocess
 from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from theauditor.test_frameworks import detect_test_framework
 from theauditor.correlations import CorrelationLoader
@@ -17,7 +17,7 @@ from theauditor.correlations import CorrelationLoader
 
 
 
-def scan_all_findings(db_path: str) -> list[dict[str, Any]]:
+def scan_all_findings(db_path: str) -> Tuple[List[dict[str, Any]], Dict[str, Any]]:
     """
     Scan ALL findings from database with line-level detail.
 
@@ -40,7 +40,14 @@ def scan_all_findings(db_path: str) -> list[dict[str, Any]]:
         - Gracefully handles old databases without findings_consolidated table
         - Returns empty list with warning if table missing (user should re-index)
     """
-    all_findings = []
+    all_findings: List[dict[str, Any]] = []
+    dedupe_stats: Dict[str, Any] = {
+        "total_rows": 0,
+        "unique_rows": 0,
+        "duplicates_collapsed": 0,
+        "top_duplicates": [],
+    }
+    seen_keys: Dict[Tuple[Any, ...], dict[str, Any]] = {}
 
     try:
         conn = sqlite3.connect(db_path)
@@ -80,9 +87,10 @@ def scan_all_findings(db_path: str) -> list[dict[str, Any]]:
                 file, line
         """)
 
-        # Convert rows to dicts (standardized format matching old JSON structure)
+        total_rows = 0
         for row in cursor.fetchall():
-            all_findings.append({
+            total_rows += 1
+            entry = {
                 'file': row['file'],
                 'line': row['line'],
                 'column': row['column'],
@@ -93,26 +101,81 @@ def scan_all_findings(db_path: str) -> list[dict[str, Any]]:
                 'category': row['category'],
                 'confidence': row['confidence'],
                 'code_snippet': row['code_snippet'],
-                'cwe': row['cwe']
-            })
+                'cwe': row['cwe'],
+                'duplicate_count': 1,
+            }
+
+            dedupe_key = (
+                entry['file'],
+                entry['line'],
+                entry['rule'],
+                entry['tool'],
+                entry['message'],
+            )
+
+            existing = seen_keys.get(dedupe_key)
+            if existing:
+                existing['duplicate_count'] += 1
+                continue
+
+            seen_keys[dedupe_key] = entry
+            all_findings.append(entry)
 
         conn.close()
 
+        dedupe_stats['total_rows'] = total_rows
+        dedupe_stats['unique_rows'] = len(all_findings)
+        dedupe_stats['duplicates_collapsed'] = total_rows - len(all_findings)
+
         if all_findings:
-            print(f"[FCE] Loaded {len(all_findings)} findings from database (database-first)")
+            if dedupe_stats['duplicates_collapsed'] > 0:
+                print(
+                    "[FCE] Loaded "
+                    f"{dedupe_stats['unique_rows']} unique findings from database "
+                    f"(collapsed {dedupe_stats['duplicates_collapsed']} duplicates)"
+                )
+            else:
+                print(
+                    f"[FCE] Loaded {len(all_findings)} findings from database (database-first)"
+                )
         else:
             print("[FCE] No findings in database - tools may need to run first")
 
-        return all_findings
+        if dedupe_stats['duplicates_collapsed'] > 0:
+            # Surface top duplicate clusters for diagnostics
+            top_duplicates = sorted(
+                (
+                    {
+                        'file': entry['file'],
+                        'line': entry['line'],
+                        'rule': entry['rule'],
+                        'tool': entry['tool'],
+                        'duplicate_count': entry['duplicate_count'],
+                    }
+                    for entry in all_findings
+                    if entry['duplicate_count'] > 1
+                ),
+                key=lambda item: item['duplicate_count'],
+                reverse=True,
+            )[:5]
+            dedupe_stats['top_duplicates'] = top_duplicates
+            if top_duplicates:
+                sample = ', '.join(
+                    f"{d['rule']}@{d['file']}:{d['line']}×{d['duplicate_count']}"
+                    for d in top_duplicates[:3]
+                )
+                print(f"[FCE] Top duplicate clusters: {sample}")
+
+        return all_findings, dedupe_stats
 
     except sqlite3.Error as e:
         print(f"[FCE] Database error: {e}")
         print("[FCE] Falling back to empty findings list")
-        return []
+        return [], dedupe_stats
     except Exception as e:
         print(f"[FCE] Unexpected error: {e}")
         print("[FCE] Falling back to empty findings list")
-        return []
+        return [], dedupe_stats
 
 
 def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str, str]:
@@ -441,11 +504,21 @@ def run_fce(
 
         # Step B: Phase 1 - Gather All Findings (Database-First)
         # Uses database query instead of JSON file reading for 100x performance
+        dedupe_stats = {}
         if Path(full_db_path).exists():
-            results["all_findings"] = scan_all_findings(full_db_path)
+            findings, dedupe_stats = scan_all_findings(full_db_path)
+            results["all_findings"] = findings
         else:
             print(f"[FCE] Warning: Database not found at {full_db_path}")
             print("[FCE] Run 'aud index' to create database")
+
+        if not dedupe_stats:
+            dedupe_stats = {
+                "total_rows": len(results.get("all_findings", [])),
+                "unique_rows": len(results.get("all_findings", [])),
+                "duplicates_collapsed": 0,
+                "top_duplicates": [],
+            }
         
         # Step B1: Load Graph Analysis Data (Hotspots, Cycles, Health)
         graph_data = {}
@@ -819,178 +892,358 @@ def run_fce(
         
         # Step F2: Generate Architectural Meta-Findings (NEW)
         # These correlations combine graph, CFG, and security findings for deeper insights
-        meta_findings = []
-        
+        meta_findings: List[dict[str, Any]] = []
+        meta_registry: Dict[Tuple[Any, ...], dict[str, Any]] = {}
+        meta_stats = {'attempted': 0, 'added': 0, 'merged': 0}
+
+        def register_meta(
+            entry: dict[str, Any],
+            key: Tuple[Any, ...],
+            *,
+            merge: Optional[Callable[[dict[str, Any], dict[str, Any]], None]] = None,
+            log_fn: Optional[Callable[[dict[str, Any]], str]] = None,
+        ) -> bool:
+            """Add a meta finding once and merge subsequent duplicates."""
+
+            entry.setdefault('supporting_count', entry.get('finding_count', 1))
+            meta_stats['attempted'] += 1
+            existing = meta_registry.get(key)
+            if existing:
+                meta_stats['merged'] += 1
+                if merge:
+                    merge(existing, entry)
+                else:
+                    existing['supporting_count'] = existing.get('supporting_count', 1) + entry.get('supporting_count', 1)
+                return False
+
+            meta_registry[key] = entry
+            meta_findings.append(entry)
+            meta_stats['added'] += 1
+            if log_fn:
+                print(log_fn(entry))
+            return True
+
         # 1. ARCHITECTURAL_RISK_ESCALATION - Critical issues in architectural hotspots
         if hotspot_files and consolidated_findings:
-            # Get top 5 hotspots sorted by connectivity/score
             top_hotspots = sorted(
                 hotspot_files.values(),
                 key=lambda x: x.get('score', x.get('total_connections', 0)),
-                reverse=True
+                reverse=True,
             )[:5]
 
             for hotspot in top_hotspots:
                 hotspot_file = hotspot.get('file') or hotspot.get('id')
                 if not hotspot_file or str(hotspot_file).startswith('external::'):
                     continue
-                # Find critical/high severity findings in this hotspot file
+
                 critical_in_hotspot = [
                     f for f in consolidated_findings
-                    if f.get('file') == hotspot_file and
-                    f.get('severity', '').lower() in ['critical', 'high']
+                    if f.get('file') == hotspot_file and f.get('severity', '').lower() in ['critical', 'high']
                 ]
-                
+
                 if critical_in_hotspot:
                     hotspot_score = hotspot.get('score', hotspot.get('total_connections', 0))
-                    meta_findings.append({
+                    hotspot_issue_count = sum(
+                        f.get('duplicate_count', 1) for f in critical_in_hotspot
+                    )
+                    entry = {
                         'type': 'ARCHITECTURAL_RISK_ESCALATION',
                         'file': hotspot_file,
                         'severity': 'critical',
-                        'message': f"Critical security issues in architectural hotspot (connectivity score: {hotspot_score:.2f})",
-                        'description': f"File {hotspot_file} is a key architectural component with {len(critical_in_hotspot)} critical/high issues. Changes here affect many other components.",
-                        'finding_count': len(critical_in_hotspot),
+                        'message': (
+                            f"Critical security issues in architectural hotspot "
+                            f"(connectivity score: {hotspot_score:.2f})"
+                        ),
+                        'description': (
+                            f"File {hotspot_file} is a key architectural component with "
+                            f"{hotspot_issue_count} critical/high issues. Changes here affect many other components."
+                        ),
+                        'finding_count': hotspot_issue_count,
                         'hotspot_in_degree': hotspot.get('in_degree', 0),
                         'hotspot_out_degree': hotspot.get('out_degree', 0),
                         'hotspot_total_connections': hotspot.get('total_connections', hotspot_score),
                         'hotspot_centrality': hotspot.get('centrality', 0),
-                        'original_findings': critical_in_hotspot[:3]  # Sample of findings
-                    })
-                    print(f"[FCE] Meta-finding: Critical issues in hotspot {hotspot_file[:50]}")
-        
+                        'sample_findings': critical_in_hotspot[:3],
+                    }
+
+                    register_meta(
+                        entry,
+                        ('ARCHITECTURAL_RISK_ESCALATION', hotspot_file),
+                        log_fn=lambda e, hf=hotspot_file: (
+                            f"[FCE] Meta-finding: Critical issues in hotspot {hf[:50]}"
+                        ),
+                    )
+
         # 2. SYSTEMIC_DEBT_CLUSTER - Multiple issues in circular dependencies
         if cycles and consolidated_findings:
-            for i, cycle in enumerate(cycles[:5]):  # Analyze top 5 cycles
+            for i, cycle in enumerate(cycles[:5]):
                 cycle_files = set(cycle.get('nodes', []))
-                
-                # Find all findings in files that are part of this cycle
                 cycle_findings = [
                     f for f in consolidated_findings
                     if f.get('file') in cycle_files
                 ]
-                
-                # Only flag if there are significant issues in the cycle
-                if len(cycle_findings) >= 5:  # Threshold: 5+ issues
-                    severity_counts = {}
+
+                if len(cycle_findings) >= 5:
+                    severity_counts: Dict[str, int] = {}
                     for f in cycle_findings:
                         sev = f.get('severity', 'low').lower()
-                        severity_counts[sev] = severity_counts.get(sev, 0) + 1
-                    
-                    meta_findings.append({
+                        severity_counts[sev] = severity_counts.get(sev, 0) + f.get('duplicate_count', 1)
+
+                    total_cycle_findings = sum(
+                        f.get('duplicate_count', 1) for f in cycle_findings
+                    )
+                    entry = {
                         'type': 'SYSTEMIC_DEBT_CLUSTER',
                         'severity': 'high',
-                        'message': f"Circular dependency with {len(cycle_findings)} issues across {cycle.get('size', len(cycle_files))} files",
-                        'description': f"Dependency cycle #{i+1} contains multiple code issues, making refactoring risky and error-prone.",
+                        'message': (
+                            f"Circular dependency with {total_cycle_findings} issues across "
+                            f"{cycle.get('size', len(cycle_files))} files"
+                        ),
+                        'description': (
+                            f"Dependency cycle #{i + 1} contains multiple code issues, making refactoring risky and error-prone."
+                        ),
                         'cycle_size': cycle.get('size', len(cycle_files)),
-                        'finding_count': len(cycle_findings),
+                        'finding_count': total_cycle_findings,
                         'severity_breakdown': severity_counts,
-                        'cycle_files': list(cycle_files)[:10],  # First 10 files
-                        'sample_findings': cycle_findings[:3]  # Sample findings
-                    })
-                    print(f"[FCE] Meta-finding: Debt cluster in {cycle.get('size', 0)}-file dependency cycle")
-        
-        # 3. COMPLEXITY_RISK_CORRELATION - Security issues in complex functions
+                        'cycle_files': list(cycle_files)[:10],
+                        'sample_findings': cycle_findings[:3],
+                    }
+
+                    register_meta(
+                        entry,
+                        ('SYSTEMIC_DEBT_CLUSTER', tuple(sorted(cycle_files))),
+                        log_fn=lambda e, size=cycle.get('size', len(cycle_files)): (
+                            f"[FCE] Meta-finding: Debt cluster in {size}-file dependency cycle"
+                        ),
+                    )
+
+        # 3. COMPLEXITY_RISK_CORRELATION - Security issues in complex functions (aggregated)
+        complexity_buckets: Dict[Tuple[str, str], Dict[str, Any]] = {}
         if complex_functions and consolidated_findings:
             for finding in consolidated_findings:
-                # Focus on security-related findings (taint, patterns, etc.)
-                if finding.get('tool') in ['taint', 'taint-insights', 'patterns', 'bandit']:
-                    file_path = finding.get('file', '')
-                    line_num = finding.get('line', 0)
-                    
-                    # Check if this finding is in a complex function
-                    for func_key, func_data in complex_functions.items():
-                        # func_key format: "file:function_name"
-                        if (func_data.get('file') == file_path and 
-                            func_data.get('start_line', 0) <= line_num <= func_data.get('end_line', float('inf'))):
-                            
-                            complexity = func_data.get('complexity', 0)
-                            if complexity > 20:  # High complexity threshold
-                                meta_findings.append({
-                                    'type': 'COMPLEXITY_RISK_CORRELATION',
-                                    'file': file_path,
-                                    'line': line_num,
-                                    'function': func_data.get('function', 'unknown'),
-                                    'severity': 'high',
-                                    'message': f"Security issue in highly complex function (complexity: {complexity})",
-                                    'description': f"Function {func_data.get('function')} has cyclomatic complexity of {complexity}, making the {finding.get('rule', 'security issue')} harder to fix and verify.",
-                                    'complexity': complexity,
-                                    'has_loops': func_data.get('has_loops', False),
-                                    'block_count': func_data.get('block_count', 0),
-                                    'original_finding': finding
-                                })
-                                print(f"[FCE] Meta-finding: Security issue in complex function {func_data.get('function', 'unknown')[:30]}")
-                                break  # Found the function, no need to check others
-        
-        # 4. HIGH_CHURN_RISK_CORRELATION - High severity issues in volatile code (Temporal Dimension)
+                if finding.get('tool') not in ['taint', 'taint-insights', 'patterns', 'bandit']:
+                    continue
+
+                file_path = finding.get('file', '')
+                line_num = finding.get('line', 0)
+                for func_key, func_data in complex_functions.items():
+                    if func_data.get('file') != file_path:
+                        continue
+                    if not (func_data.get('start_line', 0) <= line_num <= func_data.get('end_line', float('inf'))):
+                        continue
+
+                    complexity = func_data.get('complexity', 0)
+                    if complexity <= 20:
+                        continue
+
+                    bucket_key = (file_path, func_data.get('function', 'unknown'))
+                    bucket = complexity_buckets.setdefault(
+                        bucket_key,
+                        {
+                            'file': file_path,
+                            'function': func_data.get('function', 'unknown'),
+                            'complexity': complexity,
+                            'has_loops': func_data.get('has_loops', False),
+                            'block_count': func_data.get('block_count', 0),
+                            'finding_count': 0,
+                            'distinct_rules': set(),
+                            'samples': [],
+                        },
+                    )
+
+                    bucket['finding_count'] += finding.get('duplicate_count', 1)
+                    bucket['distinct_rules'].add(finding.get('rule'))
+                    if len(bucket['samples']) < 3:
+                        bucket['samples'].append(finding)
+                    break
+
+            for (file_path, function_name), bucket in complexity_buckets.items():
+                entry = {
+                    'type': 'COMPLEXITY_RISK_CORRELATION',
+                    'file': file_path,
+                    'function': function_name,
+                    'severity': 'high',
+                    'message': (
+                        f"{bucket['finding_count']} security findings in highly complex function "
+                        f"(complexity: {bucket['complexity']})"
+                    ),
+                    'description': (
+                        f"Function {function_name} has cyclomatic complexity of {bucket['complexity']}, "
+                        "increasing remediation risk for the associated vulnerabilities."
+                    ),
+                    'complexity': bucket['complexity'],
+                    'has_loops': bucket['has_loops'],
+                    'block_count': bucket['block_count'],
+                    'finding_count': bucket['finding_count'],
+                    'distinct_rules': sorted(r for r in bucket['distinct_rules'] if r),
+                    'sample_findings': bucket['samples'],
+                }
+
+                register_meta(
+                    entry,
+                    ('COMPLEXITY_RISK_CORRELATION', file_path, function_name),
+                    log_fn=lambda e, fn=function_name: (
+                        f"[FCE] Meta-finding: Security issues in complex function {fn[:30]}"
+                    ),
+                )
+
+        # 4. HIGH_CHURN_RISK_CORRELATION - High severity issues in volatile code (aggregated)
         if churn_files and consolidated_findings:
-            # Calculate 90th percentile for churn (top 10% most active files)
             all_churns = [f.get('commits_90d', 0) for f in churn_files.values()]
             if all_churns:
                 all_churns_sorted = sorted(all_churns)
                 percentile_90_idx = int(len(all_churns_sorted) * 0.9)
-                percentile_90 = all_churns_sorted[percentile_90_idx] if percentile_90_idx < len(all_churns_sorted) else all_churns_sorted[-1]
-                
-                # Find high-severity issues in high-churn files
+                percentile_90 = (
+                    all_churns_sorted[percentile_90_idx]
+                    if percentile_90_idx < len(all_churns_sorted)
+                    else all_churns_sorted[-1]
+                )
+
+                churn_buckets: Dict[str, Dict[str, Any]] = {}
                 for finding in consolidated_findings:
-                    if finding.get('severity', '').lower() in ['critical', 'high']:
-                        file_path = finding.get('file', '')
-                        file_churn = churn_files.get(file_path, {})
-                        
-                        commits_90d = file_churn.get('commits_90d', 0)
-                        if commits_90d >= percentile_90 and commits_90d > 0:  # Must be in top 10% AND have commits
-                            meta_findings.append({
-                                'type': 'HIGH_CHURN_RISK_CORRELATION',
-                                'file': file_path,
-                                'line': finding.get('line', 0),
-                                'severity': 'critical',  # Escalate severity due to volatility
-                                'message': f"High-severity issue in volatile file ({commits_90d} commits in 90 days)",
-                                'description': f"File modified by {file_churn.get('unique_authors', 0)} authors, last modified {file_churn.get('days_since_modified', 0)} days ago. High churn increases regression risk.",
-                                'commits_90d': commits_90d,
-                                'unique_authors': file_churn.get('unique_authors', 0),
-                                'days_since_modified': file_churn.get('days_since_modified', 0),
-                                'percentile': 90,
-                                'original_finding': finding
-                            })
-                            print(f"[FCE] Meta-finding: High churn risk in {file_path[:50]} ({commits_90d} commits)")
-        
-        # 5. POORLY_TESTED_VULNERABILITY - Security issues in code with low test coverage (Quality Dimension)
-        if coverage_files and consolidated_findings:
-            for finding in consolidated_findings:
-                # Focus on security-related findings (taint, patterns, security scanners)
-                if finding.get('tool') in ['taint', 'taint-insights', 'patterns', 'bandit', 'semgrep', 'docker']:
+                    if finding.get('severity', '').lower() not in ['critical', 'high']:
+                        continue
+
                     file_path = finding.get('file', '')
-                    file_coverage = coverage_files.get(file_path, {})
-                    
-                    # Default to 100% if no coverage data (assume tested unless proven otherwise)
-                    coverage_pct = file_coverage.get('line_coverage_percent', 100)
-                    
-                    if coverage_pct < 50:  # Less than 50% coverage threshold
-                        # Check if the specific line is uncovered (if we have that data)
-                        line_num = finding.get('line', 0)
-                        uncovered_lines = file_coverage.get('uncovered_lines', [])
-                        is_line_uncovered = line_num in uncovered_lines if uncovered_lines else True
-                        
-                        meta_findings.append({
-                            'type': 'POORLY_TESTED_VULNERABILITY',
+                    file_churn = churn_files.get(file_path)
+                    if not file_churn:
+                        continue
+
+                    commits_90d = file_churn.get('commits_90d', 0)
+                    if commits_90d < percentile_90 or commits_90d == 0:
+                        continue
+
+                    bucket = churn_buckets.setdefault(
+                        file_path,
+                        {
                             'file': file_path,
-                            'line': line_num,
-                            'severity': 'high',  # High severity due to lack of test safety net
-                            'message': f"Security issue in poorly tested code ({coverage_pct:.1f}% coverage)",
-                            'description': f"Vulnerability in {'untested' if is_line_uncovered else 'partially tested'} code. Fixes cannot be safely validated without adequate test coverage.",
-                            'line_coverage_percent': coverage_pct,
-                            'is_line_uncovered': is_line_uncovered,
-                            'original_finding': finding
-                        })
-                        print(f"[FCE] Meta-finding: Untested vulnerability in {file_path[:50]} ({coverage_pct:.1f}% coverage)")
+                            'commits_90d': commits_90d,
+                            'unique_authors': file_churn.get('unique_authors', 0),
+                            'days_since_modified': file_churn.get('days_since_modified', 0),
+                            'finding_count': 0,
+                            'distinct_rules': set(),
+                            'sample_findings': [],
+                        },
+                    )
+
+                    bucket['finding_count'] += finding.get('duplicate_count', 1)
+                    bucket['distinct_rules'].add(finding.get('rule'))
+                    if len(bucket['sample_findings']) < 3:
+                        bucket['sample_findings'].append(finding)
+
+                for file_path, bucket in churn_buckets.items():
+                    entry = {
+                        'type': 'HIGH_CHURN_RISK_CORRELATION',
+                        'file': file_path,
+                        'severity': 'critical',
+                        'message': (
+                            f"{bucket['finding_count']} high-severity findings in volatile file "
+                            f"({bucket['commits_90d']} commits in 90 days)"
+                        ),
+                        'description': (
+                            f"File touched by {bucket['unique_authors']} authors and last modified "
+                            f"{bucket['days_since_modified']} days ago. High churn increases regression risk."
+                        ),
+                        'commits_90d': bucket['commits_90d'],
+                        'unique_authors': bucket['unique_authors'],
+                        'days_since_modified': bucket['days_since_modified'],
+                        'percentile': 90,
+                        'finding_count': bucket['finding_count'],
+                        'distinct_rules': sorted(r for r in bucket['distinct_rules'] if r),
+                        'sample_findings': bucket['sample_findings'],
+                    }
+
+                    register_meta(
+                        entry,
+                        ('HIGH_CHURN_RISK_CORRELATION', file_path),
+                        log_fn=lambda e, fp=file_path, commits=bucket['commits_90d']: (
+                            f"[FCE] Meta-finding: High churn risk in {fp[:50]} ({commits} commits)"
+                        ),
+                    )
+
+        # 5. POORLY_TESTED_VULNERABILITY - Security issues in code with low test coverage
+        if coverage_files and consolidated_findings:
+            coverage_buckets: Dict[Tuple[str, int], Dict[str, Any]] = {}
+            for finding in consolidated_findings:
+                if finding.get('tool') not in ['taint', 'taint-insights', 'patterns', 'bandit', 'semgrep', 'docker']:
+                    continue
+
+                file_path = finding.get('file', '')
+                file_coverage = coverage_files.get(file_path)
+                if not file_coverage:
+                    continue
+
+                coverage_pct = file_coverage.get('line_coverage_percent', 100)
+                if coverage_pct >= 50:
+                    continue
+
+                line_num = finding.get('line', 0)
+                uncovered_lines = file_coverage.get('uncovered_lines', [])
+                is_line_uncovered = line_num in uncovered_lines if uncovered_lines else True
+
+                bucket_key = (file_path, line_num)
+                bucket = coverage_buckets.setdefault(
+                    bucket_key,
+                    {
+                        'file': file_path,
+                        'line': line_num,
+                        'coverage_pct': coverage_pct,
+                        'is_line_uncovered': is_line_uncovered,
+                        'finding_count': 0,
+                        'distinct_rules': set(),
+                        'sample_findings': [],
+                    },
+                )
+
+                bucket['finding_count'] += finding.get('duplicate_count', 1)
+                bucket['distinct_rules'].add(finding.get('rule'))
+                if len(bucket['sample_findings']) < 3:
+                    bucket['sample_findings'].append(finding)
+
+            for (file_path, line_num), bucket in coverage_buckets.items():
+                entry = {
+                    'type': 'POORLY_TESTED_VULNERABILITY',
+                    'file': file_path,
+                    'line': line_num,
+                    'severity': 'high',
+                    'message': (
+                        f"{bucket['finding_count']} security findings in poorly tested code "
+                        f"({bucket['coverage_pct']:.1f}% coverage)"
+                    ),
+                    'description': (
+                        "Vulnerability resides in "
+                        f"{'untested' if bucket['is_line_uncovered'] else 'partially tested'} code. "
+                        "Fixes cannot be safely validated without adequate coverage."
+                    ),
+                    'line_coverage_percent': bucket['coverage_pct'],
+                    'is_line_uncovered': bucket['is_line_uncovered'],
+                    'finding_count': bucket['finding_count'],
+                    'distinct_rules': sorted(r for r in bucket['distinct_rules'] if r),
+                    'sample_findings': bucket['sample_findings'],
+                }
+
+                register_meta(
+                    entry,
+                    ('POORLY_TESTED_VULNERABILITY', file_path, line_num),
+                    log_fn=lambda e, fp=file_path, pct=bucket['coverage_pct']: (
+                        f"[FCE] Meta-finding: Untested vulnerability in {fp[:50]} ({pct:.1f}% coverage)"
+                    ),
+                )
         
-        # Store meta-findings
+        # Store meta-findings and correlation statistics
         results["correlations"]["meta_findings"] = meta_findings
         results["correlations"]["total_meta_findings"] = len(meta_findings)
-        
+        results["correlations"]["meta_stats"] = {
+            **meta_stats,
+            "unique": len(meta_findings),
+        }
+
+        if meta_stats.get('merged'):
+            print(f"[FCE] Deduplicated {meta_stats['merged']} overlapping meta correlations")
+
         if meta_findings:
             print(f"[FCE] Generated {len(meta_findings)} architectural meta-findings")
-            # Log distribution of meta-finding types
-            type_counts = {}
+            type_counts: Dict[str, int] = {}
             for mf in meta_findings:
                 mf_type = mf.get('type', 'unknown')
                 type_counts[mf_type] = type_counts.get(mf_type, 0) + 1
@@ -1011,6 +1264,7 @@ def run_fce(
             "files_with_coverage_data": len(coverage_files),
             "average_coverage": coverage_data.get('average_coverage', 0) if coverage_data else 0
         }
+        results["correlations"]["finding_dedupe"] = dedupe_stats
         
         # Step G: Phase 5 - CFG Path-Based Correlation (Factual control flow relationships)
         path_clusters = []
@@ -1097,13 +1351,21 @@ def run_fce(
         test_failure_count = len(all_failures)
         correlated_failures = meta_count + factual_count + path_cluster_count + test_failure_count
 
+        unique_findings_count = len(results.get("all_findings", []))
         results["summary"] = {
-            "raw_findings": len(results.get("all_findings", [])),
+            "raw_rows": dedupe_stats.get("total_rows", unique_findings_count),
+            "unique_findings": unique_findings_count,
+            "duplicates_collapsed": dedupe_stats.get("duplicates_collapsed", 0),
             "test_failures": test_failure_count,
             "meta_findings": meta_count,
             "factual_clusters": factual_count,
             "path_clusters": path_cluster_count,
         }
+        # Backwards compatibility alias
+        results["summary"]["raw_findings"] = unique_findings_count
+        if dedupe_stats.get("top_duplicates"):
+            results["summary"]["top_duplicate_clusters"] = dedupe_stats["top_duplicates"]
+        results["summary"]["meta_dedupe"] = meta_stats
 
         # Write results to JSON
         raw_dir.mkdir(parents=True, exist_ok=True)

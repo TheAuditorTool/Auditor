@@ -20,7 +20,7 @@ Detects:
 """
 
 import sqlite3
-from typing import List, Set
+from typing import List, Optional, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -181,6 +181,21 @@ class InjectionAnalyzer:
 
         return self.findings
 
+    def _get_assignment_expr(self, file: str, variable: str, call_line: int) -> Optional[str]:
+        """Get the latest assignment expression for a variable before a call line."""
+        self.cursor.execute(
+            """
+            SELECT source_expr
+            FROM assignments
+            WHERE file = ? AND target_var = ? AND line <= ?
+            ORDER BY line DESC
+            LIMIT 1
+            """,
+            (file, variable, call_line)
+        )
+        row = self.cursor.fetchone()
+        return row[0] if row else None
+
     def _check_sql_injection(self):
         """Detect SQL injection vulnerabilities."""
         sql_placeholders = ','.join('?' * len(self.patterns.SQL_METHODS))
@@ -197,20 +212,27 @@ class InjectionAnalyzer:
             if not args:
                 continue
 
+            assignment_expr = None
+            arg_is_identifier = args.isidentifier()
+            if arg_is_identifier:
+                assignment_expr = self._get_assignment_expr(file, args, line)
+
+            expr_to_check = assignment_expr or args
+
             # Check for string formatting in SQL
-            has_formatting = any(fmt in args for fmt in self.patterns.STRING_FORMAT_PATTERNS)
-            has_concatenation = '+' in args and any(inp in args for inp in ['request.', 'params.', 'args.', 'user_'])
+            has_formatting = expr_to_check and any(fmt in expr_to_check for fmt in self.patterns.STRING_FORMAT_PATTERNS)
+            has_concatenation = expr_to_check and '+' in expr_to_check and any(inp in expr_to_check for inp in ['request.', 'params.', 'args.', 'user_'])
 
             # Check for safe parameterization
-            has_safe_params = any(safe in args for safe in self.patterns.SAFE_PATTERNS)
+            has_safe_params = expr_to_check and any(safe in expr_to_check for safe in self.patterns.SAFE_PATTERNS)
 
-            if (has_formatting or has_concatenation) and not has_safe_params:
+            if expr_to_check and (has_formatting or has_concatenation) and not has_safe_params:
                 # Determine severity and confidence
                 severity = Severity.CRITICAL
                 confidence = Confidence.HIGH
 
                 # Check if SQL keywords present (higher confidence)
-                has_sql_keywords = any(kw.lower() in args.lower() for kw in self.patterns.SQL_KEYWORDS)
+                has_sql_keywords = any(kw.lower() in expr_to_check.lower() for kw in self.patterns.SQL_KEYWORDS)
                 if not has_sql_keywords:
                     confidence = Confidence.MEDIUM
 
@@ -226,7 +248,14 @@ class InjectionAnalyzer:
                 ))
 
             # Check for f-strings in SQL
-            if 'f"' in args or "f'" in args:
+            is_fstring = False
+            if expr_to_check:
+                if 'f"' in expr_to_check or "f'" in expr_to_check:
+                    is_fstring = True
+                elif arg_is_identifier and assignment_expr and ('f"' in assignment_expr or "f'" in assignment_expr):
+                    is_fstring = True
+
+            if is_fstring:
                 self.findings.append(StandardFinding(
                     rule_name='python-sql-fstring',
                     message=f'F-string used in SQL query - high injection risk',

@@ -7,8 +7,7 @@ Focuses on render optimization and performance bottlenecks.
 """
 
 import sqlite3
-import json
-from typing import List, Set, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -98,7 +97,6 @@ class ReactRenderAnalyzer:
         self.context = context
         self.patterns = ReactRenderPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -113,14 +111,7 @@ class ReactRenderAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables
-            self._check_table_availability()
-
-            # Need at least function_call_args for analysis
-            if 'function_call_args' not in self.existing_tables:
-                return []
-
-            # Run all rendering checks
+            # Run all rendering checks (schema contract guarantees tables exist)
             self._check_expensive_operations()
             self._check_array_mutations()
             self._check_inline_functions()
@@ -137,22 +128,8 @@ class ReactRenderAnalyzer:
 
         return self.findings
 
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'react_components', 'function_call_args', 'symbols',
-                'assignments', 'react_hooks'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
     def _check_expensive_operations(self):
         """Check for expensive operations in render methods."""
-        if 'react_components' not in self.existing_tables:
-            return
-
         for operation in self.patterns.EXPENSIVE_OPERATIONS:
             self.cursor.execute("""
                 SELECT DISTINCT f.file, f.line, f.callee_function,
@@ -320,9 +297,6 @@ class ReactRenderAnalyzer:
 
     def _check_derived_state(self):
         """Check for unnecessary derived state."""
-        if 'react_hooks' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT h1.file, h1.line, h1.component_name
             FROM react_hooks h1
@@ -356,9 +330,6 @@ class ReactRenderAnalyzer:
 
     def _check_anonymous_functions_in_props(self):
         """Check for anonymous functions passed as props."""
-        if 'react_components' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT f.file, f.line, f.argument_expr, c.name
             FROM function_call_args f
@@ -389,9 +360,6 @@ class ReactRenderAnalyzer:
 
     def _check_excessive_renders(self):
         """Check for components that might render too often."""
-        if 'react_hooks' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT file, component_name,
                    COUNT(CASE WHEN hook_name = 'useState' THEN 1 END) as state_count,

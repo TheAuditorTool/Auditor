@@ -8,7 +8,7 @@ Focuses on state complexity, prop drilling, and state management best practices.
 
 import sqlite3
 import json
-from typing import List, Set, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -94,7 +94,6 @@ class ReactStateAnalyzer:
         self.context = context
         self.patterns = ReactStatePatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -109,14 +108,7 @@ class ReactStateAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables
-            self._check_table_availability()
-
-            # Need react_hooks for state analysis
-            if 'react_hooks' not in self.existing_tables:
-                return []
-
-            # Run all state management checks
+            # Run all state management checks (schema contract guarantees tables exist)
             self._check_excessive_usestate()
             self._check_missing_usereducer()
             self._check_state_naming()
@@ -132,17 +124,6 @@ class ReactStateAnalyzer:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'react_hooks', 'react_components', 'variable_usage',
-                'assignments', 'function_call_args'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
 
     def _check_excessive_usestate(self):
         """Check for components with too many useState hooks."""
@@ -206,9 +187,6 @@ class ReactStateAnalyzer:
 
     def _check_state_naming(self):
         """Check for poor state variable naming."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT a.file, a.line, a.target_var, a.source_expr
             FROM assignments a
@@ -240,9 +218,6 @@ class ReactStateAnalyzer:
 
     def _check_multiple_state_updates(self):
         """Check for multiple state updates in single function."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT file, caller_function,
                    COUNT(*) as update_count,
@@ -273,9 +248,6 @@ class ReactStateAnalyzer:
 
     def _check_prop_drilling(self):
         """Check for potential prop drilling patterns."""
-        if 'react_components' not in self.existing_tables:
-            return
-
         for prop in self.patterns.DRILL_PROPS:
             self.cursor.execute("""
                 SELECT file, COUNT(DISTINCT name) as component_count
@@ -302,9 +274,6 @@ class ReactStateAnalyzer:
 
     def _check_global_state_candidates(self):
         """Check for state that should be global."""
-        if 'variable_usage' not in self.existing_tables:
-            return
-
         for pattern in self.patterns.CONTEXT_PATTERNS:
             self.cursor.execute("""
                 SELECT variable_name,
@@ -430,9 +399,6 @@ class ReactStateAnalyzer:
 
     def _check_state_batching(self):
         """Check for state updates that should be batched."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT f1.file, f1.line, f1.callee_function,
                    f2.callee_function as next_setter

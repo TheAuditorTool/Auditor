@@ -12,10 +12,10 @@ This implementation:
 - Maps all findings to CWE IDs
 """
 
-import sqlite3
 import re
-from typing import List, Set, Dict, Optional, Tuple
+import sqlite3
 from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 from theauditor.rules.base import (
     StandardRuleContext,
@@ -96,16 +96,10 @@ STRONG_HASH_ALGORITHMS = frozenset([
 ])
 
 # Weak encryption algorithms
-WEAK_ENCRYPTION_ALGORITHMS = frozenset([
-    'des', 'DES',
-    'rc4', 'RC4', 'arcfour', 'ARCFOUR',
-    'rc2', 'RC2',
-    '3des', '3DES', 'tripledes', 'TripleDES',
-    'blowfish', 'Blowfish',
-    'cast', 'CAST',
-    'idea', 'IDEA',
-    'tea', 'TEA',
-    'xtea', 'XTEA'
+WEAK_ENCRYPTION_ALIASES = frozenset([
+    'des', '3des', 'tripledes', 'des-ede3', 'des-ede', 'des3',
+    'rc4', 'arcfour', 'rc2',
+    'blowfish', 'cast', 'cast5', 'idea', 'tea', 'xtea'
 ])
 
 # Strong encryption algorithms
@@ -449,33 +443,73 @@ def _find_weak_hash_algorithms(cursor, existing_tables: Set[str]) -> List[Standa
 # PATTERN 3: Weak Encryption Algorithms
 # ============================================================================
 
+def _contains_alias(text: Optional[str], alias: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lower()
+    if alias in {'des', 'des3', 'tripledes', 'des-ede3', 'des-ede'}:
+        return any(
+            keyword in lowered for keyword in (
+                'des(', 'des3(', 'tripledes(', 'des-ede3(', 'des-ede('
+            )
+        )
+    pattern = rf'(?<![a-z0-9_]){re.escape(alias.lower())}(?![a-z0-9_])'
+    return re.search(pattern, lowered) is not None
+
+
 def _find_weak_encryption_algorithms(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
     """Find usage of weak/broken encryption algorithms."""
-    findings = []
+    findings: List[StandardFinding] = []
 
-    for weak_enc in WEAK_ENCRYPTION_ALGORITHMS:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-               OR argument_expr LIKE ?
-            ORDER BY file, line
-        """, [f'%{weak_enc}%', f'%{weak_enc}%'])
+    if 'function_call_args' not in existing_tables:
+        return findings
 
-        for file, line, callee, args in cursor.fetchall():
-            algo_upper = weak_enc.upper()
+    cursor.execute("""
+        SELECT DISTINCT file, line, callee_function, argument_expr
+        FROM function_call_args
+        ORDER BY file, line
+    """)
 
-            findings.append(StandardFinding(
-                rule_name='crypto-weak-encryption',
-                message=f'Weak encryption algorithm {algo_upper} detected',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                confidence=Confidence.HIGH,
-                category='security',
-                snippet=f'{callee}(...{weak_enc}...)',
-                cwe_id='CWE-327'
-            ))
+    seen: Set[Tuple[str, int, str]] = set()
+
+    for file, line, callee, argument in cursor.fetchall():
+        callee_lower = (callee or '').lower()
+        argument_lower = (argument or '').lower()
+
+        matched_algos = set()
+
+        for alias in WEAK_ENCRYPTION_ALIASES:
+            if _contains_alias(callee_lower, alias) or _contains_alias(argument_lower, alias):
+                matched_algos.add(alias)
+
+        if not matched_algos:
+            continue
+
+        algo_names = sorted({alias.upper() for alias in matched_algos})
+        signature_key = (
+            file,
+            line,
+            callee or '|'.join(algo_names)
+        )
+
+        if signature_key in seen:
+            continue
+        seen.add(signature_key)
+
+        algo_label = ', '.join(algo_names)
+        snippet_source = callee or argument or ''
+
+        findings.append(StandardFinding(
+            rule_name='crypto-weak-encryption',
+            message=f'Weak encryption algorithm {algo_label} detected',
+            file_path=file,
+            line=line,
+            severity=Severity.CRITICAL,
+            confidence=Confidence.MEDIUM,
+            category='security',
+            snippet=snippet_source[:120],
+            cwe_id='CWE-327'
+        ))
 
     return findings
 
