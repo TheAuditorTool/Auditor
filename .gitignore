@@ -35,9 +35,6 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # Unit test / coverage reports
-tests/
-scripts/
-docs/
 htmlcov/
 .tox/
 .nox/
@@ -130,7 +127,4 @@ ehthumbs_vista.db
 # Linux
 .directory
 .Trash-*
-# Sensitive project files - keep local only
-sast_*.md
-*[Pp]lant[Ff]low*
-*[Pp]lant[Pp]ro*
+
