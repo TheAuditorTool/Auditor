@@ -9,7 +9,7 @@ cleanup detection, and component boundaries from the database.
 
 import sqlite3
 import json
-from typing import List, Set, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -96,7 +96,6 @@ class ReactHooksAnalyzer:
         self.context = context
         self.patterns = ReactHooksPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -111,14 +110,7 @@ class ReactHooksAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables
-            self._check_table_availability()
-
-            # Must have react_hooks table for any analysis
-            if 'react_hooks' not in self.existing_tables:
-                return []
-
-            # Run all checks with REAL DATA
+            # Run all checks (schema contract guarantees tables exist)
             self._check_missing_dependencies()
             self._check_memory_leaks()
             self._check_conditional_hooks()
@@ -134,17 +126,6 @@ class ReactHooksAnalyzer:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'react_hooks', 'react_components', 'variable_usage',
-                'function_call_args', 'cfg_blocks', 'function_returns'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
 
     def _check_missing_dependencies(self):
         """Check for missing dependencies in hooks - NOW WITH REAL DATA!"""
@@ -252,9 +233,6 @@ class ReactHooksAnalyzer:
 
     def _check_conditional_hooks(self):
         """Check for hooks called conditionally - USING CFG DATA!"""
-        if 'cfg_blocks' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT DISTINCT h.file, h.line, h.hook_name, h.component_name,
                    b.block_type, b.condition_expr
@@ -400,9 +378,6 @@ class ReactHooksAnalyzer:
 
     def _check_hook_order(self):
         """Check for hooks called in inconsistent order."""
-        if 'react_components' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT h.file, h.component_name, h.hook_name, h.line
             FROM react_hooks h

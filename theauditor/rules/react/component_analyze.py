@@ -4,16 +4,15 @@ Detects React component anti-patterns and performance issues using data from
 react_components, react_hooks, and function_call_args tables.
 
 Focuses on component structure, organization, and best practices.
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
+Schema Contract Compliance: v1.1+ (Fail-Fast, direct schema-bound queries)
 """
 
 import sqlite3
 import json
-from typing import List, Set, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -89,7 +88,6 @@ class ReactComponentAnalyzer:
         self.context = context
         self.patterns = ReactComponentPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -104,14 +102,7 @@ class ReactComponentAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables
-            self._check_table_availability()
-
-            # Must have react_components table for analysis
-            if 'react_components' not in self.existing_tables:
-                return []
-
-            # Run all component checks
+            # Run all component checks (schema contract guarantees tables exist)
             self._check_large_components()
             self._check_multiple_components_per_file()
             self._check_missing_memoization()
@@ -127,17 +118,6 @@ class ReactComponentAnalyzer:
             conn.close()
 
         return self.findings
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'react_components', 'react_hooks', 'function_call_args',
-                'variable_usage', 'symbols'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
 
     def _check_large_components(self):
         """Check for components that are too large."""
@@ -193,9 +173,6 @@ class ReactComponentAnalyzer:
 
     def _check_missing_memoization(self):
         """Check for components that should be memoized but aren't."""
-        if 'react_hooks' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT c.file, c.name, c.type, c.start_line,
                    c.hooks_used, c.props_type
@@ -360,9 +337,6 @@ class ReactComponentAnalyzer:
 
     def _check_excessive_hooks(self):
         """Check for components with too many hooks."""
-        if 'react_hooks' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT h.file, h.component_name,
                    COUNT(*) as hook_count,

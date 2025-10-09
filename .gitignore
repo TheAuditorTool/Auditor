@@ -68,6 +68,7 @@ venv.bak/
 .DS_Store
 
 # Project specific
+docs/
 .pf/
 .claude/
 audit/

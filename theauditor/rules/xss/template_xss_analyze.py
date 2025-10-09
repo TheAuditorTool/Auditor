@@ -38,7 +38,7 @@ TEMPLATE_ENGINES: Dict[str, Dict[str, FrozenSet[str]]] = {
     },
     'mako': {
         'safe': frozenset(['${}']),
-        'unsafe': frozenset(['${{}}', 'n', '|n', 'disable_unicode=True'])
+        'unsafe': frozenset(['|n', '|h', 'disable_unicode=True'])  # Explicit filter patterns only
     },
 
     # JavaScript template engines
@@ -198,6 +198,14 @@ def _check_unsafe_template_syntax(conn) -> List[StandardFinding]:
                     has_user_input = any(src in source for src in TEMPLATE_INPUT_SOURCES)
 
                     if has_user_input:
+                        normalized = (source or '').replace(' ', '')
+                        if engine == 'mako' and unsafe_pattern.lower() == '|n':
+                            if '|n' not in normalized:
+                                continue
+                        if engine == 'mako' and unsafe_pattern.lower() == '|h':
+                            if '|h' not in normalized:
+                                continue
+
                         findings.append(StandardFinding(
                             rule_name=f'{engine}-unsafe-syntax',
                             message=f'XSS: {engine} unsafe pattern "{unsafe_pattern}" with user input',

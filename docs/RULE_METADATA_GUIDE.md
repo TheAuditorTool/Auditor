@@ -46,11 +46,16 @@ METADATA = RuleMetadata(
     # Optional: Include specific patterns (alternative to exclude)
     # target_file_patterns=['backend/', 'server/'],
 
+    # Execution scope - 'database' runs once, 'file' runs on every file
+    execution_scope='database',
+
     # JSX settings (CRITICAL for React/Vue rules)
     requires_jsx_pass=False,  # True = query *_jsx tables, not standard tables
     jsx_pass_mode='preserved', # Only if requires_jsx_pass=True
 )
 ```
+
+> **Execution Scope Tip:** Use `'database'` (default) for repository-wide table scans. Switch to `'file'` only when a rule needs per-file AST or content context (e.g., Vue reactivity analysis). The orchestrator will automatically deduplicate database-scoped rules so FCE stays quiet.
 
 ---
 
