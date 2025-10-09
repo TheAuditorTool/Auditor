@@ -58,6 +58,44 @@ METADATA = RuleMetadata(
 # FROZENSETS FOR O(1) PATTERN LOOKUPS
 # ============================================================================
 
+# JWT signing functions (actual function names from indexer)
+JWT_SIGN_FUNCTIONS = frozenset([
+    'jwt.sign',
+    'jsonwebtoken.sign',
+    'jose.JWT.sign',
+    'jose.sign',
+    'JWT.sign',
+    'jwt.encode',
+    'PyJWT.encode',
+    'pyjwt.encode',
+    'njwt.create',
+    'jws.sign'
+])
+
+# JWT verification functions
+JWT_VERIFY_FUNCTIONS = frozenset([
+    'jwt.verify',
+    'jsonwebtoken.verify',
+    'jose.JWT.verify',
+    'jose.verify',
+    'JWT.verify',
+    'jwt.decode',
+    'PyJWT.decode',
+    'pyjwt.decode',
+    'njwt.verify',
+    'jws.verify'
+])
+
+# JWT decode functions (no verification)
+JWT_DECODE_FUNCTIONS = frozenset([
+    'jwt.decode',
+    'jsonwebtoken.decode',
+    'jose.JWT.decode',
+    'JWT.decode',
+    'PyJWT.decode',
+    'pyjwt.decode'
+])
+
 # Sensitive data that should never be in JWT payloads
 JWT_SENSITIVE_FIELDS = frozenset([
     'password',
@@ -124,11 +162,20 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
 
     try:
         # ========================================================
-        # CHECK 1: Hardcoded JWT Secrets (CRITICAL) - CORRECTED
+        # CHECK 1: Hardcoded JWT Secrets (CRITICAL)
         # ========================================================
-        # Query the categorized JWT function names created by the indexer.
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""callee_function = 'JWT_SIGN_HARDCODED'
+        # Build WHERE clause for actual JWT signing function names
+        jwt_sign_conditions = ' OR '.join([f"callee_function = '{func}'" for func in JWT_SIGN_FUNCTIONS])
+
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr', 'argument_index'],
+                           where=f"""({jwt_sign_conditions})
+              AND argument_index IN (1, 2)
+              AND argument_expr NOT LIKE '%process.env%'
+              AND argument_expr NOT LIKE '%import.meta.env%'
+              AND argument_expr NOT LIKE '%os.environ%'
+              AND argument_expr NOT LIKE '%getenv%'
+              AND argument_expr NOT LIKE '%config%'
+              AND (argument_expr LIKE '"%' OR argument_expr LIKE "'%")
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'
               AND file NOT LIKE '%.test.%'
@@ -138,10 +185,14 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, func, secret_expr in cursor.fetchall():
+        for file, line, func, secret_expr, arg_idx in cursor.fetchall():
             # Additional check to filter out placeholders
-            secret_clean = secret_expr.strip('"').strip("'")
-            if secret_clean.lower() in ['secret', 'your-secret', 'changeme']:
+            secret_clean = secret_expr.strip('"').strip("'").strip('`')
+            if secret_clean.lower() in ['secret', 'your-secret', 'changeme', 'your_secret_here', 'placeholder']:
+                continue
+
+            # Skip very short secrets (likely placeholders)
+            if len(secret_clean) < 8:
                 continue
 
             findings.append(StandardFinding(
@@ -158,8 +209,11 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: Weak Variable Secrets (check for common weak patterns)
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="""callee_function = 'JWT_SIGN_VAR'
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"""({jwt_sign_conditions})
+              AND argument_index IN (1, 2)
+              AND argument_expr NOT LIKE '"%'
+              AND argument_expr NOT LIKE "'%"
               AND (
                    argument_expr LIKE '%secret%'
                 OR argument_expr LIKE '%password%'
@@ -176,66 +230,75 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, secret_expr in cursor.fetchall():
+        for file, line, func, secret_expr in cursor.fetchall():
             # Only flag if it looks obviously weak
             if any(weak in secret_expr.lower() for weak in ['123', 'test', 'demo', 'example']):
                 findings.append(StandardFinding(
                     rule_name='jwt-weak-secret',
-                    message=f'JWT secret appears weak: {secret_expr}',
+                    message=f'JWT secret variable appears weak: {secret_expr}',
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category='cryptography',
-                    snippet=secret_expr,
+                    snippet=f'{func}(..., {secret_expr}, ...)',
                     cwe_id='CWE-326'
                 ))
 
         # ========================================================
         # CHECK 3: Missing JWT Expiration
         # ========================================================
-        # Note: Complex JOIN query - build_query doesn't support JOINs, so we use it for column validation only
-        base_cols = build_query('function_call_args', ['file', 'line', 'argument_expr'])
-        # Extract just the column list for validation, then build custom JOIN query
-        query = """
-            SELECT f1.file, f1.line, f2.argument_expr
-            FROM function_call_args f1
-            LEFT JOIN function_call_args f2
-                ON f1.file = f2.file
-                AND f1.line = f2.line
-                AND f2.argument_index = 2
-            WHERE f1.callee_function LIKE 'JWT_SIGN%'
-              AND f1.argument_index = 0
-              AND (f2.argument_expr IS NULL
-                   OR (f2.argument_expr NOT LIKE '%expiresIn%'
-                       AND f2.argument_expr NOT LIKE '%exp%'
-                       AND f2.argument_expr NOT LIKE '%maxAge%'))
-              AND f1.file NOT LIKE '%test%'
-              AND f1.file NOT LIKE '%spec.%'
-              AND f1.file NOT LIKE '%.test.%'
-              AND f1.file NOT LIKE '%__tests__%'
-              AND f1.file NOT LIKE '%demo%'
-              AND f1.file NOT LIKE '%example%'
-            GROUP BY f1.file, f1.line
-        """
+        # First, get all JWT signing calls
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where=f"""({jwt_sign_conditions})
+              AND argument_index = 0
+              AND file NOT LIKE '%test%'
+              AND file NOT LIKE '%spec.%'
+              AND file NOT LIKE '%.test.%'
+              AND file NOT LIKE '%__tests__%'
+              AND file NOT LIKE '%demo%'
+              AND file NOT LIKE '%example%'""",
+                           order_by="file, line")
         cursor.execute(query)
 
-        for file, line, options in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='jwt-missing-expiration',
-                message='JWT token created without expiration claim',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='authentication',
-                snippet=options[:100] if options and len(options) > 100 else options or 'No options provided',
-                cwe_id='CWE-613'
-            ))
+        jwt_sign_calls = cursor.fetchall()
+
+        # For each signing call, check if there's an options argument with expiration
+        for file, line, func in jwt_sign_calls:
+            # Check for options argument (index 2) with expiration settings
+            options_query = build_query('function_call_args', ['argument_expr'],
+                                       where=f"""file = ? AND line = ?
+                                                 AND callee_function = ?
+                                                 AND argument_index = 2""")
+            cursor.execute(options_query, (file, line, func))
+
+            options_row = cursor.fetchone()
+            options = options_row[0] if options_row else None
+
+            # Check if expiration is missing
+            has_expiration = False
+            if options:
+                has_expiration = ('expiresIn' in options or 'exp' in options or
+                                'maxAge' in options or 'expires_in' in options)
+
+            if not has_expiration:
+                findings.append(StandardFinding(
+                    rule_name='jwt-missing-expiration',
+                    message='JWT token created without expiration claim',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='authentication',
+                    snippet=options[:100] if options and len(options) > 100 else options or 'No options provided',
+                    cwe_id='CWE-613'
+                ))
 
         # ========================================================
         # CHECK 4: Algorithm Confusion (check verify calls)
         # ========================================================
+        jwt_verify_conditions = ' OR '.join([f"callee_function = '{func}'" for func in JWT_VERIFY_FUNCTIONS])
+
         query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="""callee_function LIKE 'JWT_VERIFY%'
+                           where=f"""({jwt_verify_conditions})
               AND argument_index = 2
               AND argument_expr LIKE '%algorithms%'
               AND file NOT LIKE '%test%'
@@ -269,7 +332,7 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 5: None Algorithm Usage
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="""callee_function LIKE 'JWT_VERIFY%'
+                           where=f"""({jwt_verify_conditions})
               AND argument_index = 2
               AND (argument_expr LIKE '%none%' OR argument_expr LIKE '%None%' OR argument_expr LIKE '%NONE%')
               AND file NOT LIKE '%test%'
@@ -296,15 +359,16 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: JWT.decode Usage (often vulnerable)
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="""callee_function LIKE 'JWT_DECODE%'
+        jwt_decode_conditions = ' OR '.join([f"callee_function = '{func}'" for func in JWT_DECODE_FUNCTIONS])
+
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where=f"""({jwt_decode_conditions})
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'
               AND file NOT LIKE '%.test.%'
               AND file NOT LIKE '%__tests__%'
               AND file NOT LIKE '%demo%'
-              AND file NOT LIKE '%example%'
-            GROUP BY file, line""",
+              AND file NOT LIKE '%example%'""",
                            order_by="file, line")
         cursor.execute(query)
 
@@ -324,7 +388,7 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 7: Sensitive Data in JWT Payloads
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="""callee_function LIKE 'JWT_SIGN%'
+                           where=f"""({jwt_sign_conditions})
               AND argument_index = 0
               AND (
                    argument_expr LIKE '%password%'
@@ -368,7 +432,9 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 8: Short/Weak Secrets in Environment Variables
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="""callee_function = 'JWT_SIGN_ENV'
+                           where=f"""({jwt_sign_conditions})
+              AND argument_index IN (1, 2)
+              AND (argument_expr LIKE '%process.env%' OR argument_expr LIKE '%os.environ%' OR argument_expr LIKE '%getenv%')
               AND (
                    argument_expr LIKE '%TEST%'
                 OR argument_expr LIKE '%DEMO%'
@@ -471,7 +537,12 @@ def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 11: JWT Secret Too Short (BACKEND)
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="""callee_function = 'JWT_SIGN_HARDCODED'
+                           where=f"""({jwt_sign_conditions})
+              AND argument_index IN (1, 2)
+              AND argument_expr NOT LIKE '%process.env%'
+              AND argument_expr NOT LIKE '%os.environ%'
+              AND argument_expr NOT LIKE '%getenv%'
+              AND (argument_expr LIKE '"%' OR argument_expr LIKE "'%")
               AND LENGTH(TRIM(argument_expr, '"' || "'")) < 32
               AND file NOT LIKE '%test%'
               AND file NOT LIKE '%spec.%'

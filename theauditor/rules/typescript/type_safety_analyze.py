@@ -2,15 +2,15 @@
 
 This module provides comprehensive type safety detection for TypeScript projects
 by querying semantic type information from the type_annotations table (populated
-by TypeScript Compiler API) with graceful degradation to heuristic pattern matching
-on generic tables when semantic data is unavailable.
+by TypeScript Compiler API).
 
-Key improvements:
+Follows gold standard patterns (v1.1+ schema contract compliance):
+- Assumes all contracted tables exist (no table existence checks)
 - 60%+ more accurate detection using semantic type data from TypeScript compiler
 - 16 comprehensive patterns (added 'unknown' type detection)
 - Indexed boolean lookups (is_any, is_unknown, is_generic) instead of LIKE scans
 - Direct access to return_type, type_params, and type_annotation columns
-- Graceful fallback to heuristic patterns when type_annotations table missing
+- Proper frozensets for O(1) pattern matching
 """
 
 import sqlite3
@@ -69,88 +69,66 @@ def find_type_safety_issues(context: StandardRuleContext) -> List[StandardFindin
         conn = sqlite3.connect(context.db_path)
         cursor = conn.cursor()
 
-        # Check table availability for graceful degradation
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN ('files', 'symbols', 'assignments', 'function_call_args', 'type_annotations')
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
+        # All required tables guaranteed to exist by schema contract
+        # (theauditor/indexer/schema.py - TABLES registry with 46 table definitions)
+        # If table missing, rule will crash with clear sqlite3.OperationalError (CORRECT behavior)
 
-        # Must have minimum tables for any analysis
-        if not {'files', 'symbols'}.issubset(existing_tables):
-            logger.warning("TypeScript type safety analysis requires 'files' and 'symbols' tables")
-            return findings
-
-        # Only analyze TypeScript files (FIXED: use 'ext' column with leading dot)
-        cursor.execute("SELECT DISTINCT file FROM files WHERE ext IN ('.ts', '.tsx')")
+        # Only analyze TypeScript files (FIXED: 'path' column, not 'file')
+        cursor.execute("SELECT DISTINCT path FROM files WHERE ext IN ('.ts', '.tsx')")
         ts_files = {row[0] for row in cursor.fetchall()}
 
         if not ts_files:
             return findings  # No TypeScript files in project
         
+        # All patterns execute unconditionally (schema contract guarantees table existence)
+
         # Pattern 1: Explicit 'any' types
-        if 'symbols' in existing_tables:
-            findings.extend(_find_explicit_any_types(cursor, ts_files, existing_tables))
+        findings.extend(_find_explicit_any_types(cursor, ts_files))
 
         # Pattern 2: Missing return types
-        if 'symbols' in existing_tables or 'type_annotations' in existing_tables:
-            findings.extend(_find_missing_return_types(cursor, ts_files, existing_tables))
+        findings.extend(_find_missing_return_types(cursor, ts_files))
 
         # Pattern 3: Missing parameter types
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_missing_parameter_types(cursor, ts_files))
+        findings.extend(_find_missing_parameter_types(cursor, ts_files))
 
         # Pattern 4: Unsafe type assertions (as any, as unknown)
-        if 'assignments' in existing_tables:
-            findings.extend(_find_unsafe_type_assertions(cursor, ts_files))
+        findings.extend(_find_unsafe_type_assertions(cursor, ts_files))
 
         # Pattern 5: Non-null assertions (!)
-        if 'assignments' in existing_tables:
-            findings.extend(_find_non_null_assertions(cursor, ts_files))
+        findings.extend(_find_non_null_assertions(cursor, ts_files))
 
         # Pattern 6: Dangerous type patterns (Function, Object, {})
-        if 'symbols' in existing_tables or 'type_annotations' in existing_tables:
-            findings.extend(_find_dangerous_type_patterns(cursor, ts_files, existing_tables))
+        findings.extend(_find_dangerous_type_patterns(cursor, ts_files))
 
         # Pattern 7: Untyped JSON.parse
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_untyped_json_parse(cursor, ts_files, existing_tables))
+        findings.extend(_find_untyped_json_parse(cursor, ts_files))
 
         # Pattern 8: Untyped API responses
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_untyped_api_responses(cursor, ts_files, existing_tables))
+        findings.extend(_find_untyped_api_responses(cursor, ts_files))
 
         # Pattern 9: Missing interface definitions
-        if 'assignments' in existing_tables:
-            findings.extend(_find_missing_interfaces(cursor, ts_files))
+        findings.extend(_find_missing_interfaces(cursor, ts_files))
 
         # Pattern 10: Type suppression comments
-        if 'symbols' in existing_tables:
-            findings.extend(_find_type_suppression_comments(cursor, ts_files))
+        findings.extend(_find_type_suppression_comments(cursor, ts_files))
 
         # Pattern 11: Untyped catch blocks
-        if 'symbols' in existing_tables:
-            findings.extend(_find_untyped_catch_blocks(cursor, ts_files))
+        findings.extend(_find_untyped_catch_blocks(cursor, ts_files))
 
         # Pattern 12: Missing generic types
-        if 'symbols' in existing_tables or 'type_annotations' in existing_tables:
-            findings.extend(_find_missing_generic_types(cursor, ts_files, existing_tables))
+        findings.extend(_find_missing_generic_types(cursor, ts_files))
 
         # Pattern 13: Untyped event handlers
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_untyped_event_handlers(cursor, ts_files))
+        findings.extend(_find_untyped_event_handlers(cursor, ts_files))
 
         # Pattern 14: Type mismatches in assignments
-        if 'assignments' in existing_tables:
-            findings.extend(_find_type_mismatches(cursor, ts_files))
+        findings.extend(_find_type_mismatches(cursor, ts_files))
 
         # Pattern 15: Unsafe property access
-        if 'symbols' in existing_tables:
-            findings.extend(_find_unsafe_property_access(cursor, ts_files))
+        findings.extend(_find_unsafe_property_access(cursor, ts_files))
 
         # Pattern 16: Unknown types requiring type narrowing
-        if 'type_annotations' in existing_tables:
-            findings.extend(_find_unknown_types(cursor, ts_files))
+        findings.extend(_find_unknown_types(cursor, ts_files))
 
         conn.close()
 
@@ -162,12 +140,12 @@ def find_type_safety_issues(context: StandardRuleContext) -> List[StandardFindin
     return findings
 
 
-def _find_explicit_any_types(cursor, ts_files: Set[str], existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     """Find explicit 'any' type annotations using semantic type data."""
     findings = []
 
-    # Check if type_annotations table exists (semantic type data from TypeScript compiler)
-    if 'type_annotations' in existing_tables:
+    # Try semantic detection first (type_annotations table)
+    try:
         # Use semantic 'any' detection from TypeScript compiler (100% accurate)
         placeholders = ','.join(['?' for _ in ts_files])
         cursor.execute(f"""
@@ -191,7 +169,7 @@ def _find_explicit_any_types(cursor, ts_files: Set[str], existing_tables: Set[st
                 snippet=f'{name}: {type_ann}' if type_ann else f'{name}: any',
                 cwe_id='CWE-843'
             ))
-    else:
+    except sqlite3.OperationalError:
         # Fallback: Check symbols table for 'any' types (heuristic, less accurate)
         placeholders = ','.join(['?' for _ in ts_files])
         cursor.execute(f"""
@@ -220,18 +198,17 @@ def _find_explicit_any_types(cursor, ts_files: Set[str], existing_tables: Set[st
             ))
 
     # Also check assignments for 'as any' type assertions
-    if 'assignments' in existing_tables:
-        placeholders = ','.join(['?' for _ in ts_files])
-        cursor.execute(f"""
+    placeholders = ','.join(['?' for _ in ts_files])
+    cursor.execute(f"""
             SELECT a.file, a.line, a.target_var, a.source_expr
             FROM assignments a
             WHERE a.file IN ({placeholders})
               AND a.source_expr LIKE '%as any%'
         """, list(ts_files))
 
-        any_assertions = cursor.fetchall()
+    any_assertions = cursor.fetchall()
 
-        for file, line, var, expr in any_assertions:
+    for file, line, var, expr in any_assertions:
             findings.append(StandardFinding(
                 rule_name='typescript-any-assertion',
                 message=f"Type assertion to 'any' in '{var}'",
@@ -247,12 +224,12 @@ def _find_explicit_any_types(cursor, ts_files: Set[str], existing_tables: Set[st
     return findings
 
 
-def _find_missing_return_types(cursor, ts_files: Set[str], existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     """Find functions without explicit return types using semantic type data."""
     findings = []
 
-    # Check if type_annotations table exists for accurate return type detection
-    if 'type_annotations' in existing_tables:
+    # Try semantic detection first (type_annotations table)
+    try:
         # Use semantic return type data from TypeScript compiler
         placeholders = ','.join(['?' for _ in ts_files])
         cursor.execute(f"""
@@ -286,7 +263,7 @@ def _find_missing_return_types(cursor, ts_files: Set[str], existing_tables: Set[
                     snippet=f'function {name}(...)',
                     cwe_id='CWE-843'
                 ))
-    else:
+    except sqlite3.OperationalError:
         # Fallback: Find function symbols without return type annotations (heuristic)
         placeholders = ','.join(['?' for _ in ts_files])
         cursor.execute(f"""
@@ -423,15 +400,15 @@ def _find_non_null_assertions(cursor, ts_files: Set[str]) -> List[StandardFindin
     return findings
 
 
-def _find_dangerous_type_patterns(cursor, ts_files: Set[str], existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     """Find dangerous type patterns like Function, Object, {} using semantic type data."""
     findings = []
 
     # Convert to frozenset for O(1) lookups (gold standard)
     dangerous_types = frozenset(['Function', 'Object', '{}'])
 
-    # Check if type_annotations table exists for accurate type detection
-    if 'type_annotations' in existing_tables:
+    # Try semantic detection first (type_annotations table)
+    try:
         # Use semantic type data from TypeScript compiler
         placeholders = ','.join(['?' for _ in ts_files])
         for dangerous_type in dangerous_types:
@@ -458,7 +435,7 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str], existing_tables: S
                     snippet=f'{name}: {type_ann}' if type_ann else f': {dangerous_type}',
                     cwe_id='CWE-843'
                 ))
-    else:
+    except sqlite3.OperationalError:
         # Fallback: Use heuristic pattern matching on symbols
         placeholders = ','.join(['?' for _ in ts_files])
         for dangerous_type in dangerous_types:
@@ -487,7 +464,7 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str], existing_tables: S
     return findings
 
 
-def _find_untyped_json_parse(cursor, ts_files: Set[str], existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_untyped_json_parse(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     """Find JSON.parse without type validation."""
     findings = []
 
@@ -505,8 +482,7 @@ def _find_untyped_json_parse(cursor, ts_files: Set[str], existing_tables: Set[st
         has_validation = False
 
         # Check if result is typed (look for type assertion or validation nearby)
-        if 'assignments' in existing_tables:
-            cursor.execute("""
+        cursor.execute("""
                 SELECT COUNT(*)
                 FROM assignments a
                 WHERE a.file = ?
@@ -515,9 +491,9 @@ def _find_untyped_json_parse(cursor, ts_files: Set[str], existing_tables: Set[st
                        OR a.source_expr LIKE '%zod%'
                        OR a.source_expr LIKE '%joi%'
                        OR a.source_expr LIKE '%validate%')
-            """, (file, line, line + 5))
+        """, (file, line, line + 5))
 
-            has_validation = cursor.fetchone()[0] > 0
+        has_validation = cursor.fetchone()[0] > 0
 
         if not has_validation:
             findings.append(StandardFinding(
@@ -535,7 +511,7 @@ def _find_untyped_json_parse(cursor, ts_files: Set[str], existing_tables: Set[st
     return findings
 
 
-def _find_untyped_api_responses(cursor, ts_files: Set[str], existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_untyped_api_responses(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     """Find API calls without typed responses."""
     findings = []
 
@@ -557,8 +533,7 @@ def _find_untyped_api_responses(cursor, ts_files: Set[str], existing_tables: Set
             has_typing = False
 
             # Check if response is typed
-            if 'assignments' in existing_tables:
-                cursor.execute("""
+            cursor.execute("""
                     SELECT COUNT(*)
                     FROM assignments a
                     WHERE a.file = ?
@@ -566,9 +541,9 @@ def _find_untyped_api_responses(cursor, ts_files: Set[str], existing_tables: Set
                       AND (a.target_var LIKE '%: %'
                            OR a.source_expr LIKE '%as %'
                            OR a.source_expr LIKE '%<%.%>%')
-                """, (file, line - 2, line + 10))
+            """, (file, line - 2, line + 10))
 
-                has_typing = cursor.fetchone()[0] > 0
+            has_typing = cursor.fetchone()[0] > 0
 
             if not has_typing:
                 findings.append(StandardFinding(
@@ -694,15 +669,15 @@ def _find_untyped_catch_blocks(cursor, ts_files: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _find_missing_generic_types(cursor, ts_files: Set[str], existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     """Find usage of generic types without type parameters using semantic type data."""
     findings = []
 
     # Common generics that should have type parameters (frozenset)
     generic_types = frozenset(['Array', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Record'])
 
-    # Check if type_annotations table exists for accurate generic detection
-    if 'type_annotations' in existing_tables:
+    # Try semantic detection first (type_annotations table)
+    try:
         # Use semantic generic detection from TypeScript compiler
         placeholders = ','.join(['?' for _ in ts_files])
         for generic in generic_types:
@@ -728,7 +703,7 @@ def _find_missing_generic_types(cursor, ts_files: Set[str], existing_tables: Set
                     snippet=f': {generic}' if not type_ann else f': {type_ann}',
                     cwe_id='CWE-843'
                 ))
-    else:
+    except sqlite3.OperationalError:
         # Fallback: Use heuristic pattern matching on symbols
         placeholders = ','.join(['?' for _ in ts_files])
         for generic in generic_types:

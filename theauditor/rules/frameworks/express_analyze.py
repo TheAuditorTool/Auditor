@@ -161,11 +161,10 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check if this is an Express project - trust schema contract
-            cursor.execute("""
-                SELECT DISTINCT src FROM refs
-                WHERE value = 'express'
-            """)
+            # Check if this is an Express project - use schema-compliant query
+            query = build_query('refs', ['src'],
+                               where="value = 'express'")
+            cursor.execute(query)
             express_refs = cursor.fetchall()
 
             if not express_refs:
@@ -175,11 +174,9 @@ class ExpressAnalyzer:
             self.express_files = [ref[0] for ref in express_refs]
 
             # Load API endpoints
-            cursor.execute("""
-                SELECT file, line, method, pattern, handler_function
-                FROM api_endpoints
-                ORDER BY file, line
-            """)
+            query2 = build_query('api_endpoints', ['file', 'line', 'method', 'pattern', 'handler_function'],
+                                order_by="file, line")
+            cursor.execute(query2)
             for row in cursor.fetchall():
                 self.api_endpoints.append({
                     'file': row[0],
@@ -190,10 +187,9 @@ class ExpressAnalyzer:
                 })
 
             # Load imports/refs
-            cursor.execute("""
-                SELECT src, value FROM refs
-                WHERE kind = 'import'
-            """)
+            query3 = build_query('refs', ['src', 'value'],
+                                where="kind = 'import'")
+            cursor.execute(query3)
             for file, import_val in cursor.fetchall():
                 if file not in self.imports:
                     self.imports[file] = set()
@@ -222,12 +218,9 @@ class ExpressAnalyzer:
                     continue
 
                 # Check if this function has try/catch blocks
-                cursor.execute("""
-                    SELECT COUNT(*) FROM cfg_blocks
-                    WHERE file = ?
-                      AND function_name = ?
-                      AND block_type IN ('try', 'except', 'catch')
-                """, (endpoint['file'], handler))
+                query = build_query('cfg_blocks', ['COUNT(*)'],
+                                   where="file = ? AND function_name = ? AND block_type IN ('try', 'except', 'catch')")
+                cursor.execute(query, (endpoint['file'], handler))
 
                 has_error_handling = cursor.fetchone()[0] > 0
 
@@ -264,11 +257,9 @@ class ExpressAnalyzer:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
 
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE callee_function LIKE '%helmet%'
-                       OR (callee_function = 'use' AND argument_expr LIKE '%helmet%')
-                """)
+                query = build_query('function_call_args', ['COUNT(*)'],
+                                   where="callee_function LIKE '%helmet%' OR (callee_function = 'use' AND argument_expr LIKE '%helmet%')")
+                cursor.execute(query)
                 helmet_calls = cursor.fetchone()[0]
                 conn.close()
 
@@ -294,19 +285,18 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Build query for sync operations
-            sync_ops_list = "', '".join(self.patterns.SYNC_OPERATIONS)
+            # EXISTS subquery works with build_query()
+            sync_ops_list = ['fs.readFileSync', 'fs.writeFileSync', 'child_process.execSync']
+            placeholders = ','.join('?' * len(sync_ops_list))
 
-            cursor.execute(f"""
-                SELECT f.file, f.line, f.callee_function, f.caller_function
-                FROM function_call_args f
-                WHERE f.callee_function IN ('{sync_ops_list}')
-                  AND EXISTS (
-                      SELECT 1 FROM api_endpoints e
-                      WHERE e.file = f.file
-                  )
-                ORDER BY f.file, f.line
-            """)
+            query = build_query('function_call_args', ['DISTINCT file', 'line', 'callee_function', 'caller_function'],
+                               where=f"""callee_function IN ({placeholders})
+                                 AND EXISTS (
+                                     SELECT 1 FROM api_endpoints e
+                                     WHERE e.file = function_call_args.file
+                                 )""",
+                               order_by="file, line")
+            cursor.execute(query, sync_ops_list)
 
             for file, line, sync_op, caller in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -333,12 +323,10 @@ class ExpressAnalyzer:
             cursor = conn.cursor()
 
             # Get all response outputs
-            cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function IN ('res.send', 'res.json', 'res.write', 'res.render')
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="callee_function IN ('res.send', 'res.json', 'res.write', 'res.render')",
+                               order_by="file, line")
+            cursor.execute(query)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             response_outputs = cursor.fetchall()
 
@@ -355,11 +343,9 @@ class ExpressAnalyzer:
 
                 if has_user_input:
                     # Check for sanitization nearby
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM function_call_args
-                        WHERE file = ? AND line BETWEEN ? AND ?
-                          AND callee_function IN ('sanitize', 'escape', 'encode', 'DOMPurify', 'xss')
-                    """, (file, line - 5, line + 5))
+                    query2 = build_query('function_call_args', ['COUNT(*)'],
+                                        where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'escape', 'encode', 'DOMPurify', 'xss')")
+                    cursor.execute(query2, (file, line - 5, line + 5))
 
                     has_sanitization = cursor.fetchone()[0] > 0
 
@@ -415,14 +401,10 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE (callee_function LIKE '%bodyParser%'
-                       OR callee_function = 'json'
-                       OR callee_function = 'urlencoded')
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="(callee_function LIKE '%bodyParser%' OR callee_function = 'json' OR callee_function = 'urlencoded')",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, config in cursor.fetchall():
                 # Check if limit is specified
@@ -457,18 +439,16 @@ class ExpressAnalyzer:
             route_files = set(ep['file'] for ep in self.api_endpoints)
 
             for route_file in route_files:
-                cursor.execute("""
-                    SELECT line, callee_function
-                    FROM function_call_args
-                    WHERE file = ?
-                      AND callee_function IN ('query', 'find', 'findOne', 'findById', 'create',
-                                              'update', 'updateOne', 'updateMany', 'delete',
-                                              'deleteOne', 'deleteMany', 'save', 'exec')
-                      AND caller_function NOT LIKE '%service%'
-                      AND caller_function NOT LIKE '%repository%'
-                      AND caller_function NOT LIKE '%model%'
-                    ORDER BY line
-                """, (route_file,))
+                query = build_query('function_call_args', ['line', 'callee_function'],
+                                   where="""file = ?
+                                            AND callee_function IN ('query', 'find', 'findOne', 'findById', 'create',
+                                                                    'update', 'updateOne', 'updateMany', 'delete',
+                                                                    'deleteOne', 'deleteMany', 'save', 'exec')
+                                            AND caller_function NOT LIKE '%service%'
+                                            AND caller_function NOT LIKE '%repository%'
+                                            AND caller_function NOT LIKE '%model%'""",
+                                   order_by="line")
+                cursor.execute(query, (route_file,))
 
                 for line, db_method in cursor.fetchall():
                     self.findings.append(StandardFinding(
@@ -495,15 +475,13 @@ class ExpressAnalyzer:
             cursor = conn.cursor()
 
             # Check for CORS wildcard in function calls
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function = 'cors'
-                  AND (argument_expr LIKE '%origin:%*%'
-                       OR argument_expr LIKE '%origin:%true%'
-                       OR argument_expr = '')
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="""callee_function = 'cors'
+                                        AND (argument_expr LIKE '%origin:%*%'
+                                             OR argument_expr LIKE '%origin:%true%'
+                                             OR argument_expr = '')""",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, config in cursor.fetchall():
                 if '*' in config or 'true' in config or config == '':
@@ -548,11 +526,9 @@ class ExpressAnalyzer:
                 cursor = conn.cursor()
 
                 # Check for CSRF in function calls
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE callee_function IN ('csurf', 'csrf')
-                       OR (callee_function = 'use' AND argument_expr LIKE '%csrf%')
-                """)
+                query = build_query('function_call_args', ['COUNT(*)'],
+                                   where="callee_function IN ('csurf', 'csrf') OR (callee_function = 'use' AND argument_expr LIKE '%csrf%')")
+                cursor.execute(query)
                 csrf_calls = cursor.fetchone()[0]
                 conn.close()
 
@@ -579,13 +555,10 @@ class ExpressAnalyzer:
             cursor = conn.cursor()
 
             # Check for express-session configuration
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE '%session%'
-                   OR (callee_function = 'use' AND argument_expr LIKE '%session%')
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function LIKE '%session%' OR (callee_function = 'use' AND argument_expr LIKE '%session%')",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, config in cursor.fetchall():
                 config_lower = config.lower()

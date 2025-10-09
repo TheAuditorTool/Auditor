@@ -131,12 +131,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # Build conditions for unbounded methods
         method_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in UNBOUNDED_METHODS])
 
-        cursor.execute(f"""
-            SELECT file, line, query_type
-            FROM orm_queries
+        query = build_query('orm_queries', ['file', 'line', 'query_type'])
+        cursor.execute(query + f"""
             WHERE ({method_conditions})
               AND (has_limit = 0 OR has_limit IS NULL)
-            ORDER BY file, line
+            ORDER BY o.file, o.line
         """)
 
         for file, line, query_type in cursor.fetchall():
@@ -157,12 +156,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: N+1 Query Patterns
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, query_type, includes
-            FROM orm_queries
-            WHERE query_type LIKE '%.findMany'
-              AND (includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = '')
-            ORDER BY file, line
+        query = build_query('orm_queries', ['file', 'line', 'query_type', 'includes'])
+        cursor.execute(query + """
+            WHERE o.query_type LIKE '%.findMany'
+              AND (o.includes IS NULL OR o.includes = '[]' OR o.includes = '{}' OR o.includes = '')
+            ORDER BY o.file, o.line
         """)
 
         for file, line, query_type, includes in cursor.fetchall():
@@ -183,13 +181,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 3: Missing Transactions for Multiple Writes
         # ========================================================
         # Build conditions for write methods
-        write_conditions = ' OR '.join([f"query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
+        write_conditions = ' OR '.join([f"o.query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
 
-        cursor.execute(f"""
-            SELECT file, line, query_type, has_transaction
-            FROM orm_queries
+        query = build_query('orm_queries', ['file', 'line', 'query_type', 'has_transaction'])
+        cursor.execute(query + f"""
             WHERE ({write_conditions})
-            ORDER BY file, line
+            ORDER BY o.file, o.line
         """)
 
         # Group operations by file
@@ -230,24 +227,23 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 4: Unhandled OrThrow Methods
         # ========================================================
         # Build conditions for throw methods
-        throw_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in THROW_METHODS])
+        throw_conditions = ' OR '.join([f"o.query_type LIKE '%.{method}'" for method in THROW_METHODS])
 
-        cursor.execute(f"""
-            SELECT file, line, query_type
-            FROM orm_queries
+        query = build_query('orm_queries', ['file', 'line', 'query_type'])
+        cursor.execute(query + f"""
             WHERE ({throw_conditions})
-            ORDER BY file, line
+            ORDER BY o.file, o.line
         """)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         orthrow_methods = cursor.fetchall()
 
         for file, line, query_type in orthrow_methods:
             # Check if there's error handling nearby
-            cursor.execute("""
-                SELECT COUNT(*) FROM cfg_blocks
-                WHERE file = ?
-                  AND block_type IN ('try', 'catch', 'except', 'finally')
-                  AND ? BETWEEN start_line - 5 AND end_line + 5
+            cfg_query = build_query('cfg_blocks', ['COUNT(*)'])
+            cursor.execute(cfg_query + """
+                WHERE c.file = ?
+                  AND c.block_type IN ('try', 'catch', 'except', 'finally')
+                  AND ? BETWEEN c.start_line - 5 AND c.end_line + 5
             """, (file, line))
             has_error_handling = cursor.fetchone()[0] > 0
 
@@ -271,9 +267,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         raw_methods_list = list(RAW_QUERY_METHODS)
         placeholders = ','.join('?' * len(raw_methods_list))
 
-        cursor.execute(f"""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + f"""
             WHERE f.callee_function IN ({placeholders})
                OR f.callee_function LIKE '%queryRaw%'
                OR f.callee_function LIKE '%executeRaw%'
@@ -305,12 +300,13 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Missing Database Indexes
         # ========================================================
-        # Get models with very few indexes (FIXED: removed invalid is_id column)
+        # Get models with very few indexes
+        # Note: Using raw SQL because build_query() doesn't support aggregates
         cursor.execute("""
-            SELECT model_name, COUNT(DISTINCT field_name) as indexed_count
-            FROM prisma_models
-            WHERE is_indexed = 1 OR is_unique = 1
-            GROUP BY model_name
+            SELECT p.model_name, COUNT(DISTINCT p.field_name) as indexed_count
+            FROM prisma_models p
+            WHERE p.is_indexed = 1 OR p.is_unique = 1
+            GROUP BY p.model_name
             HAVING indexed_count < 2
         """)
 
@@ -318,13 +314,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         if poorly_indexed_models:
             # Find queries on these models
-            cursor.execute("""
-                SELECT file, line, query_type
-                FROM orm_queries
-                WHERE query_type LIKE '%.findMany%'
-                   OR query_type LIKE '%.findFirst%'
-                   OR query_type LIKE '%.findUnique%'
-                ORDER BY file, line
+            query = build_query('orm_queries', ['file', 'line', 'query_type'])
+            cursor.execute(query + """
+                WHERE o.query_type LIKE '%.findMany%'
+                   OR o.query_type LIKE '%.findFirst%'
+                   OR o.query_type LIKE '%.findUnique%'
+                ORDER BY o.file, o.line
             """)
 
             for file, line, query_type in cursor.fetchall():
@@ -347,24 +342,23 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 7: Connection Pool Configuration Issues
         # ========================================================
         # Look for schema.prisma files
-        cursor.execute("""
-            SELECT path FROM files
-            WHERE path LIKE '%schema.prisma%'
-               OR path LIKE '%prisma/schema%'
+        query = build_query('files', ['path'])
+        cursor.execute(query + """
+            WHERE f.path LIKE '%schema.prisma%'
+               OR f.path LIKE '%prisma/schema%'
             LIMIT 1
         """)
         schema_file = cursor.fetchone()
 
         if schema_file:
             # Check for DATABASE_URL configuration
-            cursor.execute("""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE target_var LIKE '%DATABASE_URL%'
-                   OR target_var LIKE '%DATABASE%'
-                   OR target_var LIKE '%POSTGRES%'
-                   OR target_var LIKE '%MYSQL%'
-                ORDER BY file, line
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+            cursor.execute(query + """
+                WHERE a.target_var LIKE '%DATABASE_URL%'
+                   OR a.target_var LIKE '%DATABASE%'
+                   OR a.target_var LIKE '%POSTGRES%'
+                   OR a.target_var LIKE '%MYSQL%'
+                ORDER BY a.file, a.line
             """)
 
             for file, line, var, expr in cursor.fetchall():
@@ -400,13 +394,14 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 8: Common Field Indexing Issues
         # ========================================================
-        # Check if common fields are indexed (FIXED: removed invalid is_id column)
+        # Check if common fields are indexed
+        # Note: Using raw SQL because build_query() doesn't support DISTINCT
         cursor.execute("""
-            SELECT DISTINCT model_name, field_name
-            FROM prisma_models
-            WHERE field_name IN ('email', 'username', 'userId', 'user_id', 'slug', 'uuid')
-              AND is_indexed = 0
-              AND is_unique = 0
+            SELECT DISTINCT p.model_name, p.field_name
+            FROM prisma_models p
+            WHERE p.field_name IN ('email', 'username', 'userId', 'user_id', 'slug', 'uuid')
+              AND p.is_indexed = 0
+              AND p.is_unique = 0
         """)
 
         for model_name, field_name in cursor.fetchall():

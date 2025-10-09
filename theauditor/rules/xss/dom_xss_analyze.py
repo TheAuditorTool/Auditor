@@ -101,24 +101,33 @@ def _check_direct_dom_flows(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
-    # Check assignments from DOM sources to dangerous sinks
+    # Check assignments from DOM sources to dangerous sinks (optimized with SQL filters)
     cursor.execute("""
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
-        WHERE a.file LIKE '%.js' OR a.file LIKE '%.ts'
-           OR a.file LIKE '%.jsx' OR a.file LIKE '%.tsx'
+        WHERE (a.file LIKE '%.js' OR a.file LIKE '%.ts'
+               OR a.file LIKE '%.jsx' OR a.file LIKE '%.tsx')
+          AND (a.target_var LIKE '%innerHTML%' OR a.target_var LIKE '%outerHTML%'
+               OR a.target_var LIKE '%location.href%' OR a.target_var LIKE '%location.replace%'
+               OR a.target_var LIKE '%document.write%' OR a.target_var LIKE '%insertAdjacentHTML%'
+               OR a.target_var LIKE '%element.src%' OR a.target_var LIKE '%element.href%')
+          AND (a.source_expr LIKE '%location.search%' OR a.source_expr LIKE '%location.hash%'
+               OR a.source_expr LIKE '%location.href%' OR a.source_expr LIKE '%document.URL%'
+               OR a.source_expr LIKE '%document.cookie%' OR a.source_expr LIKE '%window.name%'
+               OR a.source_expr LIKE '%URLSearchParams%' OR a.source_expr LIKE '%localStorage.getItem%'
+               OR a.source_expr LIKE '%sessionStorage.getItem%' OR a.source_expr LIKE '%message.data%'
+               OR a.source_expr LIKE '%postMessage%')
         ORDER BY a.file, a.line
     """)
 
     for file, line, target, source in cursor.fetchall():
-        # Check if source contains DOM XSS source
+        # Identify specific source and sink for detailed message
         source_found = None
         for dom_source in DOM_XSS_SOURCES:
             if dom_source in (source or ''):
                 source_found = dom_source
                 break
 
-        # Check if target is a dangerous sink
         sink_found = None
         for dom_sink in DOM_XSS_SINKS:
             if dom_sink in (target or ''):
@@ -126,7 +135,6 @@ def _check_direct_dom_flows(conn) -> List[StandardFinding]:
                 break
 
         if source_found and sink_found:
-            # Direct flow from source to sink
             findings.append(StandardFinding(
                 rule_name='dom-xss-direct-flow',
                 message=f'DOM XSS: Direct flow from {source_found} to {sink_found}',
@@ -138,34 +146,42 @@ def _check_direct_dom_flows(conn) -> List[StandardFinding]:
                 cwe_id='CWE-79'
             ))
 
-    # Check function calls with DOM sources as arguments to sinks
-    for sink in DOM_XSS_SINKS:
-        if '.' in sink:
-            continue  # Skip property sinks for this check
+    # Check function calls with DOM sources as arguments to sinks (batched query)
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.argument_index = 0
+          AND (f.callee_function LIKE '%eval%'
+               OR f.callee_function LIKE '%setTimeout%'
+               OR f.callee_function LIKE '%setInterval%'
+               OR f.callee_function LIKE '%Function%'
+               OR f.callee_function LIKE '%execScript%')
+          AND (f.argument_expr LIKE '%location.search%' OR f.argument_expr LIKE '%location.hash%'
+               OR f.argument_expr LIKE '%document.URL%' OR f.argument_expr LIKE '%document.cookie%'
+               OR f.argument_expr LIKE '%window.name%' OR f.argument_expr LIKE '%URLSearchParams%'
+               OR f.argument_expr LIKE '%localStorage.getItem%' OR f.argument_expr LIKE '%message.data%')
+        ORDER BY f.file, f.line
+    """)
 
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function LIKE ?
-              AND f.argument_index = 0
-            ORDER BY f.file, f.line
-        """, [f'%{sink}%'])
+    for file, line, func, args in cursor.fetchall():
+        # Identify specific source for detailed message
+        source_found = None
+        for source in DOM_XSS_SOURCES:
+            if source in (args or ''):
+                source_found = source
+                break
 
-        for file, line, func, args in cursor.fetchall():
-            # Check if args contain DOM source
-            for source in DOM_XSS_SOURCES:
-                if source in (args or ''):
-                    findings.append(StandardFinding(
-                        rule_name='dom-xss-sink-call',
-                        message=f'DOM XSS: {source} passed to {func}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category='xss',
-                        snippet=f'{func}({source})',
-                        cwe_id='CWE-79'
-                    ))
-                    break
+        if source_found:
+            findings.append(StandardFinding(
+                rule_name='dom-xss-sink-call',
+                message=f'DOM XSS: {source_found} passed to {func}',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='xss',
+                snippet=f'{func}({source_found})',
+                cwe_id='CWE-79'
+            ))
 
     return findings
 
@@ -175,48 +191,48 @@ def _check_url_manipulation(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
-    # Check location assignments with user input
-    location_sinks = ['location.href', 'location.replace', 'location.assign', 'window.location']
+    # Check location assignments with user input (batched query)
+    cursor.execute("""
+        SELECT a.file, a.line, a.target_var, a.source_expr
+        FROM assignments a
+        WHERE (a.target_var LIKE '%location.href%'
+               OR a.target_var LIKE '%location.replace%'
+               OR a.target_var LIKE '%location.assign%'
+               OR a.target_var LIKE '%window.location%')
+        ORDER BY a.file, a.line
+    """)
 
-    for sink in location_sinks:
-        cursor.execute("""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE a.target_var LIKE ?
-            ORDER BY a.file, a.line
-        """, [f'%{sink}%'])
+    for file, line, target, source in cursor.fetchall():
+        # Check for URL sources
+        has_url_source = any(s in (source or '') for s in [
+            'location.search', 'location.hash', 'URLSearchParams',
+            'searchParams', 'window.name'
+        ])
 
-        for file, line, target, source in cursor.fetchall():
-            # Check for URL sources
-            has_url_source = any(s in (source or '') for s in [
-                'location.search', 'location.hash', 'URLSearchParams',
-                'searchParams', 'window.name'
-            ])
+        if has_url_source:
+            findings.append(StandardFinding(
+                rule_name='dom-xss-url-redirect',
+                message=f'Open Redirect/XSS: User input in {target}',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='xss',
+                snippet=f'{target} = {source[:60]}...' if len(source or '') > 60 else f'{target} = {source}',
+                cwe_id='CWE-601'
+            ))
 
-            if has_url_source:
-                findings.append(StandardFinding(
-                    rule_name='dom-xss-url-redirect',
-                    message=f'Open Redirect/XSS: User input in {target}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='xss',
-                    snippet=f'{target} = {source[:60]}...' if len(source or '') > 60 else f'{target} = {source}',
-                    cwe_id='CWE-601'
-                ))
-
-            # Check for javascript: protocol
-            if 'javascript:' in (source or ''):
-                findings.append(StandardFinding(
-                    rule_name='dom-xss-javascript-url',
-                    message=f'XSS: javascript: URL in {target}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='xss',
-                    snippet=f'{target} = "javascript:..."',
-                    cwe_id='CWE-79'
-                ))
+        # Check for javascript: protocol
+        if 'javascript:' in (source or ''):
+            findings.append(StandardFinding(
+                rule_name='dom-xss-javascript-url',
+                message=f'XSS: javascript: URL in {target}',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='xss',
+                snippet=f'{target} = "javascript:..."',
+                cwe_id='CWE-79'
+            ))
 
     # Check window.open with user input
     cursor.execute("""
@@ -250,41 +266,48 @@ def _check_event_handler_injection(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
-    # Event handler attributes
-    event_handlers = [
-        'onclick', 'onmouseover', 'onmouseout', 'onload', 'onerror',
-        'onfocus', 'onblur', 'onchange', 'onsubmit', 'onkeydown',
-        'onkeyup', 'onkeypress', 'ondblclick', 'onmousedown',
-        'onmouseup', 'onmousemove', 'oncontextmenu'
-    ]
+    # Check setAttribute with event handlers (batched query)
+    cursor.execute("""
+        SELECT f1.file, f1.line, f1.argument_expr as handler_name, f2.argument_expr as handler_value
+        FROM function_call_args f1
+        JOIN function_call_args f2 ON f1.file = f2.file AND f1.line = f2.line
+        WHERE f1.callee_function LIKE '%.setAttribute%'
+          AND f1.argument_index = 0
+          AND (f1.argument_expr LIKE '%onclick%' OR f1.argument_expr LIKE '%onmouseover%'
+               OR f1.argument_expr LIKE '%onmouseout%' OR f1.argument_expr LIKE '%onload%'
+               OR f1.argument_expr LIKE '%onerror%' OR f1.argument_expr LIKE '%onfocus%'
+               OR f1.argument_expr LIKE '%onblur%' OR f1.argument_expr LIKE '%onchange%'
+               OR f1.argument_expr LIKE '%onsubmit%' OR f1.argument_expr LIKE '%onkeydown%'
+               OR f1.argument_expr LIKE '%onkeyup%' OR f1.argument_expr LIKE '%onkeypress%'
+               OR f1.argument_expr LIKE '%ondblclick%' OR f1.argument_expr LIKE '%onmousedown%'
+               OR f1.argument_expr LIKE '%onmouseup%' OR f1.argument_expr LIKE '%onmousemove%'
+               OR f1.argument_expr LIKE '%oncontextmenu%')
+          AND f2.argument_index = 1
+        ORDER BY f1.file, f1.line
+    """)
 
-    # Check setAttribute with event handlers
-    for handler in event_handlers:
-        cursor.execute("""
-            SELECT f1.file, f1.line, f2.argument_expr
-            FROM function_call_args f1
-            JOIN function_call_args f2 ON f1.file = f2.file AND f1.line = f2.line
-            WHERE f1.callee_function LIKE '%.setAttribute%'
-              AND f1.argument_index = 0
-              AND f1.argument_expr LIKE ?
-              AND f2.argument_index = 1
-            ORDER BY f1.file, f1.line
-        """, [f'%{handler}%'])
+    for file, line, handler_name, handler_value in cursor.fetchall():
+        has_user_input = any(s in (handler_value or '') for s in DOM_XSS_SOURCES)
 
-        for file, line, handler_value in cursor.fetchall():
-            has_user_input = any(s in (handler_value or '') for s in DOM_XSS_SOURCES)
+        if has_user_input:
+            # Extract handler name for message
+            handler = 'event handler'
+            for h in ['onclick', 'onmouseover', 'onload', 'onerror', 'onfocus', 'onblur',
+                      'onchange', 'onsubmit', 'onkeydown', 'onkeyup']:
+                if h in (handler_name or '').lower():
+                    handler = h
+                    break
 
-            if has_user_input:
-                findings.append(StandardFinding(
-                    rule_name='dom-xss-event-handler',
-                    message=f'XSS: Event handler {handler} with user input',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='xss',
-                    snippet=f'setAttribute("{handler}", userInput)',
-                    cwe_id='CWE-79'
-                ))
+            findings.append(StandardFinding(
+                rule_name='dom-xss-event-handler',
+                message=f'XSS: Event handler {handler} with user input',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='xss',
+                snippet=f'setAttribute("{handler}", userInput)',
+                cwe_id='CWE-79'
+            ))
 
     # Check for dynamic event listener addition
     cursor.execute("""
@@ -408,32 +431,42 @@ def _check_client_side_templates(conn) -> List[StandardFinding]:
                 cwe_id='CWE-79'
             ))
 
-    # Check for client-side templating libraries
-    template_libs = ['Handlebars', 'Mustache', 'doT', 'ejs', 'underscore', 'lodash']
+    # Check for client-side templating libraries (batched query)
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.argument_index = 0
+          AND (f.callee_function LIKE 'Handlebars.compile%'
+               OR f.callee_function LIKE 'Mustache.compile%'
+               OR f.callee_function LIKE 'doT.compile%'
+               OR f.callee_function LIKE 'ejs.compile%'
+               OR f.callee_function LIKE 'underscore.compile%'
+               OR f.callee_function LIKE 'lodash.compile%'
+               OR f.callee_function LIKE '_.template%')
+        ORDER BY f.file, f.line
+    """)
 
-    for lib in template_libs:
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function LIKE ?
-              AND f.argument_index = 0
-            ORDER BY f.file, f.line
-        """, [f'{lib}.compile%'])
+    for file, line, func, template in cursor.fetchall():
+        has_user_input = any(s in (template or '') for s in DOM_XSS_SOURCES)
 
-        for file, line, func, template in cursor.fetchall():
-            has_user_input = any(s in (template or '') for s in DOM_XSS_SOURCES)
+        if has_user_input:
+            # Extract library name for message
+            lib = 'template library'
+            for l in ['Handlebars', 'Mustache', 'doT', 'ejs', 'underscore', 'lodash']:
+                if l in func:
+                    lib = l
+                    break
 
-            if has_user_input:
-                findings.append(StandardFinding(
-                    rule_name='dom-xss-template-injection',
-                    message=f'Template Injection: {lib} template with user input',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='injection',
-                    snippet=f'{func}(userTemplate)',
-                    cwe_id='CWE-94'
-                ))
+            findings.append(StandardFinding(
+                rule_name='dom-xss-template-injection',
+                message=f'Template Injection: {lib} template with user input',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='injection',
+                snippet=f'{func}(userTemplate)',
+                cwe_id='CWE-94'
+            ))
 
     return findings
 

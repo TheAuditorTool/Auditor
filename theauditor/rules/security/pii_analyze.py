@@ -4,13 +4,13 @@ Detects 200+ PII patterns across 15 categories with international support for 50
 Implements GDPR, CCPA, COPPA, HIPAA, PCI-DSS, and other privacy regulation checks.
 
 This implementation:
-- Uses frozensets for ALL patterns (immutable, hashable)
-- Checks table existence before queries
+- Uses frozensets for O(1) pattern matching (immutable, hashable)
+- Direct database queries (assumes all tables exist per schema contract)
 - Uses parameterized queries (no SQL injection)
-- Implements multi-layer detection with fallbacks
+- Implements multi-layer detection patterns
 - Provides confidence scoring based on context
-- Maps all findings to privacy regulations
-- Supports international PII formats
+- Maps all findings to privacy regulations (15 major regulations)
+- Supports international PII formats (50+ countries)
 """
 
 import sqlite3
@@ -728,63 +728,50 @@ def find_pii_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # MANDATORY: Check table existence first
-        existing_tables = _check_tables(cursor)
-        if not existing_tables:
-            return findings
+        # All required tables guaranteed to exist by schema contract
+        # (theauditor/indexer/schema.py - TABLES registry with 46 table definitions)
+        # If table missing, rule will crash with clear sqlite3.OperationalError (CORRECT behavior)
 
         # Collect all PII patterns into categories
         pii_categories = _organize_pii_patterns()
 
-        # Core detection layers
+        # Core detection layers - execute unconditionally
 
         # Layer 1: Direct PII detection
-        if 'assignments' in existing_tables or 'symbols' in existing_tables:
-            findings.extend(_detect_direct_pii(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_direct_pii(cursor, pii_categories))
 
         # Layer 2: PII in logging
-        if 'function_call_args' in existing_tables:
-            findings.extend(_detect_pii_in_logging(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_pii_in_logging(cursor, pii_categories))
 
         # Layer 3: PII in error responses
-        if 'function_call_args' in existing_tables:
-            findings.extend(_detect_pii_in_errors(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_pii_in_errors(cursor, pii_categories))
 
         # Layer 4: PII in URLs
-        if 'function_call_args' in existing_tables or 'assignments' in existing_tables:
-            findings.extend(_detect_pii_in_urls(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_pii_in_urls(cursor, pii_categories))
 
         # Layer 5: Unencrypted PII storage
-        if 'function_call_args' in existing_tables:
-            findings.extend(_detect_unencrypted_pii(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_unencrypted_pii(cursor, pii_categories))
 
         # Layer 6: PII in client-side storage
-        if 'function_call_args' in existing_tables:
-            findings.extend(_detect_client_side_pii(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_client_side_pii(cursor, pii_categories))
 
         # Layer 7: PII in exception handling
-        if 'symbols' in existing_tables and 'function_call_args' in existing_tables:
-            findings.extend(_detect_pii_in_exceptions(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_pii_in_exceptions(cursor, pii_categories))
 
         # Layer 8: Derived PII (computed from other fields)
-        if 'assignments' in existing_tables:
-            findings.extend(_detect_derived_pii(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_derived_pii(cursor, pii_categories))
 
         # Layer 9: Aggregated PII (quasi-identifiers)
-        if 'assignments' in existing_tables or 'symbols' in existing_tables:
-            findings.extend(_detect_aggregated_pii(cursor, existing_tables))
+        findings.extend(_detect_aggregated_pii(cursor))
 
         # Layer 10: Third-party PII exposure
-        if 'function_call_args' in existing_tables:
-            findings.extend(_detect_third_party_pii(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_third_party_pii(cursor, pii_categories))
 
         # Layer 11: PII in parameterized route patterns
-        if 'api_endpoints' in existing_tables:
-            findings.extend(_detect_pii_in_route_patterns(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_pii_in_route_patterns(cursor, pii_categories))
 
         # Layer 12: PII in static API paths
-        if 'api_endpoints' in existing_tables:
-            findings.extend(_detect_pii_in_apis(cursor, existing_tables, pii_categories))
+        findings.extend(_detect_pii_in_apis(cursor, pii_categories))
 
         # Additional advanced detection layers...
 
@@ -792,28 +779,6 @@ def find_pii_issues(context: StandardRuleContext) -> List[StandardFinding]:
         conn.close()
 
     return findings
-
-# ============================================================================
-# HELPER: Table Existence Check
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in the database."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN (
-            'assignments',
-            'function_call_args',
-            'symbols',
-            'cfg_blocks',
-            'files',
-            'api_endpoints',
-            'sql_queries',
-            'refs'
-        )
-    """)
-    return {row[0] for row in cursor.fetchall()}
 
 # ============================================================================
 # HELPER: Organize PII Patterns
@@ -873,7 +838,7 @@ def _determine_confidence(
 # DETECTION LAYER 1: Direct PII
 # ============================================================================
 
-def _detect_direct_pii(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_direct_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect direct PII fields in assignments and symbols."""
     findings = []
 
@@ -883,49 +848,48 @@ def _detect_direct_pii(cursor, existing_tables: Set[str], pii_categories: Dict) 
         all_patterns.update(category_patterns)
 
     # Check assignments table
-    if 'assignments' in existing_tables:
-        # Use parameterized queries to avoid SQL injection
-        placeholders = ' OR '.join(['target_var LIKE ?' for _ in range(min(100, len(all_patterns)))])
-        params = [f'%{pattern}%' for pattern in list(all_patterns)[:100]]
+    # Use parameterized queries to avoid SQL injection
+    placeholders = ' OR '.join(['target_var LIKE ?' for _ in range(min(100, len(all_patterns)))])
+    params = [f'%{pattern}%' for pattern in list(all_patterns)[:100]]
 
-        cursor.execute(f"""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE {placeholders}
-            ORDER BY file, line
-        """, params)
+    cursor.execute(f"""
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE {placeholders}
+        ORDER BY file, line
+    """, params)
 
-        for file, line, var, expr in cursor.fetchall():
-            # Identify which PII category
-            pii_category = None
-            pii_pattern = None
-            for category, patterns in pii_categories.items():
-                for pattern in patterns:
-                    if pattern in var.lower():
-                        pii_category = category
-                        pii_pattern = pattern
-                        break
-                if pii_category:
+    for file, line, var, expr in cursor.fetchall():
+        # Identify which PII category
+        pii_category = None
+        pii_pattern = None
+        for category, patterns in pii_categories.items():
+            for pattern in patterns:
+                if pattern in var.lower():
+                    pii_category = category
+                    pii_pattern = pattern
                     break
-
             if pii_category:
-                regulations = get_applicable_regulations(pii_pattern)
+                break
 
-                findings.append(StandardFinding(
-                    rule_name=f'pii-direct-{pii_category}',
-                    message=f'Direct PII assignment: {var} ({pii_category})',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=_determine_confidence(pii_pattern, 'assignment'),
-                    category='privacy',
-                    snippet=f'{var} = ...',
-                    cwe_id='CWE-359',  # Exposure of Private Personal Information
-                    additional_info={
-                        'regulations': [r.value for r in regulations],
-                        'pii_category': pii_category
-                    }
-                ))
+        if pii_category:
+            regulations = get_applicable_regulations(pii_pattern)
+
+            findings.append(StandardFinding(
+                rule_name=f'pii-direct-{pii_category}',
+                message=f'Direct PII assignment: {var} ({pii_category})',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                confidence=_determine_confidence(pii_pattern, 'assignment'),
+                category='privacy',
+                snippet=f'{var} = ...',
+                cwe_id='CWE-359',  # Exposure of Private Personal Information
+                additional_info={
+                    'regulations': [r.value for r in regulations],
+                    'pii_category': pii_category
+                }
+            ))
 
     return findings
 
@@ -933,7 +897,7 @@ def _detect_direct_pii(cursor, existing_tables: Set[str], pii_categories: Dict) 
 # DETECTION LAYER 2: PII in Logging
 # ============================================================================
 
-def _detect_pii_in_logging(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_logging(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII being logged."""
     findings = []
 
@@ -986,7 +950,7 @@ def _detect_pii_in_logging(cursor, existing_tables: Set[str], pii_categories: Di
 # DETECTION LAYER 3: PII in Error Responses
 # ============================================================================
 
-def _detect_pii_in_errors(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_errors(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII in error responses."""
     findings = []
 
@@ -1045,7 +1009,7 @@ def _detect_pii_in_errors(cursor, existing_tables: Set[str], pii_categories: Dic
 # DETECTION LAYER 4: PII in URLs
 # ============================================================================
 
-def _detect_pii_in_urls(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_urls(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII in URLs and query parameters."""
     findings = []
 
@@ -1091,7 +1055,7 @@ def _detect_pii_in_urls(cursor, existing_tables: Set[str], pii_categories: Dict)
 # DETECTION LAYER 5: Unencrypted PII Storage
 # ============================================================================
 
-def _detect_unencrypted_pii(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_unencrypted_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect unencrypted PII being stored."""
     findings = []
 
@@ -1148,7 +1112,7 @@ def _detect_unencrypted_pii(cursor, existing_tables: Set[str], pii_categories: D
 # DETECTION LAYER 6: Client-Side PII Storage
 # ============================================================================
 
-def _detect_client_side_pii(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_client_side_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII stored in client-side storage."""
     findings = []
 
@@ -1194,7 +1158,7 @@ def _detect_client_side_pii(cursor, existing_tables: Set[str], pii_categories: D
 # DETECTION LAYER 7: PII in Exception Handling
 # ============================================================================
 
-def _detect_pii_in_exceptions(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_exceptions(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII exposed in exception handling."""
     findings = []
 
@@ -1240,7 +1204,7 @@ def _detect_pii_in_exceptions(cursor, existing_tables: Set[str], pii_categories:
 # DETECTION LAYER 8: Derived PII
 # ============================================================================
 
-def _detect_derived_pii(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_derived_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII derived from other fields."""
     findings = []
 
@@ -1281,7 +1245,7 @@ def _detect_derived_pii(cursor, existing_tables: Set[str], pii_categories: Dict)
 # DETECTION LAYER 9: Aggregated PII (Quasi-Identifiers)
 # ============================================================================
 
-def _detect_aggregated_pii(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_aggregated_pii(cursor) -> List[StandardFinding]:
     """Detect quasi-identifiers that become PII when combined."""
     findings = []
 
@@ -1320,7 +1284,7 @@ def _detect_aggregated_pii(cursor, existing_tables: Set[str]) -> List[StandardFi
 # DETECTION LAYER 10: Third-Party PII Exposure
 # ============================================================================
 
-def _detect_third_party_pii(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_third_party_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII being sent to third-party services."""
     findings = []
 
@@ -1400,11 +1364,9 @@ def register_taint_patterns(taint_registry):
 # ADDITIONAL DETECTION LAYERS
 # ============================================================================
 
-def _detect_pii_in_route_patterns(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_route_patterns(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detects PII exposed in parameterized API route patterns."""
     findings = []
-    if 'api_endpoints' not in existing_tables:
-        return findings
 
     # Collect all PII patterns
     all_pii_patterns = set()
@@ -1451,12 +1413,9 @@ def _detect_pii_in_route_patterns(cursor, existing_tables: Set[str], pii_categor
 
     return findings
 
-def _detect_pii_in_apis(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_apis(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII exposed in API endpoints."""
     findings = []
-
-    if 'api_endpoints' not in existing_tables:
-        return findings
 
     # Get all API endpoints
     cursor.execute("""
@@ -1505,7 +1464,7 @@ def _detect_pii_in_apis(cursor, existing_tables: Set[str], pii_categories: Dict)
 
     return findings
 
-def _detect_pii_in_exports(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_exports(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII in data exports (CSV, JSON, XML)."""
     findings = []
 
@@ -1558,7 +1517,7 @@ def _detect_pii_in_exports(cursor, existing_tables: Set[str], pii_categories: Di
 
     return findings
 
-def _detect_pii_retention(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_retention(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII retention policy violations."""
     findings = []
 
@@ -1614,7 +1573,7 @@ def _detect_pii_retention(cursor, existing_tables: Set[str], pii_categories: Dic
 
     return findings
 
-def _detect_pii_cross_border(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_cross_border(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect cross-border PII transfers."""
     findings = []
 
@@ -1668,7 +1627,7 @@ def _detect_pii_cross_border(cursor, existing_tables: Set[str], pii_categories: 
 
     return findings
 
-def _detect_pii_consent_gaps(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_consent_gaps(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII processing without consent checks."""
     findings = []
 
@@ -1730,7 +1689,7 @@ def _detect_pii_consent_gaps(cursor, existing_tables: Set[str], pii_categories: 
 
     return findings
 
-def _detect_pii_in_metrics(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_metrics(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII in metrics and monitoring."""
     findings = []
 
@@ -1775,7 +1734,7 @@ def _detect_pii_in_metrics(cursor, existing_tables: Set[str], pii_categories: Di
 
     return findings
 
-def _detect_pii_access_control(cursor, existing_tables: Set[str], pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_access_control(cursor, pii_categories: Dict) -> List[StandardFinding]:
     """Detect PII access without proper authorization checks."""
     findings = []
 
@@ -1888,17 +1847,16 @@ def analyze_pii_comprehensive(context: StandardRuleContext) -> Dict:
         cursor = conn.cursor()
 
         try:
-            existing_tables = _check_tables(cursor)
             pii_categories = _organize_pii_patterns()
 
-            # Additional layers
-            findings.extend(_detect_pii_in_apis(cursor, existing_tables, pii_categories))
-            findings.extend(_detect_pii_in_exports(cursor, existing_tables, pii_categories))
-            findings.extend(_detect_pii_retention(cursor, existing_tables, pii_categories))
-            findings.extend(_detect_pii_cross_border(cursor, existing_tables, pii_categories))
-            findings.extend(_detect_pii_consent_gaps(cursor, existing_tables, pii_categories))
-            findings.extend(_detect_pii_in_metrics(cursor, existing_tables, pii_categories))
-            findings.extend(_detect_pii_access_control(cursor, existing_tables, pii_categories))
+            # Additional layers - execute unconditionally
+            findings.extend(_detect_pii_in_apis(cursor, pii_categories))
+            findings.extend(_detect_pii_in_exports(cursor, pii_categories))
+            findings.extend(_detect_pii_retention(cursor, pii_categories))
+            findings.extend(_detect_pii_cross_border(cursor, pii_categories))
+            findings.extend(_detect_pii_consent_gaps(cursor, pii_categories))
+            findings.extend(_detect_pii_in_metrics(cursor, pii_categories))
+            findings.extend(_detect_pii_access_control(cursor, pii_categories))
         finally:
             conn.close()
 

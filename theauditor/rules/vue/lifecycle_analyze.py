@@ -3,11 +3,11 @@
 Detects Vue lifecycle hook misuse and anti-patterns using
 indexed database data. NO AST traversal. Pure SQL queries.
 
-Follows golden standard patterns:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
-- Proper confidence levels
+Follows v1.1+ gold standard patterns:
+- Frozensets for all patterns (O(1) lookups)
+- NO table existence checks (schema contract guarantees all tables exist)
+- Direct database queries (crash on missing tables to expose indexer bugs)
+- Proper confidence levels via Confidence enum
 """
 
 import sqlite3
@@ -125,8 +125,8 @@ def find_vue_lifecycle_issues(context: StandardRuleContext) -> List[StandardFind
     cursor = conn.cursor()
 
     try:
-        # Get Vue files
-        vue_files = _get_vue_files(cursor, {})
+        # Get Vue files (schema contract guarantees tables exist)
+        vue_files = _get_vue_files(cursor)
         if not vue_files:
             return findings
 
@@ -150,31 +150,34 @@ def find_vue_lifecycle_issues(context: StandardRuleContext) -> List[StandardFind
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor, existing_tables: Set[str]) -> Set[str]:
-    """Get all Vue-related files from the database."""
+def _get_vue_files(cursor) -> Set[str]:
+    """Get all Vue-related files from the database.
+
+    Schema contract (v1.1+) guarantees all tables exist.
+    If table is missing, we WANT the rule to crash to expose indexer bugs.
+    """
     vue_files = set()
 
-    if 'files' in existing_tables:
-        cursor.execute("""
-            SELECT DISTINCT file_path
-            FROM files
-            WHERE file_path LIKE '%.vue'
-               OR (file_path LIKE '%.js' AND file_path LIKE '%component%')
-               OR (file_path LIKE '%.ts' AND file_path LIKE '%component%')
-        """)
-        vue_files.update(row[0] for row in cursor.fetchall())
+    # Check files table by extension
+    cursor.execute("""
+        SELECT DISTINCT path
+        FROM files
+        WHERE path LIKE '%.vue'
+           OR (path LIKE '%.js' AND path LIKE '%component%')
+           OR (path LIKE '%.ts' AND path LIKE '%component%')
+    """)
+    vue_files.update(row[0] for row in cursor.fetchall())
 
     # Find files with lifecycle hooks
-    if 'function_call_args' in existing_tables:
-        all_hooks = list(VUE2_LIFECYCLE | VUE3_LIFECYCLE | COMPOSITION_LIFECYCLE)
-        placeholders = ','.join('?' * len(all_hooks))
+    all_hooks = list(VUE2_LIFECYCLE | VUE3_LIFECYCLE | COMPOSITION_LIFECYCLE)
+    placeholders = ','.join('?' * len(all_hooks))
 
-        cursor.execute(f"""
-            SELECT DISTINCT file
-            FROM function_call_args
-            WHERE callee_function IN ({placeholders})
-        """, all_hooks)
-        vue_files.update(row[0] for row in cursor.fetchall())
+    cursor.execute(f"""
+        SELECT DISTINCT file
+        FROM function_call_args
+        WHERE callee_function IN ({placeholders})
+    """, all_hooks)
+    vue_files.update(row[0] for row in cursor.fetchall())
 
     return vue_files
 

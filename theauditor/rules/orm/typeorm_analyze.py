@@ -148,15 +148,14 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 1: Unbounded Queries (find, getMany without limit)
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE (callee_function LIKE '%.find'
-                   OR callee_function LIKE '%.findAndCount'
-                   OR callee_function LIKE '%.getMany'
-                   OR callee_function LIKE '%.getManyAndCount'
-                   OR callee_function LIKE '%.getRawMany')
-            ORDER BY file, line
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + """
+            WHERE (f.callee_function LIKE '%.find'
+                   OR f.callee_function LIKE '%.findAndCount'
+                   OR f.callee_function LIKE '%.getMany'
+                   OR f.callee_function LIKE '%.getManyAndCount'
+                   OR f.callee_function LIKE '%.getRawMany')
+            ORDER BY f.file, f.line
         """)
 
         for file, line, method, args in cursor.fetchall():
@@ -180,13 +179,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: N+1 Query Patterns
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE (callee_function LIKE '%.findOne'
-                   OR callee_function LIKE '%.findOneBy'
-                   OR callee_function LIKE '%.findOneOrFail')
-            ORDER BY file, line
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + """
+            WHERE (f.callee_function LIKE '%.findOne'
+                   OR f.callee_function LIKE '%.findOneBy'
+                   OR f.callee_function LIKE '%.findOneOrFail')
+            ORDER BY f.file, f.line
         """)
 
         # Group by file to detect patterns
@@ -224,16 +222,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Missing Transactions for Multiple Writes
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, callee_function
-            FROM function_call_args
-            WHERE callee_function LIKE '%.save'
-               OR callee_function LIKE '%.insert'
-               OR callee_function LIKE '%.update'
-               OR callee_function LIKE '%.delete'
-               OR callee_function LIKE '%.remove'
-               OR callee_function LIKE '%.softDelete'
-            ORDER BY file, line
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+        cursor.execute(query + """
+            WHERE f.callee_function LIKE '%.save'
+               OR f.callee_function LIKE '%.insert'
+               OR f.callee_function LIKE '%.update'
+               OR f.callee_function LIKE '%.delete'
+               OR f.callee_function LIKE '%.remove'
+               OR f.callee_function LIKE '%.softDelete'
+            ORDER BY f.file, f.line
         """)
 
         # Group operations by file
@@ -252,12 +249,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                 # Operations within 20 lines
                 if op2['line'] - op1['line'] <= 20:
                     # Check for transaction
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM function_call_args
-                        WHERE file = ?
-                          AND (callee_function LIKE '%transaction%'
-                               OR callee_function LIKE '%queryRunner%')
-                          AND line BETWEEN ? AND ?
+                    trans_query = build_query('function_call_args', ['COUNT(*)'])
+                    cursor.execute(trans_query + """
+                        WHERE f.file = ?
+                          AND (f.callee_function LIKE '%transaction%'
+                               OR f.callee_function LIKE '%queryRunner%')
+                          AND f.line BETWEEN ? AND ?
                     """, (file, op1['line'] - 10, op2['line'] + 10))
 
                     has_transaction = cursor.fetchone()[0] > 0
@@ -278,14 +275,13 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: Raw SQL Injection Risks
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE '%.query'
-               OR callee_function LIKE '%.createQueryBuilder'
-               OR callee_function LIKE '%QueryBuilder%'
-               OR callee_function = 'query'
-            ORDER BY file, line
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + """
+            WHERE f.callee_function LIKE '%.query'
+               OR f.callee_function LIKE '%.createQueryBuilder'
+               OR f.callee_function LIKE '%QueryBuilder%'
+               OR f.callee_function = 'query'
+            ORDER BY f.file, f.line
         """)
 
         for file, line, func, args in cursor.fetchall():
@@ -314,25 +310,24 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: QueryBuilder Without Limits
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE '%getMany%'
-               OR callee_function LIKE '%getRawMany%'
-               OR callee_function LIKE '%getManyAndCount%'
-            ORDER BY file, line
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + """
+            WHERE f.callee_function LIKE '%getMany%'
+               OR f.callee_function LIKE '%getRawMany%'
+               OR f.callee_function LIKE '%getManyAndCount%'
+            ORDER BY f.file, f.line
         """)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         getmany_calls = cursor.fetchall()
 
         for file, line, method, args in getmany_calls:
             # Check if there's a limit() or take() call nearby
-            cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND (callee_function LIKE '%.limit'
-                       OR callee_function LIKE '%.take')
-                  AND ABS(line - ?) <= 5
+            limit_query = build_query('function_call_args', ['COUNT(*)'])
+            cursor.execute(limit_query + """
+                WHERE f.file = ?
+                  AND (f.callee_function LIKE '%.limit'
+                       OR f.callee_function LIKE '%.take')
+                  AND ABS(f.line - ?) <= 5
             """, (file, line))
 
             has_limit_nearby = cursor.fetchone()[0] > 0
@@ -352,12 +347,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Dangerous Cascade Configuration
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE source_expr LIKE '%cascade%true%'
-               OR source_expr LIKE '%cascade:%true%'
-               OR source_expr LIKE '%cascade :%true%'
+        query = build_query('assignments', ['file', 'line', 'source_expr'])
+        cursor.execute(query + """
+            WHERE a.source_expr LIKE '%cascade%true%'
+               OR a.source_expr LIKE '%cascade:%true%'
+               OR a.source_expr LIKE '%cascade :%true%'
         """)
 
         for file, line, expr in cursor.fetchall():
@@ -375,14 +369,13 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: Synchronize True in Production
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE (source_expr LIKE '%synchronize%true%'
-                   OR source_expr LIKE '%synchronize:%true%')
-              AND file NOT LIKE '%test%'
-              AND file NOT LIKE '%spec%'
-              AND file NOT LIKE '%mock%'
+        query = build_query('assignments', ['file', 'line', 'source_expr'])
+        cursor.execute(query + """
+            WHERE (a.source_expr LIKE '%synchronize%true%'
+                   OR a.source_expr LIKE '%synchronize:%true%')
+              AND a.file NOT LIKE '%test%'
+              AND a.file NOT LIKE '%spec%'
+              AND a.file NOT LIKE '%mock%'
         """)
 
         for file, line, expr in cursor.fetchall():
@@ -401,12 +394,13 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 8: Missing Indexes on Common Fields
         # ========================================================
         # Find entity files
+        # Note: Using raw SQL because build_query() doesn't support DISTINCT
         cursor.execute("""
-            SELECT DISTINCT path
-            FROM files
-            WHERE (path LIKE '%.entity.ts' OR path LIKE '%.entity.js')
-              AND path NOT LIKE '%test%'
-              AND path NOT LIKE '%spec%'
+            SELECT DISTINCT f.path
+            FROM files f
+            WHERE (f.path LIKE '%.entity.ts' OR f.path LIKE '%.entity.js')
+              AND f.path NOT LIKE '%test%'
+              AND f.path NOT LIKE '%spec%'
         """)
 
         entity_files = cursor.fetchall()
@@ -414,12 +408,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         for (entity_file,) in entity_files:
             # Check for common fields in this entity
             for field in COMMON_INDEXED_FIELDS:
-                cursor.execute("""
-                    SELECT line
-                    FROM symbols
-                    WHERE path = ?
-                      AND name LIKE ?
-                      AND type IN ('property', 'field', 'member')
+                field_query = build_query('symbols', ['line'])
+                cursor.execute(field_query + """
+                    WHERE s.path = ?
+                      AND s.name LIKE ?
+                      AND s.type IN ('property', 'field', 'member')
                     LIMIT 1
                 """, (entity_file, f'%{field}%'))
 
@@ -429,12 +422,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                     field_line = field_result[0]
 
                     # Check if there's an @Index nearby
-                    cursor.execute("""
-                        SELECT COUNT(*)
-                        FROM symbols
-                        WHERE path = ?
-                          AND name LIKE '%Index%'
-                          AND ABS(line - ?) <= 3
+                    index_query = build_query('symbols', ['COUNT(*)'])
+                    cursor.execute(index_query + """
+                        WHERE s.path = ?
+                          AND s.name LIKE '%Index%'
+                          AND ABS(s.line - ?) <= 3
                     """, (entity_file, field_line))
 
                     has_index = cursor.fetchone()[0] > 0
@@ -454,13 +446,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 9: Complex Joins Without Pagination
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE (callee_function LIKE '%leftJoin%'
-                   OR callee_function LIKE '%innerJoin%'
-                   OR callee_function LIKE '%leftJoinAndSelect%')
-            ORDER BY file, line
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
+        cursor.execute(query + """
+            WHERE (f.callee_function LIKE '%leftJoin%'
+                   OR f.callee_function LIKE '%innerJoin%'
+                   OR f.callee_function LIKE '%leftJoinAndSelect%')
+            ORDER BY f.file, f.line
         """)
 
         # Count joins per query
@@ -475,12 +466,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         for key, data in join_counts.items():
             if data['count'] >= 3:
                 # Check for limit/take
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ?
-                      AND (callee_function LIKE '%.limit'
-                           OR callee_function LIKE '%.take')
-                      AND ABS(line - ?) <= 10
+                limit_query = build_query('function_call_args', ['COUNT(*)'])
+                cursor.execute(limit_query + """
+                    WHERE f.file = ?
+                      AND (f.callee_function LIKE '%.limit'
+                           OR f.callee_function LIKE '%.take')
+                      AND ABS(f.line - ?) <= 10
                 """, (data['file'], data['line']))
 
                 has_limit = cursor.fetchone()[0] > 0
@@ -500,22 +491,21 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 10: Entity Manager vs Repository Pattern
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, callee_function
-            FROM function_call_args
-            WHERE callee_function LIKE '%entityManager.%'
-               OR callee_function LIKE '%getManager%'
-            ORDER BY file, line
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
+        cursor.execute(query + """
+            WHERE f.callee_function LIKE '%entityManager.%'
+               OR f.callee_function LIKE '%getManager%'
+            ORDER BY f.file, f.line
         """)
 
         manager_usage = cursor.fetchall()
 
         if len(manager_usage) > 20:  # Significant EntityManager usage
             # Check if using repositories
-            cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE callee_function LIKE '%getRepository%'
-                   OR callee_function LIKE '%getCustomRepository%'
+            repo_query = build_query('function_call_args', ['COUNT(*)'])
+            cursor.execute(repo_query + """
+                WHERE f.callee_function LIKE '%getRepository%'
+                   OR f.callee_function LIKE '%getCustomRepository%'
             """)
 
             repo_count = cursor.fetchone()[0]

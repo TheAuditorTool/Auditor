@@ -218,9 +218,9 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
         check_query = build_query('function_call_args', ['COUNT(*)'],
                                   where="""file = ?
               AND (argument_expr LIKE '%state%'
-                   OR param_name = 'state'
                    OR argument_expr LIKE '%csrf%'
-                   OR param_name = 'csrf')""")
+                   OR argument_expr LIKE '%oauthState%'
+                   OR argument_expr LIKE '%csrfToken%')""")
         cursor.execute(check_query, [file])
 
         has_state = cursor.fetchone()[0] > 0
@@ -345,12 +345,11 @@ def _check_redirect_validation(cursor) -> List[StandardFinding]:
         val_query = build_query('function_call_args', ['COUNT(*)'],
                                where="""file = ?
               AND line > ? AND line <= ?
-              AND (argument_expr LIKE ?
-                   OR param_name = ?)
+              AND argument_expr LIKE ?
               AND (callee_function LIKE '%validate%'
                    OR callee_function LIKE '%check%'
                    OR callee_function LIKE '%whitelist%')""")
-        cursor.execute(val_query, [file, line, line + 10, f'%{var}%', var])
+        cursor.execute(val_query, [file, line, line + 10, f'%{var}%'])
 
         has_validation = cursor.fetchone()[0] > 0
 

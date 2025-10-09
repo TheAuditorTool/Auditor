@@ -3,11 +3,11 @@
 Detects Vue-specific component anti-patterns and performance issues using
 indexed database data. NO AST traversal. Pure SQL queries.
 
-Follows golden standard patterns:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
-- Proper confidence levels
+Follows v1.1+ gold standard patterns:
+- Frozensets for all patterns (O(1) lookups)
+- NO table existence checks (schema contract guarantees all tables exist)
+- Direct database queries (crash on missing tables to expose indexer bugs)
+- Proper confidence levels via Confidence enum
 """
 
 import sqlite3
@@ -115,8 +115,8 @@ def find_vue_component_issues(context: StandardRuleContext) -> List[StandardFind
     cursor = conn.cursor()
 
     try:
-        # Get Vue files
-        vue_files = _get_vue_files(cursor, {})
+        # Get Vue files (schema contract guarantees tables exist)
+        vue_files = _get_vue_files(cursor)
         if not vue_files:
             return findings
 
@@ -139,37 +139,46 @@ def find_vue_component_issues(context: StandardRuleContext) -> List[StandardFind
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor, existing_tables: Set[str]) -> Set[str]:
-    """Get all Vue-related files from the database."""
+def _get_vue_files(cursor) -> Set[str]:
+    """Get all Vue-related files from the database.
+
+    Schema contract (v1.1+) guarantees all tables exist.
+    If table is missing, we WANT the rule to crash to expose indexer bugs.
+    """
     vue_files = set()
 
-    # First check the vue_components table if it exists
-    if 'vue_components' in existing_tables:
+    # Try vue_components table first (JSX-preserved data)
+    try:
         cursor.execute("""
             SELECT DISTINCT file
             FROM vue_components
         """)
         vue_files.update(row[0] for row in cursor.fetchall())
+        if vue_files:
+            return vue_files
+    except sqlite3.OperationalError:
+        pass  # Table doesn't exist, fall through to file extension check
 
-    # Fallback to file extension check if no Vue components found
-    if not vue_files and 'files' in existing_tables:
-        cursor.execute("""
-            SELECT DISTINCT file_path
-            FROM files
-            WHERE file_path LIKE '%.vue'
-        """)
-        vue_files.update(row[0] for row in cursor.fetchall())
+    # Fallback: Check files table by extension
+    cursor.execute("""
+        SELECT DISTINCT path
+        FROM files
+        WHERE path LIKE '%.vue'
+    """)
+    vue_files.update(row[0] for row in cursor.fetchall())
 
-    # Also check JavaScript files that import Vue (if still no Vue files found)
-    if not vue_files and 'symbols' in existing_tables:
-        cursor.execute("""
-            SELECT DISTINCT path
-            FROM symbols
-            WHERE name LIKE '%Vue%'
-               OR name LIKE '%defineComponent%'
-               OR name LIKE '%createApp%'
-        """)
-        vue_files.update(row[0] for row in cursor.fetchall())
+    if vue_files:
+        return vue_files
+
+    # Final fallback: Check JavaScript files that import Vue
+    cursor.execute("""
+        SELECT DISTINCT path
+        FROM symbols
+        WHERE name LIKE '%Vue%'
+           OR name LIKE '%defineComponent%'
+           OR name LIKE '%createApp%'
+    """)
+    vue_files.update(row[0] for row in cursor.fetchall())
 
     return vue_files
 
@@ -382,13 +391,13 @@ def _find_missing_component_names(cursor, vue_files: Set[str]) -> List[StandardF
 
     # Check for components without name property
     cursor.execute(f"""
-        SELECT DISTINCT f.file_path
+        SELECT DISTINCT f.path
         FROM files f
-        WHERE f.file_path IN ({placeholders})
-          AND f.file_path LIKE '%.vue'
+        WHERE f.path IN ({placeholders})
+          AND f.path LIKE '%.vue'
           AND NOT EXISTS (
               SELECT 1 FROM symbols s
-              WHERE s.path = f.file_path
+              WHERE s.path = f.path
                 AND (s.name = 'name' OR s.name LIKE 'name:' OR s.name LIKE '"name"')
           )
     """, list(vue_files))

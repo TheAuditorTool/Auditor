@@ -1,15 +1,15 @@
 """Rate Limit Analyzer - Production-Ready Database-Driven Detection.
 
 Detects 15+ rate limiting misconfigurations and bypass techniques using pure SQL queries.
-Follows golden standards with frozensets, table checks, confidence scoring, and regulation mapping.
+Follows gold standard patterns (v1.1+ schema contract compliance).
 
 This implementation:
-- Uses frozensets for ALL patterns (immutable, hashable)
-- Checks table existence before queries
+- Uses frozensets for O(1) pattern matching (immutable, hashable)
+- Direct database queries (assumes all tables exist per schema contract)
 - Uses parameterized queries (no SQL injection)
-- Implements multi-layer detection with fallbacks
+- Implements multi-layer detection patterns
 - Provides confidence scoring based on context
-- Maps findings to security regulations
+- Maps findings to security regulations (OWASP, PCI-DSS, NIST)
 """
 
 import sqlite3
@@ -140,74 +140,45 @@ def find_rate_limit_issues(context: StandardRuleContext) -> List[StandardFinding
     cursor = conn.cursor()
 
     try:
-        # MANDATORY: Check table existence first
-        existing_tables = _check_tables(cursor)
-        if not existing_tables:
-            return findings
+        # All required tables guaranteed to exist by schema contract
+        # (theauditor/indexer/schema.py - TABLES registry with 46 table definitions)
+        # If table missing, rule will crash with clear sqlite3.OperationalError (CORRECT behavior)
 
-        # Core detection layers
-        if 'function_call_args' in existing_tables:
-            # Layer 1: Middleware ordering issues
-            findings.extend(_detect_middleware_ordering(cursor, existing_tables))
+        # Core detection layers - execute unconditionally
+        # Layer 1: Middleware ordering issues
+        findings.extend(_detect_middleware_ordering(cursor))
 
-            # Layer 2: Unprotected critical endpoints
-            findings.extend(_detect_unprotected_endpoints(cursor, existing_tables))
+        # Layer 2: Unprotected critical endpoints
+        findings.extend(_detect_unprotected_endpoints(cursor))
 
-            # Layer 3: Bypassable key generation
-            findings.extend(_detect_bypassable_keys(cursor, existing_tables))
+        # Layer 3: Bypassable key generation
+        findings.extend(_detect_bypassable_keys(cursor))
 
-            # Layer 4: Memory storage issues
-            findings.extend(_detect_memory_storage(cursor, existing_tables))
+        # Layer 4: Memory storage issues
+        findings.extend(_detect_memory_storage(cursor))
 
-            # Layer 5: Expensive operations before rate limiting
-            findings.extend(_detect_expensive_operations(cursor, existing_tables))
+        # Layer 5: Expensive operations before rate limiting
+        findings.extend(_detect_expensive_operations(cursor))
 
-        # Additional detection layers
-        if 'api_endpoints' in existing_tables:
-            # Layer 6: API endpoints without rate limiting
-            findings.extend(_detect_api_rate_limits(cursor, existing_tables))
+        # Layer 6: API endpoints without rate limiting
+        findings.extend(_detect_api_rate_limits(cursor))
 
-        if 'symbols' in existing_tables:
-            # Layer 7: Decorator ordering (Python)
-            findings.extend(_detect_decorator_ordering(cursor, existing_tables))
+        # Layer 7: Decorator ordering (Python)
+        findings.extend(_detect_decorator_ordering(cursor))
 
-        if 'assignments' in existing_tables:
-            # Layer 8: Rate limit bypass configurations
-            findings.extend(_detect_bypass_configs(cursor, existing_tables))
+        # Layer 8: Rate limit bypass configurations
+        findings.extend(_detect_bypass_configs(cursor))
 
-        # Advanced detection layers
-        if 'function_call_args' in existing_tables and 'symbols' in existing_tables:
-            # Layer 9: Missing user-based rate limiting
-            findings.extend(_detect_missing_user_limits(cursor, existing_tables))
+        # Layer 9: Missing user-based rate limiting
+        findings.extend(_detect_missing_user_limits(cursor))
 
-            # Layer 10: Rate limit value analysis
-            findings.extend(_detect_weak_rate_limits(cursor, existing_tables))
+        # Layer 10: Rate limit value analysis
+        findings.extend(_detect_weak_rate_limits(cursor))
 
     finally:
         conn.close()
 
     return findings
-
-# ============================================================================
-# HELPER: Table Existence Check
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in the database."""
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN (
-            'function_call_args',
-            'symbols',
-            'assignments',
-            'api_endpoints',
-            'cfg_blocks',
-            'files',
-            'refs'
-        )
-    """)
-    return {row[0] for row in cursor.fetchall()}
 
 # ============================================================================
 # HELPER: Confidence Determination
@@ -278,7 +249,7 @@ def _get_attack_scenario(rule_name: str) -> str:
 # DETECTION LAYER 1: Middleware Ordering
 # ============================================================================
 
-def _detect_middleware_ordering(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_middleware_ordering(cursor) -> List[StandardFinding]:
     """Detect incorrect middleware ordering (auth before rate limit)."""
     findings = []
 
@@ -386,7 +357,7 @@ def _detect_middleware_ordering(cursor, existing_tables: Set[str]) -> List[Stand
 # DETECTION LAYER 2: Unprotected Critical Endpoints
 # ============================================================================
 
-def _detect_unprotected_endpoints(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_unprotected_endpoints(cursor) -> List[StandardFinding]:
     """Detect critical endpoints without rate limiting."""
     findings = []
 
@@ -439,7 +410,7 @@ def _detect_unprotected_endpoints(cursor, existing_tables: Set[str]) -> List[Sta
             has_rate_limit = cursor.fetchone()[0] > 0
 
             # Also check for decorators
-            if not has_rate_limit and 'symbols' in existing_tables:
+            if not has_rate_limit:
                 cursor.execute("""
                     SELECT COUNT(*)
                     FROM symbols
@@ -479,7 +450,7 @@ def _detect_unprotected_endpoints(cursor, existing_tables: Set[str]) -> List[Sta
 # DETECTION LAYER 3: Bypassable Key Generation
 # ============================================================================
 
-def _detect_bypassable_keys(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
     """Detect rate limiters using spoofable headers for keys."""
     findings = []
 
@@ -537,44 +508,43 @@ def _detect_bypassable_keys(cursor, existing_tables: Set[str]) -> List[StandardF
                 ))
 
     # Also check assignments that might be used for keys
-    if 'assignments' in existing_tables:
-        placeholders = ','.join(['?' for _ in SPOOFABLE_HEADERS])
-        cursor.execute(f"""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE source_expr LIKE '%headers%'
-              AND ({' OR '.join(['source_expr LIKE ?' for _ in SPOOFABLE_HEADERS])})
-              AND (target_var LIKE '%ip%' OR target_var LIKE '%key%' OR target_var LIKE '%client%')
-        """, [f'%{h}%' for h in SPOOFABLE_HEADERS])
+    placeholders = ','.join(['?' for _ in SPOOFABLE_HEADERS])
+    cursor.execute(f"""
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE source_expr LIKE '%headers%'
+          AND ({' OR '.join(['source_expr LIKE ?' for _ in SPOOFABLE_HEADERS])})
+          AND (target_var LIKE '%ip%' OR target_var LIKE '%key%' OR target_var LIKE '%client%')
+    """, [f'%{h}%' for h in SPOOFABLE_HEADERS])
 
-        for file, line, var, expr in cursor.fetchall():
-            # Check if this var is used in rate limiting
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM function_call_args
-                WHERE file = ?
-                  AND line > ?
-                  AND line <= ? + 50
-                  AND argument_expr LIKE ?
-                  AND (callee_function LIKE '%limit%' OR callee_function LIKE '%throttle%')
-            """, (file, line, line, f'%{var}%'))
+    for file, line, var, expr in cursor.fetchall():
+        # Check if this var is used in rate limiting
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM function_call_args
+            WHERE file = ?
+              AND line > ?
+              AND line <= ? + 50
+              AND argument_expr LIKE ?
+              AND (callee_function LIKE '%limit%' OR callee_function LIKE '%throttle%')
+        """, (file, line, line, f'%{var}%'))
 
-            if cursor.fetchone()[0] > 0:
-                findings.append(StandardFinding(
-                    rule_name='bypassable-key-indirect',
-                    message='Rate limiting key derived from spoofable header',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.MEDIUM,
-                    category='security',
-                    snippet=f'{var} = {expr[:100]}',
-                    cwe_id='CWE-290',
-                    additional_info={
-                        'variable': var,
-                        'note': 'This variable appears to be used for rate limiting'
-                    }
-                ))
+        if cursor.fetchone()[0] > 0:
+            findings.append(StandardFinding(
+                rule_name='bypassable-key-indirect',
+                message='Rate limiting key derived from spoofable header',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                category='security',
+                snippet=f'{var} = {expr[:100]}',
+                cwe_id='CWE-290',
+                additional_info={
+                    'variable': var,
+                    'note': 'This variable appears to be used for rate limiting'
+                }
+            ))
 
     return findings
 
@@ -582,7 +552,7 @@ def _detect_bypassable_keys(cursor, existing_tables: Set[str]) -> List[StandardF
 # DETECTION LAYER 4: Memory Storage Issues
 # ============================================================================
 
-def _detect_memory_storage(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_memory_storage(cursor) -> List[StandardFinding]:
     """Detect rate limiters using non-persistent storage."""
     findings = []
 
@@ -653,7 +623,7 @@ def _detect_memory_storage(cursor, existing_tables: Set[str]) -> List[StandardFi
 # DETECTION LAYER 5: Expensive Operations Before Rate Limiting
 # ============================================================================
 
-def _detect_expensive_operations(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_expensive_operations(cursor) -> List[StandardFinding]:
     """Detect expensive operations that run before rate limiting."""
     findings = []
 
@@ -730,12 +700,9 @@ def _detect_expensive_operations(cursor, existing_tables: Set[str]) -> List[Stan
 # DETECTION LAYER 6: API Endpoints Without Rate Limiting
 # ============================================================================
 
-def _detect_api_rate_limits(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_api_rate_limits(cursor) -> List[StandardFinding]:
     """Detect API endpoints without rate limiting."""
     findings = []
-
-    if 'api_endpoints' not in existing_tables:
-        return findings
 
     # Get all API endpoints
     cursor.execute("""
@@ -787,12 +754,9 @@ def _detect_api_rate_limits(cursor, existing_tables: Set[str]) -> List[StandardF
 # DETECTION LAYER 7: Decorator Ordering (Python)
 # ============================================================================
 
-def _detect_decorator_ordering(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_decorator_ordering(cursor) -> List[StandardFinding]:
     """Detect incorrect decorator ordering in Python."""
     findings = []
-
-    if 'symbols' not in existing_tables:
-        return findings
 
     # Get all decorators
     cursor.execute("""
@@ -867,12 +831,9 @@ def _detect_decorator_ordering(cursor, existing_tables: Set[str]) -> List[Standa
 # DETECTION LAYER 8: Rate Limit Bypass Configurations
 # ============================================================================
 
-def _detect_bypass_configs(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_bypass_configs(cursor) -> List[StandardFinding]:
     """Detect configurations that allow rate limit bypass."""
     findings = []
-
-    if 'assignments' not in existing_tables:
-        return findings
 
     # Look for bypass-related assignments
     placeholders = ','.join(['?' for _ in BYPASS_TECHNIQUES])
@@ -917,7 +878,7 @@ def _detect_bypass_configs(cursor, existing_tables: Set[str]) -> List[StandardFi
 # DETECTION LAYER 9: Missing User-Based Rate Limiting
 # ============================================================================
 
-def _detect_missing_user_limits(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_missing_user_limits(cursor) -> List[StandardFinding]:
     """Detect rate limiters that don't consider authenticated users."""
     findings = []
 
@@ -967,7 +928,7 @@ def _detect_missing_user_limits(cursor, existing_tables: Set[str]) -> List[Stand
 # DETECTION LAYER 10: Weak Rate Limit Values
 # ============================================================================
 
-def _detect_weak_rate_limits(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
     """Detect rate limits with weak values (too high)."""
     findings = []
 
