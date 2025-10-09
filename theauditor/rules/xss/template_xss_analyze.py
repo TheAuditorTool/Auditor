@@ -181,11 +181,30 @@ def _check_unsafe_template_syntax(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
-    # Check assignments for unsafe template patterns
+    # Check assignments for unsafe template patterns (optimized with WHERE filters)
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
         WHERE a.source_expr IS NOT NULL
+          AND (a.source_expr LIKE '%|safe%'
+               OR a.source_expr LIKE '%|raw%'
+               OR a.source_expr LIKE '%|n%'
+               OR a.source_expr LIKE '%|h%'
+               OR a.source_expr LIKE '%{{{%'
+               OR a.source_expr LIKE '%}}}%'
+               OR a.source_expr LIKE '%<%-%'
+               OR a.source_expr LIKE '%!{%'
+               OR a.source_expr LIKE '%Markup(%'
+               OR a.source_expr LIKE '%mark_safe%'
+               OR a.source_expr LIKE '%SafeString%'
+               OR a.source_expr LIKE '%autoescape%'
+               OR a.source_expr LIKE '%unescape%'
+               OR a.source_expr LIKE '%format_html%'
+               OR a.source_expr LIKE '%{!!%'
+               OR a.source_expr LIKE '%@php%'
+               OR a.source_expr LIKE '%disable_unicode%'
+               OR a.source_expr LIKE '%{{=%'
+               OR a.source_expr LIKE '%{{#%')
         ORDER BY a.file, a.line
     """)
 

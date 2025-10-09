@@ -234,30 +234,33 @@ def _find_queries_in_loops(cursor) -> List[StandardFinding]:
     placeholders = ','.join('?' * len(db_ops_list))
 
     # Find all loop blocks
-    query = build_query('cfg_blocks', ['file', 'function_name', 'start_line', 'end_line'])
-    cursor.execute(query + """
-        WHERE cb.block_type IN ('loop', 'for_loop', 'while_loop', 'do_while')
-           OR cb.block_type LIKE '%loop%'
-        ORDER BY cb.file, cb.start_line
+    cursor.execute("""
+        SELECT file, function_name, start_line, end_line
+        FROM cfg_blocks
+        WHERE block_type IN ('loop', 'for_loop', 'while_loop', 'do_while')
+           OR block_type LIKE '%loop%'
+        ORDER BY file, start_line
     """)
 
     loops = cursor.fetchall()
 
     for file, function, loop_start, loop_end in loops:
         # Find DB operations within loop
-        query = build_query('function_call_args', ['line', 'callee_function', 'argument_expr'])
-        cursor.execute(query + f"""
-            WHERE f.file = ?
-              AND f.line >= ?
-              AND f.line <= ?
-              AND f.callee_function IN ({placeholders})
-            ORDER BY f.line
+        cursor.execute(f"""
+            SELECT line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE file = ?
+              AND line >= ?
+              AND line <= ?
+              AND callee_function IN ({placeholders})
+            ORDER BY line
         """, [file, loop_start, loop_end] + db_ops_list)
 
         for line, operation, args in cursor.fetchall():
             # Check for nested loops
-            query = build_query('cfg_blocks', ['COUNT(*)'])
-            cursor.execute(query + """
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM cfg_blocks
                 WHERE file = ?
                   AND start_line < ?
                   AND end_line > ?
@@ -282,8 +285,10 @@ def _find_queries_in_loops(cursor) -> List[StandardFinding]:
     array_methods_list = list(ARRAY_METHODS)
     array_placeholders = ','.join('?' * len(array_methods_list))
 
-    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'])
-    cursor.execute(query + f"""
+    # Self-joins require manual SQL (cannot use build_query)
+    cursor.execute(f"""
+        SELECT f1.file, f1.line, f1.callee_function, f1.caller_function
+        FROM function_call_args f1
         WHERE f1.callee_function IN ({array_placeholders})
           AND EXISTS (
               SELECT 1 FROM function_call_args f2
@@ -450,8 +455,9 @@ def _find_synchronous_io_patterns(cursor) -> List[StandardFinding]:
                 confidence = Confidence.HIGH
 
         # Check if in API route context
-        query = build_query('api_endpoints', ['COUNT(*)'])
-        cursor.execute(query + """
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM api_endpoints
             WHERE file = ? AND ? BETWEEN line - 50 AND line + 50
         """, (file, line))
 
@@ -603,8 +609,9 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
         ))
 
     # Check for repeated deep property access in same function
-    query = build_query('symbols', ['path', 'name', 'COUNT(*) as count', 'MIN(line) as first_line'])
-    cursor.execute(query + """
+    cursor.execute("""
+        SELECT path, name, COUNT(*) as count, MIN(line) as first_line
+        FROM symbols
         WHERE type = 'property'
           AND LENGTH(name) - LENGTH(REPLACE(name, '.', '')) >= 2
         GROUP BY path, name
@@ -633,6 +640,8 @@ def _find_unoptimized_taint_flows(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find direct req → res flows
+    # NOTE: Self-join requires manual SQL since build_query() doesn't support aliases
+    # Schema contract guarantees symbols table exists
     cursor.execute("""
         SELECT DISTINCT s1.path, s1.line, s1.name as source, s2.name as sink
         FROM symbols s1
@@ -683,8 +692,9 @@ def _find_repeated_expensive_calls(cursor) -> List[StandardFinding]:
     expensive_ops_list = list(EXPENSIVE_OPS)
     placeholders = ','.join('?' * len(expensive_ops_list))
 
-    query = build_query('function_call_args', ['file', 'caller_function', 'callee_function', 'COUNT(*) as count', 'MIN(line) as first_line'])
-    cursor.execute(query + f"""
+    cursor.execute(f"""
+        SELECT file, caller_function, callee_function, COUNT(*) as count, MIN(line) as first_line
+        FROM function_call_args
         WHERE callee_function IN ({placeholders})
           AND caller_function IS NOT NULL
         GROUP BY file, caller_function, callee_function

@@ -3,11 +3,11 @@
 Detects Vuex and Pinia state management anti-patterns and issues using
 indexed database data. NO AST traversal. Pure SQL queries.
 
-Follows golden standard patterns:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
-- Proper confidence levels
+Follows v1.1+ gold standard patterns:
+- Frozensets for all patterns (O(1) lookups)
+- NO table existence checks (schema contract guarantees all tables exist)
+- Direct database queries (crash on missing tables to expose indexer bugs)
+- Proper confidence levels via Confidence enum
 """
 
 import sqlite3
@@ -123,8 +123,8 @@ def find_vue_state_issues(context: StandardRuleContext) -> List[StandardFinding]
     cursor = conn.cursor()
 
     try:
-        # Get state management files
-        store_files = _get_store_files(cursor, {})
+        # Get state management files (schema contract guarantees tables exist)
+        store_files = _get_store_files(cursor)
         if not store_files:
             return findings
 
@@ -148,36 +148,38 @@ def find_vue_state_issues(context: StandardRuleContext) -> List[StandardFinding]
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_store_files(cursor, existing_tables: Set[str]) -> Set[str]:
-    """Get all Vuex/Pinia store files."""
+def _get_store_files(cursor) -> Set[str]:
+    """Get all Vuex/Pinia store files.
+
+    Schema contract (v1.1+) guarantees all tables exist.
+    If table is missing, we WANT the rule to crash to expose indexer bugs.
+    """
     store_files = set()
 
     # Find store files by name pattern
-    if 'files' in existing_tables:
-        cursor.execute("""
-            SELECT DISTINCT file_path
-            FROM files
-            WHERE file_path LIKE '%store%'
-               OR file_path LIKE '%vuex%'
-               OR file_path LIKE '%pinia%'
-               OR file_path LIKE '%state%'
-        """)
-        store_files.update(row[0] for row in cursor.fetchall())
+    cursor.execute("""
+        SELECT DISTINCT path
+        FROM files
+        WHERE path LIKE '%store%'
+           OR path LIKE '%vuex%'
+           OR path LIKE '%pinia%'
+           OR path LIKE '%state%'
+    """)
+    store_files.update(row[0] for row in cursor.fetchall())
 
     # Find files with store patterns
-    if 'symbols' in existing_tables:
-        all_patterns = list(VUEX_PATTERNS | PINIA_PATTERNS)
-        placeholders = ','.join('?' * len(all_patterns))
+    all_patterns = list(VUEX_PATTERNS | PINIA_PATTERNS)
+    placeholders = ','.join('?' * len(all_patterns))
 
-        cursor.execute(f"""
-            SELECT DISTINCT path
-            FROM symbols
-            WHERE name IN ({placeholders})
-               OR name LIKE '%$store%'
-               OR name LIKE '%defineStore%'
-               OR name LIKE '%createStore%'
-        """, all_patterns)
-        store_files.update(row[0] for row in cursor.fetchall())
+    cursor.execute(f"""
+        SELECT DISTINCT path
+        FROM symbols
+        WHERE name IN ({placeholders})
+           OR name LIKE '%$store%'
+           OR name LIKE '%defineStore%'
+           OR name LIKE '%createStore%'
+    """, all_patterns)
+    store_files.update(row[0] for row in cursor.fetchall())
 
     return store_files
 
@@ -286,17 +288,17 @@ def _find_missing_namespacing(cursor, store_files: Set[str]) -> List[StandardFin
 
     # Find modules without namespaced: true
     cursor.execute(f"""
-        SELECT DISTINCT path
-        FROM symbols
-        WHERE path IN ({file_placeholders})
-          AND path LIKE '%modules%'
+        SELECT DISTINCT s1.path
+        FROM symbols s1
+        WHERE s1.path IN ({file_placeholders})
+          AND s1.path LIKE '%modules%'
           AND NOT EXISTS (
               SELECT 1 FROM symbols s2
-              WHERE s2.path = path
+              WHERE s2.path = s1.path
                 AND (s2.name LIKE 'namespaced%true'
                      OR s2.name LIKE '"namespaced": true')
           )
-        ORDER BY path
+        ORDER BY s1.path
     """, list(store_files))
 
     for file, in cursor.fetchall():
@@ -460,11 +462,11 @@ def _find_large_stores(cursor, store_files: Set[str]) -> List[StandardFinding]:
 
     # Count state properties
     cursor.execute(f"""
-        SELECT path, COUNT(*) as prop_count
-        FROM symbols
-        WHERE path IN ({file_placeholders})
-          AND (name LIKE 'state.%' OR name LIKE 'state:%')
-        GROUP BY path
+        SELECT s.path, COUNT(*) as prop_count
+        FROM symbols s
+        WHERE s.path IN ({file_placeholders})
+          AND (s.name LIKE 'state.%' OR s.name LIKE 'state:%')
+        GROUP BY s.path
         HAVING prop_count > 50
     """, list(store_files))
 
@@ -482,13 +484,13 @@ def _find_large_stores(cursor, store_files: Set[str]) -> List[StandardFinding]:
 
     # Count actions/mutations
     cursor.execute(f"""
-        SELECT path,
-               SUM(CASE WHEN name LIKE '%action%' THEN 1 ELSE 0 END) as actions,
-               SUM(CASE WHEN name LIKE '%mutation%' THEN 1 ELSE 0 END) as mutations
-        FROM symbols
-        WHERE path IN ({file_placeholders})
-          AND (name LIKE '%action%' OR name LIKE '%mutation%')
-        GROUP BY path
+        SELECT s.path,
+               SUM(CASE WHEN s.name LIKE '%action%' THEN 1 ELSE 0 END) as actions,
+               SUM(CASE WHEN s.name LIKE '%mutation%' THEN 1 ELSE 0 END) as mutations
+        FROM symbols s
+        WHERE s.path IN ({file_placeholders})
+          AND (s.name LIKE '%action%' OR s.name LIKE '%mutation%')
+        GROUP BY s.path
         HAVING actions > 30 OR mutations > 30
     """, list(store_files))
 

@@ -199,9 +199,9 @@ class RuntimeAnalyzer:
             # Check direct exec calls with user input
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
             cursor.execute(query + """
-                WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
-                   OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
-                ORDER BY f.file, f.line
+                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
+                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
+                ORDER BY file, line
             """)
 
             for file, line, func, args in cursor.fetchall():
@@ -246,11 +246,11 @@ class RuntimeAnalyzer:
             # Check for template literals with user input
             query = build_query('assignments', ['file', 'line', 'source_expr'])
             cursor.execute(query + """
-                WHERE a.source_expr LIKE '%`%'
-                  AND a.source_expr LIKE '%$%'
-                  AND (a.file LIKE '%.js' OR a.file LIKE '%.jsx'
-                       OR a.file LIKE '%.ts' OR a.file LIKE '%.tsx')
-                ORDER BY a.file, a.line
+                WHERE source_expr LIKE '%`%'
+                  AND source_expr LIKE '%$%'
+                  AND (file LIKE '%.js' OR file LIKE '%.jsx'
+                       OR file LIKE '%.ts' OR file LIKE '%.tsx')
+                ORDER BY file, line
             """)
 
             for file, line, expr in cursor.fetchall():
@@ -297,11 +297,11 @@ class RuntimeAnalyzer:
             cursor = conn.cursor()
 
             # Look for spawn calls
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'])
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
             cursor.execute(query + """
-                WHERE f.callee_function LIKE '%spawn%'
-                  AND f.argument_expr LIKE '%shell%'
-                ORDER BY f.file, f.line
+                WHERE callee_function LIKE '%spawn%'
+                  AND argument_expr LIKE '%shell%'
+                ORDER BY file, line
             """)
 
             for file, line, args in cursor.fetchall():
@@ -340,9 +340,9 @@ class RuntimeAnalyzer:
             # Check Object.assign with spread
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
             cursor.execute(query + """
-                WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
-                   OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
-                ORDER BY f.file, f.line
+                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
+                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
+                ORDER BY file, line
             """)
 
             for file, line, func, args in cursor.fetchall():
@@ -373,10 +373,10 @@ class RuntimeAnalyzer:
             # Check for for...in loops without validation
             query = build_query('symbols', ['path', 'line', 'name'])
             cursor.execute(query + """
-                WHERE s.name IN ('for', 'in')
-                  AND (s.path LIKE '%.js' OR s.path LIKE '%.jsx'
-                       OR s.path LIKE '%.ts' OR s.path LIKE '%.tsx')
-                ORDER BY s.path, s.line
+                WHERE name IN ('for', 'in')
+                  AND (path LIKE '%.js' OR path LIKE '%.jsx'
+                       OR path LIKE '%.ts' OR path LIKE '%.tsx')
+                ORDER BY path, line
             """)
 
             for file, line, _ in cursor.fetchall():
@@ -403,13 +403,13 @@ class RuntimeAnalyzer:
                     ))
 
             # Check recursive merge patterns
-            query = build_query('symbols', ['path', 'line', 'name'])
+            query = build_query('symbols', ['path', 'line', 'name', 'type'])
             cursor.execute(query + """
-                WHERE s.type = 'function'
-                  AND (s.name LIKE '%merge%' OR s.name LIKE '%extend%')
-                  AND (s.path LIKE '%.js' OR s.path LIKE '%.jsx'
-                       OR s.path LIKE '%.ts' OR s.path LIKE '%.tsx')
-                ORDER BY s.path, s.line
+                WHERE type = 'function'
+                  AND (name LIKE '%merge%' OR name LIKE '%extend%')
+                  AND (path LIKE '%.js' OR path LIKE '%.jsx'
+                       OR path LIKE '%.ts' OR path LIKE '%.tsx')
+                ORDER BY path, line
             """)
 
             for file, line, func_name in cursor.fetchall():
@@ -460,9 +460,9 @@ class RuntimeAnalyzer:
 
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
             cursor.execute(query + """
-                WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
-                   OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
-                ORDER BY f.file, f.line
+                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
+                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
+                ORDER BY file, line
             """)
 
             for file, line, func, args in cursor.fetchall():
@@ -519,12 +519,12 @@ class RuntimeAnalyzer:
             # Look for RegExp constructor with user input
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
             cursor.execute(query + """
-                WHERE (f.callee_function = 'RegExp'
-                       OR f.callee_function = 'new RegExp'
-                       OR f.callee_function LIKE '%RegExp%')
-                  AND (f.file LIKE '%.js' OR f.file LIKE '%.jsx'
-                       OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx')
-                ORDER BY f.file, f.line
+                WHERE (callee_function = 'RegExp'
+                       OR callee_function = 'new RegExp'
+                       OR callee_function LIKE '%RegExp%')
+                  AND (file LIKE '%.js' OR file LIKE '%.jsx'
+                       OR file LIKE '%.ts' OR file LIKE '%.tsx')
+                ORDER BY file, line
             """)
 
             for file, line, func, args in cursor.fetchall():
@@ -569,9 +569,9 @@ class RuntimeAnalyzer:
 
             query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
             cursor.execute(query + """
-                WHERE f.file LIKE '%.js' OR f.file LIKE '%.jsx'
-                   OR f.file LIKE '%.ts' OR f.file LIKE '%.tsx'
-                ORDER BY f.file, f.line
+                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
+                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
+                ORDER BY file, line
             """)
 
             for file, line, func, args in cursor.fetchall():

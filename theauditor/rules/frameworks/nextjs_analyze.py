@@ -129,22 +129,18 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
     try:
         # Verify this is a Next.js project (query refs table directly)
-        cursor.execute("""
-            SELECT DISTINCT file FROM refs
-            WHERE value IN ('next', 'next/router', 'next/navigation', 'next/server')
-            LIMIT 1
-        """)
+        query = build_query('refs', ['DISTINCT file'],
+                           where="value IN ('next', 'next/router', 'next/navigation', 'next/server')",
+                           limit=1)
+        cursor.execute(query)
         is_nextjs = cursor.fetchone() is not None
 
         if not is_nextjs:
             # Check for Next.js specific paths as fallback
-            cursor.execute("""
-                SELECT path FROM files
-                WHERE path LIKE '%pages/api/%'
-                   OR path LIKE '%app/api/%'
-                   OR path LIKE '%next.config%'
-                LIMIT 1
-            """)
+            query = build_query('files', ['path'],
+                               where="path LIKE '%pages/api/%' OR path LIKE '%app/api/%' OR path LIKE '%next.config%'",
+                               limit=1)
+            cursor.execute(query)
             is_nextjs = cursor.fetchone() is not None
 
         if not is_nextjs:
@@ -157,14 +153,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         response_funcs_list = list(RESPONSE_FUNCTIONS)
         placeholders = ','.join('?' * len(response_funcs_list))
 
-        cursor.execute(f"""
-            SELECT f.file, f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN ({placeholders})
-              AND f.argument_expr LIKE '%process.env%'
-              AND (f.file LIKE '%pages/api/%' OR f.file LIKE '%app/api/%')
-            ORDER BY f.file, f.line
-        """, response_funcs_list)
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where=f"callee_function IN ({placeholders}) AND argument_expr LIKE '%process.env%' AND (file LIKE '%pages/api/%' OR file LIKE '%app/api/%')",
+                           order_by="file, line")
+        cursor.execute(query, response_funcs_list)
 
         for file, line, response_data in cursor.fetchall():
             # Check if it's exposing non-public env vars
@@ -186,12 +178,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         redirect_funcs_list = list(REDIRECT_FUNCTIONS)
         placeholders = ','.join('?' * len(redirect_funcs_list))
 
-        cursor.execute(f"""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN ({placeholders})
-            ORDER BY f.file, f.line
-        """, redirect_funcs_list)
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"callee_function IN ({placeholders})",
+                           order_by="file, line")
+        cursor.execute(query, redirect_funcs_list)
 
         for file, line, func, redirect_arg in cursor.fetchall():
             # Check if using user input
@@ -215,24 +205,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         ssr_funcs_list = list(SSR_FUNCTIONS)
         placeholders = ','.join('?' * len(ssr_funcs_list))
 
-        cursor.execute(f"""
-            SELECT DISTINCT f.file
-            FROM function_call_args f
-            WHERE f.callee_function IN ({placeholders})
-               OR f.caller_function IN ({placeholders})
-        """, ssr_funcs_list + ssr_funcs_list)
+        query = build_query('function_call_args', ['DISTINCT file'],
+                           where=f"callee_function IN ({placeholders}) OR caller_function IN ({placeholders})")
+        cursor.execute(query, ssr_funcs_list + ssr_funcs_list)
 
         ssr_files = {row[0] for row in cursor.fetchall()}
 
         # Check these files for unsanitized user input
         for file in ssr_files:
-            cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND (argument_expr LIKE '%req.query%'
-                       OR argument_expr LIKE '%req.body%'
-                       OR argument_expr LIKE '%params%')
-            """, (file,))
+            query = build_query('function_call_args', ['COUNT(*)'],
+                               where="file = ? AND (argument_expr LIKE '%req.query%' OR argument_expr LIKE '%req.body%' OR argument_expr LIKE '%params%')")
+            cursor.execute(query, (file,))
 
             has_user_input = cursor.fetchone()[0] > 0
 
@@ -241,11 +224,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                 sanitize_list = list(SANITIZATION_FUNCTIONS)
                 placeholders = ','.join('?' * len(sanitize_list))
 
-                cursor.execute(f"""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ?
-                      AND callee_function IN ({placeholders})
-                """, [file] + sanitize_list)
+                query = build_query('function_call_args', ['COUNT(*)'],
+                                   where=f"file = ? AND callee_function IN ({placeholders})")
+                cursor.execute(query, [file] + sanitize_list)
 
                 has_sanitization = cursor.fetchone()[0] > 0
 
@@ -266,15 +247,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # Build query for sensitive patterns
         sensitive_patterns = ['%' + pattern + '%' for pattern in SENSITIVE_ENV_PATTERNS]
-        conditions = ' OR '.join(['a.target_var LIKE ?' for _ in sensitive_patterns])
+        conditions = ' OR '.join(['target_var LIKE ?' for _ in sensitive_patterns])
 
-        cursor.execute(f"""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE a.target_var LIKE 'NEXT_PUBLIC_%'
-              AND ({conditions})
-            ORDER BY a.file, a.line
-        """, sensitive_patterns)
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                           where=f"target_var LIKE 'NEXT_PUBLIC_%' AND ({conditions})",
+                           order_by="file, line")
+        cursor.execute(query, sensitive_patterns)
 
         for file, line, var_name, value in cursor.fetchall():
             findings.append(StandardFinding(
@@ -291,12 +269,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: Missing CSRF in API Routes
         # ========================================================
-        cursor.execute("""
-            SELECT DISTINCT e.file, e.method
-            FROM api_endpoints e
-            WHERE (e.file LIKE '%pages/api/%' OR e.file LIKE '%app/api/%')
-              AND e.method IN ('POST', 'PUT', 'DELETE', 'PATCH')
-        """)
+        query = build_query('api_endpoints', ['DISTINCT file', 'method'],
+                           where="(file LIKE '%pages/api/%' OR file LIKE '%app/api/%') AND method IN ('POST', 'PUT', 'DELETE', 'PATCH')")
+        cursor.execute(query)
 
         for file, method in cursor.fetchall():
             # Check if CSRF protection exists
@@ -306,11 +281,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
             params = ['%' + indicator + '%' for indicator in csrf_list] * 2
 
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND ({conditions})
-            """, [file] + params)
+            query = build_query('function_call_args', ['COUNT(*)'],
+                               where=f"file = ? AND ({conditions})")
+            cursor.execute(query, [file] + params)
 
             has_csrf = cursor.fetchone()[0] > 0
 
@@ -332,16 +305,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         response_funcs_list = list(RESPONSE_FUNCTIONS)
         placeholders = ','.join('?' * len(response_funcs_list))
 
-        cursor.execute(f"""
-            SELECT f.file, f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN ({placeholders})
-              AND (f.argument_expr LIKE '%error.stack%'
-                   OR f.argument_expr LIKE '%err.stack%'
-                   OR f.argument_expr LIKE '%error.message%')
-              AND (f.file LIKE '%pages/%' OR f.file LIKE '%app/%')
-            ORDER BY f.file, f.line
-        """, response_funcs_list)
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where=f"callee_function IN ({placeholders}) AND (argument_expr LIKE '%error.stack%' OR argument_expr LIKE '%err.stack%' OR argument_expr LIKE '%error.message%') AND (file LIKE '%pages/%' OR file LIKE '%app/%')",
+                           order_by="file, line")
+        cursor.execute(query, response_funcs_list)
 
         for file, line, error_data in cursor.fetchall():
             findings.append(StandardFinding(
@@ -358,25 +325,19 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: Dangerous HTML Serialization
         # ========================================================
-        cursor.execute("""
-            SELECT f.file, f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function = 'dangerouslySetInnerHTML'
-               OR f.argument_expr LIKE '%dangerouslySetInnerHTML%'
-            ORDER BY f.file, f.line
-        """)
+        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                           where="callee_function = 'dangerouslySetInnerHTML' OR argument_expr LIKE '%dangerouslySetInnerHTML%'",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, html_content in cursor.fetchall():
             # Check if sanitization is nearby
             sanitize_list = list(SANITIZATION_FUNCTIONS)
             placeholders = ','.join('?' * len(sanitize_list))
 
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND line BETWEEN ? AND ?
-                  AND callee_function IN ({placeholders})
-            """, [file, line - 10, line + 10] + sanitize_list)
+            query = build_query('function_call_args', ['COUNT(*)'],
+                               where=f"file = ? AND line BETWEEN ? AND ? AND callee_function IN ({placeholders})")
+            cursor.execute(query, [file, line - 10, line + 10] + sanitize_list)
 
             has_sanitization = cursor.fetchone()[0] > 0
 
@@ -396,10 +357,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 8: API Routes Without Rate Limiting (DEGRADED)
         # ========================================================
         # Note: Global check, not per-route - reduced confidence
-        cursor.execute("""
-            SELECT COUNT(DISTINCT file) FROM api_endpoints
-            WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
-        """)
+        query = build_query('api_endpoints', ['COUNT(DISTINCT file)'],
+                           where="file LIKE '%pages/api/%' OR file LIKE '%app/api/%'")
+        cursor.execute(query)
         api_route_count = cursor.fetchone()[0]
 
         if api_route_count >= 3:  # Only flag if multiple API routes
@@ -407,19 +367,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             rate_limit_list = list(RATE_LIMIT_LIBRARIES)
             placeholders = ','.join('?' * len(rate_limit_list))
 
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM refs
-                WHERE value IN ({placeholders})
-            """, rate_limit_list)
+            query = build_query('refs', ['COUNT(*)'],
+                               where=f"value IN ({placeholders})")
+            cursor.execute(query, rate_limit_list)
 
             has_rate_limiting = cursor.fetchone()[0] > 0
 
             if not has_rate_limiting:
-                cursor.execute("""
-                    SELECT file FROM api_endpoints
-                    WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
-                    LIMIT 1
-                """)
+                query = build_query('api_endpoints', ['file'],
+                                   where="file LIKE '%pages/api/%' OR file LIKE '%app/api/%'",
+                                   limit=1)
+                cursor.execute(query)
 
                 api_file = cursor.fetchone()
                 if api_file:

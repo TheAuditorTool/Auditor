@@ -51,6 +51,9 @@ METADATA = RuleMetadata(
         '.auditor_venv/'     # TheAuditor sandboxed tools
     ],
 
+    # Execution scope: database-wide analysis (runs once, not per-file)
+    execution_scope='database',
+
     # This is a DATABASE-ONLY rule (no JSX)
     requires_jsx_pass=False
 )
@@ -323,12 +326,15 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         division_operations = cursor.fetchall()
 
         for file, line, expr in division_operations:
-            # Try to check if there's a zero check nearby
-            symbols_query = build_query('symbols', ['COUNT(*)'])
-            cursor.execute(symbols_query + """
-                WHERE path = ?
+            # Try to check if there's a zero check nearby in assignment expressions
+            assignments_query = build_query('assignments', ['COUNT(*)'])
+            cursor.execute(assignments_query + """
+                WHERE file = ?
                   AND line BETWEEN ? AND ?
-                  AND (name LIKE '%!= 0%' OR name LIKE '%> 0%' OR name LIKE '%if %')
+                  AND (source_expr LIKE '%!= 0%'
+                       OR source_expr LIKE '%> 0%'
+                       OR source_expr LIKE '%if%!= 0%'
+                       OR source_expr LIKE '%if%> 0%')
             """, (file, line - 5, line))
 
             has_check = cursor.fetchone()[0] > 0
@@ -348,6 +354,17 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         
         # ========================================================
         # CHECK 5: File Handles Not Closed (Resource Leak)
+        # ========================================================
+        # NOTE: Resource cleanup checks (5-12) use proximity heuristics.
+        # They search for cleanup calls within N lines of resource acquisition.
+        #
+        # Known limitations (potential false positives):
+        # - Class-based resource management (cleanup in __del__ or destructor)
+        # - Callback-based cleanup (async patterns, event handlers)
+        # - RAII patterns where cleanup is in different scope
+        #
+        # Mitigation: Checks for context managers (with/try-finally) reduce
+        # false positives for Python. JavaScript patterns may still trigger.
         # ========================================================
         file_ops_list = list(FILE_OPERATIONS)
         file_cleanup_list = list(FILE_CLEANUP)

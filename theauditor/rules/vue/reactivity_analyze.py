@@ -150,7 +150,7 @@ def _find_obvious_mutations_via_database(context: StandardRuleContext) -> List[S
                 severity=Severity.HIGH,
                 category='vue',
                 snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
-                confidence=0.7  # Lower confidence since we can't verify it's actually a prop
+                confidence=Confidence.MEDIUM  # Lower confidence since we can't verify it's actually a prop
             ))
 
     finally:
@@ -261,7 +261,7 @@ def _find_vue_issues_via_ast(tree: Any, file_path: str) -> List[StandardFinding]
                 column=node.get('column', 0),
                 severity=Severity.HIGH,
                 category='vue',
-                confidence=0.90,
+                confidence=Confidence.HIGH,
                 snippet=text[:100] if len(text) > 100 else text,
                 metadata={
                     'prop': mutated_prop,
@@ -281,7 +281,7 @@ def _find_vue_issues_via_ast(tree: Any, file_path: str) -> List[StandardFinding]
                     column=0,
                     severity=Severity.HIGH,
                     category='vue',
-                    confidence=0.85,
+                    confidence=Confidence.HIGH,
                     snippet=f'data() {{ return {{ {issue["property"]}: {issue["type"]} }} }}',
                     metadata={
                         'property': issue['property'],

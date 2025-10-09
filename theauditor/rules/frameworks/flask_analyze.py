@@ -175,11 +175,10 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check if this is a Flask project
-            cursor.execute("""
-                SELECT DISTINCT src FROM refs
-                WHERE value IN ('flask', 'Flask')
-            """)
+            # Check if this is a Flask project - use schema-compliant query
+            query = build_query('refs', ['src'],
+                               where="value IN ('flask', 'Flask')")
+            cursor.execute(query)
             flask_refs = cursor.fetchall()
 
             if not flask_refs:
@@ -199,12 +198,10 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function = 'render_template_string'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function = 'render_template_string'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, template_arg in cursor.fetchall():
                 # Check if user input is involved
@@ -233,12 +230,10 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function = 'Markup'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function = 'Markup'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, markup_content in cursor.fetchall():
                 # Check if user input is involved
@@ -266,13 +261,10 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE '%.run'
-                  AND argument_expr LIKE '%debug%True%'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function LIKE '%.run' AND argument_expr LIKE '%debug%True%'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, args in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -298,18 +290,17 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Build query for secret variables
+            # Build WHERE clause for secret variables using schema-compliant approach
             secret_conditions = " OR ".join([f"target_var LIKE '%{var}%'" for var in self.patterns.SECRET_VARS])
-
-            cursor.execute(f"""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE ({secret_conditions})
+            where_clause = f"""({secret_conditions})
                   AND source_expr LIKE '"%"'
                   AND source_expr NOT LIKE '%environ%'
-                  AND source_expr NOT LIKE '%getenv%'
-                ORDER BY file, line
-            """)
+                  AND source_expr NOT LIKE '%getenv%'"""
+
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where=where_clause,
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, var_name, secret_value in cursor.fetchall():
                 # Check secret strength
@@ -338,24 +329,23 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT DISTINCT f1.file, f1.line
-                FROM function_call_args f1
-                WHERE f1.callee_function LIKE '%.save'
-                  AND EXISTS (
-                      SELECT 1 FROM function_call_args f2
-                      WHERE f2.file = f1.file
-                        AND f2.line BETWEEN f1.line - 10 AND f1.line
-                        AND f2.argument_expr LIKE '%request.files%'
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM function_call_args f3
-                      WHERE f3.file = f1.file
-                        AND f3.line BETWEEN f1.line - 10 AND f1.line + 10
-                        AND (f3.callee_function IN ('secure_filename', 'validate', 'allowed'))
-                  )
-                ORDER BY f1.file, f1.line
-            """)
+            # Complex EXISTS/NOT EXISTS correlated subquery - build_query() supports this
+            query = build_query('function_call_args', ['DISTINCT file', 'line'],
+                               where="""callee_function LIKE '%.save'
+                                 AND EXISTS (
+                                     SELECT 1 FROM function_call_args f2
+                                     WHERE f2.file = function_call_args.file
+                                       AND f2.line BETWEEN function_call_args.line - 10 AND function_call_args.line
+                                       AND f2.argument_expr LIKE '%request.files%'
+                                 )
+                                 AND NOT EXISTS (
+                                     SELECT 1 FROM function_call_args f3
+                                     WHERE f3.file = function_call_args.file
+                                       AND f3.line BETWEEN function_call_args.line - 10 AND function_call_args.line + 10
+                                       AND f3.callee_function IN ('secure_filename', 'validate', 'allowed')
+                                 )""",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -381,18 +371,16 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Directly query sql_queries - trust schema contract
-            cursor.execute("""
-                SELECT file_path, line_number, query_text
-                FROM sql_queries
-                WHERE (query_text LIKE '%' || '%' || '%'
-                       OR query_text LIKE '%.format(%'
-                       OR query_text LIKE '%f"%'
-                       OR query_text LIKE "%f'%")
-                ORDER BY file_path, line_number
-            """)
+            # Query sql_queries table with schema-compliant query
+            query = build_query('sql_queries', ['file_path', 'line_number', 'query_text'],
+                               where="""(query_text LIKE '%' || '%' || '%'
+                                        OR query_text LIKE '%.format(%'
+                                        OR query_text LIKE '%f"%'
+                                        OR query_text LIKE "%f'%")""",
+                               order_by="file_path, line_number")
+            cursor.execute(query)
 
-            for file, line, query in cursor.fetchall():
+            for file, line, query_text in cursor.fetchall():
                 self.findings.append(StandardFinding(
                     rule_name='flask-sql-injection-risk',
                     message='String formatting in SQL query - SQL injection vulnerability',
@@ -401,7 +389,7 @@ class FlaskAnalyzer:
                     severity=Severity.CRITICAL,
                     category='injection',
                     confidence=Confidence.HIGH,
-                    snippet=query[:100] if len(query) > 100 else query,
+                    snippet=query_text[:100] if len(query_text) > 100 else query_text,
                     cwe_id='CWE-89'  # SQL Injection
                 ))
 
@@ -416,15 +404,13 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function = 'redirect'
-                  AND (argument_expr LIKE '%request.args.get%'
-                       OR argument_expr LIKE '%request.values.get%'
-                       OR argument_expr LIKE '%request.form.get%')
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="""callee_function = 'redirect'
+                                        AND (argument_expr LIKE '%request.args.get%'
+                                             OR argument_expr LIKE '%request.values.get%'
+                                             OR argument_expr LIKE '%request.form.get%')""",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, redirect_arg in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -450,13 +436,10 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function = 'eval'
-                  AND argument_expr LIKE '%request.%'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function = 'eval' AND argument_expr LIKE '%request.%'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, eval_arg in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -483,14 +466,12 @@ class FlaskAnalyzer:
             cursor = conn.cursor()
 
             # Check assignments
-            cursor.execute("""
-                SELECT file, line, source_expr
-                FROM assignments
-                WHERE (target_var LIKE '%CORS%'
-                       OR target_var LIKE '%Access-Control-Allow-Origin%')
-                  AND source_expr LIKE '%*%'
-                ORDER BY file, line
-            """)
+            query = build_query('assignments', ['file', 'line', 'source_expr'],
+                               where="""(target_var LIKE '%CORS%'
+                                        OR target_var LIKE '%Access-Control-Allow-Origin%')
+                                      AND source_expr LIKE '%*%'""",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, cors_config in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -506,13 +487,10 @@ class FlaskAnalyzer:
                 ))
 
             # Check function calls
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function = 'CORS'
-                  AND argument_expr LIKE '%*%'
-                ORDER BY file, line
-            """)
+            query2 = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                                where="callee_function = 'CORS' AND argument_expr LIKE '%*%'",
+                                order_by="file, line")
+            cursor.execute(query2)
 
             for file, line, cors_arg in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -538,13 +516,11 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, argument_expr
-                FROM function_call_args
-                WHERE callee_function IN ('pickle.loads', 'loads', 'pickle.load', 'load')
-                  AND argument_expr LIKE '%request.%'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="""callee_function IN ('pickle.loads', 'loads', 'pickle.load', 'load')
+                                        AND argument_expr LIKE '%request.%'""",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, pickle_arg in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -570,13 +546,10 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE target_var = 'WERKZEUG_DEBUG_PIN'
-                   OR source_expr LIKE '%use_debugger%True%'
-                ORDER BY file, line
-            """)
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where="target_var = 'WERKZEUG_DEBUG_PIN' OR source_expr LIKE '%use_debugger%True%'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, var, value in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -603,18 +576,16 @@ class FlaskAnalyzer:
             cursor = conn.cursor()
 
             # Check for CSRF imports
-            cursor.execute("""
-                SELECT COUNT(*) FROM refs
-                WHERE value IN ('flask_wtf', 'CSRFProtect', 'csrf')
-            """)
+            query = build_query('refs', ['COUNT(*)'],
+                               where="value IN ('flask_wtf', 'CSRFProtect', 'csrf')")
+            cursor.execute(query)
             has_csrf = cursor.fetchone()[0] > 0
 
             if not has_csrf:
-                # Check if there are state-changing endpoints - trust schema contract
-                cursor.execute("""
-                    SELECT COUNT(*) FROM api_endpoints
-                    WHERE method IN ('POST', 'PUT', 'DELETE', 'PATCH')
-                """)
+                # Check if there are state-changing endpoints
+                query2 = build_query('api_endpoints', ['COUNT(*)'],
+                                    where="method IN ('POST', 'PUT', 'DELETE', 'PATCH')")
+                cursor.execute(query2)
                 has_state_changing = cursor.fetchone()[0] > 0
 
                 if has_state_changing and self.flask_files:
@@ -641,16 +612,14 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Build query for session configs
+            # Build WHERE clause for session configs using schema-compliant approach
             config_conditions = " OR ".join([f"target_var LIKE '%{config}%'" for config in self.patterns.SESSION_CONFIGS])
+            where_clause = f"({config_conditions}) AND source_expr = 'False'"
 
-            cursor.execute(f"""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE ({config_conditions})
-                  AND source_expr = 'False'
-                ORDER BY file, line
-            """)
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where=where_clause,
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, var, config in cursor.fetchall():
                 self.findings.append(StandardFinding(

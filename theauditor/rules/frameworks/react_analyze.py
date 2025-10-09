@@ -187,12 +187,9 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Check for React imports - trust schema contract
-            cursor.execute("""
-                SELECT DISTINCT src FROM refs
-                WHERE value IN ('react', 'react-dom', 'React')
-                   OR value LIKE 'react/%'
-                   OR value LIKE 'react-dom/%'
-            """)
+            query = build_query('refs', ['DISTINCT src'],
+                               where="value IN ('react', 'react-dom', 'React') OR value LIKE 'react/%' OR value LIKE 'react-dom/%'")
+            cursor.execute(query)
             react_refs = cursor.fetchall()
 
             if react_refs:
@@ -200,12 +197,10 @@ class ReactAnalyzer:
                 self.has_react = True
             else:
                 # Also check for React-specific symbols
-                cursor.execute("""
-                    SELECT DISTINCT path FROM symbols
-                    WHERE name IN ('useState', 'useEffect', 'useContext',
-                                   'useReducer', 'Component', 'createElement')
-                    LIMIT 1
-                """)
+                query = build_query('symbols', ['DISTINCT path'],
+                                   where="name IN ('useState', 'useEffect', 'useContext', 'useReducer', 'Component', 'createElement')",
+                                   limit=1)
+                cursor.execute(query)
                 react_symbols = cursor.fetchall()
 
                 if react_symbols:
@@ -225,24 +220,18 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Find all dangerouslySetInnerHTML usage
-            cursor.execute("""
-                SELECT f.file, f.line, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function = 'dangerouslySetInnerHTML'
-                   OR f.argument_expr LIKE '%dangerouslySetInnerHTML%'
-                ORDER BY f.file, f.line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function = 'dangerouslySetInnerHTML' OR argument_expr LIKE '%dangerouslySetInnerHTML%'",
+                               order_by="file, line")
+            cursor.execute(query)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             dangerous_html_usages = cursor.fetchall()
 
             for file, line, html_content in dangerous_html_usages:
                 # Check if sanitization is nearby
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ?
-                      AND line BETWEEN ? AND ?
-                      AND callee_function IN ('sanitize', 'DOMPurify', 'escape', 'xss', 'purify')
-                """, (file, line - 10, line + 10))
+                query = build_query('function_call_args', ['COUNT(*)'],
+                                   where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'DOMPurify', 'escape', 'xss', 'purify')")
+                cursor.execute(query, (file, line - 10, line + 10))
 
                 has_sanitization = cursor.fetchone()[0] > 0
 
@@ -271,12 +260,10 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Build query for frontend environment variables with sensitive patterns
-            cursor.execute("""
-                SELECT a.file, a.line, a.target_var, a.source_expr
-                FROM assignments a
-                WHERE a.target_var != ''
-                ORDER BY a.file, a.line
-            """)
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where="target_var != ''",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, var_name, value in cursor.fetchall():
                 # Check if it's a frontend environment variable
@@ -317,16 +304,10 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function = 'eval'
-                  AND (f.argument_expr LIKE '%<%>%'
-                       OR f.argument_expr LIKE '%jsx%'
-                       OR f.argument_expr LIKE '%JSX%'
-                       OR f.argument_expr LIKE '%React.createElement%')
-                ORDER BY f.file, f.line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function = 'eval' AND (argument_expr LIKE '%<%>%' OR argument_expr LIKE '%jsx%' OR argument_expr LIKE '%JSX%' OR argument_expr LIKE '%React.createElement%')",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, eval_content in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -352,16 +333,10 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT a.file, a.line, a.source_expr
-                FROM assignments a
-                WHERE (a.source_expr LIKE '%target="_blank"%'
-                       OR a.source_expr LIKE "%target='_blank'%"
-                       OR a.source_expr LIKE '%target={%_blank%}%')
-                  AND a.source_expr NOT LIKE '%noopener%'
-                  AND a.source_expr NOT LIKE '%noreferrer%'
-                ORDER BY a.file, a.line
-            """)
+            query = build_query('assignments', ['file', 'line', 'source_expr'],
+                               where="(source_expr LIKE '%target=\"_blank\"%' OR source_expr LIKE '%target=''_blank''%' OR source_expr LIKE '%target={%_blank%}%') AND source_expr NOT LIKE '%noopener%' AND source_expr NOT LIKE '%noreferrer%'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, link_code in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -388,13 +363,10 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Check assignments to innerHTML/outerHTML
-            cursor.execute("""
-                SELECT a.file, a.line, a.target_var, a.source_expr
-                FROM assignments a
-                WHERE a.target_var LIKE '%.innerHTML'
-                   OR a.target_var LIKE '%.outerHTML'
-                ORDER BY a.file, a.line
-            """)
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where="target_var LIKE '%.innerHTML' OR target_var LIKE '%.outerHTML'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, target, content in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -410,12 +382,10 @@ class ReactAnalyzer:
                 ))
 
             # Also check for document.write
-            cursor.execute("""
-                SELECT f.file, f.line, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function IN ('document.write', 'document.writeln')
-                ORDER BY f.file, f.line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function IN ('document.write', 'document.writeln')",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, write_content in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -441,15 +411,10 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT a.file, a.line, a.target_var, a.source_expr
-                FROM assignments a
-                WHERE a.source_expr LIKE '"%"'
-                  AND a.source_expr NOT LIKE '%process.env%'
-                  AND a.source_expr NOT LIKE '%import.meta.env%'
-                  AND LENGTH(TRIM(a.source_expr, '"''')) > 10
-                ORDER BY a.file, a.line
-            """)
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where="source_expr LIKE '\"%\"' AND source_expr NOT LIKE '%process.env%' AND source_expr NOT LIKE '%import.meta.env%' AND LENGTH(TRIM(source_expr, '\"''')) > 10",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, var_name, credential in cursor.fetchall():
                 var_lower = var_name.lower()
@@ -499,14 +464,13 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Build query for storage methods
-            storage_methods_str = "', '".join(self.patterns.STORAGE_METHODS)
+            storage_methods_list = list(self.patterns.STORAGE_METHODS)
+            placeholders = ','.join('?' * len(storage_methods_list))
 
-            cursor.execute(f"""
-                SELECT f.file, f.line, f.callee_function, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function IN ('{storage_methods_str}')
-                ORDER BY f.file, f.line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where=f"callee_function IN ({placeholders})",
+                               order_by="file, line")
+            cursor.execute(query, storage_methods_list)
 
             for file, line, storage_method, data in cursor.fetchall():
                 # Check if data contains sensitive patterns
@@ -543,45 +507,43 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Find form submission handlers
-            form_handlers_str = "', '".join(self.patterns.FORM_HANDLERS)
+            form_handlers_list = list(self.patterns.FORM_HANDLERS)
+            placeholders = ','.join('?' * len(form_handlers_list))
 
-            cursor.execute(f"""
-                SELECT DISTINCT f1.file, f1.line
-                FROM function_call_args f1
-                WHERE f1.callee_function IN ('{form_handlers_str}')
-                  AND NOT EXISTS (
-                      SELECT 1 FROM function_call_args f2
-                      WHERE f2.file = f1.file
-                        AND f2.line BETWEEN f1.line - 20 AND f1.line + 20
-                        AND (f2.callee_function LIKE '%validate%'
-                             OR f2.callee_function LIKE '%sanitize%')
-                  )
-                ORDER BY f1.file, f1.line
-            """)
+            query = build_query('function_call_args', ['DISTINCT file', 'line'],
+                               where=f"callee_function IN ({placeholders})",
+                               order_by="file, line")
+            cursor.execute(query, form_handlers_list)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             form_handlers = cursor.fetchall()
 
             for file, line in form_handlers:
-                # Also check if validation libraries are imported
-                cursor.execute("""
-                    SELECT COUNT(*) FROM refs
-                    WHERE src = ?
-                      AND value IN ('yup', 'joi', 'zod', 'validator')
-                """, (file,))
+                # Check for nearby validation/sanitization calls
+                query = build_query('function_call_args', ['COUNT(*)'],
+                                   where="file = ? AND line BETWEEN ? AND ? AND (callee_function LIKE '%validate%' OR callee_function LIKE '%sanitize%')")
+                cursor.execute(query, (file, line - 20, line + 20))
 
-                has_validation_lib = cursor.fetchone()[0] > 0
+                has_validation_nearby = cursor.fetchone()[0] > 0
 
-                if not has_validation_lib:
-                    self.findings.append(StandardFinding(
-                        rule_name='react-missing-validation',
-                        message='Form submission without input validation',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category='validation',
-                        confidence=Confidence.LOW,
-                        snippet='Form handler without validation',
-                    ))
+                if not has_validation_nearby:
+                    # Also check if validation libraries are imported
+                    query = build_query('refs', ['COUNT(*)'],
+                                       where="src = ? AND value IN ('yup', 'joi', 'zod', 'validator')")
+                    cursor.execute(query, (file,))
+
+                    has_validation_lib = cursor.fetchone()[0] > 0
+
+                    if not has_validation_lib:
+                        self.findings.append(StandardFinding(
+                            rule_name='react-missing-validation',
+                            message='Form submission without input validation',
+                            file_path=file,
+                            line=line,
+                            severity=Severity.MEDIUM,
+                            category='validation',
+                            confidence=Confidence.LOW,
+                            snippet='Form handler without validation',
+                        ))
 
             conn.close()
 
@@ -594,15 +556,10 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            cursor.execute("""
-                SELECT f.file, f.line, f.argument_expr
-                FROM function_call_args f
-                WHERE f.callee_function = 'useEffect'
-                  AND f.argument_expr LIKE '%fetch%'
-                  AND f.argument_expr NOT LIKE '%cleanup%'
-                  AND f.argument_expr NOT LIKE '%return%'
-                ORDER BY f.file, f.line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function = 'useEffect' AND argument_expr LIKE '%fetch%' AND argument_expr NOT LIKE '%cleanup%' AND argument_expr NOT LIKE '%return%'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, effect_code in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -629,47 +586,46 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Find files with routing
-            route_funcs_str = "', '".join(self.patterns.ROUTE_FUNCTIONS)
+            route_funcs_list = list(self.patterns.ROUTE_FUNCTIONS)
+            placeholders = ','.join('?' * len(route_funcs_list))
 
-            cursor.execute(f"""
-                SELECT DISTINCT f.file
-                FROM function_call_args f
-                WHERE f.callee_function IN ('{route_funcs_str}')
-                  AND NOT EXISTS (
-                      SELECT 1 FROM function_call_args f2
-                      WHERE f2.file = f.file
-                        AND (f2.callee_function LIKE '%auth%'
-                             OR f2.callee_function LIKE '%Auth%')
-                  )
-                LIMIT 5
-            """)
+            query = build_query('function_call_args', ['DISTINCT file'],
+                               where=f"callee_function IN ({placeholders})")
+            cursor.execute(query, route_funcs_list)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             route_files = cursor.fetchall()
 
             for (file,) in route_files:
-                # Also check if auth functions are used
-                auth_funcs_str = "', '".join(self.patterns.AUTH_FUNCTIONS)
+                # Check if file has any auth-related function calls
+                query = build_query('function_call_args', ['COUNT(*)'],
+                                   where="file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%Auth%')")
+                cursor.execute(query, (file,))
 
-                cursor.execute(f"""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ?
-                      AND callee_function IN ('{auth_funcs_str}')
-                """, (file,))
+                has_auth_pattern = cursor.fetchone()[0] > 0
 
-                has_auth = cursor.fetchone()[0] > 0
+                if not has_auth_pattern:
+                    # Also check if auth functions are used
+                    auth_funcs_list = list(self.patterns.AUTH_FUNCTIONS)
+                    placeholders = ','.join('?' * len(auth_funcs_list))
 
-                if not has_auth:
-                    self.findings.append(StandardFinding(
-                        rule_name='react-unprotected-routes',
-                        message='Client-side routing without authentication checks',
-                        file_path=file,
-                        line=1,
-                        severity=Severity.MEDIUM,
-                        category='authorization',
-                        confidence=Confidence.LOW,
-                        snippet='Routes defined without auth guards',
-                        cwe_id='CWE-862'  # Missing Authorization
-                    ))
+                    query = build_query('function_call_args', ['COUNT(*)'],
+                                       where=f"file = ? AND callee_function IN ({placeholders})")
+                    cursor.execute(query, [file] + auth_funcs_list)
+
+                    has_auth = cursor.fetchone()[0] > 0
+
+                    if not has_auth:
+                        self.findings.append(StandardFinding(
+                            rule_name='react-unprotected-routes',
+                            message='Client-side routing without authentication checks',
+                            file_path=file,
+                            line=1,
+                            severity=Severity.MEDIUM,
+                            category='authorization',
+                            confidence=Confidence.LOW,
+                            snippet='Routes defined without auth guards',
+                            cwe_id='CWE-862'  # Missing Authorization
+                        ))
 
             conn.close()
 
@@ -683,12 +639,10 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Find form elements in assignments
-            cursor.execute("""
-                SELECT file, line, source_expr
-                FROM assignments
-                WHERE source_expr LIKE '%<form%'
-                ORDER BY file, line
-            """)
+            query = build_query('assignments', ['file', 'line', 'source_expr'],
+                               where="source_expr LIKE '%<form%'",
+                               order_by="file, line")
+            cursor.execute(query)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             form_elements = cursor.fetchall()
 
@@ -708,13 +662,9 @@ class ReactAnalyzer:
                     # Check if CSRF token is present
                     if 'csrf' not in form_lower and 'xsrf' not in form_lower:
                         # Also check if there's CSRF handling nearby
-                        cursor.execute("""
-                            SELECT COUNT(*) FROM assignments
-                            WHERE file = ?
-                              AND line BETWEEN ? AND ?
-                              AND (target_var LIKE '%csrf%' OR source_expr LIKE '%csrf%'
-                                   OR target_var LIKE '%xsrf%' OR source_expr LIKE '%xsrf%')
-                        """, (file, line - 10, line + 10))
+                        query = build_query('assignments', ['COUNT(*)'],
+                                           where="file = ? AND line BETWEEN ? AND ? AND (target_var LIKE '%csrf%' OR source_expr LIKE '%csrf%' OR target_var LIKE '%xsrf%' OR source_expr LIKE '%xsrf%')")
+                        cursor.execute(query, (file, line - 10, line + 10))
 
                         has_csrf_nearby = cursor.fetchone()[0] > 0
 
@@ -743,18 +693,10 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Find JSX expressions with user input
-            cursor.execute("""
-                SELECT file, line, source_expr
-                FROM assignments
-                WHERE (source_expr LIKE '%{props.%}%'
-                       OR source_expr LIKE '%{user%}%'
-                       OR source_expr LIKE '%{input%}%'
-                       OR source_expr LIKE '%{data%}%'
-                       OR source_expr LIKE '%{params%}%'
-                       OR source_expr LIKE '%{query%}%')
-                  AND source_expr LIKE '%<%>%'
-                ORDER BY file, line
-            """)
+            query = build_query('assignments', ['file', 'line', 'source_expr'],
+                               where="(source_expr LIKE '%{props.%}%' OR source_expr LIKE '%{user%}%' OR source_expr LIKE '%{input%}%' OR source_expr LIKE '%{data%}%' OR source_expr LIKE '%{params%}%' OR source_expr LIKE '%{query%}%') AND source_expr LIKE '%<%>%'",
+                               order_by="file, line")
+            cursor.execute(query)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             jsx_with_user_input = cursor.fetchall()
 
@@ -779,12 +721,9 @@ class ReactAnalyzer:
 
                     if not has_sanitization:
                         # Also check for sanitization nearby
-                        cursor.execute("""
-                            SELECT COUNT(*) FROM function_call_args
-                            WHERE file = ?
-                              AND line BETWEEN ? AND ?
-                              AND callee_function IN ('sanitize', 'escape', 'DOMPurify', 'xss')
-                        """, (file, line - 5, line + 5))
+                        query = build_query('function_call_args', ['COUNT(*)'],
+                                           where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'escape', 'DOMPurify', 'xss')")
+                        cursor.execute(query, (file, line - 5, line + 5))
 
                         has_sanitization_nearby = cursor.fetchone()[0] > 0
 

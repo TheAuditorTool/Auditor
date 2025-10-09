@@ -3,11 +3,11 @@
 Detects Vue 3 Composition API misuse and hook-related issues using
 indexed database data. NO AST traversal. Pure SQL queries.
 
-Follows golden standard patterns:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
-- Proper confidence levels
+Follows v1.1+ gold standard patterns:
+- Frozensets for all patterns (O(1) lookups)
+- NO table existence checks (schema contract guarantees all tables exist)
+- Direct database queries (crash on missing tables to expose indexer bugs)
+- Proper confidence levels via Confidence enum
 """
 
 import sqlite3
@@ -115,8 +115,8 @@ def find_vue_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]
     cursor = conn.cursor()
 
     try:
-        # Get Vue Composition API files
-        vue_files = _get_composition_api_files(cursor, {})
+        # Get Vue Composition API files (schema contract guarantees tables exist)
+        vue_files = _get_composition_api_files(cursor)
         if not vue_files:
             return findings
 
@@ -139,35 +139,37 @@ def find_vue_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_composition_api_files(cursor, existing_tables: Set[str]) -> Set[str]:
-    """Get all files using Vue Composition API."""
+def _get_composition_api_files(cursor) -> Set[str]:
+    """Get all files using Vue Composition API.
+
+    Schema contract (v1.1+) guarantees all tables exist.
+    If table is missing, we WANT the rule to crash to expose indexer bugs.
+    """
     vue_files = set()
 
-    # Find files with Composition API imports
-    if 'symbols' in existing_tables:
-        cursor.execute("""
-            SELECT DISTINCT path
-            FROM symbols
-            WHERE name LIKE '%vue%'
-               AND (name LIKE '%ref%'
-                    OR name LIKE '%reactive%'
-                    OR name LIKE '%computed%'
-                    OR name LIKE '%watch%'
-                    OR name LIKE '%setup%')
-        """)
-        vue_files.update(row[0] for row in cursor.fetchall())
+    # Find files with Composition API imports from symbols table
+    cursor.execute("""
+        SELECT DISTINCT path
+        FROM symbols
+        WHERE name LIKE '%vue%'
+           AND (name LIKE '%ref%'
+                OR name LIKE '%reactive%'
+                OR name LIKE '%computed%'
+                OR name LIKE '%watch%'
+                OR name LIKE '%setup%')
+    """)
+    vue_files.update(row[0] for row in cursor.fetchall())
 
-    # Find files with Composition API functions
-    if 'function_call_args' in existing_tables:
-        comp_api_funcs = list(COMPOSITION_LIFECYCLE | REACTIVITY_FUNCTIONS | WATCH_FUNCTIONS)
-        placeholders = ','.join('?' * len(comp_api_funcs))
+    # Find files with Composition API function calls
+    comp_api_funcs = list(COMPOSITION_LIFECYCLE | REACTIVITY_FUNCTIONS | WATCH_FUNCTIONS)
+    placeholders = ','.join('?' * len(comp_api_funcs))
 
-        cursor.execute(f"""
-            SELECT DISTINCT file
-            FROM function_call_args
-            WHERE callee_function IN ({placeholders})
-        """, comp_api_funcs)
-        vue_files.update(row[0] for row in cursor.fetchall())
+    cursor.execute(f"""
+        SELECT DISTINCT file
+        FROM function_call_args
+        WHERE callee_function IN ({placeholders})
+    """, comp_api_funcs)
+    vue_files.update(row[0] for row in cursor.fetchall())
 
     return vue_files
 

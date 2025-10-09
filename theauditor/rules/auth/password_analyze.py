@@ -309,13 +309,12 @@ def _check_hardcoded_passwords(cursor) -> List[StandardFinding]:
     """
     findings = []
 
-    # Build query for password-related variable assignments
+    # Build query for password-related variable assignments using schema-compliant approach
     password_keywords_list = list(PASSWORD_KEYWORDS)
     keyword_conditions = ' OR '.join(['target_var LIKE ?' for _ in password_keywords_list])
     params = [f'%{kw}%' for kw in password_keywords_list]
 
-    # Use build_query to ensure schema compliance
-    base_query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
+    # Use build_query with proper where parameter
     where_clause = (
         f"({keyword_conditions}) "
         "AND source_expr NOT LIKE '%process.env%' "
@@ -331,9 +330,14 @@ def _check_hardcoded_passwords(cursor) -> List[StandardFinding]:
         "AND file NOT LIKE '%demo%' "
         "AND file NOT LIKE '%example%'"
     )
-    full_query = f"{base_query} WHERE {where_clause} ORDER BY file, line"
 
-    cursor.execute(full_query, params)
+    # Build query using schema contract system
+    query = build_query('assignments',
+                       ['file', 'line', 'target_var', 'source_expr'],
+                       where=where_clause,
+                       order_by="file, line")
+
+    cursor.execute(query, params)
 
     for file, line, var, expr in cursor.fetchall():
         # Clean the expression

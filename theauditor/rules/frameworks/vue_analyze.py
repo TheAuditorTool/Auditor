@@ -114,31 +114,28 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
     try:
         # Verify this is a Vue project - trust schema contract
-        cursor.execute("""
-            SELECT DISTINCT file FROM refs
-            WHERE value IN ('vue', 'Vue', '@vue/composition-api', 'vuex', 'vue-router')
-            LIMIT 1
-        """)
+        query = build_query('refs', ['DISTINCT file'],
+                           where="value IN ('vue', 'Vue', '@vue/composition-api', 'vuex', 'vue-router')",
+                           limit=1)
+        cursor.execute(query)
         is_vue = cursor.fetchone() is not None
 
         if not is_vue:
             # Check for .vue files as fallback
-            cursor.execute("""
-                SELECT path FROM files
-                WHERE ext = '.vue'
-                LIMIT 1
-            """)
+            query = build_query('files', ['path'],
+                               where="ext = '.vue'",
+                               limit=1)
+            cursor.execute(query)
             is_vue = cursor.fetchone() is not None
 
         if not is_vue:
             # Check for Vue component markers
             vue_markers_list = list(VUE_COMPONENT_MARKERS)
             placeholders = ','.join('?' * len(vue_markers_list))
-            cursor.execute(f"""
-                SELECT DISTINCT path FROM symbols
-                WHERE name IN ({placeholders})
-                LIMIT 1
-            """, vue_markers_list)
+            query = build_query('symbols', ['DISTINCT path'],
+                               where=f"name IN ({placeholders})",
+                               limit=1)
+            cursor.execute(query, vue_markers_list)
             is_vue = cursor.fetchone() is not None
 
         if not is_vue:
@@ -152,12 +149,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                        '%:outerHTML%', '%v-bind:outerHTML%']
         conditions = ' OR '.join(['source_expr LIKE ?' for _ in xss_patterns])
 
-        cursor.execute(f"""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE {conditions}
-            ORDER BY file, line
-        """, xss_patterns)
+        query = build_query('assignments', ['file', 'line', 'source_expr'],
+                           where=conditions,
+                           order_by="file, line")
+        cursor.execute(query, xss_patterns)
 
         for file, line, html_content in cursor.fetchall():
             findings.append(StandardFinding(
@@ -175,22 +170,19 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 2: eval() in Vue Components
         # ========================================================
         # Check for eval in files that are Vue components
-        cursor.execute("""
-            SELECT DISTINCT f.file, f.line, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function = 'eval'
-            ORDER BY f.file, f.line
-        """)
+        query = build_query('function_call_args', ['DISTINCT file', 'line', 'argument_expr'],
+                           where="callee_function = 'eval'",
+                           order_by="file, line")
+        cursor.execute(query)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         eval_usages = cursor.fetchall()
 
         for file, line, eval_content in eval_usages:
             # Check if this file is a Vue component
-            cursor.execute("""
-                SELECT 1 FROM refs
-                WHERE src = ? AND value IN ('vue', 'Vue')
-                LIMIT 1
-            """, (file,))
+            query = build_query('refs', ['1'],
+                               where="src = ? AND value IN ('vue', 'Vue')",
+                               limit=1)
+            cursor.execute(query, (file,))
             is_vue_file = cursor.fetchone() is not None
 
             if not is_vue_file and file.endswith('.vue'):
@@ -198,12 +190,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
             if not is_vue_file:
                 # Check for Vue lifecycle hooks
-                cursor.execute("""
-                    SELECT 1 FROM symbols
-                    WHERE path = ?
-                      AND name IN ('mounted', 'created', 'methods', 'computed')
-                    LIMIT 1
-                """, (file,))
+                query = build_query('symbols', ['1'],
+                                   where="path = ? AND name IN ('mounted', 'created', 'methods', 'computed')",
+                                   limit=1)
+                cursor.execute(query, (file,))
                 is_vue_file = cursor.fetchone() is not None
 
             if is_vue_file:
@@ -226,18 +216,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         sensitive = list(SENSITIVE_PATTERNS)
 
         # Create conditions for env prefixes and sensitive patterns
-        prefix_conditions = ' OR '.join([f"target_var LIKE '{prefix}%'" for prefix in env_prefixes])
-        sensitive_conditions = ' OR '.join([f"target_var LIKE '%{pattern}%'" for pattern in sensitive])
+        prefix_placeholders = ' OR '.join([f"target_var LIKE ?" for _ in env_prefixes])
+        sensitive_placeholders = ' OR '.join([f"target_var LIKE ?" for _ in sensitive])
+        prefix_patterns = [f"{prefix}%" for prefix in env_prefixes]
+        sensitive_patterns = [f"%{pattern}%" for pattern in sensitive]
 
-        cursor.execute(f"""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE ({prefix_conditions})
-              AND ({sensitive_conditions})
-              AND source_expr NOT LIKE '%process.env%'
-              AND source_expr NOT LIKE '%import.meta.env%'
-            ORDER BY file, line
-        """)
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                           where=f"({prefix_placeholders}) AND ({sensitive_placeholders}) AND source_expr NOT LIKE '%process.env%' AND source_expr NOT LIKE '%import.meta.env%'",
+                           order_by="file, line")
+        cursor.execute(query, prefix_patterns + sensitive_patterns)
 
         for file, line, var_name, value in cursor.fetchall():
             findings.append(StandardFinding(
@@ -254,12 +241,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: Triple Mustache Unescaped Interpolation
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE source_expr LIKE '%{{{%}}}%'
-            ORDER BY file, line
-        """)
+        query = build_query('assignments', ['file', 'line', 'source_expr'],
+                           where="source_expr LIKE '%{{{%}}}%'",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, interpolation in cursor.fetchall():
             findings.append(StandardFinding(
@@ -278,15 +263,13 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # Look for <component :is="userInput"> patterns
         user_input_sources = ['$route', 'params', 'query', 'user', 'input', 'data']
-        conditions = ' OR '.join([f"source_expr LIKE '%{src}%'" for src in user_input_sources])
+        conditions = ' OR '.join([f"source_expr LIKE ?" for _ in user_input_sources])
+        patterns = [f"%{src}%" for src in user_input_sources]
 
-        cursor.execute(f"""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE source_expr LIKE '%<component%:is%'
-              AND ({conditions})
-            ORDER BY file, line
-        """)
+        query = build_query('assignments', ['file', 'line', 'source_expr'],
+                           where=f"source_expr LIKE '%<component%:is%' AND ({conditions})",
+                           order_by="file, line")
+        cursor.execute(query, patterns)
 
         for file, line, component_code in cursor.fetchall():
             findings.append(StandardFinding(
@@ -303,15 +286,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Unsafe target="_blank" Links
         # ========================================================
-        cursor.execute("""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE (source_expr LIKE '%target="_blank"%'
-                   OR source_expr LIKE "%target='_blank'%")
-              AND source_expr NOT LIKE '%noopener%'
-              AND source_expr NOT LIKE '%noreferrer%'
-            ORDER BY file, line
-        """)
+        query = build_query('assignments', ['file', 'line', 'source_expr'],
+                           where="(source_expr LIKE '%target=\"_blank\"%' OR source_expr LIKE '%target=''_blank''%') AND source_expr NOT LIKE '%noopener%' AND source_expr NOT LIKE '%noreferrer%'",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, link_code in cursor.fetchall():
             findings.append(StandardFinding(
@@ -329,13 +307,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 7: Direct DOM Manipulation via $refs
         # ========================================================
         # Check for $refs with innerHTML manipulation
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE (f.callee_function LIKE '%$refs%'
-                   OR f.callee_function LIKE '%this.$refs%')
-            ORDER BY f.file, f.line
-        """)
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where="(callee_function LIKE '%$refs%' OR callee_function LIKE '%this.$refs%')",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, func, args in cursor.fetchall():
             # Check if using innerHTML or other dangerous properties
@@ -355,23 +330,19 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         dom_methods = list(DOM_MANIPULATION)
         placeholders = ','.join('?' * len(dom_methods))
 
-        cursor.execute(f"""
-            SELECT DISTINCT f.file, f.line, f.callee_function
-            FROM function_call_args f
-            WHERE f.callee_function IN ({placeholders})
-            ORDER BY f.file, f.line
-        """, dom_methods)
+        query = build_query('function_call_args', ['DISTINCT file', 'line', 'callee_function'],
+                           where=f"callee_function IN ({placeholders})",
+                           order_by="file, line")
+        cursor.execute(query, dom_methods)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         dom_manipulations = cursor.fetchall()
 
         for file, line, dom_method in dom_manipulations:
             # Check if this is a Vue file
-            cursor.execute("""
-                SELECT 1 FROM symbols
-                WHERE path = ?
-                  AND name IN ('mounted', 'created', 'methods', 'computed')
-                LIMIT 1
-            """, (file,))
+            query = build_query('symbols', ['1'],
+                               where="path = ? AND name IN ('mounted', 'created', 'methods', 'computed')",
+                               limit=1)
+            cursor.execute(query, (file,))
 
             if cursor.fetchone() or file.endswith('.vue'):
                 findings.append(StandardFinding(
@@ -388,19 +359,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 8: localStorage/sessionStorage for Sensitive Data
         # ========================================================
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN (
-                'localStorage.setItem', 'sessionStorage.setItem'
-            )
-              AND (f.argument_expr LIKE '%token%'
-                   OR f.argument_expr LIKE '%password%'
-                   OR f.argument_expr LIKE '%secret%'
-                   OR f.argument_expr LIKE '%jwt%'
-                   OR f.argument_expr LIKE '%key%')
-            ORDER BY f.file, f.line
-        """)
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where="callee_function IN ('localStorage.setItem', 'sessionStorage.setItem') AND (argument_expr LIKE '%token%' OR argument_expr LIKE '%password%' OR argument_expr LIKE '%secret%' OR argument_expr LIKE '%jwt%' OR argument_expr LIKE '%key%')",
+                           order_by="file, line")
+        cursor.execute(query)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         storage_operations = cursor.fetchall()
 
@@ -408,11 +370,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             # Check if Vue file
             is_vue_file = file.endswith('.vue')
             if not is_vue_file:
-                cursor.execute("""
-                    SELECT 1 FROM refs
-                    WHERE src = ? AND value IN ('vue', 'Vue')
-                    LIMIT 1
-                """, (file,))
+                query = build_query('refs', ['1'],
+                                   where="src = ? AND value IN ('vue', 'Vue')",
+                                   limit=1)
+                cursor.execute(query, (file,))
                 is_vue_file = cursor.fetchone() is not None
 
             if is_vue_file:

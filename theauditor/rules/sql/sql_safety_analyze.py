@@ -320,7 +320,7 @@ def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> 
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM symbols
-                WHERE file = ?
+                WHERE path = ?
                   AND line BETWEEN ? AND ?
                   AND (name LIKE '%catch%' OR name LIKE '%except%' OR name LIKE '%finally%')
             """, (file, line - 5, line + 50))
@@ -381,7 +381,7 @@ def _find_connection_leaks(cursor) -> List[StandardFinding]:
             cursor.execute("""
                 SELECT COUNT(*)
                 FROM symbols
-                WHERE file = ?
+                WHERE path = ?
                   AND line BETWEEN ? AND ?
                   AND (name LIKE '%with %' OR name LIKE '%using%')
             """, (file, line - 2, line + 2))

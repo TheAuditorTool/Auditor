@@ -6,11 +6,11 @@ This rule demonstrates a JUSTIFIED HYBRID approach because:
 3. Pattern matching for secret formats needs regex evaluation
 4. Sequential/keyboard pattern detection is algorithmic
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
-- Proper confidence levels
+Follows gold standard patterns (v1.1+ schema contract compliance):
+- Frozensets for O(1) pattern matching
+- Direct database queries (assumes all tables exist per schema contract)
+- Proper Severity and Confidence enums
+- Standardized finding generation with correct parameter names
 """
 
 import sqlite3
@@ -37,6 +37,7 @@ from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 METADATA = RuleMetadata(
     name="hardcoded_secrets",
     category="secrets",
+    execution_scope='database',  # Database-wide analysis (runs once per repo)
 
     # Target source code and config files ONLY
     target_extensions=[
@@ -196,55 +197,37 @@ def find_hardcoded_secrets(context: StandardRuleContext) -> List[StandardFinding
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (Golden Standard)
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'assignments', 'function_call_args', 'symbols', 'files'
-            )
-        """)
-        existing_tables = {row[0] for row in cursor.fetchall()}
-
-        # Minimum required table for secrets analysis
-        if 'assignments' not in existing_tables:
-            return findings  # Can't analyze without assignment data
-
-        # Track which tables are available for graceful degradation
-        has_assignments = 'assignments' in existing_tables
-        has_function_calls = 'function_call_args' in existing_tables
-        has_symbols = 'symbols' in existing_tables
-        has_files = 'files' in existing_tables
+        # All required tables guaranteed to exist by schema contract
+        # (theauditor/indexer/schema.py - TABLES registry with 46 table definitions)
+        # If table missing, rule will crash with clear sqlite3.OperationalError (CORRECT behavior)
 
         # ========================================================
         # DATABASE-BASED CHECKS
         # ========================================================
-        if has_assignments:
-            findings.extend(_find_secret_assignments(cursor))
-            findings.extend(_find_connection_strings(cursor))
-            findings.extend(_find_env_fallbacks(cursor))
-            findings.extend(_find_dict_secrets(cursor))
-
-        if has_function_calls:
-            findings.extend(_find_api_keys_in_urls(cursor))
+        # Execute all checks unconditionally (schema contract guarantees table existence)
+        findings.extend(_find_secret_assignments(cursor))
+        findings.extend(_find_connection_strings(cursor))
+        findings.extend(_find_env_fallbacks(cursor))
+        findings.extend(_find_dict_secrets(cursor))
+        findings.extend(_find_api_keys_in_urls(cursor))
 
         # ========================================================
         # PATTERN-BASED CHECKS (Justified Hybrid)
         # ========================================================
         # For files with high secret probability, do targeted pattern matching
         # This is necessary because entropy and patterns are computational
-        if has_symbols and has_files:
-            suspicious_files = _get_suspicious_files(cursor)
+        suspicious_files = _get_suspicious_files(cursor)
 
-            for file_path in suspicious_files:
-                # Ensure file is within project
-                try:
-                    full_path = context.project_path / file_path
-                    if full_path.exists() and full_path.is_relative_to(context.project_path):
-                        pattern_findings = _scan_file_patterns(full_path, file_path)
-                        findings.extend(pattern_findings)
-                except (ValueError, OSError):
-                    # File outside project or can't be read
-                    continue
+        for file_path in suspicious_files:
+            # Ensure file is within project
+            try:
+                full_path = context.project_path / file_path
+                if full_path.exists() and full_path.is_relative_to(context.project_path):
+                    pattern_findings = _scan_file_patterns(full_path, file_path)
+                    findings.extend(pattern_findings)
+            except (ValueError, OSError):
+                # File outside project or can't be read
+                continue
 
     finally:
         conn.close()
