@@ -21,6 +21,7 @@ from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 METADATA = RuleMetadata(
     name="input_validation",
     category="security",
+    execution_scope='database',
     target_extensions=['.py', '.js', '.ts'],
     exclude_patterns=['test/', 'spec.', '__tests__'],
     requires_jsx_pass=False

@@ -24,7 +24,6 @@ from typing import List, Optional, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
@@ -36,6 +35,7 @@ METADATA = RuleMetadata(
     category="injection",
     target_extensions=['.py'],
     exclude_patterns=['frontend/', 'client/', 'node_modules/', 'test/', '__tests__/', 'migrations/'],
+    execution_scope='database',
     requires_jsx_pass=False
 )
 

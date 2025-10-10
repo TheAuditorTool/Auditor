@@ -22,6 +22,7 @@ import sqlite3
 from typing import List, Dict, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
 from theauditor.indexer.schema import build_query
+from .config import FRONTEND_FRAMEWORKS, META_FRAMEWORKS
 
 
 METADATA = RuleMetadata(
@@ -79,9 +80,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         cursor = conn.cursor()
 
         # Check if this is a frontend project by looking for framework dependencies
+        # Combine base frameworks and meta-frameworks for comprehensive detection
+        all_frameworks = FRONTEND_FRAMEWORKS | META_FRAMEWORKS
+        placeholders_fw = ','.join(['?' for _ in all_frameworks])
         query = build_query('package_configs', ['package_name'],
-                           where="package_name IN ('react', 'vue', '@vue/cli', 'next', 'nuxt', '@angular/core', 'svelte')")
-        cursor.execute(query)
+                           where=f"package_name IN ({placeholders_fw})")
+        cursor.execute(query, list(all_frameworks))
 
         if not cursor.fetchall():
             # Not a frontend project - skip this rule

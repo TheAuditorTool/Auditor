@@ -1217,12 +1217,13 @@ def _detect_derived_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
 
     for derived_field, source_fields in derived_patterns:
         # Check if derived field is being created
-        cursor.execute("""
+        placeholders = ' OR '.join(['source_expr LIKE ?' for _ in source_fields])
+        cursor.execute(f"""
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var LIKE ?
-              AND ({})
-        """, [f'%{derived_field}%', ' OR '.join([f'source_expr LIKE "%{sf}%"' for sf in source_fields])])
+              AND ({placeholders})
+        """, [f'%{derived_field}%'] + [f'%{sf}%' for sf in source_fields])
 
         for file, line, var, expr in cursor.fetchall():
             if all(sf in expr.lower() for sf in source_fields):
@@ -1252,13 +1253,14 @@ def _detect_aggregated_pii(cursor) -> List[StandardFinding]:
     quasi_list = list(QUASI_IDENTIFIERS)
 
     # Look for multiple quasi-identifiers near each other
-    cursor.execute("""
+    placeholders = ' OR '.join(['target_var LIKE ?' for _ in quasi_list[:20]])
+    cursor.execute(f"""
         SELECT file, MIN(line) as start_line, COUNT(DISTINCT target_var) as quasi_count
         FROM assignments
-        WHERE ({})
+        WHERE ({placeholders})
         GROUP BY file
         HAVING quasi_count >= 3
-    """, ' OR '.join([f'target_var LIKE "%{q}%"' for q in quasi_list[:20]]))
+    """, [f'%{q}%' for q in quasi_list[:20]])
 
     for file, line, count in cursor.fetchall():
         if count >= 3:
@@ -1669,13 +1671,13 @@ def _detect_pii_consent_gaps(cursor, pii_categories: Dict) -> List[StandardFindi
 
         if has_pii:
             # Check for consent check nearby
-            cursor.execute("""
+            placeholders = ' OR '.join(['callee_function LIKE ?' for _ in consent_checks])
+            cursor.execute(f"""
                 SELECT COUNT(*) FROM function_call_args
                 WHERE file = ?
                   AND ABS(line - ?) <= 20
-                  AND ({})
-            """.format(' OR '.join([f"callee_function LIKE '%{c}%'" for c in consent_checks])),
-            [file, line])
+                  AND ({placeholders})
+            """, [file, line] + [f'%{c}%' for c in consent_checks])
 
             has_consent_check = cursor.fetchone()[0] > 0
 
@@ -1768,14 +1770,14 @@ def _detect_pii_access_control(cursor, pii_categories: Dict) -> List[StandardFin
 
     for file, line, func_name in cursor.fetchall():
         # Check if function has auth checks
-        cursor.execute("""
+        placeholders = ' OR '.join(['callee_function LIKE ?' for _ in auth_checks])
+        cursor.execute(f"""
             SELECT COUNT(*) FROM function_call_args
             WHERE file = ?
               AND line >= ?
               AND line <= ? + 50
-              AND ({})
-        """.format(' OR '.join([f"callee_function LIKE '%{a}%'" for a in auth_checks])),
-        [file, line, line])
+              AND ({placeholders})
+        """, [file, line, line] + [f'%{a}%' for a in auth_checks])
 
         has_auth = cursor.fetchone()[0] > 0
 

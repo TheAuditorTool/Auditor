@@ -15,7 +15,7 @@ from typing import List, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-from theauditor.indexer.schema import build_query
+from theauditor.indexer.schema import build_query, get_table_schema
 
 
 # ============================================================================
@@ -159,6 +159,9 @@ class AsyncConcurrencyAnalyzer:
         self.cursor = conn.cursor()
 
         try:
+            # Schema validation - crash if tables missing (schema contract)
+            self._validate_required_tables()
+
             # Detect if project uses concurrency
             has_concurrency = self._detect_concurrency_usage()
 
@@ -177,8 +180,43 @@ class AsyncConcurrencyAnalyzer:
 
         return self.findings
 
+    def _validate_required_tables(self):
+        """Validate all required tables exist - crash if missing (schema contract)."""
+        required_tables = [
+            'refs', 'function_call_args', 'assignments',
+            'cfg_blocks', 'cfg_edges', 'cfg_block_statements'
+        ]
+        for table_name in required_tables:
+            # This will raise ValueError if table doesn't exist
+            get_table_schema(table_name)
+
+    def _validate_columns(self, table_name: str, columns: List[str]):
+        """Validate columns exist in table schema.
+
+        Args:
+            table_name: Table to check
+            columns: List of column names to validate
+
+        Raises:
+            ValueError: If table or column doesn't exist
+        """
+        schema = get_table_schema(table_name)
+        valid_cols = set(schema.column_names())
+        for col in columns:
+            if col not in valid_cols:
+                raise ValueError(
+                    f"Column '{col}' not in table '{table_name}'. "
+                    f"Valid columns: {', '.join(sorted(valid_cols))}"
+                )
+
     def _detect_concurrency_usage(self) -> bool:
-        """Check if project uses threading/async/multiprocessing."""
+        """Check if project uses threading/async/multiprocessing.
+
+        Schema: refs(src, kind, value, line)
+        """
+        # Validate columns used in query
+        self._validate_columns('refs', ['value'])
+
         placeholders = ','.join('?' * len(self.patterns.CONCURRENCY_IMPORTS))
         self.cursor.execute(f"""
             SELECT COUNT(*) FROM refs
@@ -189,7 +227,14 @@ class AsyncConcurrencyAnalyzer:
         return count > 0
 
     def _check_race_conditions(self):
-        """Detect TOCTOU race conditions."""
+        """Detect TOCTOU race conditions.
+
+        Schema: function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+        """
+        # Validate columns used in query
+        self._validate_columns('function_call_args', ['file', 'line', 'callee_function'])
+
         # Build query for check functions
         check_placeholders = ','.join('?' * len(self.patterns.TOCTOU_CHECKS))
         action_placeholders = ','.join('?' * len(self.patterns.TOCTOU_ACTIONS))
@@ -221,9 +266,15 @@ class AsyncConcurrencyAnalyzer:
             ))
 
     def _check_shared_state_no_lock(self, has_concurrency: bool):
-        """Find shared state modifications without locks."""
+        """Find shared state modifications without locks.
+
+        Schema: assignments(file, line, target_var, source_expr, source_vars, in_function)
+        """
         if not has_concurrency:
             return
+
+        # Validate columns used in query
+        self._validate_columns('assignments', ['file', 'line', 'target_var', 'in_function', 'source_expr'])
 
         # Find assignments to class/instance variables
         self.cursor.execute("""
@@ -281,7 +332,11 @@ class AsyncConcurrencyAnalyzer:
             ))
 
     def _check_lock_nearby(self, file: str, line: int, function: str) -> bool:
-        """Check if there's lock protection nearby."""
+        """Check if there's lock protection nearby.
+
+        Schema: function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+        """
         lock_placeholders = ','.join('?' * len(self.patterns.LOCK_METHODS))
         params = list(self.patterns.LOCK_METHODS) + [file, line, line]
 
@@ -302,7 +357,14 @@ class AsyncConcurrencyAnalyzer:
         return self.cursor.fetchone()[0] > 0
 
     def _check_async_without_await(self):
-        """Find async function calls not awaited."""
+        """Find async function calls not awaited.
+
+        Schema: function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+        """
+        # Validate columns used in query
+        self._validate_columns('function_call_args', ['file', 'line', 'caller_function', 'callee_function', 'argument_expr'])
+
         # First find functions that use await (likely async functions)
         self.cursor.execute("""
             SELECT DISTINCT caller_function
@@ -342,7 +404,14 @@ class AsyncConcurrencyAnalyzer:
                 ))
 
     def _check_parallel_writes(self):
-        """Find parallel operations with write operations."""
+        """Find parallel operations with write operations.
+
+        Schema: function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+        """
+        # Validate columns used in query
+        self._validate_columns('function_call_args', ['file', 'line', 'argument_expr', 'callee_function'])
+
         # Check asyncio.gather with writes
         gather_placeholders = ','.join('?' * len(self.patterns.ASYNC_METHODS))
         self.cursor.execute(f"""
@@ -402,7 +471,14 @@ class AsyncConcurrencyAnalyzer:
             ))
 
     def _check_threading_issues(self):
-        """Find thread lifecycle issues."""
+        """Find thread lifecycle issues.
+
+        Schema: function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+        """
+        # Validate columns used in query
+        self._validate_columns('function_call_args', ['file', 'line', 'callee_function'])
+
         # Find Thread.start() without join()
         start_placeholders = ','.join('?' * len(self.patterns.THREAD_START))
         cleanup_placeholders = ','.join('?' * len(self.patterns.THREAD_CLEANUP))
@@ -459,7 +535,16 @@ class AsyncConcurrencyAnalyzer:
             ))
 
     def _check_sleep_in_loops(self):
-        """Find sleep operations in loops."""
+        """Find sleep operations in loops.
+
+        Schema: cfg_blocks(id, file, function_name, block_type, start_line, end_line, condition_expr)
+                function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+        """
+        # Validate columns used in query
+        self._validate_columns('cfg_blocks', ['file', 'block_type', 'start_line', 'end_line'])
+        self._validate_columns('function_call_args', ['file', 'line', 'callee_function'])
+
         sleep_placeholders = ','.join('?' * len(self.patterns.SLEEP_METHODS))
 
         self.cursor.execute(f"""
@@ -486,7 +571,15 @@ class AsyncConcurrencyAnalyzer:
             ))
 
     def _check_retry_without_backoff(self):
-        """Find retry loops without exponential backoff."""
+        """Find retry loops without exponential backoff.
+
+        Schema: cfg_blocks(id, file, function_name, block_type, start_line, end_line, condition_expr)
+                assignments(file, line, target_var, source_expr, source_vars, in_function)
+        """
+        # Validate columns used in query
+        self._validate_columns('cfg_blocks', ['file', 'block_type', 'start_line', 'end_line'])
+        self._validate_columns('assignments', ['file', 'line', 'target_var', 'source_expr'])
+
         # Find loops with retry variables
         retry_placeholders = ','.join('?' * len(self.patterns.RETRY_VARIABLES))
 
@@ -530,7 +623,10 @@ class AsyncConcurrencyAnalyzer:
                     ))
 
     def _check_backoff_pattern(self, file: str, start: int, end: int) -> bool:
-        """Check if there's exponential backoff in range."""
+        """Check if there's exponential backoff in range.
+
+        Schema: assignments(file, line, target_var, source_expr, source_vars, in_function)
+        """
         # Check for backoff patterns in assignments
         for pattern in self.patterns.BACKOFF_PATTERNS:
             self.cursor.execute("""
@@ -548,7 +644,11 @@ class AsyncConcurrencyAnalyzer:
         return False
 
     def _check_sleep_in_range(self, file: str, start: int, end: int) -> bool:
-        """Check if there's sleep in line range."""
+        """Check if there's sleep in line range.
+
+        Schema: function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+        """
         sleep_placeholders = ','.join('?' * len(self.patterns.SLEEP_METHODS))
 
         self.cursor.execute(f"""
@@ -563,7 +663,16 @@ class AsyncConcurrencyAnalyzer:
         return self.cursor.fetchone()[0] > 0
 
     def _check_lock_issues(self):
-        """Find lock-related issues."""
+        """Find lock-related issues.
+
+        Schema: function_call_args(file, line, caller_function, callee_function,
+                                   argument_index, argument_expr, param_name)
+                assignments(file, line, target_var, source_expr, source_vars, in_function)
+        """
+        # Validate columns used in query
+        self._validate_columns('function_call_args', ['file', 'line', 'caller_function', 'callee_function', 'argument_expr'])
+        self._validate_columns('assignments', ['file', 'line', 'target_var'])
+
         # Check lock without timeout
         lock_placeholders = ','.join('?' * len(self.patterns.LOCK_METHODS))
 

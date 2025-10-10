@@ -204,13 +204,13 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
         query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
         cursor.execute(query + f"""
-            WHERE (a.target_var IN ({money_placeholders}))
-              AND (a.source_expr LIKE '%/%'
-                   OR a.source_expr LIKE '%*%'
-                   OR a.source_expr LIKE '%parseFloat%'
-                   OR a.source_expr LIKE '%float(%'
-                   OR a.source_expr LIKE '%.toFixed%')
-            ORDER BY a.file, a.line
+            WHERE (target_var IN ({money_placeholders}))
+              AND (source_expr LIKE '%/%'
+                   OR source_expr LIKE '%*%'
+                   OR source_expr LIKE '%parseFloat%'
+                   OR source_expr LIKE '%float(%'
+                   OR source_expr LIKE '%.toFixed%')
+            ORDER BY file, line
         """, money_terms_list)
 
         for file, line, var_name, expr in cursor.fetchall():
@@ -232,12 +232,12 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
         # Build conditions for money arguments
-        money_arg_conditions = ' OR '.join([f"f.argument_expr LIKE '%{term}%'" for term in MONEY_TERMS])
+        money_arg_conditions = ' OR '.join([f"argument_expr LIKE '%{term}%'" for term in MONEY_TERMS])
 
         cursor.execute(query + f"""
-            WHERE f.callee_function IN ({float_placeholders})
+            WHERE callee_function IN ({float_placeholders})
               AND ({money_arg_conditions})
-            ORDER BY f.file, f.line
+            ORDER BY file, line
         """, float_funcs_list)
 
         for file, line, func, arg in cursor.fetchall():
@@ -261,11 +261,11 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
         cursor.execute(query + f"""
-            WHERE f.callee_function IN ({datetime_placeholders})
-              AND f.argument_expr NOT LIKE '%tz%'
-              AND f.argument_expr NOT LIKE '%timezone%'
-              AND f.argument_expr NOT LIKE '%UTC%'
-            ORDER BY f.file, f.line
+            WHERE callee_function IN ({datetime_placeholders})
+              AND argument_expr NOT LIKE '%tz%'
+              AND argument_expr NOT LIKE '%timezone%'
+              AND argument_expr NOT LIKE '%UTC%'
+            ORDER BY file, line
         """, datetime_funcs_list)
 
         for file, line, datetime_func, args in cursor.fetchall():
@@ -286,12 +286,12 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
         cursor.execute(query + """
-            WHERE (f.callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')
-                   AND f.argument_expr LIKE '%@%'
-                   AND (f.argument_expr LIKE '%email%'
-                        OR f.argument_expr LIKE '%mail%'
-                        OR f.argument_expr LIKE '%\\\\@%'))
-            ORDER BY f.file, f.line
+            WHERE (callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')
+                   AND argument_expr LIKE '%@%'
+                   AND (argument_expr LIKE '%email%'
+                        OR argument_expr LIKE '%mail%'
+                        OR argument_expr LIKE '%\\\\@%'))
+            ORDER BY file, line
         """)
 
         for file, line, regex_func, pattern in cursor.fetchall():
@@ -313,14 +313,14 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # Look for division operations with risky denominators
         query = build_query('assignments', ['file', 'line', 'source_expr'])
         cursor.execute(query + """
-            WHERE a.source_expr LIKE '%/%'
-              AND (a.source_expr LIKE '%count%'
-                   OR a.source_expr LIKE '%length%'
-                   OR a.source_expr LIKE '%size%'
-                   OR a.source_expr LIKE '%.length%'
-                   OR a.source_expr LIKE '%.size%'
-                   OR a.source_expr LIKE '%.count%')
-            ORDER BY a.file, a.line
+            WHERE source_expr LIKE '%/%'
+              AND (source_expr LIKE '%count%'
+                   OR source_expr LIKE '%length%'
+                   OR source_expr LIKE '%size%'
+                   OR source_expr LIKE '%.length%'
+                   OR source_expr LIKE '%.size%'
+                   OR source_expr LIKE '%.count%')
+            ORDER BY file, line
         """)
         # Store results before nested query loop (best practice, not a workaround)
         division_operations = cursor.fetchall()
@@ -373,15 +373,15 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'])
         cursor.execute(query + f"""
-            WHERE f.callee_function IN ({ops_placeholders})
+            WHERE callee_function IN ({ops_placeholders})
               AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND f2.caller_function = f.caller_function
-                    AND f2.callee_function IN ({cleanup_placeholders})
-                    AND f2.line > f.line
+                  SELECT 1 FROM function_call_args AS fca2
+                  WHERE fca2.file = function_call_args.file
+                    AND fca2.caller_function = function_call_args.caller_function
+                    AND fca2.callee_function IN ({cleanup_placeholders})
+                    AND fca2.line > function_call_args.line
               )
-            ORDER BY f.file, f.line
+            ORDER BY file, line
         """, file_ops_list + file_cleanup_list)
         # Store results before nested query loop (best practice)
         file_operations = cursor.fetchall()
@@ -427,21 +427,21 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'callee_function'])
         cursor.execute(query + """
-            WHERE (f.callee_function LIKE '%connect%'
-                   OR f.callee_function LIKE '%createConnection%'
-                   OR f.callee_function LIKE '%getConnection%')
-              AND f.callee_function NOT LIKE '%disconnect%'
+            WHERE (callee_function LIKE '%connect%'
+                   OR callee_function LIKE '%createConnection%'
+                   OR callee_function LIKE '%getConnection%')
+              AND callee_function NOT LIKE '%disconnect%'
               AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND (f2.callee_function LIKE '%close%'
-                         OR f2.callee_function LIKE '%disconnect%'
-                         OR f2.callee_function LIKE '%end%'
-                         OR f2.callee_function LIKE '%release%')
-                    AND f2.line > f.line
-                    AND f2.line < f.line + 50
+                  SELECT 1 FROM function_call_args AS fca2
+                  WHERE fca2.file = function_call_args.file
+                    AND (fca2.callee_function LIKE '%close%'
+                         OR fca2.callee_function LIKE '%disconnect%'
+                         OR fca2.callee_function LIKE '%end%'
+                         OR fca2.callee_function LIKE '%release%')
+                    AND fca2.line > function_call_args.line
+                    AND fca2.line < function_call_args.line + 50
               )
-            ORDER BY f.file, f.line
+            ORDER BY file, line
         """)
 
         for file, line, connect_func in cursor.fetchall():
@@ -467,15 +467,15 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
         query = build_query('function_call_args', ['file', 'line', 'callee_function'])
         cursor.execute(query + f"""
-            WHERE f.callee_function IN ({trans_placeholders})
+            WHERE callee_function IN ({trans_placeholders})
               AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND f2.callee_function IN ({end_placeholders})
-                    AND f2.line > f.line
-                    AND f2.line < f.line + 100
+                  SELECT 1 FROM function_call_args AS fca2
+                  WHERE fca2.file = function_call_args.file
+                    AND fca2.callee_function IN ({end_placeholders})
+                    AND fca2.line > function_call_args.line
+                    AND fca2.line < function_call_args.line + 100
               )
-            ORDER BY f.file, f.line
+            ORDER BY file, line
         """, trans_funcs_list + trans_end_list)
 
         for file, line, trans_func in cursor.fetchall():
@@ -496,20 +496,20 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'callee_function'])
         cursor.execute(query + """
-            WHERE (f.callee_function LIKE '%socket%'
-                   OR f.callee_function LIKE '%Socket%'
-                   OR f.callee_function = 'createSocket')
-              AND f.callee_function NOT LIKE '%close%'
+            WHERE (callee_function LIKE '%socket%'
+                   OR callee_function LIKE '%Socket%'
+                   OR callee_function = 'createSocket')
+              AND callee_function NOT LIKE '%close%'
               AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND (f2.callee_function LIKE '%close%'
-                         OR f2.callee_function LIKE '%destroy%'
-                         OR f2.callee_function LIKE '%end%')
-                    AND f2.line > f.line
-                    AND f2.line < f.line + 50
+                  SELECT 1 FROM function_call_args AS fca2
+                  WHERE fca2.file = function_call_args.file
+                    AND (fca2.callee_function LIKE '%close%'
+                         OR fca2.callee_function LIKE '%destroy%'
+                         OR fca2.callee_function LIKE '%end%')
+                    AND fca2.line > function_call_args.line
+                    AND fca2.line < function_call_args.line + 50
               )
-            ORDER BY f.file, f.line
+            ORDER BY file, line
         """)
 
         for file, line, socket_func in cursor.fetchall():
@@ -531,11 +531,11 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # Look for patterns like value / 100 * something (missing parentheses)
         query = build_query('assignments', ['file', 'line', 'source_expr'])
         cursor.execute(query + """
-            WHERE (a.source_expr LIKE '%/ 100 *%'
-                   OR a.source_expr LIKE '%/100*%'
-                   OR a.source_expr LIKE '%/ 100.0 *%')
-              AND a.source_expr NOT LIKE '%(%/ 100%)%'
-            ORDER BY a.file, a.line
+            WHERE (source_expr LIKE '%/ 100 *%'
+                   OR source_expr LIKE '%/100*%'
+                   OR source_expr LIKE '%/ 100.0 *%')
+              AND source_expr NOT LIKE '%(%/ 100%)%'
+            ORDER BY file, line
         """)
 
         for file, line, expr in cursor.fetchall():
@@ -556,20 +556,20 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'callee_function'])
         cursor.execute(query + """
-            WHERE f.callee_function IN (
+            WHERE callee_function IN (
                 'createReadStream', 'createWriteStream', 'stream',
                 'fs.createReadStream', 'fs.createWriteStream'
             )
               AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND (f2.callee_function IN ('end', 'destroy', 'close', 'finish')
-                         OR f2.callee_function LIKE '%.on%error%'
-                         OR f2.callee_function LIKE '%.on%close%')
-                    AND f2.line > f.line
-                    AND f2.line < f.line + 30
+                  SELECT 1 FROM function_call_args AS fca2
+                  WHERE fca2.file = function_call_args.file
+                    AND (fca2.callee_function IN ('end', 'destroy', 'close', 'finish')
+                         OR fca2.callee_function LIKE '%.on%error%'
+                         OR fca2.callee_function LIKE '%.on%close%')
+                    AND fca2.line > function_call_args.line
+                    AND fca2.line < function_call_args.line + 30
               )
-            ORDER BY f.file, f.line
+            ORDER BY file, line
         """)
 
         for file, line, stream_func in cursor.fetchall():
@@ -590,17 +590,17 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'callee_function'])
         cursor.execute(query + """
-            WHERE (f.callee_function LIKE '%.then%'
-                   OR f.callee_function = 'await'
-                   OR f.callee_function LIKE '%Promise%')
+            WHERE (callee_function LIKE '%.then%'
+                   OR callee_function = 'await'
+                   OR callee_function LIKE '%Promise%')
               AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND f2.line BETWEEN f.line AND f.line + 5
-                    AND (f2.callee_function LIKE '%.catch%'
-                         OR f2.callee_function = 'try')
+                  SELECT 1 FROM function_call_args AS fca2
+                  WHERE fca2.file = function_call_args.file
+                    AND fca2.line BETWEEN function_call_args.line AND function_call_args.line + 5
+                    AND (fca2.callee_function LIKE '%.catch%'
+                         OR fca2.callee_function = 'try')
               )
-            ORDER BY f.file, f.line
+            ORDER BY file, line
             LIMIT 10
         """)
 
@@ -622,21 +622,21 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         query = build_query('function_call_args', ['file', 'line', 'callee_function'])
         cursor.execute(query + """
-            WHERE (f.callee_function LIKE '%lock%'
-                   OR f.callee_function LIKE '%Lock%'
-                   OR f.callee_function LIKE '%acquire%'
-                   OR f.callee_function LIKE '%mutex%')
-              AND f.callee_function NOT LIKE '%unlock%'
-              AND f.callee_function NOT LIKE '%release%'
+            WHERE (callee_function LIKE '%lock%'
+                   OR callee_function LIKE '%Lock%'
+                   OR callee_function LIKE '%acquire%'
+                   OR callee_function LIKE '%mutex%')
+              AND callee_function NOT LIKE '%unlock%'
+              AND callee_function NOT LIKE '%release%'
               AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND (f2.callee_function LIKE '%unlock%'
-                         OR f2.callee_function LIKE '%release%')
-                    AND f2.line > f.line
-                    AND f2.line < f.line + 50
+                  SELECT 1 FROM function_call_args AS fca2
+                  WHERE fca2.file = function_call_args.file
+                    AND (fca2.callee_function LIKE '%unlock%'
+                         OR fca2.callee_function LIKE '%release%')
+                    AND fca2.line > function_call_args.line
+                    AND fca2.line < function_call_args.line + 50
               )
-            ORDER BY f.file, f.line
+            ORDER BY file, line
         """)
 
         for file, line, lock_func in cursor.fetchall():

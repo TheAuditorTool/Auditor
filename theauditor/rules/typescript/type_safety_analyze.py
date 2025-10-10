@@ -15,7 +15,6 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 """
 
 import sqlite3
-import re
 import logging
 from typing import List, Set
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata

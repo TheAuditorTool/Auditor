@@ -175,7 +175,7 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 confidence=Confidence.MEDIUM,
-                code_snippet=f'{func}("connection", ...)',
+                snippet=f'{func}("connection", ...)',
                 cwe_id='CWE-862'
             ))
     
@@ -214,7 +214,7 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 confidence=Confidence.MEDIUM,
-                code_snippet=f'def {name}(...)',
+                snippet=f'def {name}(...)',
                 cwe_id='CWE-862'
             ))
     
@@ -261,7 +261,7 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 confidence=Confidence.LOW,
-                code_snippet=f'{func}("message", ...)',
+                snippet=f'{func}("message", ...)',
                 cwe_id='CWE-20'
             ))
     
@@ -300,7 +300,7 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 confidence=Confidence.LOW,
-                code_snippet=f'def {name}(...)',
+                snippet=f'def {name}(...)',
                 cwe_id='CWE-20'
             ))
     
@@ -370,7 +370,7 @@ def _find_websocket_no_rate_limit(cursor) -> List[StandardFinding]:
                 severity=Severity.HIGH,
                 category='security',
                 confidence=Confidence.LOW,
-                code_snippet='on("message", handler)',
+                snippet='on("message", handler)',
                 cwe_id='CWE-770'
             ))
     
@@ -410,7 +410,7 @@ def _find_websocket_broadcast_sensitive(cursor) -> List[StandardFinding]:
                 severity=Severity.CRITICAL,
                 category='security',
                 confidence=Confidence.MEDIUM,
-                code_snippet=f'{func}(sensitive_data)',
+                snippet=f'{func}(sensitive_data)',
                 cwe_id='CWE-200'
             ))
         else:
@@ -444,7 +444,7 @@ def _find_websocket_broadcast_sensitive(cursor) -> List[StandardFinding]:
                     severity=Severity.CRITICAL,
                     category='security',
                     confidence=Confidence.MEDIUM,
-                    code_snippet=f'{func}(variable)',
+                    snippet=f'{func}(variable)',
                     cwe_id='CWE-200'
                 ))
     
@@ -476,7 +476,7 @@ def _find_websocket_no_tls(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             confidence=Confidence.HIGH,
-            code_snippet=f'{var} = {expr[:50]}...' if len(expr) > 50 else f'{var} = {expr}',
+            snippet=f'{var} = {expr[:50]}...' if len(expr) > 50 else f'{var} = {expr}',
             cwe_id='CWE-319'
         ))
 
@@ -503,7 +503,7 @@ def _find_websocket_no_tls(cursor) -> List[StandardFinding]:
             severity=Severity.HIGH,
             category='security',
             confidence=Confidence.HIGH,
-            code_snippet=f'{func}(...)',
+            snippet=f'{func}(...)',
             cwe_id='CWE-319'
         ))
 

@@ -54,6 +54,11 @@ class SQLSafetyPatterns:
         'commit', 'COMMIT', '.commit('
     ])
 
+    # Common unindexed field patterns (heuristic-based detection)
+    UNINDEXED_FIELD_PATTERNS: frozenset = frozenset([
+        'email', 'username', 'status', 'created_at', 'updated_at'
+    ])
+
 
 def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect SQL safety issues using database queries.
@@ -88,10 +93,10 @@ def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding
         # Primary detection: sql_queries table (clean data only)
         findings.extend(_find_update_without_where(cursor))
         findings.extend(_find_delete_without_where(cursor))
-        findings.extend(_find_unbounded_queries(cursor))
+        findings.extend(_find_unbounded_queries(cursor, patterns))
         findings.extend(_find_select_star(cursor))
         findings.extend(_find_large_in_clauses(cursor))
-        findings.extend(_find_missing_db_indexes(cursor))
+        findings.extend(_find_missing_db_indexes(cursor, patterns))
 
         # Secondary detection: function_call_args for transactions
         findings.extend(_find_transactions_without_rollback(cursor, patterns))
@@ -189,7 +194,7 @@ def _find_delete_without_where(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_unbounded_queries(cursor) -> List[StandardFinding]:
+def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> List[StandardFinding]:
     """Find SELECT queries without LIMIT that might return large datasets."""
     findings = []
 
@@ -206,13 +211,12 @@ def _find_unbounded_queries(cursor) -> List[StandardFinding]:
     """)
 
     seen = set()
-    aggregate_patterns = ['COUNT(', 'MAX(', 'MIN(', 'SUM(', 'AVG(', 'GROUP BY']
 
     for file, line, query, tables in cursor.fetchall():
         query_upper = query.upper()
 
         # Skip aggregate queries
-        if any(agg in query_upper for agg in aggregate_patterns):
+        if any(agg in query_upper for agg in patterns.AGGREGATE_FUNCTIONS):
             continue
 
         # Check if it's a potentially large result set (has JOIN or multiple tables)
@@ -524,12 +528,9 @@ def _find_large_in_clauses(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_missing_db_indexes(cursor) -> List[StandardFinding]:
+def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> List[StandardFinding]:
     """Find queries on potentially unindexed fields (heuristic-based)."""
     findings = []
-
-    # Common unindexed field patterns
-    unindexed_patterns = ['email', 'username', 'status', 'created_at', 'updated_at']
 
     # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
@@ -547,7 +548,7 @@ def _find_missing_db_indexes(cursor) -> List[StandardFinding]:
         query_lower = query.lower()
 
         # Check if WHERE clause uses common unindexed fields
-        for field in unindexed_patterns:
+        for field in patterns.UNINDEXED_FIELD_PATTERNS:
             if f' {field} =' in query_lower or f'.{field} =' in query_lower:
                 # Skip if it's a primary key or has LIMIT
                 if 'limit' in query_lower or ' id ' in query_lower:
