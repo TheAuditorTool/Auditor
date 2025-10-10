@@ -115,7 +115,12 @@ class VerboseGroup(click.Group):
             formatter.write_text("  --auto-detect             # Auto-detect from migrations")
             formatter.write_text("  --workset                 # Check current changes")
             formatter.write_paragraph()
-            
+
+            formatter.write_text("aud context                 # Apply user-defined business logic")
+            formatter.write_text("  --file context.yaml       # Semantic context YAML file")
+            formatter.write_text("  --verbose                 # Show detailed findings")
+            formatter.write_paragraph()
+
             formatter.write_text("aud fce                     # Run Factual Correlation Engine")
             formatter.write_text("aud report                  # Generate final report")
             formatter.write_text("aud structure               # Generate project structure report")
@@ -138,7 +143,7 @@ class VerboseGroup(click.Group):
         formatter.write_text("SETUP & CONFIG:")
         with formatter.indentation():
             formatter.write_text("aud init                    # Initialize .pf/ directory")
-            formatter.write_text("aud setup-claude            # Setup sandboxed tools + vuln databases")
+            formatter.write_text("aud setup-ai                # Setup sandboxed tools + vuln databases")
             formatter.write_text("  --target .                # Target directory (downloads ~500MB)")
             formatter.write_paragraph()
             
@@ -238,7 +243,7 @@ from theauditor.commands.full import full
 from theauditor.commands.fce import fce
 from theauditor.commands.impact import impact
 from theauditor.commands.taint import taint_analyze
-from theauditor.commands.setup import setup_claude
+from theauditor.commands.setup import setup_ai
 from theauditor.commands.explain import explain
 
 # Import additional migrated commands
@@ -261,6 +266,7 @@ from theauditor.commands.rules import rules_command
 # Import refactoring analysis commands
 from theauditor.commands.refactor import refactor_command
 from theauditor.commands.insights import insights_command
+from theauditor.commands.context import context_command
 
 # Import new commands
 from theauditor.commands.docker_analyze import docker_analyze
@@ -279,7 +285,8 @@ cli.add_command(full)
 cli.add_command(fce)
 cli.add_command(impact)
 cli.add_command(taint_analyze)
-cli.add_command(setup_claude)
+cli.add_command(setup_ai)
+cli.add_command(setup_ai, name="setup-claude")  # Hidden legacy alias
 cli.add_command(explain)
 
 # Register additional migrated commands
@@ -304,6 +311,7 @@ cli.add_command(rules_command)
 # Register refactoring analysis commands
 cli.add_command(refactor_command, name="refactor")
 cli.add_command(insights_command, name="insights")
+cli.add_command(context_command, name="context")
 
 # Register new commands
 cli.add_command(docker_analyze)

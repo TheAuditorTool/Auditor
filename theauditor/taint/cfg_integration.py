@@ -2,6 +2,10 @@
 
 This module bridges the gap between CFG data and taint propagation,
 enabling path-aware vulnerability detection.
+
+Schema Contract:
+    All queries use build_query() for schema compliance.
+    Table existence is guaranteed by schema contract - no checks needed.
 """
 
 import os
@@ -11,6 +15,7 @@ from typing import Dict, List, Set, Any, Optional, Tuple
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
+from theauditor.indexer.schema import build_query
 from .database import (
     get_block_for_line,
     get_paths_between_blocks,
@@ -229,40 +234,41 @@ class PathAnalyzer:
         
         return is_vulnerable, path_info
     
-    def _process_block_for_sanitizers(self, state: BlockTaintState, 
+    def _process_block_for_sanitizers(self, state: BlockTaintState,
                                      block: Dict[str, Any]) -> BlockTaintState:
         """
         Check if block contains sanitizers that clean tainted data.
-        
+
         Args:
             state: Current taint state
             block: CFG block to process
-            
+
         Returns:
             Updated taint state
+
+        Schema Contract:
+            Queries cfg_block_statements and function_call_args tables (guaranteed to exist)
         """
         new_state = state.copy()
-        
+
         # Get statements in this block - query database instead of string matching
         block_id = block.get("id")
         if block_id:
             # Query cfg_block_statements for calls in this block
-            self.cursor.execute("""
-                SELECT statement_type, line, statement_text
-                FROM cfg_block_statements
-                WHERE block_id = ?
-                  AND statement_type = 'call'
-                ORDER BY line
-            """, (block_id,))
+            query = build_query('cfg_block_statements',
+                ['statement_type', 'line', 'statement_text'],
+                where="block_id = ? AND statement_type = 'call'",
+                order_by="line"
+            )
+            self.cursor.execute(query, (block_id,))
 
             for stmt_type, line, stmt_text in self.cursor.fetchall():
                 # Query function_call_args to get exact function name
-                self.cursor.execute("""
-                    SELECT callee_function, argument_expr
-                    FROM function_call_args
-                    WHERE file = ?
-                      AND line = ?
-                """, (self.file_path, line))
+                args_query = build_query('function_call_args',
+                    ['callee_function', 'argument_expr'],
+                    where="file = ? AND line = ?"
+                )
+                self.cursor.execute(args_query, (self.file_path, line))
 
                 for callee, arg_expr in self.cursor.fetchall():
                     # Check if callee is a sanitizer
@@ -432,27 +438,29 @@ class PathAnalyzer:
                                       block: Dict[str, Any]) -> BlockTaintState:
         """
         Track taint propagation through assignments in block.
-        
+
         Args:
             state: Current taint state
             block: CFG block to process
-            
+
         Returns:
             Updated taint state
+
+        Schema Contract:
+            Queries assignments table (guaranteed to exist)
         """
         new_state = state.copy()
-        
+
         # This is simplified - full implementation would query assignments table
         # For now, we maintain the taint state as-is
-        
+
         # Get assignments in this block from database
         if block["start_line"] and block["end_line"]:
-            self.cursor.execute("""
-                SELECT target_var, source_expr
-                FROM assignments
-                WHERE file = ?
-                AND line BETWEEN ? AND ?
-            """, (self.file_path, block["start_line"], block["end_line"]))
+            query = build_query('assignments',
+                ['target_var', 'source_expr'],
+                where="file = ? AND line BETWEEN ? AND ?"
+            )
+            self.cursor.execute(query, (self.file_path, block["start_line"], block["end_line"]))
             
             for target_var, source_expr in self.cursor.fetchall():
                 # Check if source expression contains tainted variables
@@ -546,14 +554,18 @@ class PathAnalyzer:
         return loop_blocks
     
     def _get_block_statements(self, block_id: int) -> List[Dict[str, Any]]:
-        """Get statements in a block from the database."""
-        self.cursor.execute("""
-            SELECT statement_type, statement_text, line
-            FROM cfg_block_statements
-            WHERE block_id = ?
-            ORDER BY statement_order
-        """, (block_id,))
-        
+        """Get statements in a block from the database.
+
+        Schema Contract:
+            Queries cfg_block_statements table (guaranteed to exist)
+        """
+        query = build_query('cfg_block_statements',
+            ['statement_type', 'statement_text', 'line'],
+            where="block_id = ?",
+            order_by="statement_order"
+        )
+        self.cursor.execute(query, (block_id,))
+
         return [
             {"type": row[0], "text": row[1], "line": row[2]}
             for row in self.cursor.fetchall()
@@ -598,29 +610,31 @@ class PathAnalyzer:
     def _apply_widening(self, state: BlockTaintState, loop_blocks: List[int]) -> BlockTaintState:
         """
         Conservative widening when fixed-point doesn't converge.
-        
+
         Marks all variables modified in loop as potentially tainted.
+
+        Schema Contract:
+            Queries assignments table (guaranteed to exist)
         """
         widened_state = state.copy()
-        
+
         # Find all variables assigned in loop body
         for block_id in loop_blocks:
             block = self.blocks.get(block_id)
             if not block or not block.get("start_line"):
                 continue
-            
-            self.cursor.execute("""
-                SELECT DISTINCT target_var
-                FROM assignments
-                WHERE file = ?
-                AND line BETWEEN ? AND ?
-            """, (self.file_path, block["start_line"], block["end_line"]))
-            
+
+            query = build_query('assignments',
+                ['DISTINCT target_var'],
+                where="file = ? AND line BETWEEN ? AND ?"
+            )
+            self.cursor.execute(query, (self.file_path, block["start_line"], block["end_line"]))
+
             for target_var, in self.cursor.fetchall():
                 # Conservative: if any tainted var exists, all loop vars become tainted
                 if state.tainted_vars:
                     widened_state.add_taint(target_var)
-        
+
         return widened_state
 
 
@@ -662,18 +676,15 @@ def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
     # Ensure source and sink are in same file
     if source["file"] != sink["file"]:
         return []
-    
+
     # Get function containing sink
-    cursor.execute("""
-        SELECT name, line
-        FROM symbols
-        WHERE path = ?
-        AND type = 'function'
-        AND line <= ?
-        ORDER BY line DESC
-        LIMIT 1
-    """, (sink["file"], sink["line"]))
-    
+    query = build_query('symbols', ['name', 'line'],
+        where="path = ? AND type = 'function' AND line <= ?",
+        order_by="line DESC"
+    )
+    query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+    cursor.execute(query, (sink["file"], sink["line"]))
+
     sink_func = cursor.fetchone()
     if not sink_func or sink_func[0] != source_function["name"]:
         # Source and sink in different functions
@@ -692,15 +703,12 @@ def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
         pass
     else:
         # Try to find assigned variable
-        cursor.execute("""
-            SELECT target_var
-            FROM assignments
-            WHERE file = ?
-            AND line = ?
-            AND source_expr LIKE ?
-            LIMIT 1
-        """, (source["file"], source["line"], f"%{source['pattern']}%"))
-        
+        query = build_query('assignments', ['target_var'],
+            where="file = ? AND line = ? AND source_expr LIKE ?"
+        )
+        query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+        cursor.execute(query, (source["file"], source["line"], f"%{source['pattern']}%"))
+
         result = cursor.fetchone()
         if result:
             tainted_var = result[0]
@@ -763,39 +771,38 @@ def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
     return taint_paths
 
 
-def should_use_cfg(cursor: sqlite3.Cursor, source: Dict[str, Any], 
+def should_use_cfg(cursor: sqlite3.Cursor, source: Dict[str, Any],
                   sink: Dict[str, Any]) -> bool:
     """
     Determine if CFG analysis should be used for this source-sink pair.
-    
+
     Args:
         cursor: Database cursor
         source: Taint source
         sink: Security sink
-        
+
     Returns:
         True if CFG analysis is beneficial
+
+    Schema Contract:
+        Queries cfg_blocks table (guaranteed to exist)
     """
     # Check if CFG data exists
     if not check_cfg_available(cursor):
         return False
-    
+
     # Check if source and sink are in same file
     if source["file"] != sink["file"]:
         return False
-    
+
     # Check if there are conditional statements between source and sink
     # This is a heuristic - CFG is most useful when there are branches
-    cursor.execute("""
-        SELECT COUNT(*)
-        FROM cfg_blocks
-        WHERE file = ?
-        AND block_type IN ('condition', 'loop_condition')
-        AND start_line > ?
-        AND end_line < ?
-    """, (source["file"], source["line"], sink["line"]))
-    
+    query = build_query('cfg_blocks', ['COUNT(*)'],
+        where="file = ? AND block_type IN ('condition', 'loop_condition') AND start_line > ? AND end_line < ?"
+    )
+    cursor.execute(query, (source["file"], source["line"], sink["line"]))
+
     condition_count = cursor.fetchone()[0]
-    
+
     # Use CFG if there are conditional blocks
     return condition_count > 0

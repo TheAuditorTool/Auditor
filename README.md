@@ -59,7 +59,7 @@ aud --version
 cd ~/my-project-to-audit
 
 # Setup sandbox environment for THIS project
-aud setup-claude --target .
+aud setup-ai --target .
 
 # Run analysis
 aud init   # First time only
@@ -387,7 +387,7 @@ We believe in complete transparency about these limitations. This interaction wi
   ```bash
   cd ~/my-project
   rm -rf .auditor_venv
-  aud setup-claude --target .
+  aud setup-ai --target .
   ```
 
 ### Installation timeout errors

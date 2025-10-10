@@ -9,36 +9,38 @@ import click
 import traceback
 from functools import wraps
 from pathlib import Path
+from typing import Callable, Any
+
+from .constants import PF_DIR, ERROR_LOG_FILE
 
 
-def handle_exceptions(func):
+def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator that provides robust error handling with detailed logging.
-    
+
     This decorator:
     1. Catches all exceptions from the wrapped command
     2. Logs full traceback to .pf/error.log for debugging
     3. Shows clean, user-friendly error messages in the console
     4. Points users to the error log for detailed information
-    
+
     Args:
         func: The Click command function to wrap
-        
+
     Returns:
         Wrapped function with enhanced error handling
     """
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         """Inner wrapper that implements the try-except logic."""
         try:
             # Execute the original command
             return func(*args, **kwargs)
         except Exception as e:
             # Step 1: Ensure log directory exists
-            log_dir = Path("./.pf")
-            log_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Step 2: Define error log path
-            error_log_path = log_dir / "error.log"
+            PF_DIR.mkdir(parents=True, exist_ok=True)
+
+            # Step 2: Use centralized error log path
+            error_log_path = ERROR_LOG_FILE
             
             # Step 3: Write detailed traceback to log file
             with open(error_log_path, "a", encoding="utf-8") as f:

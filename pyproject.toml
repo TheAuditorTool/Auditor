@@ -16,7 +16,7 @@ dependencies = [
     "click==8.3.0",
     "PyYAML==6.0.3",
     "jsonschema==4.25.1",
-    "ijson==3.4.0",
+    "ijson==3.4.0.post0",
     "json5==0.12.1",
 ]
 
@@ -25,15 +25,15 @@ dev = [
     "pytest==8.4.2",
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
-    "ruff==0.13.3",
+    "ruff==0.14.0",
     "black==25.9.0",
 ]
 linters = [
-    "ruff==0.13.3",
+    "ruff==0.14.0",
     "mypy==1.18.2",
     "black==25.9.0",
     "bandit==1.8.6",
-    "pylint==3.3.8",
+    "pylint==3.3.9",
 ]
 ml = [
     "scikit-learn==1.7.2",
@@ -43,7 +43,7 @@ ml = [
 ]
 ast = [
     "tree-sitter==0.25.2",  # Downgrade to match tree-sitter-language-pack requirement
-    "tree-sitter-language-pack==0.9.1",
+    "tree-sitter-language-pack==0.10.0",
     "sqlparse==0.5.3",
     "dockerfile-parse==2.0.1",
 ]
@@ -53,19 +53,19 @@ all = [
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
     # Linters
-    "ruff==0.13.3",
+    "ruff==0.14.0",
     "mypy==1.18.2",
     "black==25.9.0",
     "bandit==1.8.6",
-    "pylint==3.3.8",
+    "pylint==3.3.9",
     # ML features
     "scikit-learn==1.7.2",
     "numpy==2.3.3",
     "scipy==1.16.2",
     "joblib==1.5.2",
     # AST parsing
-    "tree-sitter==0.23.2",  # Downgrade to match tree-sitter-language-pack requirement
-    "tree-sitter-language-pack==0.9.1",
+    "tree-sitter==0.25.2",  # Downgrade to match tree-sitter-language-pack requirement
+    "tree-sitter-language-pack==0.10.0",
     # SQL parsing
     "sqlparse==0.5.3",
     # Docker parsing

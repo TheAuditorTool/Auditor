@@ -50,7 +50,7 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
       - Cross-references findings for validation (confidence scoring)
       - Reports CVEs with severity levels
       - Exit code 2 for critical vulnerabilities
-      - Requires: Run 'aud setup-claude --target .' first
+      - Requires: Run 'aud setup-ai --target .' first
       - Offline mode: Uses local OSV databases (faster, no rate limits)
 
     YOLO Mode (--upgrade-all):

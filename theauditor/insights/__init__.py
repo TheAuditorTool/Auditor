@@ -1,6 +1,6 @@
 """TheAuditor insights package - optional interpretive intelligence.
 
-This package contains all optional scoring, classification, and 
+This package contains all optional scoring, classification, and
 recommendation modules that add interpretation on top of facts.
 
 The insights package follows the Truth Courier principle - all modules
@@ -11,6 +11,7 @@ Modules:
   - ml: Machine learning predictions and risk scoring
   - graph: Architecture health metrics and recommendations
   - taint: Security vulnerability severity classification
+  - semantic_context: User-defined business logic and semantic understanding
 """
 
 # ML Insights - predictions and risk scoring
@@ -52,6 +53,14 @@ from theauditor.insights.taint import (
     is_vulnerable_sink,
 )
 
+# Semantic Context - user-defined business logic application
+from theauditor.insights.semantic_context import (
+    SemanticContext,
+    ContextPattern,
+    ClassificationResult,
+    load_semantic_context,
+)
+
 __all__ = [
     # ML exports
     'check_ml_available',
@@ -83,4 +92,9 @@ __all__ = [
     'format_taint_report',
     'get_taint_summary',
     'is_vulnerable_sink',
+    # Semantic Context exports
+    'SemanticContext',
+    'ContextPattern',
+    'ClassificationResult',
+    'load_semantic_context',
 ]

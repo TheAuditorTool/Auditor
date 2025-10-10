@@ -2,6 +2,10 @@
 
 This module implements the worklist algorithm for tracking taint through
 variable assignments and function calls within a single function scope.
+
+Schema Contract:
+    All queries use build_query() for schema compliance.
+    Table existence is guaranteed by schema contract - no checks needed.
 """
 
 import os
@@ -11,6 +15,7 @@ import json
 from typing import Dict, List, Set, Any, Optional
 from collections import deque
 
+from theauditor.indexer.schema import build_query
 from .sources import SANITIZERS, TAINT_SOURCES
 from .database import get_containing_function, get_function_boundaries, get_code_snippet
 from .interprocedural import trace_inter_procedural_flow
@@ -34,20 +39,20 @@ def is_sanitizer(function_name: str) -> bool:
 
 
 def has_sanitizer_between(cursor: sqlite3.Cursor, source: Dict[str, Any], sink: Dict[str, Any]) -> bool:
-    """Check if there's a sanitizer call between source and sink in the same function."""
+    """Check if there's a sanitizer call between source and sink in the same function.
+
+    Schema Contract:
+        Queries symbols table (guaranteed to exist)
+    """
     if source["file"] != sink["file"]:
         return False
-    
+
     # Find all calls between source and sink lines
-    cursor.execute("""
-        SELECT name, line
-        FROM symbols
-        WHERE path = ?
-        AND type = 'call'
-        AND line > ?
-        AND line < ?
-        ORDER BY line
-    """, (source["file"], source["line"], sink["line"]))
+    query = build_query('symbols', ['name', 'line'],
+        where="path = ? AND type = 'call' AND line > ? AND line < ?",
+        order_by="line"
+    )
+    cursor.execute(query, (source["file"], source["line"], sink["line"]))
     
     intermediate_calls = cursor.fetchall()
     
@@ -172,32 +177,21 @@ def trace_from_source(
                         ]
                     )
                     paths.append(path)
-    
-    # Check if the new data flow tables exist for assignment-based tracing
-    cursor.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='assignments'
-    """)
-    has_data_flow_tables = cursor.fetchone() is not None
-    
-    if not has_data_flow_tables:
-        # Fall back to old proximity-based approach if tables don't exist
-        # This maintains backward compatibility
-        if paths:  # Return direct-use paths if found
-            return paths
-        return trace_from_source_legacy(cursor, source, source_function, sinks, call_graph, max_depth)
-    
+
+    # Schema contract guarantees assignments table exists
+    # Proceed directly to assignment-based tracing
+
     # Initialize the set of tainted elements for assignment-based tracing
     # Format: "function:variable" or "function:__return__" for return values
     tainted_elements = set()
     
     # CRITICAL AMENDMENT: Check assignments table for taint source instantiation
     # Find initial tainted variables from assignments that match ANY taint source
-    cursor.execute("""
-        SELECT target_var, in_function, source_expr 
-        FROM assignments 
-        WHERE file = ? AND line BETWEEN ? AND ?
-    """, (source["file"], source["line"] - 1, source["line"] + 1))
+    # Schema Contract: assignments table guaranteed to exist
+    query = build_query('assignments', ['target_var', 'in_function', 'source_expr'],
+        where="file = ? AND line BETWEEN ? AND ?"
+    )
+    cursor.execute(query, (source["file"], source["line"] - 1, source["line"] + 1))
     
     initial_assignments = cursor.fetchall()
     
@@ -226,10 +220,10 @@ def trace_from_source(
     
     # Step 1: Also check for direct assignment matching the specific source pattern
     # Check if the source directly taints a variable through assignment
-    cursor.execute("""
-        SELECT target_var, in_function FROM assignments 
-        WHERE file = ? AND line = ? AND source_expr LIKE ?
-    """, (source["file"], source["line"], f"%{source['pattern']}%"))
+    query = build_query('assignments', ['target_var', 'in_function'],
+        where="file = ? AND line = ? AND source_expr LIKE ?"
+    )
+    cursor.execute(query, (source["file"], source["line"], f"%{source['pattern']}%"))
     
     initial_taints = cursor.fetchall()
     
@@ -240,10 +234,10 @@ def trace_from_source(
             print(f"[TAINT]   - {taint[0]} in {taint[1]}", file=sys.stderr)
     if not initial_taints:
         # Try to find assignments near the source (within 3 lines)
-        cursor.execute("""
-            SELECT target_var, in_function, line, source_expr FROM assignments 
-            WHERE file = ? AND line BETWEEN ? AND ? AND source_expr LIKE ?
-        """, (source["file"], source["line"] - 1, source["line"] + 3, f"%{source['pattern']}%"))
+        query = build_query('assignments', ['target_var', 'in_function', 'line', 'source_expr'],
+            where="file = ? AND line BETWEEN ? AND ? AND source_expr LIKE ?"
+        )
+        cursor.execute(query, (source["file"], source["line"] - 1, source["line"] + 3, f"%{source['pattern']}%"))
         initial_taints = cursor.fetchall()
     
     # Add initially tainted variables to the worklist
@@ -257,10 +251,10 @@ def trace_from_source(
         # For sources like req.body, req.query, treat the entire expression as tainted
         if "." in source["pattern"]:
             # Find where this property is used
-            cursor.execute("""
-                SELECT target_var, in_function FROM assignments 
-                WHERE file = ? AND source_expr LIKE ?
-            """, (source["file"], f"%{source['pattern']}%"))
+            query = build_query('assignments', ['target_var', 'in_function'],
+                where="file = ? AND source_expr LIKE ?"
+            )
+            cursor.execute(query, (source["file"], f"%{source['pattern']}%"))
             for target_var, in_function in cursor.fetchall():
                 tainted_elements.add(f"{in_function}:{target_var}")
         
@@ -268,11 +262,11 @@ def trace_from_source(
         # This helps catch cases where source is used in expressions without assignment
         if not tainted_elements:
             # Look for any usage of the source pattern in expressions
-            cursor.execute("""
-                SELECT DISTINCT in_function FROM assignments 
-                WHERE file = ? AND (source_expr LIKE ? OR source_vars LIKE ?)
-                LIMIT 1
-            """, (source["file"], f"%{source['pattern']}%", f'%"{source["pattern"]}"%'))
+            query = build_query('assignments', ['DISTINCT in_function'],
+                where="file = ? AND (source_expr LIKE ? OR source_vars LIKE ?)"
+            )
+            query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+            cursor.execute(query, (source["file"], f"%{source['pattern']}%", f'%"{source["pattern"]}"%'))
             result = cursor.fetchone()
             if result:
                 # Mark the source pattern itself as tainted in this function
@@ -343,11 +337,10 @@ def trace_from_source(
                         ))
             else:
                 # FALLBACK: Original query implementation
-                cursor.execute("""
-                    SELECT target_var, in_function, line FROM assignments 
-                    WHERE file = ? AND in_function = ? AND 
-                    (source_expr LIKE ? OR source_vars LIKE ?)
-                """, (source["file"], func_name, f"%{var_name}%", f'%"{var_name}"%'))
+                query = build_query('assignments', ['target_var', 'in_function', 'line'],
+                    where="file = ? AND in_function = ? AND (source_expr LIKE ? OR source_vars LIKE ?)"
+                )
+                cursor.execute(query, (source["file"], func_name, f"%{var_name}%", f'%"{var_name}"%'))
                 results = cursor.fetchall()
             
             for target_var, in_function, line in results:
@@ -375,10 +368,10 @@ def trace_from_source(
                         ))
             else:
                 # FALLBACK: Original query implementation
-                cursor.execute("""
-                    SELECT callee_function, param_name, line FROM function_call_args 
-                    WHERE file = ? AND caller_function = ? AND argument_expr LIKE ?
-                """, (source["file"], func_name, f"%{var_name}%"))
+                query = build_query('function_call_args', ['callee_function', 'param_name', 'line'],
+                    where="file = ? AND caller_function = ? AND argument_expr LIKE ?"
+                )
+                cursor.execute(query, (source["file"], func_name, f"%{var_name}%"))
                 call_results = cursor.fetchall()
             
             for callee_function, param_name, line in call_results:
@@ -402,11 +395,10 @@ def trace_from_source(
                             break
                 else:
                     # FALLBACK: Original query
-                    cursor.execute("""
-                        SELECT return_expr FROM function_returns 
-                        WHERE file = ? AND function_name = ? AND 
-                        (return_expr LIKE ? OR return_vars LIKE ?)
-                    """, (source["file"], callee_function, f"%{param_name}%", f'%"{param_name}"%'))
+                    query = build_query('function_returns', ['return_expr'],
+                        where="file = ? AND function_name = ? AND (return_expr LIKE ? OR return_vars LIKE ?)"
+                    )
+                    cursor.execute(query, (source["file"], callee_function, f"%{param_name}%", f'%"{param_name}"%'))
                     found_return = cursor.fetchone() is not None
                 
                 if found_return:
@@ -438,11 +430,11 @@ def trace_from_source(
         # This catches cases where source is used directly without variable assignment
         if sink_function["name"] == source_function["name"]:
             # Check if source pattern appears directly in sink's arguments
-            cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args 
-                WHERE file = ? AND line = ? AND argument_expr LIKE ?
-            """, (sink["file"], sink["line"], f"%{source['pattern']}%"))
-            
+            query = build_query('function_call_args', ['COUNT(*)'],
+                where="file = ? AND line = ? AND argument_expr LIKE ?"
+            )
+            cursor.execute(query, (sink["file"], sink["line"], f"%{source['pattern']}%"))
+
             if cursor.fetchone()[0] > 0:
                 # Direct use of source in sink arguments
                 if not has_sanitizer_between(cursor, source, sink):
@@ -512,11 +504,11 @@ def trace_from_source(
                 print(f"[TAINT] Checking if tainted var {var_name} in {func_name} reaches sink at {sink['file']}:{sink['line']}")
             
             # Check in function call arguments at the sink line
-            cursor.execute("""
-                SELECT argument_expr FROM function_call_args 
-                WHERE file = ? AND line = ? AND argument_expr LIKE ?
-            """, (sink["file"], sink["line"], f"%{var_name}%"))
-            
+            query = build_query('function_call_args', ['argument_expr'],
+                where="file = ? AND line = ? AND argument_expr LIKE ?"
+            )
+            cursor.execute(query, (sink["file"], sink["line"], f"%{var_name}%"))
+
             if cursor.fetchone():
                 sink_context_found = True
                 if os.environ.get("THEAUDITOR_TAINT_DEBUG"):
@@ -525,14 +517,12 @@ def trace_from_source(
             # Also check if sink pattern matches and variable is in scope
             if not sink_context_found and var_name != "__return__":
                 # Check if there's an assignment or usage near the sink
-                cursor.execute("""
-                    SELECT COUNT(*) FROM assignments 
-                    WHERE file = ? AND in_function = ? AND 
-                    line BETWEEN ? AND ? AND 
-                    (target_var = ? OR source_expr LIKE ?)
-                """, (sink["file"], func_name, sink["line"] - 5, sink["line"] + 5,
+                query = build_query('assignments', ['COUNT(*)'],
+                    where="file = ? AND in_function = ? AND line BETWEEN ? AND ? AND (target_var = ? OR source_expr LIKE ?)"
+                )
+                cursor.execute(query, (sink["file"], func_name, sink["line"] - 5, sink["line"] + 5,
                      var_name, f"%{var_name}%"))
-                
+
                 if cursor.fetchone()[0] > 0:
                     sink_context_found = True
             
@@ -648,14 +638,12 @@ def trace_from_source_legacy(
                         paths.append(taint_path)
             
             # Find definition of called function
-            cursor.execute("""
-                SELECT path, line
-                FROM symbols
-                WHERE name = ?
-                AND type = 'function'
-                LIMIT 1
-            """, (called_name.split(".")[-1],))  # Handle method calls
-            
+            query = build_query('symbols', ['path', 'line'],
+                where="name = ? AND type = 'function'"
+            )
+            query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+            cursor.execute(query, (called_name.split(".")[-1],))  # Handle method calls
+
             func_def = cursor.fetchone()
             if func_def:
                 next_func = {

@@ -1,6 +1,10 @@
 """Core taint analysis engine.
 
 This module contains the main taint analysis function and TaintPath class.
+
+Schema Contract:
+    All queries use build_query() for schema compliance.
+    Table existence is guaranteed by schema contract - no checks needed.
 """
 
 import sys
@@ -12,6 +16,7 @@ from collections import defaultdict
 if TYPE_CHECKING:
     from .memory_cache import MemoryCache
 
+from theauditor.indexer.schema import build_query
 from .sources import TAINT_SOURCES, SECURITY_SINKS, SANITIZERS
 from .config import TaintConfig
 from .database import (
@@ -147,11 +152,12 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
             cursor = conn.cursor()
 
             # Get all frameworks for enhancement
-            cursor.execute("""
-                SELECT name, version, language, path
-                FROM frameworks
-                ORDER BY is_primary DESC
-            """)
+            # Schema Contract: frameworks table guaranteed to exist
+            query = build_query('frameworks',
+                ['name', 'version', 'language', 'path'],
+                order_by="is_primary DESC"
+            )
+            cursor.execute(query)
 
             for name, version, language, path in cursor.fetchall():
                 frameworks.append({
