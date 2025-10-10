@@ -55,10 +55,10 @@ pip install -e .
 
 # MANDATORY: Set up the sandboxed environment
 # This is required for TheAuditor to function at all
-aud setup-claude --target .
+aud setup-ai --target .
 ```
 
-The `aud setup-claude --target .` command creates an isolated environment at `.auditor_venv/.theauditor_tools/` with all necessary JavaScript and TypeScript analysis tools. This ensures consistent, reproducible results across all development environments.
+The `aud setup-ai --target .` command creates an isolated environment at `.auditor_venv/.theauditor_tools/` with all necessary JavaScript and TypeScript analysis tools. This ensures consistent, reproducible results across all development environments.
 
 ## Making Changes & Submitting a Pull Request
 

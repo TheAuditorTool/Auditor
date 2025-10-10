@@ -521,50 +521,10 @@ class XGraphBuilder:
             except (OSError, PermissionError):
                 pass
 
-
-        from theauditor.cache.graph_cache import GraphCache
-        # Initialize graph cache for incremental updates
-        cache_dir = root_path / ".pf" / ".cache"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        graph_cache = GraphCache(cache_dir)
-
-        added, removed, modified = graph_cache.get_changed_files(
-            {path: info['hash'] for path, info in current_files.items()}
-        )
-        invalidated = added | removed | modified
-
-        cached_edges = graph_cache.get_all_edges()
-        valid_cached_edges: list[GraphEdge] = []
-        for source, target, edge_type, metadata in cached_edges:
-            if source in invalidated:
-                continue
-            meta = metadata or {}
-            valid_cached_edges.append(
-                GraphEdge(
-                    source=source,
-                    target=target,
-                    type=edge_type,
-                    file=meta.get('file'),
-                    line=meta.get('line'),
-                    metadata=meta,
-                )
-            )
-
-        files_to_process = []
-        for file_path, lang in files:
-            rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
-            if rel_path in invalidated:
-                files_to_process.append((file_path, lang))
-
-        print(f"[Graph Cache] Using {len(valid_cached_edges)} cached edges, processing {len(files_to_process)} changed files")
-
-        if invalidated:
-            graph_cache.invalidate_edges(invalidated)
-
-        new_edges: list[tuple[str, str, str, dict[str, Any]]] = []
+        # Build import graph from database (no caching)
         with click.progressbar(
-            files_to_process,
-            label="Building import graph (incremental)",
+            files,
+            label="Building import graph",
             show_pos=True,
             show_percent=True,
             show_eta=True,
@@ -631,20 +591,6 @@ class XGraphBuilder:
                     )
                     edges.append(edge)
 
-                    cache_meta = dict(edge_metadata)
-                    cache_meta["file"] = edge.file
-                    cache_meta["line"] = edge.line
-                    new_edges.append((edge.source, edge.target, edge.type, cache_meta))
-
-        edges.extend(valid_cached_edges)
-
-        if new_edges:
-            graph_cache.add_edges(new_edges)
-        if current_files:
-            graph_cache.update_file_states(current_files)
-        if removed:
-            graph_cache.remove_file_states(removed)
-
         for file_path, lang in files:
             rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
             module_node = self._ensure_module_node(
@@ -666,7 +612,6 @@ class XGraphBuilder:
                 "languages": sorted({node.lang for node in nodes.values() if node.lang}),
                 "total_files": len(nodes),
                 "total_imports": len(edges),
-                "cached_edges": len(valid_cached_edges),
             },
         }
 

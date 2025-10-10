@@ -2,6 +2,10 @@
 
 This module bridges Control Flow Graphs across function boundaries to enable
 complete taint flow analysis including pass-by-reference modifications.
+
+Schema Contract:
+    All queries use build_query() for schema compliance.
+    Table existence is guaranteed by schema contract - no checks needed.
 """
 
 import os
@@ -10,9 +14,14 @@ import sqlite3
 import hashlib
 import json
 import re
-from typing import Dict, Set, Optional, List, Any, Tuple
+from typing import Dict, Set, Optional, List, Any, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
 from collections import defaultdict
+
+from theauditor.indexer.schema import build_query
+
+if TYPE_CHECKING:
+    from .memory_cache import MemoryCache
 
 @dataclass
 class InterProceduralEffect:
@@ -65,14 +74,20 @@ class InterProceduralEffect:
 
 class InterProceduralCFGAnalyzer:
     """Connects CFGs across function boundaries for complete taint analysis.
-    
+
     This is the Stage 3 enhancement that enables flow-sensitive analysis
     across function calls, including pass-by-reference modifications.
     """
-    
-    def __init__(self, cursor: sqlite3.Cursor, cache_manager: Optional['CacheManager'] = None):
+
+    def __init__(self, cursor: sqlite3.Cursor, cache: Optional['MemoryCache'] = None):
+        """Initialize inter-procedural CFG analyzer.
+
+        Args:
+            cursor: Database cursor for queries
+            cache: Optional MemoryCache instance for performance optimization
+        """
         self.cursor = cursor
-        self.cache = cache_manager
+        self.cache = cache
         self.analysis_cache = {}  # In-memory memoization
         self.recursion_depth = 0
         self.max_recursion = 10
@@ -221,21 +236,22 @@ class InterProceduralCFGAnalyzer:
         return merged
     
     def _resolve_dynamic_callees(self, call_expr: str, context: Dict[str, Any]) -> List[str]:
-        """Try to resolve dynamic function calls to possible targets."""
+        """Try to resolve dynamic function calls to possible targets.
+
+        Schema Contract:
+            Queries assignments table (guaranteed to exist)
+        """
         possible_callees = []
-        
+
         # Pattern 1: Dictionary/array access like actions[key]
         if "[" in call_expr and "]" in call_expr:
             base_obj = call_expr.split("[")[0].strip()
-            
+
             # Find all assignments to this object
-            self.cursor.execute("""
-                SELECT source_expr
-                FROM assignments
-                WHERE target_var = ?
-                AND file = ?
-                AND in_function = ?
-            """, (base_obj, context["file"], context.get("function", "")))
+            query = build_query('assignments', ['source_expr'],
+                where="target_var = ? AND file = ? AND in_function = ?"
+            )
+            self.cursor.execute(query, (base_obj, context["file"], context.get("function", "")))
             
             for source_expr, in self.cursor.fetchall():
                 # Parse object literal to find possible functions
@@ -381,18 +397,21 @@ class InterProceduralCFGAnalyzer:
         return passthrough
     
     def _param_reaches_return(self, analyzer: 'PathAnalyzer', param: str) -> bool:
-        """Check if a parameter flows to a return statement."""
+        """Check if a parameter flows to a return statement.
+
+        Schema Contract:
+            Queries function_returns table (guaranteed to exist)
+        """
         # Query return statements in the function
-        self.cursor.execute("""
-            SELECT return_expr
-            FROM function_returns
-            WHERE file = ? AND function_name = ?
-        """, (analyzer.file_path, analyzer.function_name))
-        
+        query = build_query('function_returns', ['return_expr'],
+            where="file = ? AND function_name = ?"
+        )
+        self.cursor.execute(query, (analyzer.file_path, analyzer.function_name))
+
         for return_expr, in self.cursor.fetchall():
             if param in return_expr:
                 return True
-        
+
         return False
     
     def _analyze_without_cfg(

@@ -73,7 +73,6 @@ def refactor(file: Optional[str], line: Optional[int], migration_dir: str,
         from theauditor.universal_detector import UniversalPatternDetector
         from theauditor.pattern_loader import PatternLoader
         from theauditor.fce import run_fce
-        from theauditor.correlations.loader import CorrelationLoader
     except ImportError as e:
         click.echo(f"Error importing components: {e}", err=True)
         raise click.Abort()

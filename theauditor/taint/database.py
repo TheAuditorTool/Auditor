@@ -1,6 +1,10 @@
 """Database operations for taint analysis.
 
 This module contains all database query functions used by the taint analyzer.
+
+Schema Contract:
+    All queries use build_query() for schema compliance.
+    Table existence is guaranteed by schema contract - no checks needed.
 """
 
 import sys
@@ -8,6 +12,7 @@ import sqlite3
 from typing import Dict, List, Any, Optional, Tuple
 from collections import defaultdict
 
+from theauditor.indexer.schema import build_query
 from .sources import TAINT_SOURCES, SECURITY_SINKS
 
 
@@ -56,22 +61,18 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
         if "." in source_pattern:
             base, attr = source_pattern.rsplit(".", 1)
             # Look for attribute access patterns - property accesses AND calls
-            cursor.execute("""
-                SELECT path, name, line, col
-                FROM symbols
-                WHERE (type = 'call' OR type = 'property' OR type = 'symbol')
-                AND name LIKE ?
-                ORDER BY path, line
-            """, (f"%{source_pattern}%",))
+            query = build_query('symbols', ['path', 'name', 'line', 'col'],
+                where="(type = 'call' OR type = 'property' OR type = 'symbol') AND name LIKE ?",
+                order_by="path, line"
+            )
+            cursor.execute(query, (f"%{source_pattern}%",))
         else:
             # Look for simple function calls and symbols
-            cursor.execute("""
-                SELECT path, name, line, col
-                FROM symbols
-                WHERE (type = 'call' OR type = 'symbol')
-                AND name = ?
-                ORDER BY path, line
-            """, (source_pattern,))
+            query = build_query('symbols', ['path', 'name', 'line', 'col'],
+                where="(type = 'call' OR type = 'symbol') AND name = ?",
+                order_by="path, line"
+            )
+            cursor.execute(query, (source_pattern,))
 
         for row in cursor.fetchall():
             sources.append({
@@ -90,9 +91,16 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
         print(f"[TAINT] Checked {len(all_sources)} patterns", file=sys.stderr)
 
         # Verify symbols table has call/property types
-        cursor.execute("SELECT COUNT(*) FROM symbols WHERE type='property'")
+        prop_query = build_query('symbols', ['COUNT(*)'],
+            where="type='property'"
+        )
+        cursor.execute(prop_query)
         prop_count = cursor.fetchone()[0]
-        cursor.execute("SELECT COUNT(*) FROM symbols WHERE type='call'")
+
+        call_query = build_query('symbols', ['COUNT(*)'],
+            where="type='call'"
+        )
+        cursor.execute(call_query)
         call_count = cursor.fetchone()[0]
 
         print(f"[TAINT] Symbols table: {call_count} calls, {prop_count} properties", file=sys.stderr)
@@ -127,21 +135,15 @@ def enhance_sources_with_api_context(
 
     Returns:
         Enhanced sources with API endpoint metadata
+
+    Schema Contract:
+        Queries api_endpoints table (guaranteed to exist)
     """
-    # Check if api_endpoints table exists
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table' AND name='api_endpoints'
-    """)
-
-    if not cursor.fetchone():
-        return sources
-
     # Build endpoint lookup map indexed by file
-    cursor.execute("""
-        SELECT file, line, method, path, has_auth, handler_function
-        FROM api_endpoints
-    """)
+    query = build_query('api_endpoints',
+        ['file', 'line', 'method', 'path', 'has_auth', 'handler_function']
+    )
+    cursor.execute(query)
 
     endpoints_by_file = defaultdict(list)
     for file, line, method, path, has_auth, handler in cursor.fetchall():
@@ -221,23 +223,17 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
     ldap_sinks = frozenset(sinks_to_use.get('ldap', []))
     nosql_sinks = frozenset(sinks_to_use.get('nosql', []))
 
-    # Helper to check if table exists
-    def table_exists(table_name: str) -> bool:
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-        return cursor.fetchone() is not None
-
     # STRATEGY 1: Query sql_queries table for SQL sinks (P2 ENHANCED)
     # Schema: file_path, line_number, query_text, command, tables, extraction_source
     # Analyzes query structure to detect SQL injection risk factors
-    if sql_sinks and table_exists('sql_queries'):
-        cursor.execute("""
-            SELECT file_path, line_number, query_text, command, tables, extraction_source
-            FROM sql_queries
-            WHERE query_text IS NOT NULL
-            AND query_text != ''
-            AND command != 'UNKNOWN'
-            ORDER BY file_path, line_number
-        """)
+    # Schema Contract: sql_queries table guaranteed to exist
+    if sql_sinks:
+        query = build_query('sql_queries',
+            ['file_path', 'line_number', 'query_text', 'command', 'tables', 'extraction_source'],
+            where="query_text IS NOT NULL AND query_text != '' AND command != 'UNKNOWN'",
+            order_by="file_path, line_number"
+        )
+        cursor.execute(query)
 
         for file_path, line_number, query_text, command, tables, extraction_source in cursor.fetchall():
             # Analyze query for SQL injection risk factors
@@ -258,11 +254,12 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 risk_level = "medium"
 
             # Extract function/method name from query context
-            cursor.execute("""
-                SELECT name FROM symbols
-                WHERE path = ? AND line = ? AND type = 'call'
-                ORDER BY col DESC LIMIT 1
-            """, (file_path, line_number))
+            func_query = build_query('symbols', ['name'],
+                where="path = ? AND line = ? AND type = 'call'",
+                order_by="col DESC"
+            )
+            func_query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+            cursor.execute(func_query, (file_path, line_number))
 
             func_result = cursor.fetchone()
             func_name = func_result[0] if func_result else 'execute'
@@ -297,13 +294,14 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
     # STRATEGY 2: Query orm_queries table for ORM sinks (P2 ENHANCED)
     # Schema: file, line, query_type, includes, has_limit, has_transaction
     # Classifies ORM operations by risk level based on operation type and safeguards
-    if sql_sinks and table_exists('orm_queries'):
-        cursor.execute("""
-            SELECT file, line, query_type, includes, has_limit, has_transaction
-            FROM orm_queries
-            WHERE query_type IS NOT NULL
-            ORDER BY file, line
-        """)
+    # Schema Contract: orm_queries table guaranteed to exist
+    if sql_sinks:
+        query = build_query('orm_queries',
+            ['file', 'line', 'query_type', 'includes', 'has_limit', 'has_transaction'],
+            where="query_type IS NOT NULL",
+            order_by="file, line"
+        )
+        cursor.execute(query)
 
         for file, line, query_type, includes, has_limit, has_transaction in cursor.fetchall():
             # Classify risk level based on ORM operation type
@@ -341,15 +339,15 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
             })
 
     # STRATEGY 3: Query function_call_args for command execution sinks
-    if command_sinks and table_exists('function_call_args'):
+    # Schema Contract: function_call_args table guaranteed to exist
+    if command_sinks:
         for pattern in command_sinks:
-            cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                OR callee_function = ?
-                ORDER BY file, line
-            """, (f"%{pattern}%", pattern))
+            query = build_query('function_call_args',
+                ['file', 'line', 'callee_function', 'argument_expr'],
+                where="callee_function LIKE ? OR callee_function = ?",
+                order_by="file, line"
+            )
+            cursor.execute(query, (f"%{pattern}%", pattern))
 
             for file, line, callee_func, arg_expr in cursor.fetchall():
                 sinks.append({
@@ -369,12 +367,12 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
     # STRATEGY 4: Query react_hooks for XSS vulnerabilities (P2 ENHANCED)
     # Schema: file, line, component_name, hook_name, dependency_array, dependency_vars, callback_body
     # Detects DOM manipulation in hooks with external dependencies
-    if xss_sinks and table_exists('react_hooks'):
+    # Schema Contract: react_hooks table guaranteed to exist
+    if xss_sinks:
         # Query hooks that depend on external data (potential XSS vectors)
-        cursor.execute("""
-            SELECT file, line, component_name, hook_name, dependency_vars, callback_body
-            FROM react_hooks
-            WHERE hook_name IN ('useEffect', 'useLayoutEffect', 'useMemo', 'useCallback')
+        query = build_query('react_hooks',
+            ['file', 'line', 'component_name', 'hook_name', 'dependency_vars', 'callback_body'],
+            where="""hook_name IN ('useEffect', 'useLayoutEffect', 'useMemo', 'useCallback')
             AND (
                 dependency_vars LIKE '%props%' OR
                 dependency_vars LIKE '%state%' OR
@@ -383,9 +381,10 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 callback_body LIKE '%innerHTML%' OR
                 callback_body LIKE '%dangerouslySetInnerHTML%' OR
                 callback_body LIKE '%document.write%'
-            )
-            ORDER BY file, line
-        """)
+            )""",
+            order_by="file, line"
+        )
+        cursor.execute(query)
 
         for file, line, component, hook, deps, body in cursor.fetchall():
             # Detect DOM manipulation in hook callbacks
@@ -423,18 +422,18 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 })
 
     # STRATEGY 5: Query function_call_args for XSS sinks (res.send, res.render, etc.)
-    if xss_sinks and table_exists('function_call_args'):
+    # Schema Contract: function_call_args table guaranteed to exist
+    if xss_sinks:
         for pattern in xss_sinks:
             if pattern == 'dangerouslySetInnerHTML':
                 continue  # Already handled in react_hooks
 
-            cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                OR callee_function = ?
-                ORDER BY file, line
-            """, (f"%{pattern}%", pattern))
+            query = build_query('function_call_args',
+                ['file', 'line', 'callee_function', 'argument_expr'],
+                where="callee_function LIKE ? OR callee_function = ?",
+                order_by="file, line"
+            )
+            cursor.execute(query, (f"%{pattern}%", pattern))
 
             for file, line, callee_func, arg_expr in cursor.fetchall():
                 sinks.append({
@@ -452,15 +451,15 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 })
 
     # STRATEGY 6: Query function_call_args for path traversal sinks
-    if path_sinks and table_exists('function_call_args'):
+    # Schema Contract: function_call_args table guaranteed to exist
+    if path_sinks:
         for pattern in path_sinks:
-            cursor.execute("""
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function LIKE ?
-                OR callee_function = ?
-                ORDER BY file, line
-            """, (f"%{pattern}%", pattern))
+            query = build_query('function_call_args',
+                ['file', 'line', 'callee_function', 'argument_expr'],
+                where="callee_function LIKE ? OR callee_function = ?",
+                order_by="file, line"
+            )
+            cursor.execute(query, (f"%{pattern}%", pattern))
 
             for file, line, callee_func, arg_expr in cursor.fetchall():
                 sinks.append({
@@ -497,7 +496,9 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
             base_method = '.'.join(parts[:-1])
             final_method = parts[-1]
 
-            cursor.execute("""
+            # NOTE: This query uses EXISTS subquery which build_query() doesn't support yet
+            # Using raw SQL with proper column selection from schema
+            query = """
                 SELECT DISTINCT a.path, a.line, a.col
                 FROM symbols a
                 WHERE a.type = 'call'
@@ -510,7 +511,8 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     AND (b.name LIKE ? OR b.name = ?)
                 )
                 ORDER BY a.path, a.line
-            """, (final_method, f"%.{final_method}", f"%{base_method}%", base_method))
+            """
+            cursor.execute(query, (final_method, f"%.{final_method}", f"%{base_method}%", base_method))
 
             for row in cursor.fetchall():
                 file = row[0].replace("\\", "/")
@@ -533,13 +535,11 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     }
                 })
         else:
-            cursor.execute("""
-                SELECT path, name, line, col
-                FROM symbols
-                WHERE type = 'call'
-                AND (name = ? OR name LIKE ?)
-                ORDER BY path, line
-            """, (sink_pattern, f"%.{sink_pattern}"))
+            query = build_query('symbols', ['path', 'name', 'line', 'col'],
+                where="type = 'call' AND (name = ? OR name LIKE ?)",
+                order_by="path, line"
+            )
+            cursor.execute(query, (sink_pattern, f"%.{sink_pattern}"))
 
             for row in cursor.fetchall():
                 file = row[0].replace("\\", "/")
@@ -569,21 +569,24 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
         print(f"[TAINT] Checked {len(all_sinks)} patterns across {len(sinks_to_use)} categories", file=sys.stderr)
 
         # Verify symbols table has call types
-        cursor.execute("SELECT COUNT(*) FROM symbols WHERE type='call'")
+        call_query = build_query('symbols', ['COUNT(*)'],
+            where="type='call'"
+        )
+        cursor.execute(call_query)
         call_count = cursor.fetchone()[0]
 
         print(f"[TAINT] Symbols table: {call_count} calls", file=sys.stderr)
 
-        # Check specialized tables
-        if table_exists('sql_queries'):
-            cursor.execute("SELECT COUNT(*) FROM sql_queries")
-            sql_count = cursor.fetchone()[0]
-            print(f"[TAINT] sql_queries table: {sql_count} rows", file=sys.stderr)
+        # Check specialized tables (guaranteed to exist by schema contract)
+        sql_query = build_query('sql_queries', ['COUNT(*)'])
+        cursor.execute(sql_query)
+        sql_count = cursor.fetchone()[0]
+        print(f"[TAINT] sql_queries table: {sql_count} rows", file=sys.stderr)
 
-        if table_exists('function_call_args'):
-            cursor.execute("SELECT COUNT(*) FROM function_call_args")
-            args_count = cursor.fetchone()[0]
-            print(f"[TAINT] function_call_args table: {args_count} rows", file=sys.stderr)
+        args_query = build_query('function_call_args', ['COUNT(*)'])
+        cursor.execute(args_query)
+        args_count = cursor.fetchone()[0]
+        print(f"[TAINT] function_call_args table: {args_count} rows", file=sys.stderr)
 
         if call_count == 0:
             print(f"[TAINT] ERROR: Indexer did not extract call symbols", file=sys.stderr)
@@ -612,23 +615,15 @@ def filter_framework_safe_sinks(
 
     Returns:
         Filtered list of sinks with framework-safe patterns removed
+
+    Schema Contract:
+        Queries framework_safe_sinks table (guaranteed to exist)
     """
-    # Check if framework_safe_sinks table exists
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table' AND name='framework_safe_sinks'
-    """)
-
-    if not cursor.fetchone():
-        # Table doesn't exist, return all sinks (no filtering)
-        return sinks
-
     # Query all safe sink patterns
-    cursor.execute("""
-        SELECT sink_pattern, reason
-        FROM framework_safe_sinks
-        WHERE is_safe = 1
-    """)
+    query = build_query('framework_safe_sinks', ['sink_pattern', 'reason'],
+        where="is_safe = 1"
+    )
+    cursor.execute(query)
 
     safe_patterns = {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -674,17 +669,20 @@ def filter_framework_safe_sinks(
 
 
 def build_call_graph(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
-    """Build a call graph mapping functions to their callees."""
+    """Build a call graph mapping functions to their callees.
+
+    Schema Contract:
+        Queries symbols table (guaranteed to exist)
+    """
     import os
     call_graph = defaultdict(list)
-    
+
     # Get all function definitions
-    cursor.execute("""
-        SELECT path, name, line
-        FROM symbols
-        WHERE type = 'function'
-        ORDER BY path, line
-    """)
+    query = build_query('symbols', ['path', 'name', 'line'],
+        where="type = 'function'",
+        order_by="path, line"
+    )
+    cursor.execute(query)
     
     functions = cursor.fetchall()
     
@@ -696,15 +694,11 @@ def build_call_graph(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
         end_line = func_end
         
         # Find any nested functions within this function's range to exclude them
-        cursor.execute("""
-            SELECT line, name
-            FROM symbols
-            WHERE path = ?
-            AND type = 'function'
-            AND line > ?
-            AND line < ?
-            ORDER BY line
-        """, (func_path, func_line, end_line))
+        query = build_query('symbols', ['line', 'name'],
+            where="path = ? AND type = 'function' AND line > ? AND line < ?",
+            order_by="line"
+        )
+        cursor.execute(query, (func_path, func_line, end_line))
         
         nested_functions = cursor.fetchall()
         
@@ -727,6 +721,8 @@ def build_call_graph(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
         
         # Find all calls within this function, excluding nested functions
         # Fixed: Use >= instead of > to include calls on the function definition line
+        # NOTE: Uses dynamic WHERE clause (exclude_conditions) which build_query() doesn't support
+        # Column names match schema: path, name, type, line
         query = f"""
             SELECT name
             FROM symbols
@@ -736,7 +732,7 @@ def build_call_graph(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
             AND line < ?
             {exclude_clause}
         """
-        
+
         cursor.execute(query, (func_path, func_line, end_line))
         
         calls = [row[0] for row in cursor.fetchall()]
@@ -754,16 +750,17 @@ def build_call_graph(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
 
 
 def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Find the function containing a given code location."""
-    cursor.execute("""
-        SELECT name, line
-        FROM symbols
-        WHERE path = ?
-        AND type = 'function'
-        AND line <= ?
-        ORDER BY line DESC
-        LIMIT 1
-    """, (location["file"], location["line"]))
+    """Find the function containing a given code location.
+
+    Schema Contract:
+        Queries symbols table (guaranteed to exist)
+    """
+    query = build_query('symbols', ['name', 'line'],
+        where="path = ? AND type = 'function' AND line <= ?",
+        order_by="line DESC"
+    )
+    query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+    cursor.execute(query, (location["file"], location["line"]))
     
     result = cursor.fetchone()
     if result:
@@ -778,26 +775,31 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
 def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,
                           function_line: int) -> Tuple[int, int]:
     """Get accurate start and end lines for a function.
-    
+
     Uses next function start as current function end.
     Falls back to max line in file for last function.
+
+    Schema Contract:
+        Queries symbols table (guaranteed to exist)
     """
     # Find next function in same file
-    cursor.execute("""
-        SELECT line FROM symbols
-        WHERE path = ? AND type = 'function' AND line > ?
-        ORDER BY line LIMIT 1
-    """, (file_path, function_line))
-    
+    query = build_query('symbols', ['line'],
+        where="path = ? AND type = 'function' AND line > ?",
+        order_by="line"
+    )
+    query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+    cursor.execute(query, (file_path, function_line))
+
     next_func = cursor.fetchone()
     if next_func:
         # Function ends before next function starts
         return function_line, next_func[0] - 1
-    
+
     # No next function, get max line in file
-    cursor.execute("""
-        SELECT MAX(line) FROM symbols WHERE path = ?
-    """, (file_path,))
+    max_query = build_query('symbols', ['MAX(line)'],
+        where="path = ?"
+    )
+    cursor.execute(max_query, (file_path,))
     
     max_line = cursor.fetchone()
     return function_line, max_line[0] if max_line and max_line[0] else function_line + 200
@@ -828,53 +830,43 @@ def get_code_snippet(file_path: str, line_num: int) -> str:
 # CFG Integration Functions - For Flow-Sensitive Taint Analysis
 # ============================================================================
 
-def get_block_for_line(cursor: sqlite3.Cursor, file_path: str, line: int, 
+def get_block_for_line(cursor: sqlite3.Cursor, file_path: str, line: int,
                        function_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Find the CFG block containing a specific line.
-    
+
     Args:
         cursor: Database cursor
         file_path: Path to the source file
         line: Line number to find
         function_name: Optional function name to narrow search
-        
+
     Returns:
         Block dictionary or None if not found
+
+    Schema Contract:
+        Queries cfg_blocks table (guaranteed to exist)
     """
     # Normalize path
     file_path = file_path.replace("\\", "/")
-    
-    # Check if CFG tables exist
-    cursor.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='cfg_blocks'
-    """)
-    if not cursor.fetchone():
-        return None  # CFG tables don't exist
-    
+
     # Query for block containing the line
     if function_name:
-        cursor.execute("""
-            SELECT id, function_name, block_type, start_line, end_line, condition_expr
-            FROM cfg_blocks
-            WHERE file = ? 
-            AND function_name = ?
-            AND start_line <= ? 
-            AND end_line >= ?
-            ORDER BY start_line DESC
-            LIMIT 1
-        """, (file_path, function_name, line, line))
+        query = build_query('cfg_blocks',
+            ['id', 'function_name', 'block_type', 'start_line', 'end_line', 'condition_expr'],
+            where="file = ? AND function_name = ? AND start_line <= ? AND end_line >= ?",
+            order_by="start_line DESC"
+        )
+        query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+        cursor.execute(query, (file_path, function_name, line, line))
     else:
-        cursor.execute("""
-            SELECT id, function_name, block_type, start_line, end_line, condition_expr
-            FROM cfg_blocks
-            WHERE file = ? 
-            AND start_line <= ? 
-            AND end_line >= ?
-            ORDER BY start_line DESC
-            LIMIT 1
-        """, (file_path, line, line))
+        query = build_query('cfg_blocks',
+            ['id', 'function_name', 'block_type', 'start_line', 'end_line', 'condition_expr'],
+            where="file = ? AND start_line <= ? AND end_line >= ?",
+            order_by="start_line DESC"
+        )
+        query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
+        cursor.execute(query, (file_path, line, line))
     
     result = cursor.fetchone()
     if result:
@@ -894,39 +886,34 @@ def get_paths_between_blocks(cursor: sqlite3.Cursor, file_path: str,
                             max_paths: int = 100) -> List[List[int]]:
     """
     Find all execution paths between two CFG blocks.
-    
+
     Uses BFS to enumerate paths from source block to sink block,
     avoiding cycles and limiting to max_paths.
-    
+
     Args:
         cursor: Database cursor
         file_path: Path to the source file
         source_block_id: Starting block ID
         sink_block_id: Target block ID
         max_paths: Maximum number of paths to return
-        
+
     Returns:
         List of paths, each path is a list of block IDs
+
+    Schema Contract:
+        Queries cfg_edges table (guaranteed to exist)
     """
     from collections import deque
-    
+
     # Normalize path
     file_path = file_path.replace("\\", "/")
-    
-    # Check if CFG tables exist
-    cursor.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='cfg_edges'
-    """)
-    if not cursor.fetchone():
-        return []  # CFG tables don't exist
-    
+
     # Build adjacency list from edges
-    cursor.execute("""
-        SELECT source_block_id, target_block_id, edge_type
-        FROM cfg_edges
-        WHERE file = ?
-    """, (file_path,))
+    query = build_query('cfg_edges',
+        ['source_block_id', 'target_block_id', 'edge_type'],
+        where="file = ?"
+    )
+    cursor.execute(query, (file_path,))
     
     adjacency = defaultdict(list)
     for source, target, edge_type in cursor.fetchall():
@@ -957,28 +944,23 @@ def get_paths_between_blocks(cursor: sqlite3.Cursor, file_path: str,
 def get_block_statements(cursor: sqlite3.Cursor, block_id: int) -> List[Dict[str, Any]]:
     """
     Get all statements within a CFG block.
-    
+
     Args:
         cursor: Database cursor
         block_id: CFG block ID
-        
+
     Returns:
         List of statement dictionaries
+
+    Schema Contract:
+        Queries cfg_block_statements table (guaranteed to exist)
     """
-    # Check if CFG tables exist
-    cursor.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='cfg_block_statements'
-    """)
-    if not cursor.fetchone():
-        return []  # CFG tables don't exist
-    
-    cursor.execute("""
-        SELECT statement_type, line, statement_text
-        FROM cfg_block_statements
-        WHERE block_id = ?
-        ORDER BY line
-    """, (block_id,))
+    query = build_query('cfg_block_statements',
+        ['statement_type', 'line', 'statement_text'],
+        where="block_id = ?",
+        order_by="line"
+    )
+    cursor.execute(query, (block_id,))
     
     statements = []
     for stmt_type, line, text in cursor.fetchall():
@@ -991,37 +973,32 @@ def get_block_statements(cursor: sqlite3.Cursor, block_id: int) -> List[Dict[str
     return statements
 
 
-def get_cfg_for_function(cursor: sqlite3.Cursor, file_path: str, 
+def get_cfg_for_function(cursor: sqlite3.Cursor, file_path: str,
                         function_name: str) -> Dict[str, Any]:
     """
     Get complete CFG for a function.
-    
+
     Args:
         cursor: Database cursor
         file_path: Path to the source file
         function_name: Name of the function
-        
+
     Returns:
         Dictionary with blocks and edges
+
+    Schema Contract:
+        Queries cfg_blocks and cfg_edges tables (guaranteed to exist)
     """
     # Normalize path
     file_path = file_path.replace("\\", "/")
-    
-    # Check if CFG tables exist
-    cursor.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name='cfg_blocks'
-    """)
-    if not cursor.fetchone():
-        return {"blocks": [], "edges": []}  # CFG tables don't exist
-    
+
     # Get all blocks for this function
-    cursor.execute("""
-        SELECT id, block_type, start_line, end_line, condition_expr
-        FROM cfg_blocks
-        WHERE file = ? AND function_name = ?
-        ORDER BY start_line
-    """, (file_path, function_name))
+    query = build_query('cfg_blocks',
+        ['id', 'block_type', 'start_line', 'end_line', 'condition_expr'],
+        where="file = ? AND function_name = ?",
+        order_by="start_line"
+    )
+    cursor.execute(query, (file_path, function_name))
     
     blocks = []
     block_ids = set()
@@ -1035,13 +1012,13 @@ def get_cfg_for_function(cursor: sqlite3.Cursor, file_path: str,
             "statements": get_block_statements(cursor, block_id)
         })
         block_ids.add(block_id)
-    
+
     # Get all edges for this function
-    cursor.execute("""
-        SELECT source_block_id, target_block_id, edge_type
-        FROM cfg_edges
-        WHERE file = ? AND function_name = ?
-    """, (file_path, function_name))
+    edges_query = build_query('cfg_edges',
+        ['source_block_id', 'target_block_id', 'edge_type'],
+        where="file = ? AND function_name = ?"
+    )
+    cursor.execute(edges_query, (file_path, function_name))
     
     edges = []
     for source, target, edge_type in cursor.fetchall():
@@ -1064,24 +1041,20 @@ def get_cfg_for_function(cursor: sqlite3.Cursor, file_path: str,
 def check_cfg_available(cursor: sqlite3.Cursor) -> bool:
     """
     Check if CFG tables exist and contain data.
-    
+
     Args:
         cursor: Database cursor
-        
+
     Returns:
         True if CFG data is available
+
+    Schema Contract:
+        Queries cfg_blocks table (guaranteed to exist)
+        Table existence is guaranteed by schema contract
     """
-    cursor.execute("""
-        SELECT name FROM sqlite_master 
-        WHERE type='table' AND name IN ('cfg_blocks', 'cfg_edges', 'cfg_block_statements')
-    """)
-    
-    tables = cursor.fetchall()
-    if len(tables) != 3:
-        return False  # Not all CFG tables exist
-    
-    # Check if tables have data
-    cursor.execute("SELECT COUNT(*) FROM cfg_blocks")
+    # Check if tables have data (no need to check existence)
+    count_query = build_query('cfg_blocks', ['COUNT(*)'])
+    cursor.execute(count_query)
     count = cursor.fetchone()[0]
-    
+
     return count > 0

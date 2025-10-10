@@ -18,6 +18,7 @@ from typing import Dict, List, Set, Any, Optional, Tuple
 import sqlite3
 
 from theauditor.indexer.schema import build_query, TABLES
+from theauditor.utils.memory import get_recommended_memory_limit, get_available_memory
 
 class MemoryCache:
     """
@@ -46,6 +47,7 @@ class MemoryCache:
         self.function_call_args = []
         self.cfg_blocks = []
         self.cfg_edges = []
+        self.cfg_block_statements = []
         self.function_returns = []
 
         # NEW: Specialized table storage for multi-table taint analysis (Phase 3.3)
@@ -53,6 +55,10 @@ class MemoryCache:
         self.orm_queries = []
         self.react_hooks = []
         self.variable_usage = []
+
+        # Phase 3.4: Additional security tables
+        self.api_endpoints = []
+        self.jwt_patterns = []
 
         # Multi-index architecture for different query patterns
         # Index 1: By line for proximity queries
@@ -80,6 +86,16 @@ class MemoryCache:
         # Function returns index
         self.returns_by_function = defaultdict(list)  # (file, func) -> [returns]
 
+        # CFG table indexes (for flow-sensitive taint analysis)
+        self.cfg_blocks_by_file = defaultdict(list)  # file -> [blocks]
+        self.cfg_blocks_by_function = defaultdict(list)  # (file, func) -> [blocks]
+        self.cfg_blocks_by_id = {}  # block_id -> block
+        self.cfg_edges_by_file = defaultdict(list)  # file -> [edges]
+        self.cfg_edges_by_function = defaultdict(list)  # (file, func) -> [edges]
+        self.cfg_edges_by_source = defaultdict(list)  # source_block_id -> [edges]
+        self.cfg_edges_by_target = defaultdict(list)  # target_block_id -> [edges]
+        self.cfg_statements_by_block = defaultdict(list)  # block_id -> [statements]
+
         # NEW: Specialized table indexes for multi-table taint analysis (Phase 3.3)
         self.sql_queries_by_type = defaultdict(list)  # query_type -> [queries]
         self.sql_queries_by_file = defaultdict(list)  # file -> [queries]
@@ -89,6 +105,12 @@ class MemoryCache:
         self.react_hooks_by_file = defaultdict(list)  # file -> [hooks]
         self.variable_usage_by_name = defaultdict(list)  # var_name -> [usages]
         self.variable_usage_by_file = defaultdict(list)  # file -> [usages]
+
+        # Phase 3.4 indexes
+        self.api_endpoints_by_file = defaultdict(list)  # file -> [endpoints]
+        self.api_endpoints_by_method = defaultdict(list)  # method -> [endpoints]
+        self.jwt_patterns_by_file = defaultdict(list)  # file -> [patterns]
+        self.jwt_patterns_by_type = defaultdict(list)  # pattern_type -> [patterns]
 
         # Pre-computed patterns (will be populated during precompute)
         self.precomputed_sources = {}  # pattern -> [matching symbols]
@@ -120,264 +142,371 @@ class MemoryCache:
         try:
             print(f"[MEMORY] Starting database preload...", file=sys.stderr)
 
-            # Check database size before loading
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = [row[0] for row in cursor.fetchall()]
-            
-            # Estimate memory usage
-            estimated_memory = 0
-            for table in ['symbols', 'assignments', 'function_call_args', 'cfg_blocks', 'cfg_edges']:
-                if table in tables:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                    count = cursor.fetchone()[0]
-                    # Rough estimate: 200 bytes per row + indexes
-                    estimated_memory += count * 300
-            
-            if estimated_memory > self.max_memory:
-                print(f"[MEMORY] Estimated memory {estimated_memory/1024/1024:.1f}MB exceeds limit {self.max_memory/1024/1024:.1f}MB", file=sys.stderr)
-                self.load_error = "Memory limit exceeded"
-                return False
+            # Schema contract guarantees all tables exist
+            # Check current memory usage against limit throughout loading
 
             # Step 1: Load symbols with multi-indexing
-            if 'symbols' in tables:
-                # SCHEMA CONTRACT: Use build_query for correct columns
-                query = build_query('symbols', ['path', 'name', 'type', 'line', 'col'])
-                cursor.execute(query)
-                symbols_data = cursor.fetchall()
+            # SCHEMA CONTRACT: Use build_query for correct columns
+            query = build_query('symbols', ['path', 'name', 'type', 'line', 'col'])
+            cursor.execute(query)
+            symbols_data = cursor.fetchall()
 
-                for path, name, sym_type, line, col in symbols_data:
-                    # Normalize path separators
-                    path = path.replace("\\", "/") if path else ""
-                    
-                    symbol = {
-                        "file": path,
-                        "name": name or "",
-                        "type": sym_type or "",
-                        "line": line or 0,
-                        "col": col or 0
-                    }
+            for path, name, sym_type, line, col in symbols_data:
+                # Normalize path separators
+                path = path.replace("\\", "/") if path else ""
 
-                    # Store in primary list
-                    self.symbols.append(symbol)
+                symbol = {
+                    "file": path,
+                    "name": name or "",
+                    "type": sym_type or "",
+                    "line": line or 0,
+                    "col": col or 0
+                }
 
-                    # Build multiple indexes for O(1) access
-                    self.symbols_by_line[(path, line)].append(symbol)
-                    self.symbols_by_name[name].append(symbol)
-                    self.symbols_by_file[path].append(symbol)
-                    self.symbols_by_type[sym_type].append(symbol)
+                # Store in primary list
+                self.symbols.append(symbol)
 
-                    self.current_memory += sys.getsizeof(symbol) + 200  # Include index overhead
+                # Build multiple indexes for O(1) access
+                self.symbols_by_line[(path, line)].append(symbol)
+                self.symbols_by_name[name].append(symbol)
+                self.symbols_by_file[path].append(symbol)
+                self.symbols_by_type[sym_type].append(symbol)
 
-                print(f"[MEMORY] Loaded {len(self.symbols)} symbols", file=sys.stderr)
+                self.current_memory += sys.getsizeof(symbol) + 200  # Include index overhead
+
+            print(f"[MEMORY] Loaded {len(self.symbols)} symbols", file=sys.stderr)
 
             # Step 2: Load assignments with function indexing
-            if 'assignments' in tables:
-                # SCHEMA CONTRACT: Use build_query for correct columns
-                query = build_query('assignments', [
-                    'file', 'line', 'target_var', 'source_expr', 'source_vars', 'in_function'
-                ])
-                cursor.execute(query)
-                assignments_data = cursor.fetchall()
+            # SCHEMA CONTRACT: Use build_query for correct columns
+            query = build_query('assignments', [
+                'file', 'line', 'target_var', 'source_expr', 'source_vars', 'in_function'
+            ])
+            cursor.execute(query)
+            assignments_data = cursor.fetchall()
 
-                for file, line, target, source_expr, source_vars, func in assignments_data:
-                    # Normalize path
-                    file = file.replace("\\", "/") if file else ""
-                    
-                    assignment = {
-                        "file": file,
-                        "line": line or 0,
-                        "target_var": target or "",
-                        "source_expr": source_expr or "",
-                        "source_vars": source_vars or "",
-                        "in_function": func or "global"
-                    }
+            for file, line, target, source_expr, source_vars, func in assignments_data:
+                # Normalize path
+                file = file.replace("\\", "/") if file else ""
 
-                    self.assignments.append(assignment)
-                    self.assignments_by_func[(file, func)].append(assignment)
-                    self.assignments_by_target[target].append(assignment)
-                    self.assignments_by_file[file].append(assignment)
+                assignment = {
+                    "file": file,
+                    "line": line or 0,
+                    "target_var": target or "",
+                    "source_expr": source_expr or "",
+                    "source_vars": source_vars or "",
+                    "in_function": func or "global"
+                }
 
-                    self.current_memory += sys.getsizeof(assignment) + 100
+                self.assignments.append(assignment)
+                self.assignments_by_func[(file, func)].append(assignment)
+                self.assignments_by_target[target].append(assignment)
+                self.assignments_by_file[file].append(assignment)
 
-                print(f"[MEMORY] Loaded {len(self.assignments)} assignments", file=sys.stderr)
+                self.current_memory += sys.getsizeof(assignment) + 100
+
+            print(f"[MEMORY] Loaded {len(self.assignments)} assignments", file=sys.stderr)
 
             # Step 3: Load function call arguments
-            if 'function_call_args' in tables:
-                # SCHEMA CONTRACT: Use build_query for correct columns
-                query = build_query('function_call_args', [
-                    'file', 'line', 'caller_function', 'callee_function',
-                    'param_name', 'argument_expr'
-                ])
-                cursor.execute(query)
-                call_args_data = cursor.fetchall()
+            # SCHEMA CONTRACT: Use build_query for correct columns
+            query = build_query('function_call_args', [
+                'file', 'line', 'caller_function', 'callee_function',
+                'param_name', 'argument_expr'
+            ])
+            cursor.execute(query)
+            call_args_data = cursor.fetchall()
 
-                for file, line, caller, callee, param, arg_expr in call_args_data:
-                    # Normalize path
-                    file = file.replace("\\", "/") if file else ""
-                    
-                    call_arg = {
-                        "file": file,
-                        "line": line or 0,
-                        "caller_function": caller or "global",
-                        "callee_function": callee or "",
-                        "param_name": param or "",
-                        "argument_expr": arg_expr or ""
-                    }
+            for file, line, caller, callee, param, arg_expr in call_args_data:
+                # Normalize path
+                file = file.replace("\\", "/") if file else ""
 
-                    self.function_call_args.append(call_arg)
-                    self.calls_by_caller[(file, caller)].append(call_arg)
-                    self.calls_by_callee[callee].append(call_arg)
-                    self.calls_by_file[file].append(call_arg)
+                call_arg = {
+                    "file": file,
+                    "line": line or 0,
+                    "caller_function": caller or "global",
+                    "callee_function": callee or "",
+                    "param_name": param or "",
+                    "argument_expr": arg_expr or ""
+                }
 
-                    self.current_memory += sys.getsizeof(call_arg) + 100
+                self.function_call_args.append(call_arg)
+                self.calls_by_caller[(file, caller)].append(call_arg)
+                self.calls_by_callee[callee].append(call_arg)
+                self.calls_by_file[file].append(call_arg)
 
-                print(f"[MEMORY] Loaded {len(self.function_call_args)} function call args", file=sys.stderr)
+                self.current_memory += sys.getsizeof(call_arg) + 100
 
-            # Step 4: Load function returns if table exists
-            if 'function_returns' in tables:
-                # SCHEMA CONTRACT: Use build_query for correct columns
-                query = build_query('function_returns', [
-                    'file', 'line', 'function_name', 'return_expr', 'return_vars'
-                ])
-                cursor.execute(query)
-                returns_data = cursor.fetchall()
+            print(f"[MEMORY] Loaded {len(self.function_call_args)} function call args", file=sys.stderr)
 
-                for file, line, func_name, return_expr, return_vars in returns_data:
-                    # Normalize path
-                    file = file.replace("\\", "/") if file else ""
+            # Step 4: Load function returns
+            # SCHEMA CONTRACT: Use build_query for correct columns
+            query = build_query('function_returns', [
+                'file', 'line', 'function_name', 'return_expr', 'return_vars'
+            ])
+            cursor.execute(query)
+            returns_data = cursor.fetchall()
 
-                    ret = {
-                        "file": file,
-                        "function_name": func_name or "",
-                        "return_expr": return_expr or "",
-                        "return_vars": return_vars or "",
-                        "line": line or 0
-                    }
+            for file, line, func_name, return_expr, return_vars in returns_data:
+                # Normalize path
+                file = file.replace("\\", "/") if file else ""
 
-                    self.function_returns.append(ret)
-                    self.returns_by_function[(file, func_name)].append(ret)
+                ret = {
+                    "file": file,
+                    "function_name": func_name or "",
+                    "return_expr": return_expr or "",
+                    "return_vars": return_vars or "",
+                    "line": line or 0
+                }
 
-                    self.current_memory += sys.getsizeof(ret) + 50
+                self.function_returns.append(ret)
+                self.returns_by_function[(file, func_name)].append(ret)
 
-                print(f"[MEMORY] Loaded {len(self.function_returns)} function returns", file=sys.stderr)
+                self.current_memory += sys.getsizeof(ret) + 50
+
+            print(f"[MEMORY] Loaded {len(self.function_returns)} function returns", file=sys.stderr)
 
             # Step 5: Load specialized tables for multi-table taint analysis (Phase 3.3)
-            if 'sql_queries' in tables:
-                # SCHEMA CONTRACT: Use build_query for correct columns
-                query = build_query('sql_queries', [
-                    'file_path', 'line_number', 'query_text', 'command'
-                ], where="query_text IS NOT NULL AND query_text != '' AND command != 'UNKNOWN'")
-                cursor.execute(query)
-                sql_queries_data = cursor.fetchall()
+            # SCHEMA CONTRACT: Use build_query for correct columns
+            query = build_query('sql_queries', [
+                'file_path', 'line_number', 'query_text', 'command'
+            ], where="query_text IS NOT NULL AND query_text != '' AND command != 'UNKNOWN'")
+            cursor.execute(query)
+            sql_queries_data = cursor.fetchall()
 
-                for file_path, line_number, query_text, command in sql_queries_data:
-                    file_path = file_path.replace("\\", "/") if file_path else ""
+            for file_path, line_number, query_text, command in sql_queries_data:
+                file_path = file_path.replace("\\", "/") if file_path else ""
 
-                    query = {
-                        "file": file_path,
-                        "line": line_number or 0,
-                        "query_text": query_text or "",
-                        "command": command or ""
-                    }
+                query = {
+                    "file": file_path,
+                    "line": line_number or 0,
+                    "query_text": query_text or "",
+                    "command": command or ""
+                }
 
-                    self.sql_queries.append(query)
-                    self.sql_queries_by_type[command].append(query)
-                    self.sql_queries_by_file[file_path].append(query)
-                    self.current_memory += sys.getsizeof(query) + 50
+                self.sql_queries.append(query)
+                self.sql_queries_by_type[command].append(query)
+                self.sql_queries_by_file[file_path].append(query)
+                self.current_memory += sys.getsizeof(query) + 50
 
-                print(f"[MEMORY] Loaded {len(self.sql_queries)} SQL queries", file=sys.stderr)
+            print(f"[MEMORY] Loaded {len(self.sql_queries)} SQL queries", file=sys.stderr)
 
-            if 'orm_queries' in tables:
-                # SCHEMA CONTRACT: Use build_query for correct columns
-                query = build_query('orm_queries', [
-                    'file', 'line', 'query_type', 'includes'
-                ], where="query_type IS NOT NULL")
-                cursor.execute(query)
-                orm_queries_data = cursor.fetchall()
+            # SCHEMA CONTRACT: Use build_query for correct columns
+            query = build_query('orm_queries', [
+                'file', 'line', 'query_type', 'includes'
+            ], where="query_type IS NOT NULL")
+            cursor.execute(query)
+            orm_queries_data = cursor.fetchall()
 
-                for file, line, query_type, includes in orm_queries_data:
-                    file = file.replace("\\", "/") if file else ""
+            for file, line, query_type, includes in orm_queries_data:
+                file = file.replace("\\", "/") if file else ""
 
-                    query = {
-                        "file": file,
-                        "line": line or 0,
-                        "query_type": query_type or "",
-                        "includes": includes or ""
-                    }
+                query = {
+                    "file": file,
+                    "line": line or 0,
+                    "query_type": query_type or "",
+                    "includes": includes or ""
+                }
 
-                    self.orm_queries.append(query)
-                    self.orm_queries_by_model[query_type].append(query)
-                    self.orm_queries_by_file[file].append(query)
-                    self.current_memory += sys.getsizeof(query) + 50
+                self.orm_queries.append(query)
+                self.orm_queries_by_model[query_type].append(query)
+                self.orm_queries_by_file[file].append(query)
+                self.current_memory += sys.getsizeof(query) + 50
 
-                print(f"[MEMORY] Loaded {len(self.orm_queries)} ORM queries", file=sys.stderr)
+            print(f"[MEMORY] Loaded {len(self.orm_queries)} ORM queries", file=sys.stderr)
 
-            if 'react_hooks' in tables:
-                # SCHEMA CONTRACT: Use build_query for correct columns
-                query = build_query('react_hooks', [
-                    'file', 'line', 'hook_name', 'dependency_vars'
-                ])
-                cursor.execute(query)
-                react_hooks_data = cursor.fetchall()
+            # SCHEMA CONTRACT: Use build_query for correct columns
+            query = build_query('react_hooks', [
+                'file', 'line', 'hook_name', 'dependency_vars'
+            ])
+            cursor.execute(query)
+            react_hooks_data = cursor.fetchall()
 
-                for file, line, hook_name, deps in react_hooks_data:
-                    file = file.replace("\\", "/") if file else ""
+            for file, line, hook_name, deps in react_hooks_data:
+                file = file.replace("\\", "/") if file else ""
 
-                    hook = {
-                        "file": file,
-                        "line": line or 0,
-                        "hook_name": hook_name or "",
-                        "dependencies": deps or ""
-                    }
+                hook = {
+                    "file": file,
+                    "line": line or 0,
+                    "hook_name": hook_name or "",
+                    "dependencies": deps or ""
+                }
 
-                    self.react_hooks.append(hook)
-                    self.react_hooks_by_name[hook_name].append(hook)
-                    self.react_hooks_by_file[file].append(hook)
-                    self.current_memory += sys.getsizeof(hook) + 50
+                self.react_hooks.append(hook)
+                self.react_hooks_by_name[hook_name].append(hook)
+                self.react_hooks_by_file[file].append(hook)
+                self.current_memory += sys.getsizeof(hook) + 50
 
-                print(f"[MEMORY] Loaded {len(self.react_hooks)} React hooks", file=sys.stderr)
+            print(f"[MEMORY] Loaded {len(self.react_hooks)} React hooks", file=sys.stderr)
 
-            if 'variable_usage' in tables:
-                # Only load if count is reasonable (avoid massive tables)
-                cursor.execute("SELECT COUNT(*) FROM variable_usage")
-                usage_count = cursor.fetchone()[0]
+            # CRITICAL: variable_usage is REQUIRED for taint analysis - ALWAYS load it
+            # SCHEMA CONTRACT: Use build_query to guarantee correct columns
+            query = build_query('variable_usage', [
+                'file', 'line', 'variable_name', 'usage_type', 'in_component'
+            ])
+            cursor.execute(query)
+            variable_usage_data = cursor.fetchall()
 
-                if usage_count < 500000:  # 500K limit for variable_usage
-                    # SCHEMA CONTRACT: Use build_query to guarantee correct columns
-                    query = build_query('variable_usage', [
-                        'file', 'line', 'variable_name', 'usage_type', 'in_component'
-                    ])
-                    cursor.execute(query)
-                    variable_usage_data = cursor.fetchall()
+            for file, line, variable_name, usage_type, in_component in variable_usage_data:
+                file = file.replace("\\", "/") if file else ""
 
-                    for file, line, variable_name, usage_type, in_component in variable_usage_data:
-                        file = file.replace("\\", "/") if file else ""
+                usage = {
+                    "file": file,
+                    "line": line or 0,
+                    "variable_name": variable_name or "",  # Schema contract: use actual column name
+                    "usage_type": usage_type or "",
+                    "in_component": in_component or ""  # Renamed from 'context'
+                }
 
-                        usage = {
-                            "file": file,
-                            "line": line or 0,
-                            "var_name": variable_name or "",  # API compat: keep 'var_name' key
-                            "usage_type": usage_type or "",
-                            "in_component": in_component or ""  # Renamed from 'context'
-                        }
+                self.variable_usage.append(usage)
+                self.variable_usage_by_name[variable_name].append(usage)
+                self.variable_usage_by_file[file].append(usage)
+                self.current_memory += sys.getsizeof(usage) + 50
 
-                        self.variable_usage.append(usage)
-                        self.variable_usage_by_name[variable_name].append(usage)
-                        self.variable_usage_by_file[file].append(usage)
-                        self.current_memory += sys.getsizeof(usage) + 50
+            print(f"[MEMORY] Loaded {len(self.variable_usage)} variable usages", file=sys.stderr)
 
-                    print(f"[MEMORY] Loaded {len(self.variable_usage)} variable usages", file=sys.stderr)
-                else:
-                    print(f"[MEMORY] Skipping variable_usage table (too large: {usage_count} rows)", file=sys.stderr)
+            # Step 6: Load CFG tables for flow-sensitive taint analysis
+            # These tables enable path-sensitive analysis through control flow graphs
 
-            # Step 6: Pre-compute call graph (NEW OPTIMIZATION!)
+            # Load cfg_blocks
+            query = build_query('cfg_blocks', [
+                'id', 'file', 'function_name', 'block_type', 'start_line', 'end_line', 'condition_expr'
+            ])
+            cursor.execute(query)
+            cfg_blocks_data = cursor.fetchall()
+
+            for block_id, file, func_name, block_type, start_line, end_line, condition_expr in cfg_blocks_data:
+                file = file.replace("\\", "/") if file else ""
+
+                block = {
+                    "id": block_id,
+                    "file": file,
+                    "function_name": func_name or "",
+                    "block_type": block_type or "",
+                    "start_line": start_line or 0,
+                    "end_line": end_line or 0,
+                    "condition_expr": condition_expr or ""
+                }
+
+                self.cfg_blocks.append(block)
+                self.cfg_blocks_by_file[file].append(block)
+                self.cfg_blocks_by_function[(file, func_name)].append(block)
+                self.cfg_blocks_by_id[block_id] = block
+                self.current_memory += sys.getsizeof(block) + 100
+
+            print(f"[MEMORY] Loaded {len(self.cfg_blocks)} CFG blocks", file=sys.stderr)
+
+            # Load cfg_edges
+            query = build_query('cfg_edges', [
+                'id', 'file', 'function_name', 'source_block_id', 'target_block_id', 'edge_type'
+            ])
+            cursor.execute(query)
+            cfg_edges_data = cursor.fetchall()
+
+            for edge_id, file, func_name, source_id, target_id, edge_type in cfg_edges_data:
+                file = file.replace("\\", "/") if file else ""
+
+                edge = {
+                    "id": edge_id,
+                    "file": file,
+                    "function_name": func_name or "",
+                    "source_block_id": source_id,
+                    "target_block_id": target_id,
+                    "edge_type": edge_type or ""
+                }
+
+                self.cfg_edges.append(edge)
+                self.cfg_edges_by_file[file].append(edge)
+                self.cfg_edges_by_function[(file, func_name)].append(edge)
+                self.cfg_edges_by_source[source_id].append(edge)
+                self.cfg_edges_by_target[target_id].append(edge)
+                self.current_memory += sys.getsizeof(edge) + 100
+
+            print(f"[MEMORY] Loaded {len(self.cfg_edges)} CFG edges", file=sys.stderr)
+
+            # Load cfg_block_statements
+            query = build_query('cfg_block_statements', [
+                'block_id', 'statement_type', 'line', 'statement_text'
+            ])
+            cursor.execute(query)
+            cfg_statements_data = cursor.fetchall()
+
+            for block_id, stmt_type, line, stmt_text in cfg_statements_data:
+                statement = {
+                    "block_id": block_id,
+                    "statement_type": stmt_type or "",
+                    "line": line or 0,
+                    "statement_text": stmt_text or ""
+                }
+
+                self.cfg_block_statements.append(statement)
+                self.cfg_statements_by_block[block_id].append(statement)
+                self.current_memory += sys.getsizeof(statement) + 50
+
+            print(f"[MEMORY] Loaded {len(self.cfg_block_statements)} CFG statements", file=sys.stderr)
+
+            # Step 7: Load Phase 3.4 security tables (jwt_patterns, api_endpoints)
+
+            # Load api_endpoints
+            query = build_query('api_endpoints', [
+                'file', 'line', 'method', 'pattern', 'path', 'controls', 'has_auth', 'handler_function'
+            ])
+            cursor.execute(query)
+            api_endpoints_data = cursor.fetchall()
+
+            for file, line, method, pattern, path, controls, has_auth, handler_func in api_endpoints_data:
+                file = file.replace("\\", "/") if file else ""
+
+                endpoint = {
+                    "file": file,
+                    "line": line or 0,
+                    "method": method or "",
+                    "pattern": pattern or "",
+                    "path": path or "",
+                    "controls": controls or "",
+                    "has_auth": bool(has_auth),
+                    "handler_function": handler_func or ""
+                }
+
+                self.api_endpoints.append(endpoint)
+                self.api_endpoints_by_file[file].append(endpoint)
+                self.api_endpoints_by_method[method].append(endpoint)
+                self.current_memory += sys.getsizeof(endpoint) + 50
+
+            print(f"[MEMORY] Loaded {len(self.api_endpoints)} API endpoints", file=sys.stderr)
+
+            # Load jwt_patterns
+            query = build_query('jwt_patterns', [
+                'file_path', 'line_number', 'pattern_type', 'pattern_text', 'secret_source', 'algorithm'
+            ])
+            cursor.execute(query)
+            jwt_patterns_data = cursor.fetchall()
+
+            for file_path, line_number, pattern_type, pattern_text, secret_source, algorithm in jwt_patterns_data:
+                file_path = file_path.replace("\\", "/") if file_path else ""
+
+                pattern = {
+                    "file": file_path,  # Normalize to 'file' key
+                    "line": line_number or 0,
+                    "pattern_type": pattern_type or "",
+                    "pattern_text": pattern_text or "",
+                    "secret_source": secret_source or "",
+                    "algorithm": algorithm or ""
+                }
+
+                self.jwt_patterns.append(pattern)
+                self.jwt_patterns_by_file[file_path].append(pattern)
+                self.jwt_patterns_by_type[pattern_type].append(pattern)
+                self.current_memory += sys.getsizeof(pattern) + 50
+
+            print(f"[MEMORY] Loaded {len(self.jwt_patterns)} JWT patterns", file=sys.stderr)
+
+            # Step 8: Pre-compute call graph (NEW OPTIMIZATION!)
             self._precompute_call_graph()
 
             # Step 7: Pre-compute common patterns (NEW OPTIMIZATION!)
             self._update_pattern_sets(sources_dict, sinks_dict)
 
             print(f"[MEMORY] Total memory used: {self.current_memory / 1024 / 1024:.1f}MB", file=sys.stderr)
-            print(f"[MEMORY] Indexes built: 19 primary (11 base + 8 specialized), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
+            print(f"[MEMORY] Indexes built: 31 primary (11 base + 8 CFG + 8 Phase3.3 + 4 Phase3.4), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
 
             self.is_loaded = True
             return True
@@ -825,6 +954,7 @@ class MemoryCache:
         self.function_call_args.clear()
         self.cfg_blocks.clear()
         self.cfg_edges.clear()
+        self.cfg_block_statements.clear()
         self.function_returns.clear()
 
         # Clear specialized tables (Phase 3.3)
@@ -832,6 +962,10 @@ class MemoryCache:
         self.orm_queries.clear()
         self.react_hooks.clear()
         self.variable_usage.clear()
+
+        # Clear Phase 3.4 security tables
+        self.api_endpoints.clear()
+        self.jwt_patterns.clear()
 
         self.symbols_by_line.clear()
         self.symbols_by_name.clear()
@@ -848,6 +982,16 @@ class MemoryCache:
 
         self.returns_by_function.clear()
 
+        # Clear CFG table indexes
+        self.cfg_blocks_by_file.clear()
+        self.cfg_blocks_by_function.clear()
+        self.cfg_blocks_by_id.clear()
+        self.cfg_edges_by_file.clear()
+        self.cfg_edges_by_function.clear()
+        self.cfg_edges_by_source.clear()
+        self.cfg_edges_by_target.clear()
+        self.cfg_statements_by_block.clear()
+
         # Clear specialized table indexes (Phase 3.3)
         self.sql_queries_by_type.clear()
         self.sql_queries_by_file.clear()
@@ -857,6 +1001,12 @@ class MemoryCache:
         self.react_hooks_by_file.clear()
         self.variable_usage_by_name.clear()
         self.variable_usage_by_file.clear()
+
+        # Clear Phase 3.4 indexes
+        self.api_endpoints_by_file.clear()
+        self.api_endpoints_by_method.clear()
+        self.jwt_patterns_by_file.clear()
+        self.jwt_patterns_by_type.clear()
 
         self.precomputed_sources.clear()
         self.precomputed_sinks.clear()
@@ -875,44 +1025,40 @@ class MemoryCache:
 
 def attempt_cache_preload(
     cursor: sqlite3.Cursor,
-    memory_limit_mb: int = 4000,
+    memory_limit_mb: Optional[int] = None,
     sources_dict: Optional[Dict[str, List[str]]] = None,
     sinks_dict: Optional[Dict[str, List[str]]] = None,
 ) -> Optional[MemoryCache]:
     """
-    Attempt to preload database into memory cache with graceful fallback.
-    
+    Attempt to preload database into memory cache with intelligent memory management.
+
+    Uses system RAM detection to determine safe memory limits. Will not break
+    CI/CD or automation by trying to load more than available RAM.
+
     Args:
         cursor: Database cursor
-        memory_limit_mb: Memory limit in MB (default 4GB)
-        
+        memory_limit_mb: Optional explicit memory limit (uses smart detection if None)
+        sources_dict: Optional taint sources
+        sinks_dict: Optional security sinks
+
     Returns:
-        MemoryCache if successful, None if failed or exceeded memory
+        MemoryCache if successful, None if failed or insufficient memory
     """
     try:
-        # Check database size first
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [row[0] for row in cursor.fetchall()]
-        
-        # Estimate size
-        estimated_size = 0
-        for table in ['symbols', 'assignments', 'function_call_args']:
-            if table in tables:
-                cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                count = cursor.fetchone()[0]
-                # Rough estimate: 300 bytes per row including indexes
-                estimated_size += count * 300
-        
-        estimated_mb = estimated_size / 1024 / 1024
-        
-        if estimated_mb > memory_limit_mb * 0.8:  # 80% safety margin
-            print(f"[MEMORY] Database estimated at {estimated_mb:.1f}MB exceeds 80% of {memory_limit_mb}MB limit", file=sys.stderr)
-            print("[MEMORY] Falling back to disk-based queries", file=sys.stderr)
-            return None
-        
-        print(f"[MEMORY] Database estimated at {estimated_mb:.1f}MB, attempting to load...", file=sys.stderr)
-        
-        # Create and load cache
+        # Use intelligent memory detection if no explicit limit provided
+        if memory_limit_mb is None:
+            memory_limit_mb = get_recommended_memory_limit()
+            print(f"[MEMORY] Using system-detected limit: {memory_limit_mb}MB", file=sys.stderr)
+
+        # Check if we have enough available memory before attempting load
+        available_mb = get_available_memory()
+        if available_mb > 0:
+            # Need at least some headroom - don't consume ALL available memory
+            if available_mb < memory_limit_mb * 0.5:  # Need at least 50% of our limit available
+                print(f"[MEMORY] Insufficient available RAM ({available_mb}MB), falling back to disk", file=sys.stderr)
+                return None
+
+        # Attempt to load with detected limit
         cache = MemoryCache(max_memory_mb=memory_limit_mb)
         if cache.preload(cursor, sources_dict=sources_dict, sinks_dict=sinks_dict):
             print(f"[MEMORY] Successfully loaded cache using {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
@@ -920,7 +1066,7 @@ def attempt_cache_preload(
         else:
             print(f"[MEMORY] Cache preload failed: {cache.load_error}", file=sys.stderr)
             return None
-            
+
     except MemoryError:
         print("[MEMORY] MemoryError caught, falling back to disk", file=sys.stderr)
         return None

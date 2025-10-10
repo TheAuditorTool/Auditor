@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from theauditor.test_frameworks import detect_test_framework
-from theauditor.correlations import CorrelationLoader
 
 
 
@@ -849,45 +848,14 @@ def run_fce(
         results["correlations"]["total_lines_with_findings"] = len(line_groups)
         results["correlations"]["total_hotspots"] = len(hotspots)
         
-        # Step F: Phase 4 - Factual Cluster Detection
-        factual_clusters = []
-        
-        # Load correlation rules
-        correlation_loader = CorrelationLoader()
-        correlation_rules = correlation_loader.load_rules()
-        
-        if correlation_rules and consolidated_findings:
-            # Group findings by file
-            findings_by_file = defaultdict(list)
-            for finding in consolidated_findings:
-                if 'file' in finding:
-                    findings_by_file[finding['file']].append(finding)
-            
-            # Check each file against each rule
-            for file_path, file_findings in findings_by_file.items():
-                for rule in correlation_rules:
-                    all_facts_matched = True
-                    
-                    for fact_index, fact in enumerate(rule.co_occurring_facts):
-                        fact_matched = False
-                        for finding in file_findings:
-                            if rule.matches_finding(finding, fact_index):
-                                fact_matched = True
-                                break
-                        
-                        if not fact_matched:
-                            all_facts_matched = False
-                            break
-                    
-                    if all_facts_matched:
-                        factual_clusters.append({
-                            "name": rule.name,
-                            "file": file_path,
-                            "description": rule.description,
-                            "confidence": rule.confidence
-                        })
-        
-        # Store factual clusters
+        # Step F: Phase 4 - Factual Cluster Detection (DEPRECATED)
+        # NOTE: Old correlation system removed in v1.1+
+        # User-defined business logic now handled by semantic context engine:
+        #   theauditor/insights/semantic_context.py
+        # See: aud context --file <yaml>
+        factual_clusters = []  # Keep for backward compatibility with downstream code
+
+        # Store empty factual clusters (backward compat)
         results["correlations"]["factual_clusters"] = factual_clusters
         
         # Step F2: Generate Architectural Meta-Findings (NEW)

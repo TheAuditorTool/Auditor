@@ -28,20 +28,9 @@ class ASTPatternMixin:
     """Mixin class providing pattern matching capabilities for AST analysis."""
     
     def __init__(self):
-        """Initialize pattern mixin with cache support."""
+        """Initialize pattern mixin."""
         super().__init__()
-        self._pattern_cache = None
-    
-    def _get_pattern_cache(self):
-        """Get or create pattern cache instance."""
-        if self._pattern_cache is None:
-            from pathlib import Path
-            from .cache.pattern_cache import PatternCache
-            cache_dir = Path(".pf/.cache")
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            self._pattern_cache = PatternCache(cache_dir)
-        return self._pattern_cache
-    
+
     def query_ast(self, tree: Any, query_string: str) -> List[ASTMatch]:
         """Execute a Tree-sitter query on the AST.
 

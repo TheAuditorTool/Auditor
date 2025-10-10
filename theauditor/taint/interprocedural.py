@@ -2,6 +2,10 @@
 
 This module implements cross-function taint tracking by following
 data flow through function arguments and return values.
+
+Schema Contract:
+    All queries use build_query() for schema compliance.
+    Table existence is guaranteed by schema contract - no checks needed.
 """
 
 import os
@@ -9,6 +13,7 @@ import sys
 import sqlite3
 from typing import Dict, List, Any, Optional, Set
 
+from theauditor.indexer.schema import build_query
 from .database import get_containing_function, get_code_snippet
 
 
@@ -51,10 +56,10 @@ def trace_inter_procedural_flow(
     # Stage 3: Use CFG-based inter-procedural analysis if enabled
     if stage3 and use_cfg:
         from .interprocedural_cfg import InterProceduralCFGAnalyzer
-        from ..cache.cfg_cache import CFGCacheManager
-        
-        # Initialize cache and analyzer
-        cache = CFGCacheManager()
+
+        # Initialize analyzer with memory_cache (NOT the old graph_cache which caused 2x slowdown)
+        # The old graph_cache for CFG was removed due to performance regression
+        # BUT memory_cache (RAM-based) should be used for O(1) lookups
         analyzer = InterProceduralCFGAnalyzer(cursor, cache)
         
         # Use enhanced CFG-based analysis
@@ -94,16 +99,15 @@ def trace_inter_procedural_flow(
         
         if debug:
             print(f"\n[INTER-PROCEDURAL] Depth {depth}: Tracking {current_var} in {current_func}", file=sys.stderr)
-        
+
         # Step 1: Check if current variable is passed as argument to other functions
-        cursor.execute("""
-            SELECT callee_function, param_name, line
-            FROM function_call_args
-            WHERE file = ? 
-            AND caller_function = ?
-            AND (argument_expr = ? OR argument_expr LIKE ?)
-        """, (current_file, current_func, current_var, f"%{current_var}%"))
-        
+        # Schema Contract: function_call_args table guaranteed to exist
+        query = build_query('function_call_args',
+            ['callee_function', 'param_name', 'line'],
+            where="file = ? AND caller_function = ? AND (argument_expr = ? OR argument_expr LIKE ?)"
+        )
+        cursor.execute(query, (current_file, current_func, current_var, f"%{current_var}%"))
+
         calls = cursor.fetchall()
         if debug and calls:
             print(f"[INTER-PROCEDURAL] Found {len(calls)} function calls passing {current_var}", file=sys.stderr)
@@ -134,16 +138,13 @@ def trace_inter_procedural_flow(
                 sink_function = get_containing_function(cursor, sink)
                 if not sink_function or sink_function["name"] != callee_func:
                     continue
-                
+
                 # Check if parameter flows to sink
-                cursor.execute("""
-                    SELECT COUNT(*)
-                    FROM function_call_args
-                    WHERE file = ? 
-                    AND line = ?
-                    AND argument_expr LIKE ?
-                """, (sink["file"], sink["line"], f"%{param_name}%"))
-                
+                query = build_query('function_call_args', ['COUNT(*)'],
+                    where="file = ? AND line = ? AND argument_expr LIKE ?"
+                )
+                cursor.execute(query, (sink["file"], sink["line"], f"%{param_name}%"))
+
                 if cursor.fetchone()[0] > 0:
                     # Found inter-procedural vulnerability!
                     if debug:
@@ -164,30 +165,26 @@ def trace_inter_procedural_flow(
                         path=vuln_path
                     )
                     paths.append(path_obj)
-        
+
         # Step 3: Check if current variable is returned by current function
-        cursor.execute("""
-            SELECT return_expr, line
-            FROM function_returns
-            WHERE file = ? 
-            AND function_name = ?
-            AND (return_expr = ? OR return_expr LIKE ? OR return_vars LIKE ?)
-        """, (current_file, current_func, current_var, f"%{current_var}%", f'%"{current_var}"%'))
-        
+        query = build_query('function_returns',
+            ['return_expr', 'line'],
+            where="file = ? AND function_name = ? AND (return_expr = ? OR return_expr LIKE ? OR return_vars LIKE ?)"
+        )
+        cursor.execute(query, (current_file, current_func, current_var, f"%{current_var}%", f'%"{current_var}"%'))
+
         returns = cursor.fetchall()
         if debug and returns:
             print(f"[INTER-PROCEDURAL] {current_func} returns {current_var} in {len(returns)} places", file=sys.stderr)
         
         for return_expr, return_line in returns:
             # Find where this function is called and its return value is used
-            cursor.execute("""
-                SELECT caller_function, target_var, line
-                FROM function_call_args
-                WHERE file = ? 
-                AND callee_function = ?
-                AND target_var IS NOT NULL
-            """, (current_file, current_func))
-            
+            query = build_query('function_call_args',
+                ['caller_function', 'target_var', 'line'],
+                where="file = ? AND callee_function = ? AND target_var IS NOT NULL"
+            )
+            cursor.execute(query, (current_file, current_func))
+
             call_sites = cursor.fetchall()
             if debug and call_sites:
                 print(f"[INTER-PROCEDURAL] {current_func} called from {len(call_sites)} locations", file=sys.stderr)
@@ -221,16 +218,13 @@ def trace_inter_procedural_flow(
             sink_function = get_containing_function(cursor, sink)
             if not sink_function or sink_function["name"] != current_func:
                 continue
-            
+
             # Check if current variable is used in sink
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM function_call_args
-                WHERE file = ? 
-                AND line = ?
-                AND argument_expr LIKE ?
-            """, (sink["file"], sink["line"], f"%{current_var}%"))
-            
+            query = build_query('function_call_args', ['COUNT(*)'],
+                where="file = ? AND line = ? AND argument_expr LIKE ?"
+            )
+            cursor.execute(query, (sink["file"], sink["line"], f"%{current_var}%"))
+
             if cursor.fetchone()[0] > 0:
                 # Direct vulnerability in current function
                 if debug:

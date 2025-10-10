@@ -9,11 +9,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e ".[all]"
-aud setup-claude --target .  # MANDATORY for JS/TS analysis
+aud setup-ai --target .  # MANDATORY for JS/TS analysis
 
 # For normal usage on projects, install with system Python:
 # pip install -e . (from TheAuditor directory)
-# Then navigate to YOUR project and run: aud setup-claude --target .
+# Then navigate to YOUR project and run: aud setup-ai --target .
 
 # Testing
 pytest -v                    # Run all tests
@@ -47,7 +47,7 @@ aud workset                  # Create working set of critical files
 aud impact <file>            # Analyze impact of changing a file
 
 # Utility Commands
-aud setup-claude             # Setup sandboxed JS/TS tools (MANDATORY)
+aud setup-ai                 # Setup sandboxed JS/TS tools (MANDATORY)
 aud structure                # Display project structure
 aud insights                 # Generate ML insights (requires [ml] extras)
 aud refactor <operation>     # Perform refactoring operations
@@ -79,7 +79,7 @@ TheAuditor requires a sandboxed environment for JS/TS tools. This is NOT optiona
 
 ```bash
 # MANDATORY: Set up sandboxed tools
-aud setup-claude --target .
+aud setup-ai --target .
 ```
 
 This creates `.auditor_venv/.theauditor_tools/` with isolated TypeScript compiler and ESLint. Without this, TypeScript semantic analysis will fail.
@@ -198,6 +198,7 @@ Located in `theauditor/insights/`, these modules add scoring and interpretation 
 - `insights/taint.py`: Severity scoring (critical/high/medium/low), vulnerability classification
 - `insights/graph.py`: Health metrics (0-100 score, A-F grades), architecture recommendations
 - `insights/ml.py`: Risk predictions from historical patterns (requires `pip install -e ".[ml]"`)
+- `insights/semantic_context.py`: User-defined business logic and semantic understanding (NEW in v1.1+)
 
 All insights use the same gold standards as rules: frozensets for O(1) pattern matching, database queries instead of file I/O, and proper error handling.
 
@@ -215,11 +216,43 @@ Add scoring and classification on top of facts:
 - **graph/insights.py**: Adds "Health score: 70/100"
 - **ml.py**: Requires `pip install -e ".[ml]"` - adds predictions
 
-#### Correlation Rules (Project-Specific Pattern Detection)
-- Located in `theauditor/correlations/rules/`
-- Detect when multiple facts indicate inconsistency
-- Example: "Backend moved field to ProductVariant but frontend still uses Product.price"
-- NOT business logic understanding, just pattern matching YOUR refactorings
+#### Semantic Context Engine (User-Defined Business Logic)
+**NEW in v1.1+**: Located in `theauditor/insights/semantic_context.py` and `theauditor/insights/semantic_rules/`
+
+The Semantic Context Engine allows users to teach TheAuditor about THEIR specific business logic, refactorings, and codebase semantics. Unlike core truth couriers which report universal facts, semantic contexts are 100% user-defined.
+
+**Use Cases**:
+- Refactoring tracking: "product.price is obsolete, use product_variant.retail_price"
+- Deprecated API detection: "API v1 endpoints should be replaced with GraphQL"
+- Migration progress: "Track which files have been updated to new schema"
+- Architecture compliance: "Service layer should use new patterns"
+
+**How It Works**:
+1. User writes YAML file in `theauditor/insights/semantic_rules/`
+2. Define patterns as: obsolete, current, or transitional
+3. Run `aud full` or `aud context --file your_context.yaml`
+4. TheAuditor classifies findings based on your business logic
+5. Reports: files with obsolete patterns, migration progress, high-priority fixes
+
+**Example YAML**:
+```yaml
+context_name: "product_refactor"
+patterns:
+  obsolete:
+    - id: "old_price"
+      pattern: "product\\.unit_price"
+      reason: "Moved to ProductVariant"
+      replacement: "product_variant.retail_price"
+      severity: "high"
+  current:
+    - id: "new_price"
+      pattern: "product_variant\\.retail_price"
+      reason: "Correct schema"
+```
+
+**Documentation**: See `theauditor/insights/semantic_rules/templates_instructions.md` for complete guide.
+
+**Note**: This replaces the old `correlations` system (now deprecated). The old co-occurring facts model was the wrong abstraction for tracking refactorings and business logic.
 
 ### Dual-Environment Design
 TheAuditor maintains strict separation between:
@@ -532,7 +565,7 @@ The indexer automatically detects monorepo structures and applies intelligent fi
 - Prevents analyzing test files, configs, migrations as source code
 
 ### JavaScript/TypeScript Special Handling
-- MUST run `aud setup-claude --target .` first
+- MUST run `aud setup-ai --target .` first
 - Uses bundled Node.js v20.11.1 in `.auditor_venv/.theauditor_tools/`
 - TypeScript semantic analysis requires `js_semantic_parser.py`
 - ESLint runs in sandboxed environment, not project's node_modules
@@ -619,7 +652,7 @@ Based on comprehensive audit documented in `theauditor/rules/nightmare_fuel.md`:
 ## Troubleshooting
 
 ### TypeScript Analysis Fails
-Solution: Run `aud setup-claude --target .`
+Solution: Run `aud setup-ai --target .`
 
 ### Taint Analysis Reports 0 Vulnerabilities on TypeScript
 - Check that `js_semantic_parser.py` has text extraction enabled (lines 275, 514)

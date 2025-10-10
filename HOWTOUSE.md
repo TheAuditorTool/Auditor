@@ -63,7 +63,7 @@ aud --version
 cd ~/my-project-to-audit
 
 # Create the sandboxed environment for THIS project
-aud setup-claude --target .
+aud setup-ai --target .
 ```
 
 This command:
@@ -869,7 +869,7 @@ jobs:
       - name: Install TheAuditor
         run: |
           pip install -e ".[all]"
-          aud setup-claude --target .
+          aud setup-ai --target .
       
       - name: Run Audit
         run: aud full
@@ -905,7 +905,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
 
 # 2. CRITICAL: Create the sandboxed analysis environment
-aud setup-claude --target .
+aud setup-ai --target .
 
 # 3. Verify setup
 aud full --quick-test
@@ -1087,7 +1087,7 @@ This detects when you moved price fields from Product to ProductVariant model bu
 
 #### "TypeScript compiler not available in TheAuditor sandbox"
 
-**Solution**: Run **`aud setup-claude --target .`** to set up the sandbox.
+**Solution**: Run **`aud setup-ai --target .`** to set up the sandbox.
 
 #### "Coverage < 90% - run `aud capsules` first"
 
@@ -1105,7 +1105,7 @@ aud workset --all
 pip install -e ".[linters]"
 
 # For JavaScript/TypeScript
-aud setup-claude --target .
+aud setup-ai --target .
 ```
 
 #### Pipeline fails at specific phase
@@ -1185,7 +1185,7 @@ These caches enable:
 ## Best Practices
 
 1. **Always run `aud init` first** in a new project
-2. **Set up the sandbox** for JavaScript/TypeScript projects using **`aud setup-claude --target .`**
+2. **Set up the sandbox** for JavaScript/TypeScript projects using **`aud setup-ai --target .`**
 3. **Use worksets** for incremental analysis during development
 4. **Run `aud full`** before releases for comprehensive analysis
 5. **Review `.pf/readthis/`** for AI-friendly issue summaries
