@@ -266,7 +266,7 @@ class LinterOrchestrator:
                     "file": self._normalize_path(file_path),
                     "line": msg.get("line", 0),
                     "column": msg.get("column", 0),
-                    "rule": msg.get("ruleId", ""),
+                    "rule": msg.get("ruleId") or "eslint-error",
                     "message": msg.get("message", ""),
                     "severity": "error" if msg.get("severity") == 2 else "warning",
                     "category": "lint"
