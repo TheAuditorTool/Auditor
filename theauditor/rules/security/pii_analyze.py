@@ -14,7 +14,6 @@ This implementation:
 """
 
 import sqlite3
-import re
 from typing import List, Set, Dict, Optional, Tuple
 from pathlib import Path
 from enum import Enum
@@ -1373,9 +1372,6 @@ def _detect_pii_in_route_patterns(cursor, pii_categories: Dict) -> List[Standard
     for category_patterns in pii_categories.values():
         all_pii_patterns.update(category_patterns)
 
-    # Regex to extract parameters: :param or {param}
-    param_regex = re.compile(r':([a-zA-Z0-9_]+)|\{([a-zA-Z0-9_]+)\}')
-
     cursor.execute("""
         SELECT file, line, method, pattern
         FROM api_endpoints
@@ -1385,10 +1381,23 @@ def _detect_pii_in_route_patterns(cursor, pii_categories: Dict) -> List[Standard
     """)
 
     for file, line, method, route_pattern in cursor.fetchall():
-        # Find all parameter placeholders
-        matches = param_regex.findall(route_pattern)
-        # findall returns list of tuples (group1, group2), extract non-empty groups
-        extracted_params = [m[0] or m[1] for m in matches]
+        # Extract route parameters using string methods
+        extracted_params = []
+
+        # Split by / to get route segments
+        for segment in route_pattern.split('/'):
+            # Handle :param style
+            if segment.startswith(':'):
+                param_name = segment[1:]
+                # Remove any query string or fragment
+                param_name = param_name.split('?')[0].split('#')[0]
+                if param_name:
+                    extracted_params.append(param_name)
+            # Handle {param} style
+            elif segment.startswith('{') and segment.endswith('}'):
+                param_name = segment[1:-1]
+                if param_name:
+                    extracted_params.append(param_name)
 
         for param_name in extracted_params:
             # Normalize both sides for comparison (symmetric normalization)

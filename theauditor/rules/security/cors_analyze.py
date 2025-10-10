@@ -141,7 +141,6 @@ class CORSAnalyzer:
         self.context = context
         self.patterns = CORSPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main entry point - runs all CORS vulnerability checks.
@@ -156,13 +155,6 @@ class CORSAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check table availability (golden standard requirement)
-            self._check_table_availability()
-
-            # Must have minimum tables for analysis
-            if not self._has_minimum_tables():
-                return []
-
             # Run all vulnerability checks
             self._check_wildcard_with_credentials()
             self._check_subdomain_wildcards()
@@ -185,40 +177,22 @@ class CORSAnalyzer:
 
         return self.findings
 
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'function_call_args', 'assignments', 'symbols',
-                'api_endpoints', 'config_files', 'files'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
-    def _has_minimum_tables(self) -> bool:
-        """Check if we have minimum required tables."""
-        required = {'function_call_args', 'assignments'}
-        return required.issubset(self.existing_tables)
-
     # ========================================================================
     # CHECK 1: Classic Wildcard with Credentials
     # ========================================================================
 
     def _check_wildcard_with_credentials(self):
         """Detect wildcard origin with credentials enabled."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
-        # Check CORS function calls
-        self.cursor.execute("""
+        # Check CORS function calls - static query
+        placeholders = ','.join(['?'] * len(self.patterns.CORS_FUNCTIONS))
+        query = f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function IN ({})
+            WHERE callee_function IN ({placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """.format(','.join(['?'] * len(self.patterns.CORS_FUNCTIONS))),
-        list(self.patterns.CORS_FUNCTIONS))
+        """
+        self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
 
         for file, line, func, args in self.cursor.fetchall():
             if not args:
@@ -237,7 +211,7 @@ class CORSAnalyzer:
                     severity=Severity.CRITICAL,
                     confidence=Confidence.HIGH,
                     category='security',
-                    snippet=f'{func}(origin: "*", credentials: true)',
+                    code_snippet=f'{func}(origin: "*", credentials: true)',
                     cwe_id='CWE-942'  # Permissive Cross-domain Policy
                 ))
 
@@ -247,9 +221,6 @@ class CORSAnalyzer:
 
     def _check_subdomain_wildcards(self):
         """Detect subdomain wildcard patterns that enable takeover attacks."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Look for origin patterns with subdomain wildcards
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -277,7 +248,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.HIGH,
                         category='security',
-                        snippet=f'{var} = {expr[:100]}',
+                        code_snippet=f'{var} = {expr[:100]}',
                         cwe_id='CWE-942'
                     ))
                     break
@@ -288,50 +259,59 @@ class CORSAnalyzer:
 
     def _check_null_origin_handling(self):
         """Detect allowing 'null' origin which enables sandbox attacks."""
-        queries = [
-            # Check in function arguments
-            ("function_call_args", """
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE argument_expr LIKE '%null%'
-                  AND (argument_expr LIKE '%origin%' OR callee_function IN ({}))
-            """.format(','.join(['?'] * len(self.patterns.CORS_FUNCTIONS)))),
+        # Check in function arguments - static query
+        placeholders = ','.join(['?'] * len(self.patterns.CORS_FUNCTIONS))
+        query = f"""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE argument_expr LIKE '%null%'
+              AND (argument_expr LIKE '%origin%' OR callee_function IN ({placeholders}))
+        """
+        self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
 
-            # Check in assignments
-            ("assignments", """
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE (target_var LIKE '%origin%' OR target_var LIKE '%whitelist%')
-                  AND source_expr LIKE '%null%'
-            """)
-        ]
+        for row in self.cursor.fetchall():
+            file, line = row[0], row[1]
+            context = row[2] if len(row) > 2 else ""
 
-        for table, query in queries:
-            if table not in self.existing_tables:
-                continue
+            # Check if null is being explicitly allowed
+            if 'null' in str(row).lower():
+                self.findings.append(StandardFinding(
+                    rule_name='cors-null-origin',
+                    message='CORS allows "null" origin - enables attacks from sandboxed contexts',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    category='security',
+                    code_snippet='origin: [..., "null", ...]',
+                    cwe_id='CWE-346'  # Origin Validation Error
+                ))
 
-            if table == "function_call_args":
-                self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
-            else:
-                self.cursor.execute(query)
+        # Check in assignments
+        self.cursor.execute("""
+            SELECT file, line, target_var, source_expr
+            FROM assignments
+            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%whitelist%')
+              AND source_expr LIKE '%null%'
+        """)
 
-            for row in self.cursor.fetchall():
-                file, line = row[0], row[1]
-                context = row[2] if len(row) > 2 else ""
+        for row in self.cursor.fetchall():
+            file, line = row[0], row[1]
+            context = row[2] if len(row) > 2 else ""
 
-                # Check if null is being explicitly allowed
-                if 'null' in str(row).lower():
-                    self.findings.append(StandardFinding(
-                        rule_name='cors-null-origin',
-                        message='CORS allows "null" origin - enables attacks from sandboxed contexts',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        confidence=Confidence.HIGH,
-                        category='security',
-                        snippet='origin: [..., "null", ...]',
-                        cwe_id='CWE-346'  # Origin Validation Error
-                    ))
+            # Check if null is being explicitly allowed
+            if 'null' in str(row).lower():
+                self.findings.append(StandardFinding(
+                    rule_name='cors-null-origin',
+                    message='CORS allows "null" origin - enables attacks from sandboxed contexts',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    category='security',
+                    code_snippet='origin: [..., "null", ...]',
+                    cwe_id='CWE-346'  # Origin Validation Error
+                ))
 
     # ========================================================================
     # CHECK 4: Origin Reflection Without Validation
@@ -339,9 +319,6 @@ class CORSAnalyzer:
 
     def _check_origin_reflection(self):
         """Detect reflecting origin header without validation."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find origin reflections
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -378,7 +355,7 @@ class CORSAnalyzer:
                     severity=Severity.CRITICAL,
                     confidence=Confidence.HIGH,
                     category='security',
-                    snippet=f'{var} = {expr}',
+                    code_snippet=f'{var} = {expr}',
                     cwe_id='CWE-346'
                 ))
 
@@ -388,9 +365,6 @@ class CORSAnalyzer:
 
     def _check_regex_vulnerabilities(self):
         """Detect vulnerable regex patterns in CORS origin validation."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find regex patterns used for origin validation
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -424,7 +398,7 @@ class CORSAnalyzer:
                     severity=Severity.HIGH,
                     confidence=Confidence.MEDIUM,
                     category='security',
-                    snippet=f'{var} = {expr[:100]}',
+                    code_snippet=f'{var} = {expr[:100]}',
                     cwe_id='CWE-185'  # Incorrect Regular Expression
                 ))
 
@@ -434,46 +408,54 @@ class CORSAnalyzer:
 
     def _check_protocol_downgrade(self):
         """Detect allowing HTTP origins when HTTPS should be required."""
-        tables_queries = [
-            ("assignments", """
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-                  AND source_expr LIKE '%http://%'
-                  AND source_expr NOT LIKE '%https://%'
-            """),
-            ("function_call_args", """
-                SELECT file, line, callee_function, argument_expr
-                FROM function_call_args
-                WHERE callee_function IN ({})
-                  AND argument_expr LIKE '%http://%'
-                  AND argument_expr NOT LIKE '%localhost%'
-                  AND argument_expr NOT LIKE '%127.0.0.1%'
-            """.format(','.join(['?'] * len(self.patterns.CORS_FUNCTIONS))))
-        ]
+        # Check assignments
+        self.cursor.execute("""
+            SELECT file, line, target_var, source_expr
+            FROM assignments
+            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
+              AND source_expr LIKE '%http://%'
+              AND source_expr NOT LIKE '%https://%'
+        """)
 
-        for table, query in tables_queries:
-            if table not in self.existing_tables:
-                continue
+        for row in self.cursor.fetchall():
+            file, line = row[0], row[1]
+            self.findings.append(StandardFinding(
+                rule_name='cors-protocol-downgrade',
+                message='HTTP origin allowed - vulnerable to protocol downgrade attacks',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                confidence=Confidence.HIGH,
+                category='security',
+                code_snippet='origin: "http://..."',
+                cwe_id='CWE-757'  # Selection of Less-Secure Algorithm
+            ))
 
-            if table == "function_call_args":
-                self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
-            else:
-                self.cursor.execute(query)
+        # Check function call args - static query
+        placeholders = ','.join(['?'] * len(self.patterns.CORS_FUNCTIONS))
+        query = f"""
+            SELECT file, line, callee_function, argument_expr
+            FROM function_call_args
+            WHERE callee_function IN ({placeholders})
+              AND argument_expr LIKE '%http://%'
+              AND argument_expr NOT LIKE '%localhost%'
+              AND argument_expr NOT LIKE '%127.0.0.1%'
+        """
+        self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
 
-            for row in self.cursor.fetchall():
-                file, line = row[0], row[1]
-                self.findings.append(StandardFinding(
-                    rule_name='cors-protocol-downgrade',
-                    message='HTTP origin allowed - vulnerable to protocol downgrade attacks',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.HIGH,
-                    category='security',
-                    snippet='origin: "http://..."',
-                    cwe_id='CWE-757'  # Selection of Less-Secure Algorithm
-                ))
+        for row in self.cursor.fetchall():
+            file, line = row[0], row[1]
+            self.findings.append(StandardFinding(
+                rule_name='cors-protocol-downgrade',
+                message='HTTP origin allowed - vulnerable to protocol downgrade attacks',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                confidence=Confidence.HIGH,
+                category='security',
+                code_snippet='origin: "http://..."',
+                cwe_id='CWE-757'  # Selection of Less-Secure Algorithm
+            ))
 
     # ========================================================================
     # CHECK 7: Port Confusion
@@ -481,9 +463,6 @@ class CORSAnalyzer:
 
     def _check_port_confusion(self):
         """Detect port handling issues in CORS origin validation."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Look for port-specific origin configurations
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -507,7 +486,7 @@ class CORSAnalyzer:
                     severity=Severity.MEDIUM,
                     confidence=Confidence.MEDIUM,
                     category='security',
-                    snippet=f'{var} = {expr[:100]}',
+                    code_snippet=f'{var} = {expr[:100]}',
                     cwe_id='CWE-942'
                 ))
 
@@ -517,9 +496,6 @@ class CORSAnalyzer:
 
     def _check_case_sensitivity(self):
         """Detect case-sensitive origin comparisons that can be bypassed."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Look for string comparisons without case normalization
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
@@ -550,7 +526,7 @@ class CORSAnalyzer:
                     severity=Severity.MEDIUM,
                     confidence=Confidence.LOW,
                     category='security',
-                    snippet=f'{func}(...origin...)',
+                    code_snippet=f'{func}(...origin...)',
                     cwe_id='CWE-178'  # Improper Handling of Case Sensitivity
                 ))
 
@@ -560,9 +536,6 @@ class CORSAnalyzer:
 
     def _check_missing_vary_header(self):
         """Detect missing Vary: Origin header causing cache poisoning."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Find files setting Access-Control-Allow-Origin
         self.cursor.execute("""
             SELECT DISTINCT file FROM function_call_args
@@ -598,7 +571,7 @@ class CORSAnalyzer:
                     severity=Severity.HIGH,
                     confidence=Confidence.MEDIUM,
                     category='security',
-                    snippet='Access-Control-Allow-Origin without Vary: Origin',
+                    code_snippet='Access-Control-Allow-Origin without Vary: Origin',
                     cwe_id='CWE-524'  # Use of Cache Containing Sensitive Information
                 ))
 
@@ -608,9 +581,6 @@ class CORSAnalyzer:
 
     def _check_excessive_preflight_cache(self):
         """Detect excessive Access-Control-Max-Age values."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         self.cursor.execute("""
             SELECT file, line, argument_expr
             FROM function_call_args
@@ -635,7 +605,7 @@ class CORSAnalyzer:
                         severity=Severity.LOW,
                         confidence=Confidence.HIGH,
                         category='security',
-                        snippet=f'Access-Control-Max-Age: {max_age}',
+                        code_snippet=f'Access-Control-Max-Age: {max_age}',
                         cwe_id='CWE-942'
                     ))
 
@@ -645,19 +615,17 @@ class CORSAnalyzer:
 
     def _check_websocket_bypass(self):
         """Detect WebSocket handlers without origin validation."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
-        # Find WebSocket connection handlers
-        self.cursor.execute("""
+        # Find WebSocket connection handlers - static query
+        placeholders = ','.join(['?'] * len(self.patterns.WEBSOCKET_HANDLERS))
+        query = f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function IN ({})
+            WHERE callee_function IN ({placeholders})
               OR argument_expr LIKE '%connection%'
               OR argument_expr LIKE '%upgrade%'
             ORDER BY file, line
-        """.format(','.join(['?'] * len(self.patterns.WEBSOCKET_HANDLERS))),
-        list(self.patterns.WEBSOCKET_HANDLERS))
+        """
+        self.cursor.execute(query, list(self.patterns.WEBSOCKET_HANDLERS))
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if origin validation exists nearby
@@ -679,7 +647,7 @@ class CORSAnalyzer:
                     severity=Severity.HIGH,
                     confidence=Confidence.LOW,
                     category='security',
-                    snippet=f'{func}("connection", ...)',
+                    code_snippet=f'{func}("connection", ...)',
                     cwe_id='CWE-346'
                 ))
 
@@ -689,9 +657,6 @@ class CORSAnalyzer:
 
     def _check_dynamic_origin_flaws(self):
         """Detect flawed dynamic origin validation logic."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find dynamic origin validators
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -724,7 +689,7 @@ class CORSAnalyzer:
                     severity=Severity.HIGH,
                     confidence=Confidence.MEDIUM,
                     category='security',
-                    snippet=f'{var} = function(...)',
+                    code_snippet=f'{var} = function(...)',
                     cwe_id='CWE-942'
                 ))
 
@@ -734,9 +699,6 @@ class CORSAnalyzer:
 
     def _check_fallback_wildcards(self):
         """Detect configurations that fall back to wildcard on error."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Look for conditional/ternary operators with wildcards
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -758,7 +720,7 @@ class CORSAnalyzer:
                     severity=Severity.HIGH,
                     confidence=Confidence.HIGH,
                     category='security',
-                    snippet=f'{var} = ... ? ... : "*"',
+                    code_snippet=f'{var} = ... ? ... : "*"',
                     cwe_id='CWE-942'
                 ))
 
@@ -768,9 +730,6 @@ class CORSAnalyzer:
 
     def _check_development_configs(self):
         """Detect development CORS configs that might leak to production."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Look for environment-based CORS configs
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -792,7 +751,7 @@ class CORSAnalyzer:
                     severity=Severity.MEDIUM,
                     confidence=Confidence.MEDIUM,
                     category='security',
-                    snippet=f'{var} = NODE_ENV === "development" ? "*" : ...',
+                    code_snippet=f'{var} = NODE_ENV === "development" ? "*" : ...',
                     cwe_id='CWE-489'  # Active Debug Code
                 ))
 
@@ -802,9 +761,6 @@ class CORSAnalyzer:
 
     def _check_framework_specific(self):
         """Detect framework-specific CORS misconfigurations."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Check Express specific issues
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
@@ -836,7 +792,7 @@ class CORSAnalyzer:
                     severity=Severity.HIGH,
                     confidence=Confidence.MEDIUM,
                     category='security',
-                    snippet=f'{func}(cors()) // After route definitions',
+                    code_snippet=f'{func}(cors()) // After route definitions',
                     cwe_id='CWE-696'  # Incorrect Behavior Order
                 ))
 
@@ -860,7 +816,7 @@ class CORSAnalyzer:
                     severity=Severity.CRITICAL,
                     confidence=Confidence.HIGH,
                     category='security',
-                    snippet='CORS(app, resources="/*", supports_credentials=True)',
+                    code_snippet='CORS(app, resources="/*", supports_credentials=True)',
                     cwe_id='CWE-942'
                 ))
 

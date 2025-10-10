@@ -329,23 +329,25 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Complex EXISTS/NOT EXISTS correlated subquery - build_query() supports this
-            query = build_query('function_call_args', ['DISTINCT file', 'line'],
-                               where="""callee_function LIKE '%.save'
-                                 AND EXISTS (
-                                     SELECT 1 FROM function_call_args f2
-                                     WHERE f2.file = function_call_args.file
-                                       AND f2.line BETWEEN function_call_args.line - 10 AND function_call_args.line
-                                       AND f2.argument_expr LIKE '%request.files%'
-                                 )
-                                 AND NOT EXISTS (
-                                     SELECT 1 FROM function_call_args f3
-                                     WHERE f3.file = function_call_args.file
-                                       AND f3.line BETWEEN function_call_args.line - 10 AND function_call_args.line + 10
-                                       AND f3.callee_function IN ('secure_filename', 'validate', 'allowed')
-                                 )""",
-                               order_by="file, line")
-            cursor.execute(query)
+            # Complex EXISTS/NOT EXISTS correlated subquery - use raw SQL for DISTINCT
+            cursor.execute("""
+                SELECT DISTINCT file, line
+                FROM function_call_args
+                WHERE callee_function LIKE '%.save'
+                  AND EXISTS (
+                      SELECT 1 FROM function_call_args f2
+                      WHERE f2.file = function_call_args.file
+                        AND f2.line BETWEEN function_call_args.line - 10 AND function_call_args.line
+                        AND f2.argument_expr LIKE '%request.files%'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM function_call_args f3
+                      WHERE f3.file = function_call_args.file
+                        AND f3.line BETWEEN function_call_args.line - 10 AND function_call_args.line + 10
+                        AND f3.callee_function IN ('secure_filename', 'validate', 'allowed')
+                  )
+                ORDER BY file, line
+            """)
 
             for file, line in cursor.fetchall():
                 self.findings.append(StandardFinding(
@@ -575,17 +577,19 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check for CSRF imports
-            query = build_query('refs', ['COUNT(*)'],
-                               where="value IN ('flask_wtf', 'CSRFProtect', 'csrf')")
-            cursor.execute(query)
+            # Check for CSRF imports - use raw SQL for COUNT(*)
+            cursor.execute("""
+                SELECT COUNT(*) FROM refs
+                WHERE value IN ('flask_wtf', 'CSRFProtect', 'csrf')
+            """)
             has_csrf = cursor.fetchone()[0] > 0
 
             if not has_csrf:
-                # Check if there are state-changing endpoints
-                query2 = build_query('api_endpoints', ['COUNT(*)'],
-                                    where="method IN ('POST', 'PUT', 'DELETE', 'PATCH')")
-                cursor.execute(query2)
+                # Check if there are state-changing endpoints - use raw SQL for COUNT(*)
+                cursor.execute("""
+                    SELECT COUNT(*) FROM api_endpoints
+                    WHERE method IN ('POST', 'PUT', 'DELETE', 'PATCH')
+                """)
                 has_state_changing = cursor.fetchone()[0] > 0
 
                 if has_state_changing and self.flask_files:

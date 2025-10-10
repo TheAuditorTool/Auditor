@@ -11,7 +11,7 @@ semantic AST analysis via js_semantic_parser.
 
 import sqlite3
 from typing import List, Dict, Any, Optional
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
 
 
 # ============================================================================

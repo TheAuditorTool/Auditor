@@ -6,12 +6,12 @@ Detects exposed source maps using a JUSTIFIED HYBRID approach because:
 3. Inline maps are added by bundlers, not in source
 4. sourceMappingURL comments are in generated files
 
-Follows golden standard patterns from bundle_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows v1.1+ schema contract compliance for database queries:
+- Frozensets for all patterns (O(1) lookups)
+- Direct database queries (assumes all tables exist per schema contract)
+- Uses parameterized queries (no SQL injection)
 - Proper confidence levels
-- Minimal file I/O (last 5KB only)
+- Minimal file I/O (last 5KB only for build artifacts)
 """
 
 import sqlite3
@@ -30,7 +30,7 @@ from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 METADATA = RuleMetadata(
     name="sourcemap_exposure",
     category="security",
-    target_extensions=['.js', '.js.map', '.ts.map', '.mjs', '.cjs'],
+    target_extensions=['.js', '.ts', '.mjs', '.cjs', '.map'],
     exclude_patterns=['node_modules/', 'test/', 'spec/', '__tests__/'],
     requires_jsx_pass=False
 )
@@ -118,7 +118,6 @@ class SourcemapAnalyzer:
         self.context = context
         self.patterns = SourcemapPatterns()
         self.findings = []
-        self.existing_tables = set()
         self.seen_files = set()  # Deduplication
 
     def analyze(self) -> List[StandardFinding]:
@@ -133,7 +132,7 @@ class SourcemapAnalyzer:
 
         # Part 2: File I/O Analysis (Build Artifacts)
         # This is REQUIRED because build outputs aren't in database
-        if self.context.project_path:
+        if hasattr(self.context, 'project_path') and self.context.project_path:
             self._analyze_build_artifacts()
 
         return self.findings
@@ -148,35 +147,16 @@ class SourcemapAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables
-            self._check_table_availability()
-
-            # Run database checks
-            if 'assignments' in self.existing_tables:
-                self._check_webpack_configs()
-                self._check_typescript_configs()
-                self._check_build_tool_configs()
-
-            if 'function_call_args' in self.existing_tables:
-                self._check_sourcemap_plugins()
-                self._check_express_static()
-
-            if 'symbols' in self.existing_tables:
-                self._check_sourcemap_generation()
+            # Direct execution - schema contract guarantees table existence
+            self._check_webpack_configs()
+            self._check_typescript_configs()
+            self._check_build_tool_configs()
+            self._check_sourcemap_plugins()
+            self._check_express_static()
+            self._check_sourcemap_generation()
 
         finally:
             conn.close()
-
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'assignments', 'function_call_args', 'symbols',
-                'files', 'api_endpoints', 'config_files'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
 
     def _check_webpack_configs(self):
         """Check webpack configurations for source map settings."""
@@ -538,11 +518,15 @@ class SourcemapAnalyzer:
 
                             if not has_inline_map:
                                 has_external_map = True
-                                # Try to extract map filename
-                                import re
-                                match = re.search(r'sourceMappingURL=([^\s\n]+)', content_tail)
-                                if match:
-                                    map_reference = match.group(1)
+                                # Try to extract map filename using string operations
+                                if 'sourceMappingURL=' in content_tail:
+                                    start = content_tail.find('sourceMappingURL=') + len('sourceMappingURL=')
+                                    end = content_tail.find('\n', start)
+                                    if end == -1:
+                                        end = content_tail.find(' ', start)
+                                    if end == -1:
+                                        end = len(content_tail)
+                                    map_reference = content_tail[start:end].strip()
                             break
 
                     if has_inline_map:

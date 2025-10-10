@@ -114,17 +114,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
     try:
         # Verify this is a Vue project - trust schema contract
-        query = build_query('refs', ['DISTINCT file'],
-                           where="value IN ('vue', 'Vue', '@vue/composition-api', 'vuex', 'vue-router')",
-                           limit=1)
-        cursor.execute(query)
+        cursor.execute("""
+            SELECT DISTINCT src FROM refs
+            WHERE value IN ('vue', 'Vue', '@vue/composition-api', 'vuex', 'vue-router')
+            LIMIT 1
+        """)
         is_vue = cursor.fetchone() is not None
 
         if not is_vue:
             # Check for .vue files as fallback
             query = build_query('files', ['path'],
-                               where="ext = '.vue'",
-                               limit=1)
+                               where="ext = '.vue'") + " LIMIT 1"
             cursor.execute(query)
             is_vue = cursor.fetchone() is not None
 
@@ -132,10 +132,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             # Check for Vue component markers
             vue_markers_list = list(VUE_COMPONENT_MARKERS)
             placeholders = ','.join('?' * len(vue_markers_list))
-            query = build_query('symbols', ['DISTINCT path'],
-                               where=f"name IN ({placeholders})",
-                               limit=1)
-            cursor.execute(query, vue_markers_list)
+            cursor.execute(f"""
+                SELECT DISTINCT path FROM symbols
+                WHERE name IN ({placeholders})
+                LIMIT 1
+            """, vue_markers_list)
             is_vue = cursor.fetchone() is not None
 
         if not is_vue:
@@ -170,19 +171,21 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 2: eval() in Vue Components
         # ========================================================
         # Check for eval in files that are Vue components
-        query = build_query('function_call_args', ['DISTINCT file', 'line', 'argument_expr'],
-                           where="callee_function = 'eval'",
-                           order_by="file, line")
-        cursor.execute(query)
+        cursor.execute("""
+            SELECT DISTINCT file, line, argument_expr FROM function_call_args
+            WHERE callee_function = 'eval'
+            ORDER BY file, line
+        """)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         eval_usages = cursor.fetchall()
 
         for file, line, eval_content in eval_usages:
             # Check if this file is a Vue component
-            query = build_query('refs', ['1'],
-                               where="src = ? AND value IN ('vue', 'Vue')",
-                               limit=1)
-            cursor.execute(query, (file,))
+            cursor.execute("""
+                SELECT src FROM refs
+                WHERE src = ? AND value IN ('vue', 'Vue')
+                LIMIT 1
+            """, (file,))
             is_vue_file = cursor.fetchone() is not None
 
             if not is_vue_file and file.endswith('.vue'):
@@ -190,10 +193,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
             if not is_vue_file:
                 # Check for Vue lifecycle hooks
-                query = build_query('symbols', ['1'],
-                                   where="path = ? AND name IN ('mounted', 'created', 'methods', 'computed')",
-                                   limit=1)
-                cursor.execute(query, (file,))
+                cursor.execute("""
+                    SELECT path FROM symbols
+                    WHERE path = ? AND name IN ('mounted', 'created', 'methods', 'computed')
+                    LIMIT 1
+                """, (file,))
                 is_vue_file = cursor.fetchone() is not None
 
             if is_vue_file:
@@ -330,19 +334,21 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         dom_methods = list(DOM_MANIPULATION)
         placeholders = ','.join('?' * len(dom_methods))
 
-        query = build_query('function_call_args', ['DISTINCT file', 'line', 'callee_function'],
-                           where=f"callee_function IN ({placeholders})",
-                           order_by="file, line")
-        cursor.execute(query, dom_methods)
+        cursor.execute(f"""
+            SELECT DISTINCT file, line, callee_function FROM function_call_args
+            WHERE callee_function IN ({placeholders})
+            ORDER BY file, line
+        """, dom_methods)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         dom_manipulations = cursor.fetchall()
 
         for file, line, dom_method in dom_manipulations:
             # Check if this is a Vue file
-            query = build_query('symbols', ['1'],
-                               where="path = ? AND name IN ('mounted', 'created', 'methods', 'computed')",
-                               limit=1)
-            cursor.execute(query, (file,))
+            cursor.execute("""
+                SELECT path FROM symbols
+                WHERE path = ? AND name IN ('mounted', 'created', 'methods', 'computed')
+                LIMIT 1
+            """, (file,))
 
             if cursor.fetchone() or file.endswith('.vue'):
                 findings.append(StandardFinding(
@@ -370,10 +376,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             # Check if Vue file
             is_vue_file = file.endswith('.vue')
             if not is_vue_file:
-                query = build_query('refs', ['1'],
-                                   where="src = ? AND value IN ('vue', 'Vue')",
-                                   limit=1)
-                cursor.execute(query, (file,))
+                cursor.execute("""
+                    SELECT src FROM refs
+                    WHERE src = ? AND value IN ('vue', 'Vue')
+                    LIMIT 1
+                """, (file,))
                 is_vue_file = cursor.fetchone() is not None
 
             if is_vue_file:

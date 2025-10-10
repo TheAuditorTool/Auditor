@@ -948,9 +948,11 @@ def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
         if not args:
             continue
 
-        # Try to extract numeric values
-        import re
-        numbers = re.findall(r'\d+', args)
+        # Extract numeric values using string methods
+        numbers = []
+        for token in args.replace(',', ' ').replace(':', ' ').replace('(', ' ').replace(')', ' ').replace('=', ' ').split():
+            if token.isdigit():
+                numbers.append(token)
 
         for num_str in numbers:
             num = int(num_str)
