@@ -451,64 +451,39 @@ def _check_react_dangerouslysetinnerhtml(conn) -> List[StandardFinding]:
 # ============================================================================
 
 def _check_vue_vhtml_directive(conn) -> List[StandardFinding]:
-    """Check Vue v-html directives with user input."""
+    """Check Vue v-html directives with user input.
+
+    NO FALLBACKS. Schema contract guarantees vue_directives table exists.
+    If table missing, rule MUST crash to expose indexer bug.
+    """
     findings = []
     cursor = conn.cursor()
 
-    # First check if we have Vue directive data
-    cursor.execute("SELECT COUNT(*) FROM vue_directives LIMIT 1")
-    has_vue_data = cursor.fetchone()[0] > 0
+    # Query vue_directives table - assume it exists per schema contract
+    cursor.execute("""
+        SELECT vd.file, vd.line, vd.directive_name, vd.expression
+        FROM vue_directives vd
+        WHERE vd.directive_name = 'v-html'
+        ORDER BY vd.file, vd.line
+    """)
 
-    if has_vue_data:
-        # Use Vue-specific tables
-        cursor.execute("""
-            SELECT vd.file, vd.line, vd.directive_name, vd.expression
-            FROM vue_directives vd
-            WHERE vd.directive_name = 'v-html'
-            ORDER BY vd.file, vd.line
-        """)
+    for file, line, directive, expression in cursor.fetchall():
+        # Check if expression contains user input
+        has_user_input = any(src in (expression or '') for src in USER_INPUT_SOURCES)
+        has_route = '$route' in (expression or '')
+        has_props = 'props' in (expression or '')
 
-        for file, line, directive, expression in cursor.fetchall():
-            # Check if expression contains user input
-            has_user_input = any(src in (expression or '') for src in USER_INPUT_SOURCES)
-            has_route = '$route' in (expression or '')
-            has_props = 'props' in (expression or '')
-
-            if has_user_input or has_route or has_props:
-                findings.append(StandardFinding(
-                    rule_name='xss-vue-vhtml',
-                    message='XSS: v-html directive with user input',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='xss',
-                    snippet=f'v-html="{expression[:60]}"' if len(expression or '') > 60 else f'v-html="{expression}"',
-                    cwe_id='CWE-79'
-                ))
-    else:
-        # Fallback: Check assignments for v-html pattern
-        cursor.execute("""
-            SELECT a.file, a.line, a.source_expr
-            FROM assignments a
-            WHERE a.source_expr LIKE '%v-html%'
-            ORDER BY a.file, a.line
-        """)
-
-        for file, line, source in cursor.fetchall():
-            has_user_input = any(src in (source or '') for src in USER_INPUT_SOURCES)
-            has_route = '$route' in (source or '')
-
-            if has_user_input or has_route:
-                findings.append(StandardFinding(
-                    rule_name='xss-vue-vhtml-fallback',
-                    message='XSS: v-html with user input detected',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='xss',
-                    snippet=source[:100] if len(source or '') > 100 else source,
-                    cwe_id='CWE-79'
-                ))
+        if has_user_input or has_route or has_props:
+            findings.append(StandardFinding(
+                rule_name='xss-vue-vhtml',
+                message='XSS: v-html directive with user input',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='xss',
+                snippet=f'v-html="{expression[:60]}"' if len(expression or '') > 60 else f'v-html="{expression}"',
+                cwe_id='CWE-79'
+            ))
 
     return findings
 

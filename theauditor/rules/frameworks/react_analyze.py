@@ -187,9 +187,12 @@ class ReactAnalyzer:
             cursor = conn.cursor()
 
             # Check for React imports - trust schema contract
-            query = build_query('refs', ['DISTINCT src'],
-                               where="value IN ('react', 'react-dom', 'React') OR value LIKE 'react/%' OR value LIKE 'react-dom/%'")
-            cursor.execute(query)
+            cursor.execute("""
+                SELECT DISTINCT src FROM refs
+                WHERE value IN ('react', 'react-dom', 'React')
+                   OR value LIKE 'react/%'
+                   OR value LIKE 'react-dom/%'
+            """)
             react_refs = cursor.fetchall()
 
             if react_refs:
@@ -197,10 +200,11 @@ class ReactAnalyzer:
                 self.has_react = True
             else:
                 # Also check for React-specific symbols
-                query = build_query('symbols', ['DISTINCT path'],
-                                   where="name IN ('useState', 'useEffect', 'useContext', 'useReducer', 'Component', 'createElement')",
-                                   limit=1)
-                cursor.execute(query)
+                cursor.execute("""
+                    SELECT DISTINCT path FROM symbols
+                    WHERE name IN ('useState', 'useEffect', 'useContext', 'useReducer', 'Component', 'createElement')
+                    LIMIT 1
+                """)
                 react_symbols = cursor.fetchall()
 
                 if react_symbols:
@@ -229,9 +233,11 @@ class ReactAnalyzer:
 
             for file, line, html_content in dangerous_html_usages:
                 # Check if sanitization is nearby
-                query = build_query('function_call_args', ['COUNT(*)'],
-                                   where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'DOMPurify', 'escape', 'xss', 'purify')")
-                cursor.execute(query, (file, line - 10, line + 10))
+                cursor.execute("""
+                    SELECT COUNT(*) FROM function_call_args
+                    WHERE file = ? AND line BETWEEN ? AND ?
+                      AND callee_function IN ('sanitize', 'DOMPurify', 'escape', 'xss', 'purify')
+                """, (file, line - 10, line + 10))
 
                 has_sanitization = cursor.fetchone()[0] > 0
 
@@ -510,26 +516,30 @@ class ReactAnalyzer:
             form_handlers_list = list(self.patterns.FORM_HANDLERS)
             placeholders = ','.join('?' * len(form_handlers_list))
 
-            query = build_query('function_call_args', ['DISTINCT file', 'line'],
-                               where=f"callee_function IN ({placeholders})",
-                               order_by="file, line")
-            cursor.execute(query, form_handlers_list)
+            cursor.execute(f"""
+                SELECT DISTINCT file, line FROM function_call_args
+                WHERE callee_function IN ({placeholders})
+                ORDER BY file, line
+            """, form_handlers_list)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             form_handlers = cursor.fetchall()
 
             for file, line in form_handlers:
                 # Check for nearby validation/sanitization calls
-                query = build_query('function_call_args', ['COUNT(*)'],
-                                   where="file = ? AND line BETWEEN ? AND ? AND (callee_function LIKE '%validate%' OR callee_function LIKE '%sanitize%')")
-                cursor.execute(query, (file, line - 20, line + 20))
+                cursor.execute("""
+                    SELECT COUNT(*) FROM function_call_args
+                    WHERE file = ? AND line BETWEEN ? AND ?
+                      AND (callee_function LIKE '%validate%' OR callee_function LIKE '%sanitize%')
+                """, (file, line - 20, line + 20))
 
                 has_validation_nearby = cursor.fetchone()[0] > 0
 
                 if not has_validation_nearby:
                     # Also check if validation libraries are imported
-                    query = build_query('refs', ['COUNT(*)'],
-                                       where="src = ? AND value IN ('yup', 'joi', 'zod', 'validator')")
-                    cursor.execute(query, (file,))
+                    cursor.execute("""
+                        SELECT COUNT(*) FROM refs
+                        WHERE src = ? AND value IN ('yup', 'joi', 'zod', 'validator')
+                    """, (file,))
 
                     has_validation_lib = cursor.fetchone()[0] > 0
 
@@ -589,17 +599,19 @@ class ReactAnalyzer:
             route_funcs_list = list(self.patterns.ROUTE_FUNCTIONS)
             placeholders = ','.join('?' * len(route_funcs_list))
 
-            query = build_query('function_call_args', ['DISTINCT file'],
-                               where=f"callee_function IN ({placeholders})")
-            cursor.execute(query, route_funcs_list)
+            cursor.execute(f"""
+                SELECT DISTINCT file FROM function_call_args
+                WHERE callee_function IN ({placeholders})
+            """, route_funcs_list)
             # ✅ FIX: Store results before loop to avoid cursor state bug
             route_files = cursor.fetchall()
 
             for (file,) in route_files:
                 # Check if file has any auth-related function calls
-                query = build_query('function_call_args', ['COUNT(*)'],
-                                   where="file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%Auth%')")
-                cursor.execute(query, (file,))
+                cursor.execute("""
+                    SELECT COUNT(*) FROM function_call_args
+                    WHERE file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%Auth%')
+                """, (file,))
 
                 has_auth_pattern = cursor.fetchone()[0] > 0
 
@@ -608,9 +620,10 @@ class ReactAnalyzer:
                     auth_funcs_list = list(self.patterns.AUTH_FUNCTIONS)
                     placeholders = ','.join('?' * len(auth_funcs_list))
 
-                    query = build_query('function_call_args', ['COUNT(*)'],
-                                       where=f"file = ? AND callee_function IN ({placeholders})")
-                    cursor.execute(query, [file] + auth_funcs_list)
+                    cursor.execute(f"""
+                        SELECT COUNT(*) FROM function_call_args
+                        WHERE file = ? AND callee_function IN ({placeholders})
+                    """, [file] + auth_funcs_list)
 
                     has_auth = cursor.fetchone()[0] > 0
 
@@ -662,9 +675,12 @@ class ReactAnalyzer:
                     # Check if CSRF token is present
                     if 'csrf' not in form_lower and 'xsrf' not in form_lower:
                         # Also check if there's CSRF handling nearby
-                        query = build_query('assignments', ['COUNT(*)'],
-                                           where="file = ? AND line BETWEEN ? AND ? AND (target_var LIKE '%csrf%' OR source_expr LIKE '%csrf%' OR target_var LIKE '%xsrf%' OR source_expr LIKE '%xsrf%')")
-                        cursor.execute(query, (file, line - 10, line + 10))
+                        cursor.execute("""
+                            SELECT COUNT(*) FROM assignments
+                            WHERE file = ? AND line BETWEEN ? AND ?
+                              AND (target_var LIKE '%csrf%' OR source_expr LIKE '%csrf%'
+                                   OR target_var LIKE '%xsrf%' OR source_expr LIKE '%xsrf%')
+                        """, (file, line - 10, line + 10))
 
                         has_csrf_nearby = cursor.fetchone()[0] > 0
 
@@ -721,9 +737,11 @@ class ReactAnalyzer:
 
                     if not has_sanitization:
                         # Also check for sanitization nearby
-                        query = build_query('function_call_args', ['COUNT(*)'],
-                                           where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'escape', 'DOMPurify', 'xss')")
-                        cursor.execute(query, (file, line - 5, line + 5))
+                        cursor.execute("""
+                            SELECT COUNT(*) FROM function_call_args
+                            WHERE file = ? AND line BETWEEN ? AND ?
+                              AND callee_function IN ('sanitize', 'escape', 'DOMPurify', 'xss')
+                        """, (file, line - 5, line + 5))
 
                         has_sanitization_nearby = cursor.fetchone()[0] > 0
 

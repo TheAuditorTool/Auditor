@@ -11,7 +11,7 @@ Follows v1.1+ gold standard patterns:
 """
 
 import sqlite3
-from typing import List
+from typing import List, Set
 from pathlib import Path
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -147,17 +147,14 @@ def _get_vue_files(cursor) -> Set[str]:
     """
     vue_files = set()
 
-    # Try vue_components table first (JSX-preserved data)
-    try:
-        cursor.execute("""
-            SELECT DISTINCT file
-            FROM vue_components
-        """)
-        vue_files.update(row[0] for row in cursor.fetchall())
-        if vue_files:
-            return vue_files
-    except sqlite3.OperationalError:
-        pass  # Table doesn't exist, fall through to file extension check
+    # Query vue_components table (schema contract guarantees existence)
+    cursor.execute("""
+        SELECT DISTINCT file
+        FROM vue_components
+    """)
+    vue_files.update(row[0] for row in cursor.fetchall())
+    if vue_files:
+        return vue_files
 
     # Fallback: Check files table by extension
     cursor.execute("""
@@ -227,36 +224,34 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
     """Find v-for loops without :key attribute."""
     findings = []
 
-    # Try vue_directives table first
-    try:
-        placeholders = ','.join('?' * len(vue_files))
+    # Query vue_directives table (schema contract guarantees existence)
+    placeholders = ','.join('?' * len(vue_files))
 
-        cursor.execute(f"""
-            SELECT file, line, expression
-            FROM vue_directives
-            WHERE file IN ({placeholders})
-              AND directive_name = 'v-for'
-              AND has_key = 0
-            ORDER BY file, line
-        """, list(vue_files))
+    cursor.execute(f"""
+        SELECT file, line, expression
+        FROM vue_directives
+        WHERE file IN ({placeholders})
+          AND directive_name = 'v-for'
+          AND has_key = 0
+        ORDER BY file, line
+    """, list(vue_files))
 
-        for file, line, expression in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='vue-missing-vfor-key',
-                message=f'v-for directive without :key attribute: "{expression}"',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='vue-performance',
-                confidence=Confidence.HIGH,
-                cwe_id='CWE-704'
-            ))
+    for file, line, expression in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='vue-missing-vfor-key',
+            message=f'v-for directive without :key attribute: "{expression}"',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='vue-performance',
+            confidence=Confidence.HIGH,
+            cwe_id='CWE-704'
+        ))
 
+    if findings:
         return findings
-    except sqlite3.OperationalError:
-        pass  # Table doesn't exist, fall through to symbols table
 
-    # Pattern search in symbols table
+    # Pattern search in symbols table as fallback
     placeholders = ','.join('?' * len(vue_files))
 
     # Look for v-for patterns without adjacent key

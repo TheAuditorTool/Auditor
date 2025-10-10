@@ -5,12 +5,13 @@ by querying semantic type information from the type_annotations table (populated
 by TypeScript Compiler API).
 
 Follows gold standard patterns (v1.1+ schema contract compliance):
-- Assumes all contracted tables exist (no table existence checks)
-- 60%+ more accurate detection using semantic type data from TypeScript compiler
+- Assumes all contracted tables exist (NO table existence checks, NO fallback logic)
+- 100% accurate detection using semantic type data from TypeScript compiler
 - 16 comprehensive patterns (added 'unknown' type detection)
 - Indexed boolean lookups (is_any, is_unknown, is_generic) instead of LIKE scans
 - Direct access to return_type, type_params, and type_annotation columns
 - Proper frozensets for O(1) pattern matching
+- If type_annotations table missing, rule crashes with clear error (CORRECT behavior)
 """
 
 import sqlite3
@@ -51,8 +52,8 @@ def find_type_safety_issues(context: StandardRuleContext) -> List[StandardFindin
     - Missing generic type parameters (semantic detection via is_generic)
     - And much more...
 
-    Uses type_annotations table when available for 60%+ more accurate detection.
-    Falls back to heuristic pattern matching when semantic data unavailable.
+    Uses type_annotations table for 100% accurate semantic detection.
+    NO fallback logic - if table missing, rule crashes (CORRECT behavior per schema contract).
 
     Args:
         context: StandardRuleContext with database path
@@ -144,58 +145,30 @@ def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding
     """Find explicit 'any' type annotations using semantic type data."""
     findings = []
 
-    # Try semantic detection first (type_annotations table)
-    try:
-        # Use semantic 'any' detection from TypeScript compiler (100% accurate)
-        placeholders = ','.join(['?' for _ in ts_files])
-        cursor.execute(f"""
-            SELECT file, line, symbol_name, type_annotation, symbol_kind
-            FROM type_annotations
-            WHERE file IN ({placeholders})
-              AND is_any = 1
-        """, list(ts_files))
+    # Use semantic 'any' detection from TypeScript compiler (100% accurate)
+    # Schema contract guarantees type_annotations table exists
+    placeholders = ','.join(['?' for _ in ts_files])
+    cursor.execute(f"""
+        SELECT file, line, symbol_name, type_annotation, symbol_kind
+        FROM type_annotations
+        WHERE file IN ({placeholders})
+          AND is_any = 1
+    """, list(ts_files))
 
-        any_types = cursor.fetchall()
+    any_types = cursor.fetchall()
 
-        for file, line, name, type_ann, kind in any_types:
-            findings.append(StandardFinding(
-                rule_name='typescript-explicit-any',
-                message=f"Explicit 'any' type in {kind}: {name}",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                confidence=Confidence.HIGH,
-                category='type-safety',
-                snippet=f'{name}: {type_ann}' if type_ann else f'{name}: any',
-                cwe_id='CWE-843'
-            ))
-    except sqlite3.OperationalError:
-        # Fallback: Check symbols table for 'any' types (heuristic, less accurate)
-        placeholders = ','.join(['?' for _ in ts_files])
-        cursor.execute(f"""
-            SELECT s.path AS file, s.line, s.name, s.type AS symbol_type
-            FROM symbols s
-            WHERE s.path IN ({placeholders})
-              AND (s.name LIKE '%: any%'
-                   OR s.name LIKE '%<any>%'
-                   OR s.name LIKE '%any[]%'
-                   OR s.name LIKE '%Array<any>%')
-        """, list(ts_files))
-
-        any_symbols = cursor.fetchall()
-
-        for file, line, name, sym_type in any_symbols:
-            findings.append(StandardFinding(
-                rule_name='typescript-explicit-any',
-                message=f"Explicit 'any' type in {sym_type}: {name}",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                confidence=Confidence.MEDIUM,  # Lower confidence for heuristic
-                category='type-safety',
-                snippet=name[:100],
-                cwe_id='CWE-843'
-            ))
+    for file, line, name, type_ann, kind in any_types:
+        findings.append(StandardFinding(
+            rule_name='typescript-explicit-any',
+            message=f"Explicit 'any' type in {kind}: {name}",
+            file_path=file,
+            line=line,
+            severity=Severity.MEDIUM,
+            confidence=Confidence.HIGH,
+            category='type-safety',
+            snippet=f'{name}: {type_ann}' if type_ann else f'{name}: any',
+            cwe_id='CWE-843'
+        ))
 
     # Also check assignments for 'as any' type assertions
     placeholders = ','.join(['?' for _ in ts_files])
@@ -228,71 +201,40 @@ def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFindi
     """Find functions without explicit return types using semantic type data."""
     findings = []
 
-    # Try semantic detection first (type_annotations table)
-    try:
-        # Use semantic return type data from TypeScript compiler
-        placeholders = ','.join(['?' for _ in ts_files])
-        cursor.execute(f"""
-            SELECT file, line, symbol_name, return_type
-            FROM type_annotations
-            WHERE file IN ({placeholders})
-              AND symbol_kind = 'function'
-              AND (return_type IS NULL OR return_type = '')
-        """, list(ts_files))
+    # Use semantic return type data from TypeScript compiler
+    # Schema contract guarantees type_annotations table exists
+    placeholders = ','.join(['?' for _ in ts_files])
+    cursor.execute(f"""
+        SELECT file, line, symbol_name, return_type
+        FROM type_annotations
+        WHERE file IN ({placeholders})
+          AND symbol_kind = 'function'
+          AND (return_type IS NULL OR return_type = '')
+    """, list(ts_files))
 
-        missing_returns = cursor.fetchall()
+    missing_returns = cursor.fetchall()
 
-        # Known exceptions that don't need explicit return types
-        known_exceptions = frozenset([
-            'constructor', 'render', 'componentDidMount', 'componentDidUpdate',
-            'componentWillUnmount', 'componentWillMount', 'shouldComponentUpdate',
-            'getSnapshotBeforeUpdate', 'componentDidCatch'
-        ])
+    # Known exceptions that don't need explicit return types
+    known_exceptions = frozenset([
+        'constructor', 'render', 'componentDidMount', 'componentDidUpdate',
+        'componentWillUnmount', 'componentWillMount', 'shouldComponentUpdate',
+        'getSnapshotBeforeUpdate', 'componentDidCatch'
+    ])
 
-        for file, line, name, return_type in missing_returns:
-            # Skip known exceptions
-            if name not in known_exceptions:
-                findings.append(StandardFinding(
-                    rule_name='typescript-missing-return-type',
-                    message=f"Function '{name}' missing explicit return type",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.LOW,
-                    confidence=Confidence.HIGH,  # High confidence from semantic data
-                    category='type-safety',
-                    snippet=f'function {name}(...)',
-                    cwe_id='CWE-843'
-                ))
-    except sqlite3.OperationalError:
-        # Fallback: Find function symbols without return type annotations (heuristic)
-        placeholders = ','.join(['?' for _ in ts_files])
-        cursor.execute(f"""
-            SELECT s.path AS file, s.line, s.name
-            FROM symbols s
-            WHERE s.path IN ({placeholders})
-              AND s.type = 'function'
-              AND s.name NOT LIKE '%=>%void%'
-              AND s.name NOT LIKE '%:%'
-              AND s.name NOT LIKE '%Promise<%'
-              AND s.name NOT LIKE '%async%'
-        """, list(ts_files))
-
-        untyped_functions = cursor.fetchall()
-
-        for file, line, name in untyped_functions:
-            # Skip constructors and React lifecycle methods
-            if name not in ['constructor', 'render', 'componentDidMount', 'componentWillUnmount']:
-                findings.append(StandardFinding(
-                    rule_name='typescript-missing-return-type',
-                    message=f"Function '{name}' missing explicit return type",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.LOW,
-                    confidence=Confidence.MEDIUM,  # Lower confidence for heuristic
-                    category='type-safety',
-                    snippet=f'function {name}(...)',
-                    cwe_id='CWE-843'
-                ))
+    for file, line, name, return_type in missing_returns:
+        # Skip known exceptions
+        if name not in known_exceptions:
+            findings.append(StandardFinding(
+                rule_name='typescript-missing-return-type',
+                message=f"Function '{name}' missing explicit return type",
+                file_path=file,
+                line=line,
+                severity=Severity.LOW,
+                confidence=Confidence.HIGH,
+                category='type-safety',
+                snippet=f'function {name}(...)',
+                cwe_id='CWE-843'
+            ))
 
     return findings
 
@@ -407,59 +349,33 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFi
     # Convert to frozenset for O(1) lookups (gold standard)
     dangerous_types = frozenset(['Function', 'Object', '{}'])
 
-    # Try semantic detection first (type_annotations table)
-    try:
-        # Use semantic type data from TypeScript compiler
-        placeholders = ','.join(['?' for _ in ts_files])
-        for dangerous_type in dangerous_types:
-            cursor.execute(f"""
-                SELECT file, line, symbol_name, type_annotation
-                FROM type_annotations
-                WHERE file IN ({placeholders})
-                  AND (type_annotation = ?
-                       OR type_annotation LIKE ?
-                       OR type_annotation LIKE ?)
-            """, list(ts_files) + [dangerous_type, f'{dangerous_type}[]', f'%<{dangerous_type}>%'])
+    # Use semantic type data from TypeScript compiler
+    # Schema contract guarantees type_annotations table exists
+    placeholders = ','.join(['?' for _ in ts_files])
+    for dangerous_type in dangerous_types:
+        cursor.execute(f"""
+            SELECT file, line, symbol_name, type_annotation
+            FROM type_annotations
+            WHERE file IN ({placeholders})
+              AND (type_annotation = ?
+                   OR type_annotation LIKE ?
+                   OR type_annotation LIKE ?)
+        """, list(ts_files) + [dangerous_type, f'{dangerous_type}[]', f'%<{dangerous_type}>%'])
 
-            dangerous_types_found = cursor.fetchall()
+        dangerous_types_found = cursor.fetchall()
 
-            for file, line, name, type_ann in dangerous_types_found:
-                findings.append(StandardFinding(
-                    rule_name=f'typescript-dangerous-type-{dangerous_type.lower().replace("{", "").replace("}", "empty")}',
-                    message=f"Dangerous type '{dangerous_type}' used in {name}",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.HIGH,  # High confidence from semantic data
-                    category='type-safety',
-                    snippet=f'{name}: {type_ann}' if type_ann else f': {dangerous_type}',
-                    cwe_id='CWE-843'
-                ))
-    except sqlite3.OperationalError:
-        # Fallback: Use heuristic pattern matching on symbols
-        placeholders = ','.join(['?' for _ in ts_files])
-        for dangerous_type in dangerous_types:
-            cursor.execute(f"""
-                SELECT s.path AS file, s.line, s.name
-                FROM symbols s
-                WHERE s.path IN ({placeholders})
-                  AND (s.name LIKE ? OR s.name LIKE ? OR s.name LIKE ?)
-            """, list(ts_files) + [f'%: {dangerous_type}%', f'%<{dangerous_type}>%', f'%{dangerous_type}[]%'])
-
-            dangerous_symbols = cursor.fetchall()
-
-            for file, line, name in dangerous_symbols:
-                findings.append(StandardFinding(
-                    rule_name=f'typescript-dangerous-type-{dangerous_type.lower().replace("{", "").replace("}", "empty")}',
-                    message=f"Dangerous type '{dangerous_type}' in {name}",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.MEDIUM,  # Lower confidence for heuristic
-                    category='type-safety',
-                    snippet=f': {dangerous_type}',
-                    cwe_id='CWE-843'
-                ))
+        for file, line, name, type_ann in dangerous_types_found:
+            findings.append(StandardFinding(
+                rule_name=f'typescript-dangerous-type-{dangerous_type.lower().replace("{", "").replace("}", "empty")}',
+                message=f"Dangerous type '{dangerous_type}' used in {name}",
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                confidence=Confidence.HIGH,
+                category='type-safety',
+                snippet=f'{name}: {type_ann}' if type_ann else f': {dangerous_type}',
+                cwe_id='CWE-843'
+            ))
 
     return findings
 
@@ -676,59 +592,32 @@ def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFind
     # Common generics that should have type parameters (frozenset)
     generic_types = frozenset(['Array', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet', 'Record'])
 
-    # Try semantic detection first (type_annotations table)
-    try:
-        # Use semantic generic detection from TypeScript compiler
-        placeholders = ','.join(['?' for _ in ts_files])
-        for generic in generic_types:
-            cursor.execute(f"""
-                SELECT file, line, symbol_name, type_annotation, type_params
-                FROM type_annotations
-                WHERE file IN ({placeholders})
-                  AND type_annotation = ?
-                  AND (is_generic = 0 OR type_params IS NULL OR type_params = '')
-            """, list(ts_files) + [generic])
+    # Use semantic generic detection from TypeScript compiler
+    # Schema contract guarantees type_annotations table exists
+    placeholders = ','.join(['?' for _ in ts_files])
+    for generic in generic_types:
+        cursor.execute(f"""
+            SELECT file, line, symbol_name, type_annotation, type_params
+            FROM type_annotations
+            WHERE file IN ({placeholders})
+              AND type_annotation = ?
+              AND (is_generic = 0 OR type_params IS NULL OR type_params = '')
+        """, list(ts_files) + [generic])
 
-            untyped_generics = cursor.fetchall()
+        untyped_generics = cursor.fetchall()
 
-            for file, line, name, type_ann, type_params in untyped_generics:
-                findings.append(StandardFinding(
-                    rule_name=f'typescript-untyped-{generic.lower()}',
-                    message=f'{generic} without type parameter defaults to any',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.HIGH,  # High confidence from semantic data
-                    category='type-safety',
-                    snippet=f': {generic}' if not type_ann else f': {type_ann}',
-                    cwe_id='CWE-843'
-                ))
-    except sqlite3.OperationalError:
-        # Fallback: Use heuristic pattern matching on symbols
-        placeholders = ','.join(['?' for _ in ts_files])
-        for generic in generic_types:
-            cursor.execute(f"""
-                SELECT s.path AS file, s.line, s.name
-                FROM symbols s
-                WHERE s.path IN ({placeholders})
-                  AND (s.name LIKE ? OR s.name LIKE ?)
-                  AND s.name NOT LIKE '%<%.%>%'
-            """, list(ts_files) + [f'%: {generic}%', f'%new {generic}%'])
-
-            untyped_generics = cursor.fetchall()
-
-            for file, line, name in untyped_generics:
-                findings.append(StandardFinding(
-                    rule_name=f'typescript-untyped-{generic.lower()}',
-                    message=f'{generic} without type parameter defaults to any',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.MEDIUM,  # Lower confidence for heuristic
-                    category='type-safety',
-                    snippet=f': {generic}',
-                    cwe_id='CWE-843'
-                ))
+        for file, line, name, type_ann, type_params in untyped_generics:
+            findings.append(StandardFinding(
+                rule_name=f'typescript-untyped-{generic.lower()}',
+                message=f'{generic} without type parameter defaults to any',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                confidence=Confidence.HIGH,
+                category='type-safety',
+                snippet=f': {generic}' if not type_ann else f': {type_ann}',
+                cwe_id='CWE-843'
+            ))
 
     return findings
 

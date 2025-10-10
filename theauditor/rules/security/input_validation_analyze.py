@@ -1,19 +1,18 @@
-"""Input Validation Analyzer - Database-First Approach.
+"""Input Validation Analyzer - Schema Contract Compliant Implementation.
 
 Detects input validation vulnerabilities including validation bypasses,
 type confusion, prototype pollution, and framework-specific issues using
 ONLY indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
-Follows golden standard patterns from compose_analyze.py:
-- Frozensets for all patterns
-- Table existence checks
-- Graceful degradation
+Follows v1.1+ schema contract compliance:
+- Frozensets for all patterns (O(1) lookups)
+- Direct database queries (assumes all tables exist per schema contract)
+- Uses parameterized queries (no SQL injection)
 - Proper confidence levels
 """
 
 import sqlite3
 import json
-import re
 from typing import List, Dict, Set, Optional
 from dataclasses import dataclass
 
@@ -149,7 +148,6 @@ class InputValidationAnalyzer:
         self.context = context
         self.patterns = ValidationPatterns()
         self.findings = []
-        self.existing_tables = set()
         self.seen_issues = set()  # Deduplication
 
     def analyze(self) -> List[StandardFinding]:
@@ -165,14 +163,7 @@ class InputValidationAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables (Golden Standard)
-            self._check_table_availability()
-
-            # Must have minimum tables for analysis
-            if not self._has_minimum_tables():
-                return []
-
-            # Run all detection functions
+            # Direct execution - schema contract guarantees table existence
             # Priority 1: Database Direct (High Confidence)
             self._detect_prototype_pollution()
             self._detect_nosql_injection()
@@ -199,22 +190,6 @@ class InputValidationAnalyzer:
 
         return self.findings
 
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'function_call_args', 'assignments', 'symbols',
-                'api_endpoints', 'cfg_blocks', 'sql_queries', 'files'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
-    def _has_minimum_tables(self) -> bool:
-        """Check if minimum required tables exist."""
-        required = {'function_call_args', 'assignments'}
-        return required.issubset(self.existing_tables)
-
     def _add_finding(self, rule_name: str, message: str, file: str, line: int,
                     severity: Severity, confidence: Confidence,
                     cwe_id: str, snippet: str = ""):
@@ -240,9 +215,6 @@ class InputValidationAnalyzer:
 
     def _detect_prototype_pollution(self):
         """Detect prototype pollution vulnerabilities."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         for merge_func in self.patterns.MERGE_FUNCTIONS:
             self.cursor.execute("""
                 SELECT file, line, callee_function, argument_expr
@@ -272,9 +244,6 @@ class InputValidationAnalyzer:
 
     def _detect_nosql_injection(self):
         """Detect NoSQL injection vulnerabilities."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Check for NoSQL operators in assignments
         for operator in self.patterns.NOSQL_OPERATORS:
             self.cursor.execute("""
@@ -302,8 +271,7 @@ class InputValidationAnalyzer:
                 )
 
         # Check function calls with NoSQL operators
-        if 'function_call_args' in self.existing_tables:
-            self.cursor.execute("""
+        self.cursor.execute("""
                 SELECT file, line, callee_function, argument_expr
                 FROM function_call_args
                 WHERE (callee_function LIKE '%.find%'
@@ -313,24 +281,21 @@ class InputValidationAnalyzer:
                 ORDER BY file, line
             """)
 
-            for file, line, func, args in self.cursor.fetchall():
-                if args and any(op in str(args) for op in self.patterns.NOSQL_OPERATORS):
-                    self._add_finding(
-                        rule_name='nosql-injection-query',
-                        message=f'NoSQL injection in {func} with operators in query',
-                        file=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-943',
-                        snippet=f'{func}({args[:50]})'
-                    )
+        for file, line, func, args in self.cursor.fetchall():
+            if args and any(op in str(args) for op in self.patterns.NOSQL_OPERATORS):
+                self._add_finding(
+                    rule_name='nosql-injection-query',
+                    message=f'NoSQL injection in {func} with operators in query',
+                    file=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-943',
+                    snippet=f'{func}({args[:50]})'
+                )
 
     def _detect_missing_validation(self):
         """Detect database operations without validation."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Find DB operations with direct user input
         for db_op in self.patterns.DB_WRITE_OPS:
             self.cursor.execute("""
@@ -363,9 +328,6 @@ class InputValidationAnalyzer:
 
     def _detect_template_injection(self):
         """Detect server-side template injection vulnerabilities."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         for template_func in self.patterns.TEMPLATE_ENGINES:
             self.cursor.execute("""
                 SELECT file, line, callee_function, argument_expr
@@ -396,9 +358,6 @@ class InputValidationAnalyzer:
 
     def _detect_type_confusion(self):
         """Detect type confusion vulnerabilities."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find typeof checks that can be bypassed
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -431,9 +390,6 @@ class InputValidationAnalyzer:
 
     def _detect_incomplete_validation(self):
         """Detect validation that doesn't cover all fields."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Find validation followed by dangerous operations
         self.cursor.execute("""
             SELECT f1.file, f1.line, f1.callee_function, f2.callee_function, f2.line
@@ -463,9 +419,6 @@ class InputValidationAnalyzer:
 
     def _detect_schema_bypass(self):
         """Detect validation that allows additional properties."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Look for spread operators after validation
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
@@ -493,9 +446,6 @@ class InputValidationAnalyzer:
 
     def _detect_validation_library_misuse(self):
         """Detect common validation library misconfigurations."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Check for weak validation patterns
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
@@ -525,9 +475,6 @@ class InputValidationAnalyzer:
 
     def _detect_framework_bypasses(self):
         """Detect framework-specific validation bypasses."""
-        if 'api_endpoints' not in self.existing_tables:
-            return
-
         # Check for endpoints without middleware
         self.cursor.execute("""
             SELECT file, method, pattern, controls
@@ -556,9 +503,6 @@ class InputValidationAnalyzer:
 
     def _detect_graphql_injection(self):
         """Detect GraphQL injection vulnerabilities."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         for graphql_func in self.patterns.GRAPHQL_OPS:
             self.cursor.execute("""
                 SELECT file, line, callee_function, argument_expr
@@ -588,9 +532,6 @@ class InputValidationAnalyzer:
 
     def _detect_second_order_injection(self):
         """Detect second-order injection vulnerabilities."""
-        if not all(t in self.existing_tables for t in ['function_call_args', 'assignments']):
-            return
-
         # Find data retrieved from DB and used without validation
         self.cursor.execute("""
             SELECT a.file, a.line, a.target_var, f.callee_function, f.line
@@ -619,9 +560,6 @@ class InputValidationAnalyzer:
 
     def _detect_business_logic_bypass(self):
         """Detect business logic validation issues."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find negative number checks
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -661,9 +599,6 @@ class InputValidationAnalyzer:
 
     def _detect_path_traversal(self):
         """Detect path traversal vulnerabilities."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find file operations with user input
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -693,9 +628,6 @@ class InputValidationAnalyzer:
 
     def _detect_type_juggling(self):
         """Detect type juggling vulnerabilities."""
-        if 'assignments' not in self.existing_tables:
-            return
-
         # Find loose equality checks
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
@@ -722,9 +654,6 @@ class InputValidationAnalyzer:
 
     def _detect_orm_injection(self):
         """Detect ORM-specific injection vulnerabilities."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Check for raw queries with user input
         for orm_method in self.patterns.ORM_METHODS:
             self.cursor.execute("""
@@ -758,9 +687,6 @@ class InputValidationAnalyzer:
 
     def _check_validation_nearby(self, file: str, line: int) -> bool:
         """Check if validation exists near a line."""
-        if 'function_call_args' not in self.existing_tables:
-            return False
-
         # Check for validation calls within 20 lines before
         validation_funcs = tuple(self.patterns.VALIDATION_FUNCTIONS)
         placeholders = ','.join('?' * len(validation_funcs))

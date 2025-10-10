@@ -181,7 +181,6 @@ class ApiAuthAnalyzer:
         self.context = context
         self.patterns = ApiAuthPatterns()
         self.findings = []
-        self.existing_tables = set()
 
     def analyze(self) -> List[StandardFinding]:
         """Main analysis entry point.
@@ -196,13 +195,6 @@ class ApiAuthAnalyzer:
         self.cursor = conn.cursor()
 
         try:
-            # Check available tables for graceful degradation
-            self._check_table_availability()
-
-            # Must have api_endpoints table for any analysis
-            if 'api_endpoints' not in self.existing_tables:
-                return []
-
             # Run authentication checks
             self._check_missing_auth_on_mutations()
             self._check_sensitive_endpoints()
@@ -215,17 +207,6 @@ class ApiAuthAnalyzer:
 
         return self.findings
 
-    def _check_table_availability(self):
-        """Check which tables exist for graceful degradation."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN (
-                'api_endpoints', 'function_call_args', 'assignments',
-                'symbols', 'refs', 'files'
-            )
-        """)
-        self.existing_tables = {row[0] for row in self.cursor.fetchall()}
-
     def _check_missing_auth_on_mutations(self):
         """Check for state-changing endpoints without authentication."""
         # Convert patterns to lowercase for case-insensitive matching
@@ -233,13 +214,13 @@ class ApiAuthAnalyzer:
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
         self.cursor.execute("""
-            SELECT file, method, pattern, controls
+            SELECT file, line, method, pattern, controls
             FROM api_endpoints
             WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
             ORDER BY file, pattern
         """)
 
-        for file, method, pattern, controls_json in self.cursor.fetchall():
+        for file, line, method, pattern, controls_json in self.cursor.fetchall():
             # Parse controls
             try:
                 controls = json.loads(controls_json) if controls_json else []
@@ -270,7 +251,7 @@ class ApiAuthAnalyzer:
                     rule_name='api-missing-auth',
                     message=f'State-changing endpoint lacks authentication: {method} {pattern}',
                     file_path=file,
-                    line=1,
+                    line=line or 1,
                     severity=severity,
                     category='authentication',
                     confidence=confidence,
@@ -284,13 +265,13 @@ class ApiAuthAnalyzer:
 
         for sensitive in sensitive_patterns_lower:
             self.cursor.execute("""
-                SELECT file, method, pattern, controls
+                SELECT file, line, method, pattern, controls
                 FROM api_endpoints
                 WHERE LOWER(pattern) LIKE ?
                 ORDER BY file, pattern
             """, [f'%{sensitive}%'])
 
-            for file, method, pattern, controls_json in self.cursor.fetchall():
+            for file, line, method, pattern, controls_json in self.cursor.fetchall():
                 # Parse controls
                 try:
                     controls = json.loads(controls_json) if controls_json else []
@@ -310,7 +291,7 @@ class ApiAuthAnalyzer:
                         rule_name='api-sensitive-no-auth',
                         message=f'Sensitive endpoint "{pattern}" lacks authentication',
                         file_path=file,
-                        line=1,
+                        line=line or 1,
                         severity=Severity.CRITICAL,
                         category='authentication',
                         confidence=Confidence.HIGH,
@@ -319,9 +300,6 @@ class ApiAuthAnalyzer:
 
     def _check_graphql_mutations(self):
         """Check GraphQL mutations for authentication."""
-        if 'function_call_args' not in self.existing_tables:
-            return
-
         # Look for GraphQL resolvers
         graphql_patterns = ','.join('?' * len(self.patterns.GRAPHQL_PATTERNS))
         self.cursor.execute(f"""
@@ -354,13 +332,13 @@ class ApiAuthAnalyzer:
         """Check for weak authentication patterns."""
         # Look for basic auth or weak patterns
         self.cursor.execute("""
-            SELECT file, method, pattern, controls
+            SELECT file, line, method, pattern, controls
             FROM api_endpoints
             WHERE controls IS NOT NULL
             ORDER BY file, pattern
         """)
 
-        for file, method, pattern, controls_json in self.cursor.fetchall():
+        for file, line, method, pattern, controls_json in self.cursor.fetchall():
             try:
                 controls = json.loads(controls_json) if controls_json else []
             except (json.JSONDecodeError, TypeError):
@@ -374,7 +352,7 @@ class ApiAuthAnalyzer:
                     rule_name='api-basic-auth',
                     message=f'Basic authentication used for {pattern}',
                     file_path=file,
-                    line=1,
+                    line=line or 1,
                     severity=Severity.MEDIUM,
                     category='authentication',
                     confidence=Confidence.MEDIUM,
@@ -387,7 +365,7 @@ class ApiAuthAnalyzer:
                     rule_name='api-key-in-url',
                     message=f'API key passed in URL: {pattern}',
                     file_path=file,
-                    line=1,
+                    line=line or 1,
                     severity=Severity.HIGH,
                     category='authentication',
                     confidence=Confidence.HIGH,
@@ -400,14 +378,14 @@ class ApiAuthAnalyzer:
 
         # Only check for web applications (not pure APIs)
         self.cursor.execute("""
-            SELECT file, method, pattern, controls
+            SELECT file, line, method, pattern, controls
             FROM api_endpoints
             WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
               AND (pattern NOT LIKE '/api/%' OR pattern IS NULL)
             ORDER BY file, pattern
         """)
 
-        for file, method, pattern, controls_json in self.cursor.fetchall():
+        for file, line, method, pattern, controls_json in self.cursor.fetchall():
             # Skip if this looks like a pure API endpoint
             if pattern and ('/api/' in pattern or '/v1/' in pattern or '/v2/' in pattern):
                 continue
@@ -430,7 +408,7 @@ class ApiAuthAnalyzer:
                     rule_name='api-missing-csrf',
                     message=f'State-changing endpoint lacks CSRF protection: {method} {pattern}',
                     file_path=file,
-                    line=1,
+                    line=line or 1,
                     severity=Severity.MEDIUM,
                     category='authentication',
                     confidence=Confidence.LOW,  # Low confidence as it might be an API
@@ -439,9 +417,6 @@ class ApiAuthAnalyzer:
 
     def _check_auth_nearby(self, file: str, line: int) -> bool:
         """Check if there's authentication middleware nearby."""
-        if 'function_call_args' not in self.existing_tables:
-            return False
-
         auth_patterns = list(self.patterns.AUTH_MIDDLEWARE)
         placeholders = ','.join('?' * len(auth_patterns))
 

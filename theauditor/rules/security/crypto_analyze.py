@@ -1,18 +1,17 @@
-"""Cryptography Security Analyzer - Golden Standard Implementation.
+"""Cryptography Security Analyzer - Schema Contract Compliant Implementation.
 
-Detects 15+ cryptographic vulnerabilities using database-driven approach with
-intelligent fallbacks. Follows EXACT golden standard patterns.
+Detects 15+ cryptographic vulnerabilities using database-driven approach.
+Follows v1.1+ schema contract compliance (no table checks, no regex).
 
 This implementation:
-- Uses frozensets for ALL patterns
-- Checks table existence before queries
+- Uses frozensets for ALL patterns (O(1) lookups)
+- Direct database queries (assumes all tables exist per schema contract)
 - Uses parameterized queries (no SQL injection)
 - Implements multi-layer detection
 - Provides confidence scoring
 - Maps all findings to CWE IDs
 """
 
-import re
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -186,10 +185,10 @@ CONSTANT_TIME_COMPARISONS = frozenset([
 # ============================================================================
 
 def find_crypto_issues(context: StandardRuleContext) -> List[StandardFinding]:
-    """Detect cryptographic vulnerabilities using golden standard patterns.
+    """Detect cryptographic vulnerabilities using schema contract patterns.
 
-    Implements 15+ crypto vulnerability patterns with multi-layer detection
-    and intelligent fallbacks.
+    Implements 15+ crypto vulnerability patterns with unconditional execution.
+    All required tables guaranteed to exist by schema contract.
     """
     findings = []
 
@@ -200,100 +199,61 @@ def find_crypto_issues(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # MANDATORY: Check table existence first
-        existing_tables = _check_tables(cursor)
-        if not existing_tables:
-            return findings
+        # All required tables guaranteed to exist by schema contract
+        # (theauditor/indexer/schema.py - TABLES registry with 46 table definitions)
+        # If table missing, rule will crash with clear sqlite3.OperationalError (CORRECT behavior)
 
-        # Core vulnerability detection (15 patterns)
+        # Core vulnerability detection (15 patterns) - execute unconditionally
 
         # 1. Weak random number generation
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_weak_random_generation(cursor, existing_tables))
+        findings.extend(_find_weak_random_generation(cursor))
 
         # 2. Weak hash algorithms
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_weak_hash_algorithms(cursor, existing_tables))
+        findings.extend(_find_weak_hash_algorithms(cursor))
 
         # 3. Weak encryption algorithms
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_weak_encryption_algorithms(cursor, existing_tables))
+        findings.extend(_find_weak_encryption_algorithms(cursor))
 
         # 4. Missing salt in hashing
-        if 'function_call_args' in existing_tables and 'assignments' in existing_tables:
-            findings.extend(_find_missing_salt(cursor, existing_tables))
+        findings.extend(_find_missing_salt(cursor))
 
         # 5. Static/hardcoded salts
-        if 'assignments' in existing_tables:
-            findings.extend(_find_static_salt(cursor, existing_tables))
+        findings.extend(_find_static_salt(cursor))
 
         # 6. Weak KDF iterations
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_weak_kdf_iterations(cursor, existing_tables))
+        findings.extend(_find_weak_kdf_iterations(cursor))
 
         # 7. ECB mode usage
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_ecb_mode(cursor, existing_tables))
+        findings.extend(_find_ecb_mode(cursor))
 
         # 8. Missing IV/nonce
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_missing_iv(cursor, existing_tables))
+        findings.extend(_find_missing_iv(cursor))
 
         # 9. Static/hardcoded IV
-        if 'assignments' in existing_tables:
-            findings.extend(_find_static_iv(cursor, existing_tables))
+        findings.extend(_find_static_iv(cursor))
 
         # 10. Predictable PRNG seeds
-        if 'assignments' in existing_tables:
-            findings.extend(_find_predictable_seeds(cursor, existing_tables))
+        findings.extend(_find_predictable_seeds(cursor))
 
         # 11. Hardcoded encryption keys
-        if 'assignments' in existing_tables:
-            findings.extend(_find_hardcoded_keys(cursor, existing_tables))
+        findings.extend(_find_hardcoded_keys(cursor))
 
         # 12. Weak key sizes
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_weak_key_size(cursor, existing_tables))
+        findings.extend(_find_weak_key_size(cursor))
 
         # 13. Passwords in URLs
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_password_in_url(cursor, existing_tables))
+        findings.extend(_find_password_in_url(cursor))
 
         # 14. Timing-vulnerable comparisons
-        if 'function_call_args' in existing_tables and 'symbols' in existing_tables:
-            findings.extend(_find_timing_vulnerable_compare(cursor, existing_tables))
+        findings.extend(_find_timing_vulnerable_compare(cursor))
 
         # 15. Deprecated crypto libraries
-        if 'function_call_args' in existing_tables:
-            findings.extend(_find_deprecated_libraries(cursor, existing_tables))
+        findings.extend(_find_deprecated_libraries(cursor))
 
     finally:
         conn.close()
 
     return findings
-
-# ============================================================================
-# HELPER: Table Existence Check (MANDATORY)
-# ============================================================================
-
-def _check_tables(cursor) -> Set[str]:
-    """Check which tables exist in the database.
-
-    This is MANDATORY to avoid crashes on missing tables.
-    """
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table'
-        AND name IN (
-            'assignments',
-            'function_call_args',
-            'symbols',
-            'cfg_blocks',
-            'files',
-            'api_endpoints'
-        )
-    """)
-    return {row[0] for row in cursor.fetchall()}
 
 # ============================================================================
 # HELPER: Context Detection
@@ -303,8 +263,7 @@ def _determine_confidence(
     file: str,
     line: int,
     func_name: str,
-    cursor,
-    existing_tables: Set[str]
+    cursor
 ) -> Confidence:
     """Determine confidence level based on context analysis.
 
@@ -319,34 +278,32 @@ def _determine_confidence(
         return Confidence.LOW
 
     # Check proximity to security operations (within 5 lines)
-    if 'function_call_args' in existing_tables:
-        cursor.execute("""
-            SELECT COUNT(*) FROM function_call_args
-            WHERE file = ?
-            AND ABS(line - ?) <= 5
-            AND (callee_function LIKE '%encrypt%'
-                 OR callee_function LIKE '%decrypt%'
-                 OR callee_function LIKE '%hash%'
-                 OR callee_function LIKE '%sign%'
-                 OR callee_function LIKE '%verify%')
-        """, [file, line])
+    cursor.execute("""
+        SELECT COUNT(*) FROM function_call_args
+        WHERE file = ?
+        AND ABS(line - ?) <= 5
+        AND (callee_function LIKE '%encrypt%'
+             OR callee_function LIKE '%decrypt%'
+             OR callee_function LIKE '%hash%'
+             OR callee_function LIKE '%sign%'
+             OR callee_function LIKE '%verify%')
+    """, [file, line])
 
-        proximity_count = cursor.fetchone()[0]
-        if proximity_count > 0:
-            return Confidence.HIGH
+    proximity_count = cursor.fetchone()[0]
+    if proximity_count > 0:
+        return Confidence.HIGH
 
     # Check variable assignment context
-    if 'assignments' in existing_tables:
-        cursor.execute("""
-            SELECT target_var FROM assignments
-            WHERE file = ?
-            AND ABS(line - ?) <= 3
-        """, [file, line])
+    cursor.execute("""
+        SELECT target_var FROM assignments
+        WHERE file = ?
+        AND ABS(line - ?) <= 3
+    """, [file, line])
 
-        for row in cursor.fetchall():
-            var_name = row[0].lower() if row[0] else ''
-            if any(kw in var_name for kw in SECURITY_KEYWORDS):
-                return Confidence.MEDIUM
+    for row in cursor.fetchall():
+        var_name = row[0].lower() if row[0] else ''
+        if any(kw in var_name for kw in SECURITY_KEYWORDS):
+            return Confidence.MEDIUM
 
     return Confidence.MEDIUM  # Default to medium
 
@@ -360,7 +317,7 @@ def _is_test_file(file_path: str) -> bool:
 # PATTERN 1: Weak Random Number Generation
 # ============================================================================
 
-def _find_weak_random_generation(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_weak_random_generation(cursor) -> List[StandardFinding]:
     """Find usage of weak random number generators for security purposes."""
     findings = []
 
@@ -377,7 +334,7 @@ def _find_weak_random_generation(cursor, existing_tables: Set[str]) -> List[Stan
 
     for file, line, callee, caller, args in cursor.fetchall():
         # Determine confidence based on context
-        confidence = _determine_confidence(file, line, caller, cursor, existing_tables)
+        confidence = _determine_confidence(file, line, caller, cursor)
 
         # Skip if low confidence and in test file
         if confidence == Confidence.LOW and _is_test_file(file):
@@ -401,7 +358,7 @@ def _find_weak_random_generation(cursor, existing_tables: Set[str]) -> List[Stan
 # PATTERN 2: Weak Hash Algorithms
 # ============================================================================
 
-def _find_weak_hash_algorithms(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_weak_hash_algorithms(cursor) -> List[StandardFinding]:
     """Find usage of weak/broken hash algorithms."""
     findings = []
 
@@ -417,7 +374,7 @@ def _find_weak_hash_algorithms(cursor, existing_tables: Set[str]) -> List[Standa
         """, [f'%{weak_algo}%', f'hashlib.{weak_algo}', f'%{weak_algo}%'])
 
         for file, line, callee, caller, args in cursor.fetchall():
-            confidence = _determine_confidence(file, line, caller, cursor, existing_tables)
+            confidence = _determine_confidence(file, line, caller, cursor)
 
             # Skip if explicitly for file checksums
             if confidence == Confidence.LOW:
@@ -444,25 +401,27 @@ def _find_weak_hash_algorithms(cursor, existing_tables: Set[str]) -> List[Standa
 # ============================================================================
 
 def _contains_alias(text: Optional[str], alias: str) -> bool:
+    """Check if text contains a cryptographic alias (no regex)."""
     if not text:
         return False
     lowered = text.lower()
+
+    # Special handling for DES variants with function call syntax
     if alias in {'des', 'des3', 'tripledes', 'des-ede3', 'des-ede'}:
         return any(
             keyword in lowered for keyword in (
                 'des(', 'des3(', 'tripledes(', 'des-ede3(', 'des-ede('
             )
         )
-    pattern = rf'(?<![a-z0-9_]){re.escape(alias.lower())}(?![a-z0-9_])'
-    return re.search(pattern, lowered) is not None
+
+    # Simple substring matching for other aliases
+    alias_lower = alias.lower()
+    return alias_lower in lowered
 
 
-def _find_weak_encryption_algorithms(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_weak_encryption_algorithms(cursor) -> List[StandardFinding]:
     """Find usage of weak/broken encryption algorithms."""
     findings: List[StandardFinding] = []
-
-    if 'function_call_args' not in existing_tables:
-        return findings
 
     cursor.execute("""
         SELECT DISTINCT file, line, callee_function, argument_expr
@@ -517,7 +476,7 @@ def _find_weak_encryption_algorithms(cursor, existing_tables: Set[str]) -> List[
 # PATTERN 4: Missing Salt in Hashing
 # ============================================================================
 
-def _find_missing_salt(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_missing_salt(cursor) -> List[StandardFinding]:
     """Find password hashing without salt."""
     findings = []
 
@@ -569,7 +528,7 @@ def _find_missing_salt(cursor, existing_tables: Set[str]) -> List[StandardFindin
 # PATTERN 5: Static/Hardcoded Salts
 # ============================================================================
 
-def _find_static_salt(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_static_salt(cursor) -> List[StandardFinding]:
     """Find hardcoded salt values."""
     findings = []
 
@@ -607,7 +566,7 @@ def _find_static_salt(cursor, existing_tables: Set[str]) -> List[StandardFinding
 # PATTERN 6: Weak KDF Iterations
 # ============================================================================
 
-def _find_weak_kdf_iterations(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_weak_kdf_iterations(cursor) -> List[StandardFinding]:
     """Find weak key derivation functions with low iterations."""
     findings = []
 
@@ -626,7 +585,11 @@ def _find_weak_kdf_iterations(cursor, existing_tables: Set[str]) -> List[Standar
             continue
 
         # Extract numbers from arguments (potential iteration counts)
-        numbers = re.findall(r'\b(\d+)\b', args)
+        # Split on common delimiters and check if each token is a digit
+        numbers = []
+        for token in args.replace(',', ' ').replace('(', ' ').replace(')', ' ').replace('=', ' ').split():
+            if token.isdigit():
+                numbers.append(token)
 
         for num_str in numbers:
             num = int(num_str)
@@ -651,7 +614,7 @@ def _find_weak_kdf_iterations(cursor, existing_tables: Set[str]) -> List[Standar
 # PATTERN 7: ECB Mode Usage
 # ============================================================================
 
-def _find_ecb_mode(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_ecb_mode(cursor) -> List[StandardFinding]:
     """Find usage of ECB mode in encryption."""
     findings = []
 
@@ -682,27 +645,26 @@ def _find_ecb_mode(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
         ))
 
     # Also check mode variable assignments
-    if 'assignments' in existing_tables:
-        cursor.execute("""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE (target_var LIKE '%mode%' OR target_var LIKE '%MODE%')
-              AND (source_expr LIKE '%ECB%' OR source_expr LIKE '%ecb%')
-            ORDER BY file, line
-        """)
+    cursor.execute("""
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE (target_var LIKE '%mode%' OR target_var LIKE '%MODE%')
+          AND (source_expr LIKE '%ECB%' OR source_expr LIKE '%ecb%')
+        ORDER BY file, line
+    """)
 
-        for file, line, var, expr in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='crypto-ecb-mode-config',
-                message=f'ECB mode configured in {var}',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                confidence=Confidence.HIGH,
-                category='security',
-                snippet=f'{var} = "ECB"',
-                cwe_id='CWE-327'
-            ))
+    for file, line, var, expr in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='crypto-ecb-mode-config',
+            message=f'ECB mode configured in {var}',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            category='security',
+            snippet=f'{var} = "ECB"',
+            cwe_id='CWE-327'
+        ))
 
     return findings
 
@@ -710,7 +672,7 @@ def _find_ecb_mode(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
 # PATTERN 8: Missing IV/Nonce
 # ============================================================================
 
-def _find_missing_iv(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_missing_iv(cursor) -> List[StandardFinding]:
     """Find encryption operations without initialization vector."""
     findings = []
 
@@ -763,7 +725,7 @@ def _find_missing_iv(cursor, existing_tables: Set[str]) -> List[StandardFinding]
 # PATTERN 9: Static/Hardcoded IV
 # ============================================================================
 
-def _find_static_iv(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_static_iv(cursor) -> List[StandardFinding]:
     """Find hardcoded initialization vectors."""
     findings = []
 
@@ -801,7 +763,7 @@ def _find_static_iv(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
 # PATTERN 10: Predictable PRNG Seeds
 # ============================================================================
 
-def _find_predictable_seeds(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_predictable_seeds(cursor) -> List[StandardFinding]:
     """Find predictable seeds for random number generators."""
     findings = []
 
@@ -865,7 +827,7 @@ def _find_predictable_seeds(cursor, existing_tables: Set[str]) -> List[StandardF
 # PATTERN 11: Hardcoded Encryption Keys
 # ============================================================================
 
-def _find_hardcoded_keys(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_hardcoded_keys(cursor) -> List[StandardFinding]:
     """Find hardcoded encryption keys."""
     findings = []
 
@@ -917,7 +879,7 @@ def _find_hardcoded_keys(cursor, existing_tables: Set[str]) -> List[StandardFind
 # PATTERN 12: Weak Key Sizes
 # ============================================================================
 
-def _find_weak_key_size(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_weak_key_size(cursor) -> List[StandardFinding]:
     """Find usage of weak encryption key sizes."""
     findings = []
 
@@ -935,7 +897,11 @@ def _find_weak_key_size(cursor, existing_tables: Set[str]) -> List[StandardFindi
 
     for file, line, callee, args in cursor.fetchall():
         # Extract numbers that might be key sizes
-        numbers = re.findall(r'\b(\d+)\b', args)
+        # Split on common delimiters and check if each token is a digit
+        numbers = []
+        for token in args.replace(',', ' ').replace('(', ' ').replace(')', ' ').replace('=', ' ').split():
+            if token.isdigit():
+                numbers.append(token)
 
         for num_str in numbers:
             num = int(num_str)
@@ -971,7 +937,7 @@ def _find_weak_key_size(cursor, existing_tables: Set[str]) -> List[StandardFindi
 # PATTERN 13: Passwords in URLs
 # ============================================================================
 
-def _find_password_in_url(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_password_in_url(cursor) -> List[StandardFinding]:
     """Find passwords transmitted in URLs."""
     findings = []
 
@@ -1010,37 +976,36 @@ def _find_password_in_url(cursor, existing_tables: Set[str]) -> List[StandardFin
 # PATTERN 14: Timing-Vulnerable Comparisons
 # ============================================================================
 
-def _find_timing_vulnerable_compare(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_timing_vulnerable_compare(cursor) -> List[StandardFinding]:
     """Find timing-vulnerable string comparisons for secrets."""
     findings = []
 
     # Find comparisons involving security-sensitive variables
-    if 'symbols' in existing_tables:
-        cursor.execute("""
-            SELECT path, name, line
-            FROM symbols
-            WHERE (name LIKE '%password%'
-                   OR name LIKE '%token%'
-                   OR name LIKE '%secret%'
-                   OR name LIKE '%key%'
-                   OR name LIKE '%hash%'
-                   OR name LIKE '%signature%')
-              AND type = 'comparison'
-            ORDER BY path, line
-        """)
+    cursor.execute("""
+        SELECT path, name, line
+        FROM symbols
+        WHERE (name LIKE '%password%'
+               OR name LIKE '%token%'
+               OR name LIKE '%secret%'
+               OR name LIKE '%key%'
+               OR name LIKE '%hash%'
+               OR name LIKE '%signature%')
+          AND type = 'comparison'
+        ORDER BY path, line
+    """)
 
-        for file, name, line in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='crypto-timing-vulnerable',
-                message=f'Timing-vulnerable comparison of {name}',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                confidence=Confidence.MEDIUM,
-                category='security',
-                snippet=f'{name} == ...',
-                cwe_id='CWE-208'  # Observable Timing Discrepancy
-            ))
+    for file, name, line in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='crypto-timing-vulnerable',
+            message=f'Timing-vulnerable comparison of {name}',
+            file_path=file,
+            line=line,
+            severity=Severity.MEDIUM,
+            confidence=Confidence.MEDIUM,
+            category='security',
+            snippet=f'{name} == ...',
+            cwe_id='CWE-208'  # Observable Timing Discrepancy
+        ))
 
     # Also check for strcmp and similar functions
     cursor.execute("""
@@ -1072,7 +1037,7 @@ def _find_timing_vulnerable_compare(cursor, existing_tables: Set[str]) -> List[S
 # PATTERN 15: Deprecated Crypto Libraries
 # ============================================================================
 
-def _find_deprecated_libraries(cursor, existing_tables: Set[str]) -> List[StandardFinding]:
+def _find_deprecated_libraries(cursor) -> List[StandardFinding]:
     """Find usage of deprecated cryptography libraries."""
     findings = []
 

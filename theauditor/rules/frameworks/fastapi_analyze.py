@@ -90,10 +90,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
     try:
         # Verify this is a FastAPI project - use schema-compliant query
-        query = build_query('refs', ['DISTINCT file'],
+        query = build_query('refs', ['src'],
                            where="value IN ('fastapi', 'FastAPI')")
         cursor.execute(query)
-        fastapi_files = cursor.fetchall()
+        # Deduplicate file paths in Python
+        fastapi_files = list(set(cursor.fetchall()))
 
         if not fastapi_files:
             return findings  # Not a FastAPI project
@@ -108,7 +109,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                         'subprocess.run', 'subprocess.call']
         placeholders = ','.join('?' * len(sync_ops_list))
 
-        query = build_query('function_call_args', ['DISTINCT file', 'line', 'callee_function'],
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
                            where=f"""callee_function IN ({placeholders})
                              AND EXISTS (
                                  SELECT 1 FROM api_endpoints e
@@ -116,8 +117,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                              )""",
                            order_by="file, line")
         cursor.execute(query, sync_ops_list)
+        # Deduplicate in Python
+        seen = set()
+        results = []
+        for row in cursor.fetchall():
+            key = (row[0], row[1], row[2])  # (file, line, callee_function)
+            if key not in seen:
+                seen.add(key)
+                results.append(row)
 
-        for file, line, sync_op in cursor.fetchall():
+        for file, line, sync_op in results:
             # Extract just the function name
             func_name = sync_op.split('.')[-1] if '.' in sync_op else sync_op
             if func_name in SYNC_OPERATIONS:
@@ -135,7 +144,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: Direct Database Access Without Dependency Injection
         # ========================================================
-        query = build_query('function_call_args', ['DISTINCT file', 'line', 'callee_function'],
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
                            where="""(callee_function LIKE '%.query%'
                                     OR callee_function LIKE '%.execute%'
                                     OR callee_function LIKE 'db.%'
@@ -151,8 +160,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                              )""",
                            order_by="file, line")
         cursor.execute(query)
+        # Deduplicate in Python
+        db_access_results = list(set(cursor.fetchall()))
 
-        for file, line, db_call in cursor.fetchall():
+        for file, line, db_call in db_access_results:
             findings.append(StandardFinding(
                 rule_name='fastapi-no-dependency-injection',
                 message=f'Direct database access ({db_call}) without dependency injection',
@@ -193,7 +204,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 4: Blocking File Operations (DEGRADED)
         # ========================================================
         # NOTE: Cannot detect if in async context - checking for file ops without aiofiles
-        query = build_query('function_call_args', ['DISTINCT file', 'line', 'callee_function'],
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
                            where="""callee_function = 'open'
                              AND EXISTS (
                                  SELECT 1 FROM api_endpoints e
@@ -205,8 +216,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                              )""",
                            order_by="file, line")
         cursor.execute(query)
+        # Deduplicate in Python
+        file_op_results = list(set(cursor.fetchall()))
 
-        for file, line, _ in cursor.fetchall():
+        for file, line, _ in file_op_results:
             findings.append(StandardFinding(
                 rule_name='fastapi-potential-blocking-file-op',
                 message='File I/O without aiofiles in route file - may block if in async route',
@@ -224,7 +237,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         sql_commands = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE']
         placeholders = ','.join('?' * len(sql_commands))
 
-        query = build_query('sql_queries', ['DISTINCT file_path', 'line_number', 'command'],
+        query = build_query('sql_queries', ['file_path', 'line_number', 'command'],
                            where=f"""command IN ({placeholders})
                              AND EXISTS (
                                  SELECT 1 FROM api_endpoints e
@@ -232,8 +245,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                              )""",
                            order_by="file_path, line_number")
         cursor.execute(query, sql_commands)
+        # Deduplicate in Python
+        sql_results = list(set(cursor.fetchall()))
 
-        for file, line, sql_command in cursor.fetchall():
+        for file, line, sql_command in sql_results:
             findings.append(StandardFinding(
                 rule_name='fastapi-raw-sql-in-route',
                 message=f'Raw SQL {sql_command} in route handler - use ORM or repository pattern',
@@ -278,13 +293,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: WebSocket Endpoints Without Authentication
         # ========================================================
-        query = build_query('api_endpoints', ['DISTINCT file', 'pattern'],
+        query = build_query('api_endpoints', ['file', 'pattern'],
                            where="pattern LIKE '%websocket%' OR pattern LIKE '%ws%'")
         cursor.execute(query)
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        websocket_endpoints = cursor.fetchall()
-
-        for file, pattern in websocket_endpoints:
+        # Deduplicate in Python
+        websocket_results = list(set(cursor.fetchall()))
+        for file, pattern in websocket_results:
             # Check if authentication functions are called in the same file
             query2 = build_query('function_call_args', ['COUNT(*)'],
                                 where="file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%verify%' OR callee_function LIKE '%current_user%' OR callee_function LIKE '%token%')")
@@ -336,7 +350,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         form_placeholders = ','.join('?' * len(form_funcs))
         file_placeholders = ','.join('?' * len(file_funcs))
 
-        query = build_query('function_call_args', ['DISTINCT file', 'line'],
+        query = build_query('function_call_args', ['file', 'line'],
                            where=f"""callee_function IN ({form_placeholders})
                              AND EXISTS (
                                  SELECT 1 FROM function_call_args f2
@@ -347,8 +361,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                              )""",
                            order_by="file, line")
         cursor.execute(query, form_funcs + file_funcs)
-        
-        for file, line in cursor.fetchall():
+        # Deduplicate in Python
+        form_traversal_results = list(set(cursor.fetchall()))
+
+        for file, line in form_traversal_results:
             findings.append(StandardFinding(
                 rule_name='fastapi-form-path-traversal',
                 message='Form/file data used in file operations - path traversal risk',
@@ -392,16 +408,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         exception_funcs = ['HTTPException', 'exception_handler', 'add_exception_handler']
         exception_placeholders = ','.join('?' * len(exception_funcs))
 
-        query = build_query('api_endpoints', ['DISTINCT file'],
+        query = build_query('api_endpoints', ['file'],
                            where=f"""NOT EXISTS (
                                  SELECT 1 FROM function_call_args f
                                  WHERE f.file = api_endpoints.file
                                    AND f.callee_function IN ({exception_placeholders})
-                             )""",
-                           limit=5)
+                             )""")
         cursor.execute(query, exception_funcs)
-        
-        for (file,) in cursor.fetchall():
+        # Deduplicate and limit in Python
+        exception_results = list(set(cursor.fetchall()))[:5]
+
+        for (file,) in exception_results:
             findings.append(StandardFinding(
                 rule_name='fastapi-no-exception-handler',
                 message='API routes without exception handlers - may leak error details',

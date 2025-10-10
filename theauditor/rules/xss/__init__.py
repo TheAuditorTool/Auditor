@@ -75,21 +75,18 @@ def _get_detected_frameworks(context: StandardRuleContext) -> set:
     if not context.db_path:
         return frameworks
 
-    try:
-        conn = sqlite3.connect(context.db_path)
-        cursor = conn.cursor()
+    # Schema contract guarantees frameworks table exists (see theauditor/indexer/schema.py)
+    # If table is missing, crash to expose indexer bug - NO FALLBACKS
+    conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
 
-        cursor.execute("SELECT DISTINCT name FROM frameworks")
+    cursor.execute("SELECT DISTINCT name FROM frameworks")
 
-        for (name,) in cursor.fetchall():
-            if name:
-                frameworks.add(name.lower())
+    for (name,) in cursor.fetchall():
+        if name:
+            frameworks.add(name.lower())
 
-        conn.close()
-    except Exception:
-        # If frameworks table doesn't exist, return empty set
-        pass
-
+    conn.close()
     return frameworks
 
 
