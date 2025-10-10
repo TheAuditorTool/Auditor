@@ -52,8 +52,15 @@ class TaintConfig:
             New TaintConfig with framework patterns added
         """
         # Create mutable copies of sources and sinks
-        enhanced_sources = dict(self.sources)
-        enhanced_sinks = dict(self.sinks)
+        # CRITICAL: Convert frozenset values to lists for mutability
+        enhanced_sources = {
+            category: list(patterns) if isinstance(patterns, frozenset) else list(patterns)
+            for category, patterns in self.sources.items()
+        }
+        enhanced_sinks = {
+            category: list(patterns) if isinstance(patterns, frozenset) else list(patterns)
+            for category, patterns in self.sinks.items()
+        }
         
         # Add framework-specific patterns
         for fw_info in frameworks:
