@@ -289,7 +289,7 @@ class ExpressAnalyzer:
             sync_ops_list = ['fs.readFileSync', 'fs.writeFileSync', 'child_process.execSync']
             placeholders = ','.join('?' * len(sync_ops_list))
 
-            query = build_query('function_call_args', ['DISTINCT file', 'line', 'callee_function', 'caller_function'],
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'],
                                where=f"""callee_function IN ({placeholders})
                                  AND EXISTS (
                                      SELECT 1 FROM api_endpoints e
@@ -298,7 +298,16 @@ class ExpressAnalyzer:
                                order_by="file, line")
             cursor.execute(query, sync_ops_list)
 
-            for file, line, sync_op, caller in cursor.fetchall():
+            # ✅ Deduplicate results in Python (schema contract compliant)
+            seen = set()
+            results = []
+            for row in cursor.fetchall():
+                key = (row[0], row[1], row[2], row[3])  # (file, line, callee_function, caller_function)
+                if key not in seen:
+                    seen.add(key)
+                    results.append(row)
+
+            for file, line, sync_op, caller in results:
                 self.findings.append(StandardFinding(
                     rule_name='express-sync-in-async',
                     message=f'Synchronous operation {sync_op} blocking event loop in route',

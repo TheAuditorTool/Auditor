@@ -144,19 +144,20 @@ def _get_vue_files(cursor) -> Set[str]:
 
     Schema contract (v1.1+) guarantees all tables exist.
     If table is missing, we WANT the rule to crash to expose indexer bugs.
+
+    Queries ALL relevant tables and combines results - no conditional logic.
+    No early returns - trust the database schema.
     """
     vue_files = set()
 
-    # Query vue_components table (schema contract guarantees existence)
+    # Primary source: vue_components table (schema contract guarantees existence)
     cursor.execute("""
         SELECT DISTINCT file
         FROM vue_components
     """)
     vue_files.update(row[0] for row in cursor.fetchall())
-    if vue_files:
-        return vue_files
 
-    # Fallback: Check files table by extension
+    # Secondary source: Files with .vue extension
     cursor.execute("""
         SELECT DISTINCT path
         FROM files
@@ -164,10 +165,7 @@ def _get_vue_files(cursor) -> Set[str]:
     """)
     vue_files.update(row[0] for row in cursor.fetchall())
 
-    if vue_files:
-        return vue_files
-
-    # Final fallback: Check JavaScript files that import Vue
+    # Tertiary source: JavaScript/TypeScript files that import Vue
     cursor.execute("""
         SELECT DISTINCT path
         FROM symbols
@@ -221,12 +219,18 @@ def _find_props_mutations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
 
 
 def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding]:
-    """Find v-for loops without :key attribute."""
-    findings = []
+    """Find v-for loops without :key attribute.
 
-    # Query vue_directives table (schema contract guarantees existence)
+    Uses BOTH vue_directives (authoritative) and symbols (heuristic) to
+    maximize detection coverage. No conditional logic - executes both strategies
+    unconditionally and deduplicates findings.
+    """
+    findings = []
+    found_locations = set()  # Deduplicate findings by (file, line)
+
     placeholders = ','.join('?' * len(vue_files))
 
+    # Strategy 1: Query vue_directives table (HIGH confidence, authoritative)
     cursor.execute(f"""
         SELECT file, line, expression
         FROM vue_directives
@@ -237,23 +241,21 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
     """, list(vue_files))
 
     for file, line, expression in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-missing-vfor-key',
-            message=f'v-for directive without :key attribute: "{expression}"',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='vue-performance',
-            confidence=Confidence.HIGH,
-            cwe_id='CWE-704'
-        ))
+        location = (file, line)
+        if location not in found_locations:
+            found_locations.add(location)
+            findings.append(StandardFinding(
+                rule_name='vue-missing-vfor-key',
+                message=f'v-for directive without :key attribute: "{expression}"',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='vue-performance',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-704'
+            ))
 
-    if findings:
-        return findings
-
-    # Pattern search in symbols table as fallback
-    placeholders = ','.join('?' * len(vue_files))
-
+    # Strategy 2: Query symbols table (MEDIUM confidence, heuristic)
     # Look for v-for patterns without adjacent key
     cursor.execute(f"""
         SELECT s1.path, s1.line, s1.name
@@ -270,16 +272,19 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
     """, list(vue_files))
 
     for file, line, directive in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-missing-key',
-            message='v-for without :key - causes rendering issues',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='vue-performance',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1050'
-        ))
+        location = (file, line)
+        if location not in found_locations:  # Deduplicate
+            found_locations.add(location)
+            findings.append(StandardFinding(
+                rule_name='vue-missing-vfor-key-heuristic',
+                message='v-for without :key detected via heuristic - verify manually',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='vue-performance',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-704'
+            ))
 
     return findings
 

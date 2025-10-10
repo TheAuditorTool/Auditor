@@ -119,7 +119,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                         findings.append(StandardFinding(
                             file_path=file_path,
                             line=1,  # Package files don't have specific lines
-                            rule_name='update-lag',
+                            rule_name='update_lag',
                             message=f"Dependency '{pkg_name}' is {versions_behind} major versions behind (using {locked}, latest is {latest})",
                             severity=severity,
                             category='dependency',

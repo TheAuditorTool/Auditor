@@ -20,7 +20,7 @@ from dataclasses import dataclass
 # ============================================================================
 
 # Python package typos (PyPI)
-PYTHON_TYPOSQUATS = frozenset([
+PYTHON_TYPOSQUATS: frozenset[tuple[str, str]] = frozenset([
     ('requets', 'requests'),
     ('request', 'requests'),
     ('reques', 'requests'),
@@ -46,7 +46,7 @@ PYTHON_TYPOSQUATS = frozenset([
 ])
 
 # JavaScript/Node.js package typos (npm)
-JAVASCRIPT_TYPOSQUATS = frozenset([
+JAVASCRIPT_TYPOSQUATS: frozenset[tuple[str, str]] = frozenset([
     ('expres', 'express'),
     ('expresss', 'express'),
     ('react-dom', 'reactdom'),  # Not standard but seen
@@ -74,7 +74,7 @@ JAVASCRIPT_TYPOSQUATS = frozenset([
 ])
 
 # Combined typosquatting dictionary (typo -> correct)
-TYPOSQUATTING_MAP = dict(PYTHON_TYPOSQUATS | JAVASCRIPT_TYPOSQUATS)
+TYPOSQUATTING_MAP: dict[str, str] = dict(PYTHON_TYPOSQUATS | JAVASCRIPT_TYPOSQUATS)
 
 
 # ============================================================================
@@ -83,7 +83,7 @@ TYPOSQUATTING_MAP = dict(PYTHON_TYPOSQUATS | JAVASCRIPT_TYPOSQUATS)
 # Version strings that indicate security issues or poor dependency management
 # ============================================================================
 
-SUSPICIOUS_VERSIONS = frozenset([
+SUSPICIOUS_VERSIONS: frozenset[str] = frozenset([
     # Wildcard versions (completely unpinned)
     '*',
     'latest',
@@ -119,7 +119,7 @@ SUSPICIOUS_VERSIONS = frozenset([
 ])
 
 # Version range prefixes that indicate unpinned dependencies
-RANGE_PREFIXES = frozenset([
+RANGE_PREFIXES: frozenset[str] = frozenset([
     '^',  # npm caret (allows minor/patch updates)
     '~',  # npm tilde (allows patch updates)
     '>',  # Greater than (completely open-ended)
@@ -159,7 +159,7 @@ class DependencyThresholds:
 # File patterns for detecting package managers
 # ============================================================================
 
-PACKAGE_FILES = frozenset([
+PACKAGE_FILES: frozenset[str] = frozenset([
     'package.json',
     'package-lock.json',
     'yarn.lock',
@@ -182,7 +182,7 @@ PACKAGE_FILES = frozenset([
 ])
 
 # Lock files (for future transitive dependency analysis)
-LOCK_FILES = frozenset([
+LOCK_FILES: frozenset[str] = frozenset([
     'package-lock.json',
     'yarn.lock',
     'pnpm-lock.yaml',
@@ -202,7 +202,7 @@ LOCK_FILES = frozenset([
 # ============================================================================
 
 # Tools that should ONLY be in devDependencies (never in dependencies)
-DEV_ONLY_PACKAGES = frozenset([
+DEV_ONLY_PACKAGES: frozenset[str] = frozenset([
     # Build tools
     'webpack', 'webpack-cli', 'webpack-dev-server',
     'vite', 'rollup', 'parcel',
@@ -236,7 +236,7 @@ DEV_ONLY_PACKAGES = frozenset([
 # Common framework packages for context-aware rules
 # ============================================================================
 
-FRONTEND_FRAMEWORKS = frozenset([
+FRONTEND_FRAMEWORKS: frozenset[str] = frozenset([
     'react', 'react-dom',
     'vue', '@vue/core',
     'angular', '@angular/core',
@@ -245,7 +245,14 @@ FRONTEND_FRAMEWORKS = frozenset([
     'preact',
 ])
 
-BACKEND_FRAMEWORKS = frozenset([
+# Meta-frameworks built on top of frontend frameworks
+META_FRAMEWORKS: frozenset[str] = frozenset([
+    'next',      # React meta-framework
+    'nuxt',      # Vue meta-framework
+    '@vue/cli',  # Vue CLI (build tool/framework hybrid)
+])
+
+BACKEND_FRAMEWORKS: frozenset[str] = frozenset([
     'express', 'koa', 'fastify', 'hapi',
     'django', 'flask', 'fastapi',
     'rails', 'sinatra',
@@ -268,5 +275,6 @@ __all__ = [
     'LOCK_FILES',
     'DEV_ONLY_PACKAGES',
     'FRONTEND_FRAMEWORKS',
+    'META_FRAMEWORKS',
     'BACKEND_FRAMEWORKS',
 ]

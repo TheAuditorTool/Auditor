@@ -27,6 +27,7 @@ METADATA = RuleMetadata(
     category="dependency",
     target_extensions=['.py', '.js', '.ts', '.json', '.txt'],
     exclude_patterns=['node_modules/', '.venv/', 'test/'],
+    execution_scope='database',
     requires_jsx_pass=False,
 )
 

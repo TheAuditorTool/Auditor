@@ -32,8 +32,8 @@ METADATA = RuleMetadata(
     category="auth",
     target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
     exclude_patterns=[
-        'frontend/',
-        'client/',
+        # 'frontend/',  # REMOVED - implicit flow detection needs frontend files
+        # 'client/',    # REMOVED - OAuth SPA patterns primarily in client code
         'test/',
         'spec.',
         '__tests__',
@@ -192,7 +192,7 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find OAuth authorization endpoints
-    query = build_query('api_endpoints', ['file', 'method', 'pattern'],
+    query = build_query('api_endpoints', ['file', 'line', 'method', 'pattern'],
                         where="""(pattern LIKE '%/oauth%'
                OR pattern LIKE '%/auth%'
                OR pattern LIKE '%/authorize%'
@@ -209,7 +209,7 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
 
     oauth_endpoints = cursor.fetchall()
 
-    for file, method, pattern in oauth_endpoints:
+    for file, line, method, pattern in oauth_endpoints:
         # Skip if it's clearly not an OAuth endpoint
         if not any(oauth_pattern in pattern.lower() for oauth_pattern in ['oauth', 'authorize', 'callback', 'redirect']):
             continue
@@ -242,7 +242,7 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
                     rule_name='oauth-missing-state',
                     message=f'OAuth endpoint {pattern} missing state parameter (CSRF risk)',
                     file_path=file,
-                    line=1,  # Endpoint-level finding
+                    line=line or 1,  # Use actual endpoint line, fallback to 1 if NULL
                     severity=Severity.CRITICAL,
                     category='authentication',
                     cwe_id='CWE-352',

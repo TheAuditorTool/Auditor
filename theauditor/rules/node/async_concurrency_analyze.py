@@ -339,7 +339,7 @@ class AsyncConcurrencyAnalyzer:
                 ORDER BY file, line
             """)
 
-            for file, line, args in cursor.fetchall():
+            for file, line, callee_function, args in cursor.fetchall():
                 # Check if arguments contain write operations
                 has_writes = False
                 for write_op in self.patterns.WRITE_OPERATIONS:
@@ -469,16 +469,16 @@ class AsyncConcurrencyAnalyzer:
                 ORDER BY file, line
             """)
 
-            for file, line, func in cursor.fetchall():
+            for file, line, callee_function, caller_function in cursor.fetchall():
                 self.findings.append(StandardFinding(
                     rule_name='sleep-in-loop',
-                    message=f'{func} in loop causes performance issues',
+                    message=f'{callee_function} in loop causes performance issues',
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
                     category='performance',
                     confidence=Confidence.MEDIUM,
-                    snippet=func,
+                    snippet=callee_function,
                 ))
 
             # Check by proximity to loop keywords
@@ -846,7 +846,7 @@ class AsyncConcurrencyAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('assignments', ['file', 'line', 'target_var'])
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
             cursor.execute(query + """
                 WHERE source_expr LIKE '%new %'
                   AND (file LIKE '%.js' OR file LIKE '%.jsx'
@@ -854,7 +854,7 @@ class AsyncConcurrencyAnalyzer:
                 ORDER BY file, line
             """)
 
-            for file, line, var in cursor.fetchall():
+            for file, line, var, source_expr in cursor.fetchall():
                 # Check if variable suggests singleton
                 is_singleton = False
                 for pattern in self.patterns.SINGLETON_PATTERNS:

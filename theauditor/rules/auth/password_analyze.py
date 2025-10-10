@@ -49,6 +49,8 @@ METADATA = RuleMetadata(
 # ============================================================================
 
 # Weak hash algorithms (broken for password hashing)
+# NOTE: These frozensets are currently unused (patterns hardcoded in SQL)
+# TODO: Refactor to use frozensets in Python logic for O(1) lookups
 WEAK_HASH_ALGORITHMS = frozenset([
     'md5',
     'MD5',
@@ -59,11 +61,9 @@ WEAK_HASH_ALGORITHMS = frozenset([
     'hashlib.md5',
     'hashlib.sha1',
     'hashlib.sha',
-    'crypto.createHash("md5")',
-    'crypto.createHash("sha1")',
-    'crypto.createHash',
-    'Crypto.Hash.MD5',
-    'Crypto.Hash.SHA1'
+    'createhash',  # Normalized form for matching
+    'crypto.hash.md5',
+    'crypto.hash.sha1'
 ])
 
 # Strong password hashing algorithms
@@ -134,16 +134,6 @@ PASSWORD_PLACEHOLDERS = frozenset([
     '{{PASSWORD}}'
 ])
 
-# File path filtering patterns (exclude test/demo files)
-FILE_FILTER_PATTERNS = frozenset([
-    '%test%',
-    '%spec.%',
-    '%.test.%',
-    '%__tests__%',
-    '%demo%',
-    '%example%'
-])
-
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -208,6 +198,7 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find hash operations on password-like variables
+    # NOTE: File filtering handled by orchestrator via METADATA exclude_patterns
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                         where="""(callee_function LIKE '%md5%'
                OR callee_function LIKE '%MD5%'
@@ -219,13 +210,7 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
           AND (argument_expr LIKE '%password%'
                OR argument_expr LIKE '%passwd%'
                OR argument_expr LIKE '%pwd%'
-               OR argument_expr LIKE '%passphrase%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR argument_expr LIKE '%passphrase%')""",
                         order_by="file, line")
     cursor.execute(query)
 
@@ -252,13 +237,7 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
           AND (argument_expr LIKE '%"md5"%'
                OR argument_expr LIKE "%'md5'%"
                OR argument_expr LIKE '%"sha1"%'
-               OR argument_expr LIKE "%'sha1'%")
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR argument_expr LIKE "%'sha1'%")""",
                         order_by="file, line")
     cursor.execute(query)
 
@@ -266,15 +245,18 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
         algo = 'MD5' if 'md5' in args.lower() else 'SHA1'
 
         # Check if this is being used in password context (nearby)
-        context_query = build_query('assignments', ['COUNT(*)'],
-                                    where="""file = ?
+        # NOTE: Using manual SQL for COUNT(*) since build_query() doesn't support aggregate functions
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM assignments
+            WHERE file = ?
               AND ABS(line - ?) <= 5
               AND (target_var LIKE '%password%'
                    OR target_var LIKE '%passwd%'
                    OR target_var LIKE '%pwd%'
                    OR source_expr LIKE '%password%'
-                   OR source_expr LIKE '%passwd%')""")
-        cursor.execute(context_query, [file, line])
+                   OR source_expr LIKE '%passwd%')
+        """, [file, line])
 
         if cursor.fetchone()[0] > 0:
             findings.append(StandardFinding(
@@ -322,13 +304,7 @@ def _check_hardcoded_passwords(cursor) -> List[StandardFinding]:
         "AND source_expr NOT LIKE '%os.environ%' "
         "AND source_expr NOT LIKE '%getenv%' "
         "AND source_expr NOT LIKE '%config%' "
-        "AND source_expr NOT LIKE '%process.argv%' "
-        "AND file NOT LIKE '%test%' "
-        "AND file NOT LIKE '%spec.%' "
-        "AND file NOT LIKE '%.test.%' "
-        "AND file NOT LIKE '%__tests__%' "
-        "AND file NOT LIKE '%demo%' "
-        "AND file NOT LIKE '%example%'"
+        "AND source_expr NOT LIKE '%process.argv%'"
     )
 
     # Build query using schema contract system
@@ -412,13 +388,7 @@ def _check_weak_complexity(cursor) -> List[StandardFinding]:
                OR callee_function LIKE '%check%'
                OR callee_function LIKE '%verify%'
                OR callee_function LIKE '%test%'
-               OR callee_function LIKE '%.length%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR callee_function LIKE '%.length%')""",
                         order_by="file, line")
     cursor.execute(query)
 
@@ -452,13 +422,7 @@ def _check_weak_complexity(cursor) -> List[StandardFinding]:
           AND (source_expr LIKE '%> 6%'
                OR source_expr LIKE '%> 7%'
                OR source_expr LIKE '%> 8%'
-               OR source_expr LIKE '%>= 8%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR source_expr LIKE '%>= 8%')""",
                         order_by="file, line")
     cursor.execute(query)
 
@@ -503,13 +467,7 @@ def _check_password_in_url(cursor) -> List[StandardFinding]:
                OR source_expr LIKE '%?passwd=%'
                OR source_expr LIKE '%&passwd=%'
                OR source_expr LIKE '%?pwd=%'
-               OR source_expr LIKE '%&pwd=%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR source_expr LIKE '%&pwd=%')""",
                         order_by="file, line")
     cursor.execute(query)
 
@@ -537,13 +495,7 @@ def _check_password_in_url(cursor) -> List[StandardFinding]:
                OR argument_expr LIKE '%passwd%'
                OR argument_expr LIKE '%pwd%')
           AND (argument_expr LIKE '%?%'
-               OR argument_expr LIKE '%&%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR argument_expr LIKE '%&%')""",
                         order_by="file, line")
     cursor.execute(query)
 

@@ -387,20 +387,6 @@ def _detect_unprotected_endpoints(cursor) -> List[StandardFinding]:
                 FROM function_call_args
                 WHERE file = ?
                   AND ABS(line - ?) <= 30
-                  AND argument_expr IS NOT NULL
-                  AND (? OR ? OR ? OR ? OR ? OR ?)
-            """, (
-                file, line,
-                *[any(pattern in args.lower() for pattern in RATE_LIMIT_PATTERNS)
-                  for _ in range(6)]
-            ))
-
-            # This query needs fixing - let me use a simpler approach
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 30
                   AND (callee_function LIKE '%limit%'
                        OR callee_function LIKE '%throttle%'
                        OR argument_expr LIKE '%limit%'

@@ -30,6 +30,7 @@ from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 METADATA = RuleMetadata(
     name="sourcemap_exposure",
     category="security",
+    execution_scope='database',
     target_extensions=['.js', '.ts', '.mjs', '.cjs', '.map'],
     exclude_patterns=['node_modules/', 'test/', 'spec/', '__tests__/'],
     requires_jsx_pass=False

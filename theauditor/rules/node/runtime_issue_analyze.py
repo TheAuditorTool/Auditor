@@ -27,7 +27,7 @@ METADATA = RuleMetadata(
     category="node",
 
     # Target JavaScript/TypeScript files only (Node.js runtime)
-    target_extensions=['.js', '.ts', '.mjs', '.cjs'],
+    target_extensions=['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs'],
 
     # Exclude patterns - skip frontend React/Vue, tests, build, TheAuditor folders
     exclude_patterns=[
@@ -412,7 +412,7 @@ class RuntimeAnalyzer:
                 ORDER BY path, line
             """)
 
-            for file, line, func_name in cursor.fetchall():
+            for file, line, func_name, func_type in cursor.fetchall():
                 # Check if function has recursive calls
                 cursor.execute("""
                     SELECT COUNT(*) FROM function_call_args

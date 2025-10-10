@@ -95,16 +95,6 @@ SESSION_KEYWORDS = frozenset([
     'authSession'
 ])
 
-# File path filtering patterns (exclude test/demo files)
-FILE_FILTER_PATTERNS = frozenset([
-    '%test%',
-    '%spec.%',
-    '%.test.%',
-    '%__tests__%',
-    '%demo%',
-    '%example%'
-])
-
 
 # ============================================================================
 # MAIN ENTRY POINT
@@ -172,23 +162,20 @@ def _check_missing_httponly(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find all cookie-setting operations
+    # NOTE: File filtering handled by orchestrator via METADATA exclude_patterns
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                         where="""(callee_function LIKE '%.cookie'
-               OR callee_function LIKE '%cookies.set%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR callee_function LIKE '%cookies.set%')""",
                         order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
         args_str = args if args else ''
+        # Normalize for consistent matching (remove spaces, lowercase)
+        args_normalized = args_str.replace(' ', '').lower()
 
         # Check if httpOnly is missing
-        if 'httpOnly' not in args_str:
+        if 'httponly' not in args_normalized:
             findings.append(StandardFinding(
                 rule_name='session-missing-httponly',
                 message='Cookie set without httpOnly flag (XSS can steal session)',
@@ -203,7 +190,7 @@ def _check_missing_httponly(cursor) -> List[StandardFinding]:
             ))
 
         # Check if httpOnly is explicitly disabled
-        elif 'httpOnly:false' in args_str.replace(' ', '') or 'httpOnly: false' in args_str:
+        elif 'httponly:false' in args_normalized:
             findings.append(StandardFinding(
                 rule_name='session-httponly-disabled',
                 message='Cookie httpOnly flag explicitly disabled',
@@ -236,21 +223,17 @@ def _check_missing_secure(cursor) -> List[StandardFinding]:
 
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                         where="""(callee_function LIKE '%.cookie'
-               OR callee_function LIKE '%cookies.set%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR callee_function LIKE '%cookies.set%')""",
                         order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
         args_str = args if args else ''
+        # Normalize for consistent matching (remove spaces, lowercase)
+        args_normalized = args_str.replace(' ', '').lower()
 
         # Check if secure flag is missing
-        if 'secure' not in args_str.lower():
+        if 'secure' not in args_normalized:
             findings.append(StandardFinding(
                 rule_name='session-missing-secure',
                 message='Cookie set without secure flag (vulnerable to MITM)',
@@ -265,7 +248,7 @@ def _check_missing_secure(cursor) -> List[StandardFinding]:
             ))
 
         # Check if secure is explicitly disabled
-        elif 'secure:false' in args_str.replace(' ', '') or 'secure: false' in args_str:
+        elif 'secure:false' in args_normalized:
             findings.append(StandardFinding(
                 rule_name='session-secure-disabled',
                 message='Cookie secure flag explicitly disabled',
@@ -298,21 +281,17 @@ def _check_missing_samesite(cursor) -> List[StandardFinding]:
 
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                         where="""(callee_function LIKE '%.cookie'
-               OR callee_function LIKE '%cookies.set%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR callee_function LIKE '%cookies.set%')""",
                         order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
         args_str = args if args else ''
+        # Normalize for consistent matching (remove spaces, lowercase)
+        args_normalized = args_str.replace(' ', '').lower()
 
         # Check if SameSite is missing
-        if 'sameSite' not in args_str and 'samesite' not in args_str.lower():
+        if 'samesite' not in args_normalized:
             findings.append(StandardFinding(
                 rule_name='session-missing-samesite',
                 message='Cookie set without SameSite attribute (CSRF risk)',
@@ -327,7 +306,7 @@ def _check_missing_samesite(cursor) -> List[StandardFinding]:
             ))
 
         # Check if SameSite is set to None (disables protection)
-        elif 'sameSite:"none"' in args_str.replace(' ', '').lower() or "sameSite:'none'" in args_str.replace(' ', '').lower():
+        elif 'samesite:"none"' in args_normalized or "samesite:'none'" in args_normalized:
             findings.append(StandardFinding(
                 rule_name='session-samesite-none',
                 message='Cookie SameSite set to "none" (disables CSRF protection)',
@@ -359,32 +338,32 @@ def _check_session_fixation(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find assignments to session variables (indicating login/authentication)
-    query = build_query('assignments', ['DISTINCT file', 'line', 'target_var', 'source_expr'],
-                        where="""(target_var LIKE '%session.%'
+    # NOTE: Using manual SQL for DISTINCT since build_query() doesn't support SQL keywords
+    cursor.execute("""
+        SELECT DISTINCT file, line, target_var, source_expr
+        FROM assignments
+        WHERE (target_var LIKE '%session.%'
                OR target_var LIKE '%req.session.%'
                OR target_var LIKE '%request.session.%')
           AND (target_var LIKE '%user%'
                OR target_var LIKE '%userId%'
                OR target_var LIKE '%authenticated%'
                OR target_var LIKE '%logged%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
-                        order_by="file, line")
-    cursor.execute(query)
+        ORDER BY file, line
+    """)
 
     session_assignments = cursor.fetchall()
 
     for file, line, var, expr in session_assignments:
         # Check if session.regenerate() is called nearby (within 10 lines)
-        regen_query = build_query('function_call_args', ['COUNT(*)'],
-                                  where="""file = ?
+        # NOTE: Using manual SQL for COUNT(*) since build_query() doesn't support aggregate functions
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM function_call_args
+            WHERE file = ?
               AND ABS(line - ?) <= 10
-              AND callee_function LIKE '%session.regenerate%'""")
-        cursor.execute(regen_query, [file, line])
+              AND callee_function LIKE '%session.regenerate%'
+        """, [file, line])
 
         has_regenerate = cursor.fetchone()[0] > 0
 
@@ -423,13 +402,7 @@ def _check_missing_timeout(cursor) -> List[StandardFinding]:
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                         where="""(callee_function LIKE '%session%'
                OR callee_function = 'session')
-          AND argument_index = 0
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+          AND argument_index = 0""",
                         order_by="file, line")
     cursor.execute(query)
 
@@ -456,13 +429,7 @@ def _check_missing_timeout(cursor) -> List[StandardFinding]:
                         where="""(callee_function LIKE '%.cookie')
           AND (argument_expr LIKE '%session%'
                OR argument_expr LIKE '%auth%'
-               OR argument_expr LIKE '%token%')
-          AND file NOT LIKE '%test%'
-          AND file NOT LIKE '%spec.%'
-          AND file NOT LIKE '%.test.%'
-          AND file NOT LIKE '%__tests__%'
-          AND file NOT LIKE '%demo%'
-          AND file NOT LIKE '%example%'""",
+               OR argument_expr LIKE '%token%')""",
                         order_by="file, line")
     cursor.execute(query)
 

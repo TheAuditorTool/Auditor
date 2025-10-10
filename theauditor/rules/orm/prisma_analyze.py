@@ -135,7 +135,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         cursor.execute(query + f"""
             WHERE ({method_conditions})
               AND (has_limit = 0 OR has_limit IS NULL)
-            ORDER BY o.file, o.line
+            ORDER BY file, line
         """)
 
         for file, line, query_type in cursor.fetchall():
@@ -158,9 +158,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         query = build_query('orm_queries', ['file', 'line', 'query_type', 'includes'])
         cursor.execute(query + """
-            WHERE o.query_type LIKE '%.findMany'
-              AND (o.includes IS NULL OR o.includes = '[]' OR o.includes = '{}' OR o.includes = '')
-            ORDER BY o.file, o.line
+            WHERE query_type LIKE '%.findMany'
+              AND (includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = '')
+            ORDER BY file, line
         """)
 
         for file, line, query_type, includes in cursor.fetchall():
@@ -181,12 +181,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 3: Missing Transactions for Multiple Writes
         # ========================================================
         # Build conditions for write methods
-        write_conditions = ' OR '.join([f"o.query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
+        write_conditions = ' OR '.join([f"query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
 
         query = build_query('orm_queries', ['file', 'line', 'query_type', 'has_transaction'])
         cursor.execute(query + f"""
             WHERE ({write_conditions})
-            ORDER BY o.file, o.line
+            ORDER BY file, line
         """)
 
         # Group operations by file
@@ -227,12 +227,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 4: Unhandled OrThrow Methods
         # ========================================================
         # Build conditions for throw methods
-        throw_conditions = ' OR '.join([f"o.query_type LIKE '%.{method}'" for method in THROW_METHODS])
+        throw_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in THROW_METHODS])
 
         query = build_query('orm_queries', ['file', 'line', 'query_type'])
         cursor.execute(query + f"""
             WHERE ({throw_conditions})
-            ORDER BY o.file, o.line
+            ORDER BY file, line
         """)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         orthrow_methods = cursor.fetchall()
@@ -241,9 +241,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             # Check if there's error handling nearby
             cfg_query = build_query('cfg_blocks', ['COUNT(*)'])
             cursor.execute(cfg_query + """
-                WHERE c.file = ?
-                  AND c.block_type IN ('try', 'catch', 'except', 'finally')
-                  AND ? BETWEEN c.start_line - 5 AND c.end_line + 5
+                WHERE file = ?
+                  AND block_type IN ('try', 'catch', 'except', 'finally')
+                  AND ? BETWEEN start_line - 5 AND end_line + 5
             """, (file, line))
             has_error_handling = cursor.fetchone()[0] > 0
 
@@ -269,10 +269,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
         cursor.execute(query + f"""
-            WHERE f.callee_function IN ({placeholders})
-               OR f.callee_function LIKE '%queryRaw%'
-               OR f.callee_function LIKE '%executeRaw%'
-            ORDER BY f.file, f.line
+            WHERE callee_function IN ({placeholders})
+               OR callee_function LIKE '%queryRaw%'
+               OR callee_function LIKE '%executeRaw%'
+            ORDER BY file, line
         """, raw_methods_list)
 
         for file, line, func, args in cursor.fetchall():
@@ -316,10 +316,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             # Find queries on these models
             query = build_query('orm_queries', ['file', 'line', 'query_type'])
             cursor.execute(query + """
-                WHERE o.query_type LIKE '%.findMany%'
-                   OR o.query_type LIKE '%.findFirst%'
-                   OR o.query_type LIKE '%.findUnique%'
-                ORDER BY o.file, o.line
+                WHERE query_type LIKE '%.findMany%'
+                   OR query_type LIKE '%.findFirst%'
+                   OR query_type LIKE '%.findUnique%'
+                ORDER BY file, line
             """)
 
             for file, line, query_type in cursor.fetchall():
@@ -344,8 +344,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # Look for schema.prisma files
         query = build_query('files', ['path'])
         cursor.execute(query + """
-            WHERE f.path LIKE '%schema.prisma%'
-               OR f.path LIKE '%prisma/schema%'
+            WHERE path LIKE '%schema.prisma%'
+               OR path LIKE '%prisma/schema%'
             LIMIT 1
         """)
         schema_file = cursor.fetchone()
@@ -354,11 +354,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
             # Check for DATABASE_URL configuration
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
             cursor.execute(query + """
-                WHERE a.target_var LIKE '%DATABASE_URL%'
-                   OR a.target_var LIKE '%DATABASE%'
-                   OR a.target_var LIKE '%POSTGRES%'
-                   OR a.target_var LIKE '%MYSQL%'
-                ORDER BY a.file, a.line
+                WHERE target_var LIKE '%DATABASE_URL%'
+                   OR target_var LIKE '%DATABASE%'
+                   OR target_var LIKE '%POSTGRES%'
+                   OR target_var LIKE '%MYSQL%'
+                ORDER BY file, line
             """)
 
             for file, line, var, expr in cursor.fetchall():

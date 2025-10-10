@@ -70,7 +70,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                     for prefix in RANGE_PREFIXES:
                         if version_str.startswith(prefix):
                             findings.append(StandardFinding(
-                                rule_name='unpinned-version',
+                                rule_name='version_pinning',
                                 message=f"Production dependency '{pkg}' uses unpinned version '{version_str}'",
                                 file_path=file_path,
                                 line=1,

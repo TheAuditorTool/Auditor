@@ -42,8 +42,8 @@ METADATA = RuleMetadata(
     category="auth",
     target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs'],
     exclude_patterns=[
-        'frontend/',
-        'client/',
+        # 'frontend/',  # REMOVED - rule has frontend checks (localStorage, React state)
+        # 'client/',    # REMOVED - rule detects frontend JWT patterns
         'test/',
         'spec.',
         '__tests__',
