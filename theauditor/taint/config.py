@@ -186,25 +186,34 @@ class TaintConfig:
     
     def with_registry(self, registry: Any) -> 'TaintConfig':
         """Create new config with TaintRegistry patterns.
-        
+
         Args:
             registry: TaintRegistry with rule-based patterns
-            
+
         Returns:
             New TaintConfig using registry patterns
         """
         if not registry:
             return self
-        
+
         # Extract patterns from registry
         registry_sources = {}
         for category, patterns in registry.sources.items():
             registry_sources[category] = [p.pattern for p in patterns]
-        
+
         registry_sinks = {}
         for category, patterns in registry.sinks.items():
             registry_sinks[category] = [p.pattern for p in patterns]
-        
+
+        # HARD FAILURE: If registry is empty, fail loudly
+        # This prevents silent success with 0 results when registry is malformed
+        if not registry_sources and not registry_sinks:
+            raise ValueError(
+                "TaintRegistry contains no sources or sinks. "
+                "Cannot perform taint analysis with empty patterns. "
+                "This indicates a configuration error or failed rule loading."
+            )
+
         # Return NEW config with registry patterns
         return TaintConfig(
             sources=registry_sources,

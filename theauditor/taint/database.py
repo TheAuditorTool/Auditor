@@ -256,9 +256,9 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
             # Extract function/method name from query context
             func_query = build_query('symbols', ['name'],
                 where="path = ? AND line = ? AND type = 'call'",
-                order_by="col DESC"
+                order_by="col DESC",
+                limit=1
             )
-            func_query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
             cursor.execute(func_query, (file_path, line_number))
 
             func_result = cursor.fetchone()
@@ -757,9 +757,9 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
     """
     query = build_query('symbols', ['name', 'line'],
         where="path = ? AND type = 'function' AND line <= ?",
-        order_by="line DESC"
+        order_by="line DESC",
+        limit=1
     )
-    query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
     cursor.execute(query, (location["file"], location["line"]))
     
     result = cursor.fetchone()
@@ -785,9 +785,9 @@ def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,
     # Find next function in same file
     query = build_query('symbols', ['line'],
         where="path = ? AND type = 'function' AND line > ?",
-        order_by="line"
+        order_by="line",
+        limit=1
     )
-    query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
     cursor.execute(query, (file_path, function_line))
 
     next_func = cursor.fetchone()
@@ -800,7 +800,7 @@ def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,
         where="path = ?"
     )
     cursor.execute(max_query, (file_path,))
-    
+
     max_line = cursor.fetchone()
     return function_line, max_line[0] if max_line and max_line[0] else function_line + 200
 
@@ -855,17 +855,17 @@ def get_block_for_line(cursor: sqlite3.Cursor, file_path: str, line: int,
         query = build_query('cfg_blocks',
             ['id', 'function_name', 'block_type', 'start_line', 'end_line', 'condition_expr'],
             where="file = ? AND function_name = ? AND start_line <= ? AND end_line >= ?",
-            order_by="start_line DESC"
+            order_by="start_line DESC",
+            limit=1
         )
-        query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
         cursor.execute(query, (file_path, function_name, line, line))
     else:
         query = build_query('cfg_blocks',
             ['id', 'function_name', 'block_type', 'start_line', 'end_line', 'condition_expr'],
             where="file = ? AND start_line <= ? AND end_line >= ?",
-            order_by="start_line DESC"
+            order_by="start_line DESC",
+            limit=1
         )
-        query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
         cursor.execute(query, (file_path, line, line))
     
     result = cursor.fetchone()
@@ -1055,6 +1055,127 @@ def check_cfg_available(cursor: sqlite3.Cursor) -> bool:
     # Check if tables have data (no need to check existence)
     count_query = build_query('cfg_blocks', ['COUNT(*)'])
     cursor.execute(count_query)
+    count = cursor.fetchone()[0]
+
+    return count > 0
+
+
+# ============================================================================
+# Object Literal Resolution - For Dynamic Dispatch Detection (v1.2+)
+# ============================================================================
+
+def resolve_object_literal_properties(
+    cursor: sqlite3.Cursor,
+    variable_name: str,
+    property_types: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """
+    Resolve all properties of an object literal by variable name.
+
+    Used for dynamic dispatch resolution: given `handlers[key]`, find all
+    possible values that handlers[key] could resolve to.
+
+    Args:
+        cursor: Database cursor
+        variable_name: Name of object variable (e.g., 'handlers', 'actions')
+        property_types: Optional filter for property types
+                       (e.g., ['function_ref', 'shorthand'] for functions only)
+
+    Returns:
+        List of property dictionaries with keys: property_name, property_value, property_type, line
+
+    Example:
+        >>> props = resolve_object_literal_properties(cursor, 'handlers', ['function_ref'])
+        >>> # Returns: [{'property_name': 'create', 'property_value': 'createUser', ...}, ...]
+
+    Schema Contract:
+        Queries object_literals table (guaranteed to exist in v1.2+)
+    """
+    if property_types:
+        # Build IN clause for property types
+        placeholders = ','.join('?' * len(property_types))
+        query = build_query('object_literals',
+            ['property_name', 'property_value', 'property_type', 'line', 'file', 'nested_level'],
+            where=f"variable_name = ? AND property_type IN ({placeholders})",
+            order_by="line"
+        )
+        cursor.execute(query, (variable_name, *property_types))
+    else:
+        query = build_query('object_literals',
+            ['property_name', 'property_value', 'property_type', 'line', 'file', 'nested_level'],
+            where="variable_name = ?",
+            order_by="line"
+        )
+        cursor.execute(query, (variable_name,))
+
+    properties = []
+    for prop_name, prop_value, prop_type, line, file, nested_level in cursor.fetchall():
+        properties.append({
+            'property_name': prop_name,
+            'property_value': prop_value,
+            'property_type': prop_type,
+            'line': line,
+            'file': file.replace("\\", "/"),
+            'nested_level': nested_level
+        })
+
+    return properties
+
+
+def find_dynamic_dispatch_targets(
+    cursor: sqlite3.Cursor,
+    variable_name: str
+) -> List[str]:
+    """
+    Find all possible function targets for dynamic dispatch.
+
+    Convenience wrapper around resolve_object_literal_properties that
+    returns just the function names for handlers[key] patterns.
+
+    Args:
+        cursor: Database cursor
+        variable_name: Name of handler map (e.g., 'handlers', 'actions', 'routes')
+
+    Returns:
+        List of function names that could be called
+
+    Example:
+        >>> targets = find_dynamic_dispatch_targets(cursor, 'handlers')
+        >>> # Returns: ['createUser', 'updateUser', 'deleteUser']
+
+    Schema Contract:
+        Queries object_literals table (guaranteed to exist in v1.2+)
+    """
+    # Query for function references and shorthand properties only
+    props = resolve_object_literal_properties(
+        cursor,
+        variable_name,
+        property_types=['function_ref', 'shorthand']
+    )
+
+    # Extract just the property values (function names)
+    return [prop['property_value'] for prop in props]
+
+
+def check_object_literals_available(cursor: sqlite3.Cursor) -> bool:
+    """
+    Check if object_literals table contains data.
+
+    Args:
+        cursor: Database cursor
+
+    Returns:
+        True if object literal data is available
+
+    Schema Contract:
+        Queries object_literals table (guaranteed to exist in v1.2+)
+        Table existence is guaranteed by schema contract
+
+    Note:
+        Uses raw SQL for COUNT(*) as build_query() doesn't support aggregate functions
+    """
+    # NOTE: build_query() doesn't support aggregate functions, use raw SQL
+    cursor.execute("SELECT COUNT(*) FROM object_literals")
     count = cursor.fetchone()[0]
 
     return count > 0

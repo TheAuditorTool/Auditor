@@ -53,7 +53,8 @@ class JavaScriptExtractor(BaseExtractor):
             'vue_provide_inject': [],
             # Other extractions
             'orm_queries': [],
-            'api_endpoints': []
+            'api_endpoints': [],
+            'object_literals': []  # PHASE 3: Object literal parsing for dynamic dispatch
         }
 
         # No AST = no extraction
@@ -283,6 +284,14 @@ class JavaScriptExtractor(BaseExtractor):
             result['assignments'] = assignments
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] JS extractor: Found {len(assignments)} assignments")
+
+        # === PHASE 3 (CORRECTED): AST-BASED OBJECT LITERAL EXTRACTION ===
+        # Extract object literals via TRUE AST traversal (not string parsing)
+        result['object_literals'] = self._extract_object_literals_from_tree(
+            tree, file_info, content
+        )
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] JS extractor: Found {len(result['object_literals'])} object literal properties (AST-based)")
 
         # Extract function calls with arguments for taint analysis
         function_calls = self.ast_parser.extract_function_calls_with_args(tree)
@@ -1126,3 +1135,266 @@ class JavaScriptExtractor(BaseExtractor):
                 routes.append(route)
 
         return routes
+
+    # ========================================================
+    # PHASE 3 (CORRECTED): AST-BASED OBJECT LITERAL EXTRACTION
+    # ========================================================
+
+    def _extract_object_literals_from_tree(self, tree: Any, file_info: Dict, content: str) -> List[Dict]:
+        """Extract object literals via direct AST traversal (AST-first approach).
+
+        This is the CORRECT implementation that traverses actual AST nodes
+        instead of parsing strings.
+
+        Args:
+            tree: Full AST tree from parser
+            file_info: File metadata
+            content: File content for text extraction
+
+        Returns:
+            List of object literal property records
+        """
+        object_literals = []
+
+        # Get the actual tree-sitter node
+        tree_type = tree.get("type") if isinstance(tree, dict) else None
+        actual_tree = None
+
+        if tree_type == "semantic_ast":
+            # Semantic AST wraps the tree
+            actual_tree = tree.get("tree")
+        elif tree_type == "tree_sitter":
+            # Tree-sitter provides direct access
+            actual_tree = tree.get("tree")
+        else:
+            # Fallback: assume it's the tree itself
+            actual_tree = tree
+
+        if not actual_tree or not hasattr(actual_tree, 'root_node'):
+            return object_literals
+
+        # Traverse the AST looking for variable declarations with object initializers
+        root_node = actual_tree.root_node
+        self._traverse_for_object_literals(root_node, file_info, content, object_literals)
+
+        return object_literals
+
+    def _traverse_for_object_literals(self, node: Any, file_info: Dict, content: str,
+                                     object_literals: List[Dict], function_context: str = ''):
+        """Recursively traverse AST nodes to find object literals.
+
+        Args:
+            node: Current AST node
+            file_info: File metadata
+            content: File content
+            object_literals: Accumulator list
+            function_context: Name of containing function
+        """
+        if not node:
+            return
+
+        # Track function context
+        if node.type in ('function_declaration', 'function', 'arrow_function'):
+            # Get function name if available
+            name_node = node.child_by_field_name('name')
+            if name_node:
+                function_context = self._get_node_text(name_node, content)
+            else:
+                function_context = '<anonymous>'
+
+        # Look for variable declarators: const x = { ... }
+        if node.type == 'variable_declarator':
+            name_node = node.child_by_field_name('name')
+            value_node = node.child_by_field_name('value')
+
+            if name_node and value_node and value_node.type == 'object':
+                variable_name = self._get_node_text(name_node, content)
+                # Extract object literal structure from this node
+                records = self._extract_object_literal(
+                    value_node, file_info, content, variable_name,
+                    function_context, nested_level=0
+                )
+                object_literals.extend(records)
+
+        # Look for assignment expressions: x = { ... }
+        elif node.type == 'assignment_expression':
+            left_node = node.child_by_field_name('left')
+            right_node = node.child_by_field_name('right')
+
+            if left_node and right_node and right_node.type == 'object':
+                variable_name = self._get_node_text(left_node, content)
+                records = self._extract_object_literal(
+                    right_node, file_info, content, variable_name,
+                    function_context, nested_level=0
+                )
+                object_literals.extend(records)
+
+        # Recurse into children
+        for child in node.children:
+            self._traverse_for_object_literals(child, file_info, content, object_literals, function_context)
+
+    def _extract_object_literal(self, node: Any, file_info: Dict, content: str,
+                               variable_name: str, function_context: str,
+                               nested_level: int = 0) -> List[Dict]:
+        """Extract object literal structure from an object AST node.
+
+        This method performs TRUE AST traversal on the object node's children.
+
+        Args:
+            node: Object AST node
+            file_info: File metadata
+            content: File content for text extraction
+            variable_name: Variable holding the object
+            function_context: Containing function name
+            nested_level: Nesting depth (0 = top level)
+
+        Returns:
+            List of property records
+        """
+        records = []
+
+        if not node or not hasattr(node, 'named_children'):
+            return records
+
+        for child in node.named_children:
+            # Handle property: value pairs
+            if child.type == 'pair':
+                key_node = child.child_by_field_name('key')
+                value_node = child.child_by_field_name('value')
+
+                if not key_node or not value_node:
+                    continue
+
+                property_name = self._get_node_text(key_node, content)
+                property_value = self._get_node_text(value_node, content)
+                property_type = self._classify_property_value_from_node(value_node)
+
+                record = {
+                    "file": file_info.get('path', ''),
+                    "line": node.start_point[0] + 1,
+                    "variable_name": variable_name,
+                    "property_name": property_name,
+                    "property_value": property_value,
+                    "property_type": property_type,
+                    "nested_level": nested_level,
+                    "in_function": function_context
+                }
+                records.append(record)
+
+                # Recurse for nested objects
+                if value_node.type == 'object':
+                    nested_records = self._extract_object_literal(
+                        value_node, file_info, content, variable_name,
+                        function_context, nested_level + 1
+                    )
+                    records.extend(nested_records)
+
+            # Handle ES6 method definitions: method() { }
+            elif child.type == 'method_definition':
+                name_node = child.child_by_field_name('name')
+                if name_node:
+                    method_name = self._get_node_text(name_node, content)
+                    record = {
+                        "file": file_info.get('path', ''),
+                        "line": node.start_point[0] + 1,
+                        "variable_name": variable_name,
+                        "property_name": method_name,
+                        "property_value": f"[inline_method:{method_name}]",
+                        "property_type": "method_definition",
+                        "nested_level": nested_level,
+                        "in_function": function_context
+                    }
+                    records.append(record)
+
+            # Handle shorthand properties: { handleClick }
+            elif child.type == 'shorthand_property_identifier':
+                prop_name = self._get_node_text(child, content)
+                record = {
+                    "file": file_info.get('path', ''),
+                    "line": node.start_point[0] + 1,
+                    "variable_name": variable_name,
+                    "property_name": prop_name,
+                    "property_value": prop_name,  # Same as property name in shorthand
+                    "property_type": "shorthand",
+                    "nested_level": nested_level,
+                    "in_function": function_context
+                }
+                records.append(record)
+
+            # Handle spread elements: { ...baseObject }
+            elif child.type == 'spread_element':
+                spread_node = child.named_children[0] if child.named_children else None
+                if spread_node:
+                    spread_value = self._get_node_text(spread_node, content)
+                    record = {
+                        "file": file_info.get('path', ''),
+                        "line": node.start_point[0] + 1,
+                        "variable_name": variable_name,
+                        "property_name": "...spread",
+                        "property_value": spread_value,
+                        "property_type": "spread",
+                        "nested_level": nested_level,
+                        "in_function": function_context
+                    }
+                    records.append(record)
+
+        return records
+
+    def _get_node_text(self, node: Any, content: str) -> str:
+        """Extract text content from an AST node.
+
+        Args:
+            node: AST node
+            content: File content
+
+        Returns:
+            Text content of the node
+        """
+        if not node:
+            return ''
+
+        try:
+            # Tree-sitter provides the text directly as bytes (CORRECT way)
+            if hasattr(node, 'text'):
+                text = node.text
+                if isinstance(text, bytes):
+                    return text.decode('utf-8')
+                return str(text)
+            else:
+                return ''
+        except Exception:
+            return ''
+
+    def _classify_property_value_from_node(self, value_node: Any) -> str:
+        """Classify property value type based on AST node type.
+
+        This uses TRUE AST node types, not string pattern matching.
+
+        Args:
+            value_node: AST node for the property value
+
+        Returns:
+            Property type string
+        """
+        if not value_node:
+            return 'expression'
+
+        node_type = value_node.type
+
+        # Map AST node types to our property types
+        if node_type == 'identifier':
+            return 'function_ref'  # Likely a function reference
+        elif node_type == 'arrow_function':
+            return 'arrow_function'
+        elif node_type == 'function':
+            return 'function_expression'
+        elif node_type == 'object':
+            return 'object'
+        elif node_type == 'array':
+            return 'array'
+        elif node_type in ('string', 'number', 'true', 'false', 'null', 'undefined'):
+            return 'literal'
+        elif node_type == 'template_string':
+            return 'literal'
+        else:
+            return 'expression'

@@ -23,6 +23,10 @@ from .database import (
     get_containing_function,
     get_function_boundaries,
     get_code_snippet,
+    # Object literal resolution (v1.2+)
+    resolve_object_literal_properties,
+    find_dynamic_dispatch_targets,
+    check_object_literals_available,
 )
 
 from .sources import (
@@ -103,6 +107,11 @@ __all__ = [
     "get_containing_function",
     "get_function_boundaries",
     "get_code_snippet",
+
+    # Object literal resolution (v1.2+)
+    "resolve_object_literal_properties",
+    "find_dynamic_dispatch_targets",
+    "check_object_literals_available",
     
     # Constants
     "TAINT_SOURCES",

@@ -344,5 +344,40 @@ SECURITY_SINKS = {
         "collection.update",
         "collection.remove",
         "collection.aggregate",
+    ]),
+    # Dynamic dispatch / Object injection sinks (NEW - v1.2)
+    # Factual: member expressions and function calls where user input controls dispatch
+    # Patterns: obj[userInput], handlers[req.query.action](), routes[key]
+    # Vulnerability types: Prototype pollution, mass assignment, arbitrary function execution
+    "dynamic_dispatch": frozenset([
+        # Member expression patterns (bracket notation with tainted key)
+        "member_expression",  # Generic AST pattern for obj[key]
+        "computed_member_expression",  # Explicit computed property access
+
+        # Call expression patterns (tainted callee)
+        "dynamic_call",  # Generic pattern for variable()
+        "dynamic_invoke",  # Method invocation with tainted reference
+
+        # Common vulnerable patterns in web frameworks
+        "handlers[",  # Route handlers accessed dynamically
+        "routes[",    # Route maps accessed by user input
+        "actions[",   # Action dispatchers
+        "commands[",  # Command maps
+        "methods[",   # Method maps
+        "services[",  # Service locators
+        "controllers[",  # Controller dispatch
+
+        # Prototype access (JavaScript prototype pollution)
+        "__proto__",
+        "prototype",
+        "constructor",
+
+        # Python dynamic attribute access
+        "getattr",
+        "setattr",
+        "hasattr",
+        "__getattribute__",
+        "__getitem__",
+        "__setitem__",
     ])
 }
