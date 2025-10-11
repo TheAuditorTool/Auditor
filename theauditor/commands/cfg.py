@@ -261,7 +261,8 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
                     # Modify DOT to show statements
                     old_label = f"{block['type']}\\n{block['start_line']}-{block['end_line']}"
                     stmt_lines = [f"{s['type']}@{s['line']}" for s in block['statements'][:3]]
-                    new_label = f"{old_label}\\n{'\\n'.join(stmt_lines)}"
+                    stmt_str = '\\n'.join(stmt_lines)
+                    new_label = f"{old_label}\\n{stmt_str}"
                     dot_content = dot_content.replace(old_label, new_label)
         else:
             dot_content = builder.export_dot(file, function)
