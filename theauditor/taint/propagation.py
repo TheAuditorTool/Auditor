@@ -263,9 +263,9 @@ def trace_from_source(
         if not tainted_elements:
             # Look for any usage of the source pattern in expressions
             query = build_query('assignments', ['DISTINCT in_function'],
-                where="file = ? AND (source_expr LIKE ? OR source_vars LIKE ?)"
+                where="file = ? AND (source_expr LIKE ? OR source_vars LIKE ?)",
+                limit=1
             )
-            query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
             cursor.execute(query, (source["file"], f"%{source['pattern']}%", f'%"{source["pattern"]}"%'))
             result = cursor.fetchone()
             if result:
@@ -639,9 +639,9 @@ def trace_from_source_legacy(
             
             # Find definition of called function
             query = build_query('symbols', ['path', 'line'],
-                where="name = ? AND type = 'function'"
+                where="name = ? AND type = 'function'",
+                limit=1
             )
-            query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
             cursor.execute(query, (called_name.split(".")[-1],))  # Handle method calls
 
             func_def = cursor.fetchone()

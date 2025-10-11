@@ -54,6 +54,7 @@ class DatabaseManager:
         self.react_components_batch = []
         self.react_hooks_batch = []
         self.variable_usage_batch = []
+        self.object_literals_batch = []
         self.frameworks_batch = []
         self.framework_safe_sinks_batch = []
 
@@ -561,6 +562,24 @@ class DatabaseManager:
         """
         )
 
+        # Object literal parsing for dynamic dispatch resolution
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS object_literals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                variable_name TEXT,
+                property_name TEXT NOT NULL,
+                property_value TEXT NOT NULL,
+                property_type TEXT,
+                nested_level INTEGER DEFAULT 0,
+                in_function TEXT,
+                FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
         # Framework detection tables for context-aware analysis
         cursor.execute(
             """
@@ -874,6 +893,10 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_file ON variable_usage(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_component ON variable_usage(in_component)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_variable_usage_var ON variable_usage(variable_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_object_literals_file ON object_literals(file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_object_literals_var ON object_literals(variable_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_object_literals_value ON object_literals(property_value)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_object_literals_type ON object_literals(property_type)")
 
         # Indexes for JSX tables
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_returns_file ON function_returns_jsx(file)")
@@ -1286,6 +1309,35 @@ class DatabaseManager:
         self.variable_usage_batch.append((file_path, line, variable_name, usage_type,
                                          in_component or '', in_hook or '', scope_level))
 
+    def add_object_literal(self, file_path: str, line: int, variable_name: str,
+                          property_name: str, property_value: str,
+                          property_type: str, nested_level: int = 0,
+                          in_function: str = ''):
+        """Add object literal property-function mapping to batch.
+
+        Args:
+            file_path: Path to the file containing the object literal
+            line: Line number where the object literal appears
+            variable_name: Name of the variable holding the object (e.g., 'handlers')
+            property_name: Key in the object literal (e.g., 'create')
+            property_value: Value expression (e.g., 'handleCreate' or '{nested}')
+            property_type: Type of value - one of:
+                - 'function_ref': Reference to a function (e.g., handleCreate)
+                - 'literal': Primitive literal value (string, number, boolean)
+                - 'expression': Complex expression
+                - 'object': Nested object literal
+                - 'method_definition': ES6 method syntax (method() {})
+                - 'shorthand': Shorthand property ({ handleClick })
+                - 'arrow_function': Inline arrow function
+                - 'function_expression': Inline function expression
+            nested_level: Depth of nesting (0 = top level, 1 = first nested, etc.)
+            in_function: Name of containing function ('' for module scope)
+        """
+        self.object_literals_batch.append((
+            file_path, line, variable_name, property_name,
+            property_value, property_type, nested_level, in_function
+        ))
+
     # ========================================================
     # JSX-SPECIFIC BATCH METHODS FOR DUAL-PASS EXTRACTION
     # ========================================================
@@ -1694,6 +1746,16 @@ class DatabaseManager:
                 )
                 self.variable_usage_batch = []
 
+            if self.object_literals_batch:
+                cursor.executemany(
+                    """INSERT INTO object_literals
+                       (file, line, variable_name, property_name, property_value,
+                        property_type, nested_level, in_function)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    self.object_literals_batch
+                )
+                self.object_literals_batch = []
+
             # Handle JSX-specific batches for dual-pass extraction
             if self.function_returns_jsx_batch:
                 cursor.executemany(
@@ -1890,6 +1952,7 @@ def create_database_schema(conn: sqlite3.Connection) -> None:
     manager.react_components_batch = []
     manager.react_hooks_batch = []
     manager.variable_usage_batch = []
+    manager.object_literals_batch = []
     manager.function_returns_jsx_batch = []
     manager.symbols_jsx_batch = []
     manager.assignments_jsx_batch = []

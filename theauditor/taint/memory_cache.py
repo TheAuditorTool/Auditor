@@ -909,7 +909,7 @@ class MemoryCache:
                                     "pattern": source_pattern,
                                     "type": "source"
                                 })
-        
+
         return sources
 
     def find_security_sinks_cached(self, sinks_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:

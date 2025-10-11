@@ -99,6 +99,7 @@ class IndexerOrchestrator:
             "function_calls": 0,
             "returns": 0,
             "variable_usage": 0,
+            "object_literals": 0,  # PHASE 3: Object literal properties
             # Control flow tracking
             "cfg_blocks": 0,
             "cfg_edges": 0,
@@ -294,6 +295,8 @@ class IndexerOrchestrator:
                 flow_parts.append(f"{self.counts['returns']} returns")
             if self.counts.get('variable_usage', 0) > 0:
                 flow_parts.append(f"{self.counts['variable_usage']} variable usages")
+            if self.counts.get('object_literals', 0) > 0:
+                flow_parts.append(f"{self.counts['object_literals']} object literal properties")
             print(flow_msg + ", ".join(flow_parts))
 
         # Control flow analysis
@@ -912,6 +915,21 @@ class IndexerOrchestrator:
                     var.get('scope_level', 0)
                 )
                 self.counts['variable_usage'] += 1
+
+        # === PHASE 3: OBJECT LITERAL STORAGE ===
+        if 'object_literals' in extracted:
+            for obj_lit in extracted['object_literals']:
+                self.db_manager.add_object_literal(
+                    obj_lit['file'],
+                    obj_lit['line'],
+                    obj_lit['variable_name'],
+                    obj_lit['property_name'],
+                    obj_lit['property_value'],
+                    obj_lit['property_type'],
+                    obj_lit.get('nested_level', 0),
+                    obj_lit.get('in_function', '')
+                )
+                self.counts['object_literals'] += 1
 
         # Store build analysis data
         if 'package_configs' in extracted:

@@ -144,8 +144,9 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     
     # Load framework data from database (not output files)
     frameworks = []
-    db_path = Path(".pf/repo_index.db")
-    if db_path.exists():
+    # CRITICAL FIX: Use parameter, don't shadow it
+    db_path_obj = Path(db_path)
+    if db_path_obj.exists():
         try:
             import sqlite3
             conn = sqlite3.connect(db_path)
@@ -189,8 +190,15 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         # Original framework enhancement logic
         # Dynamically extend taint sources based on detected frameworks
         # Create local copies to avoid modifying global constants
-        dynamic_sources = dict(TAINT_SOURCES)
-        dynamic_sinks = dict(SECURITY_SINKS)
+        # CRITICAL: Convert frozenset values to lists for mutability
+        dynamic_sources = {
+            category: list(patterns) if isinstance(patterns, frozenset) else list(patterns)
+            for category, patterns in TAINT_SOURCES.items()
+        }
+        dynamic_sinks = {
+            category: list(patterns) if isinstance(patterns, frozenset) else list(patterns)
+            for category, patterns in SECURITY_SINKS.items()
+        }
         
         # Add framework-specific patterns
         for fw_info in frameworks:

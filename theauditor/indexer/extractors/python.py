@@ -119,10 +119,15 @@ class PythonExtractor(BaseExtractor):
                 # Extract function calls with arguments
                 calls_with_args = self.ast_parser.extract_function_calls_with_args(tree)
                 for call in calls_with_args:
+                    # Skip calls with empty callee_function (violates CHECK constraint)
+                    callee = call.get('callee_function', '')
+                    if not callee:
+                        continue
+
                     result['function_calls'].append({
                         'line': call.get('line', 0),
                         'caller_function': call.get('caller_function', 'global'),
-                        'callee_function': call.get('callee_function', ''),
+                        'callee_function': callee,
                         'argument_index': call.get('argument_index', 0),
                         'argument_expr': call.get('argument_expr', ''),
                         'param_name': call.get('param_name', '')
