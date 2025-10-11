@@ -61,6 +61,16 @@ from theauditor.insights.semantic_context import (
     load_semantic_context,
 )
 
+# Impact Analysis - change blast radius tracking
+from theauditor.insights.impact_analyzer import (
+    analyze_impact,
+    find_upstream_dependencies,
+    find_downstream_dependencies,
+    calculate_transitive_impact,
+    trace_frontend_to_backend,
+    format_impact_report,
+)
+
 __all__ = [
     # ML exports
     'check_ml_available',
@@ -97,4 +107,11 @@ __all__ = [
     'ContextPattern',
     'ClassificationResult',
     'load_semantic_context',
+    # Impact Analysis exports
+    'analyze_impact',
+    'find_upstream_dependencies',
+    'find_downstream_dependencies',
+    'calculate_transitive_impact',
+    'trace_frontend_to_backend',
+    'format_impact_report',
 ]

@@ -89,10 +89,10 @@ show_error_codes = true
 show_error_context = true
 # Exclude patterns
 exclude = [
-    "\.pf",
-    "\.auditor_venv",
+    "\\.pf",
+    "\\.auditor_venv",
     "__pycache__",
-    "\.eggs",
+    "\\.eggs",
     "build",
     "dist"
 ]

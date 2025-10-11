@@ -92,10 +92,6 @@ class InterProceduralCFGAnalyzer:
         self.recursion_depth = 0
         self.max_recursion = 10
         self.debug = os.environ.get("THEAUDITOR_CFG_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG")
-
-        # PHASE 5: Check for object_literals table (v1.2+ feature)
-        # Cache this check to avoid repeated queries
-        self._has_object_literals_table = self._check_object_literals_table()
     
     def analyze_function_call(
         self,
@@ -123,18 +119,6 @@ class InterProceduralCFGAnalyzer:
             if self.debug:
                 print(f"  Cache hit for {callee_func}", file=sys.stderr)
             return self.analysis_cache[cache_key]
-        
-        # Check persistent cache if available
-        if self.cache:
-            cached_result = self.cache.get_cached_analysis(
-                callee_file, callee_func, {"args": args_mapping, "taint": taint_state}
-            )
-            if cached_result:
-                if self.debug:
-                    print(f"  Persistent cache hit for {callee_func}", file=sys.stderr)
-                effect = self._deserialize_effect(cached_result)
-                self.analysis_cache[cache_key] = effect
-                return effect
         
         # Prevent infinite recursion
         if self.recursion_depth > self.max_recursion:
@@ -173,13 +157,7 @@ class InterProceduralCFGAnalyzer:
             
             # Cache the result
             self.analysis_cache[cache_key] = effect
-            if self.cache:
-                self.cache.cache_analysis(
-                    callee_file, callee_func,
-                    {"args": args_mapping, "taint": taint_state},
-                    self._serialize_effect(effect)
-                )
-            
+
             if self.debug:
                 print(f"  Effect: return_tainted={effect.return_tainted}, params={effect.param_effects}", file=sys.stderr)
             
@@ -243,27 +221,6 @@ class InterProceduralCFGAnalyzer:
     # PHASE 5: DATABASE-BACKED DYNAMIC DISPATCH RESOLUTION
     # ========================================================
 
-    def _check_object_literals_table(self) -> bool:
-        """Check if object_literals table exists in database (v1.2+ feature).
-
-        Returns:
-            True if table exists, False otherwise
-        """
-        try:
-            self.cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='object_literals'"
-            )
-            exists = self.cursor.fetchone() is not None
-
-            if not exists and self.debug:
-                print("[TAINT DEBUG] object_literals table not found - using regex fallback", file=sys.stderr)
-
-            return exists
-        except Exception as e:
-            if self.debug:
-                print(f"[TAINT DEBUG] Error checking object_literals table: {e}", file=sys.stderr)
-            return False
-
     def _resolve_dynamic_callees_from_db(self, base_obj: str, context: Dict[str, Any]) -> List[str]:
         """Resolve dynamic callees using object_literals table (database-first, v1.2+).
 
@@ -282,10 +239,6 @@ class InterProceduralCFGAnalyzer:
             // Query: _resolve_dynamic_callees_from_db("actions", context)
             // Result: ["handleCreate", "handleUpdate"]
         """
-        # Fast path: Skip database query if table doesn't exist
-        if not self._has_object_literals_table:
-            return []
-
         possible_callees = []
 
         try:
@@ -305,14 +258,6 @@ class InterProceduralCFGAnalyzer:
 
             if self.debug and possible_callees:
                 print(f"[TAINT DEBUG] Resolved {len(possible_callees)} callees for '{base_obj}' via database: {possible_callees}", file=sys.stderr)
-
-        except sqlite3.OperationalError as e:
-            # Table might have been deleted mid-analysis
-            if "no such table" in str(e):
-                self._has_object_literals_table = False  # Update cache
-                if self.debug:
-                    print(f"[TAINT DEBUG] object_literals table disappeared - disabling", file=sys.stderr)
-            return []
 
         except Exception as e:
             if self.debug:

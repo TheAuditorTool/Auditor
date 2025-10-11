@@ -586,8 +586,8 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
 
         try:
             # Set environment variable for database location
-            env = os.environ.copy()
-            env["OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY"] = str(db_dir)
+            # IMPORTANT: Merge with system environment to preserve PATH, etc.
+            env = {**os.environ, "OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY": str(db_dir)}
 
             # Find real lockfiles from target project (filesystem search, not database)
             # This runs BEFORE aud index, so database doesn't exist yet

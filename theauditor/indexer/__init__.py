@@ -349,10 +349,39 @@ class IndexerOrchestrator:
         # ================================================================
         # SECOND PASS: JSX PRESERVED MODE EXTRACTION (UNCONDITIONAL)
         # ================================================================
-        # Re-process JSX/TSX files with preserved mode for _jsx tables
-        # This is REQUIRED because TypeScript compiler can only parse in
-        # ONE jsx mode at a time - first pass uses transformed for taint
-        # tracking, second pass uses preserved for structural analysis
+        #
+        # WHY THIS IS NECESSARY - CRITICAL ARCHITECTURAL DECISION:
+        #
+        # The TypeScript compiler can only operate in ONE JSX mode at a time,
+        # but we need TWO different views of JSX code for complete analysis:
+        #
+        # 1. TRANSFORMED MODE (First Pass):
+        #    - Converts JSX to React.createElement() calls
+        #    - Example: <div>{data}</div> → React.createElement('div', null, data)
+        #    - Purpose: Enables data-flow and taint analysis
+        #    - Why: Taint analysis needs to see data flow through function calls,
+        #            not JSX syntax. This reveals how user input flows through
+        #            component props and into DOM rendering.
+        #    - Stored in: Standard tables (symbols, assignments, function_call_args, etc.)
+        #
+        # 2. PRESERVED MODE (Second Pass):
+        #    - Keeps original JSX syntax intact
+        #    - Example: <div>{data}</div> stays as JSX
+        #    - Purpose: Enables structural and accessibility analysis
+        #    - Why: Rules checking JSX structure (e.g., a11y rules, component
+        #            composition patterns, prop validation) need to see the
+        #            actual JSX syntax, not transformed calls.
+        #    - Stored in: Parallel _jsx tables (symbols_jsx, assignments_jsx, etc.)
+        #
+        # RESULT:
+        # Downstream tools query the appropriate table based on their needs:
+        # - Taint analyzer → queries standard tables (transformed view)
+        # - JSX structural rules → query _jsx tables (preserved view)
+        # - Pattern detector → queries both as needed
+        #
+        # WARNING: DO NOT REMOVE THIS SECOND PASS
+        # Doing so will break all JSX-aware rules and cause false negatives
+        # in taint analysis for React/Vue applications.
         jsx_extensions = ['.jsx', '.tsx']
         jsx_files = [f for f in files if f['ext'] in jsx_extensions]
 
