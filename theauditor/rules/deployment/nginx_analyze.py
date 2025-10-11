@@ -166,8 +166,8 @@ class NginxAnalyzer:
             from theauditor.indexer.schema import build_query
             query = build_query('nginx_configs', [
                 'file_path', 'block_type', 'block_context', 'directives', 'level'
-            ])
-            cursor.execute(query + " ORDER BY file_path, level")
+            ], order_by="file_path, level")
+            cursor.execute(query)
 
             for row in cursor.fetchall():
                 self._parse_config_block(row)

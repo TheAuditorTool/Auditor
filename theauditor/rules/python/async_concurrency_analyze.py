@@ -353,7 +353,8 @@ class AsyncConcurrencyAnalyzer:
             query += " AND f.caller_function = ?"
             params.append(function)
 
-        self.cursor.execute(query + " LIMIT 1", params)
+        query += " LIMIT 1"
+        self.cursor.execute(query, params)
         return self.cursor.fetchone()[0] > 0
 
     def _check_async_without_await(self):
