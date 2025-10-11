@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Test Rust extraction on hegel-cli project.
+"""Test Rust extraction on a Rust project.
 
 Usage:
-    python3 .ddd/test_rust_extraction.py /path/to/hegel-cli
+    python3 tests/test_rust_extraction.py /path/to/rust-project
 """
 
 import sys
@@ -131,9 +131,8 @@ def test_rust_extraction(project_dir: Path):
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        # Default to hegel-cli
-        project_path = Path.home() / 'Code' / 'hegel-cli'
-    else:
-        project_path = Path(sys.argv[1])
+        print("Usage: python3 tests/test_rust_extraction.py /path/to/rust-project")
+        sys.exit(1)
 
+    project_path = Path(sys.argv[1])
     test_rust_extraction(project_path)
