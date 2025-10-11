@@ -165,6 +165,16 @@ class BaseExtractor(ABC):
     # IF YOU BELIEVE REGEX IS REQUIRED, YOU ARE INCORRECT. USE THE AST.
     # =================================================================
 
+    def cleanup(self) -> None:
+        """Clean up extractor resources after all files processed.
+
+        Override this if extractor maintains persistent resources
+        (LSP sessions, database connections, temp directories).
+
+        Default: no-op.
+        """
+        pass
+
 
 class ExtractorRegistry:
     """Registry for dynamic discovery and management of extractors.
