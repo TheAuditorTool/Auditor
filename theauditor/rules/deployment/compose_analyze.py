@@ -222,8 +222,8 @@ def find_compose_issues(context: StandardRuleContext) -> List[StandardFinding]:
             'environment', 'is_privileged', 'network_mode',
             'user', 'cap_add', 'cap_drop', 'security_opt', 'restart',
             'command', 'entrypoint', 'depends_on', 'healthcheck'
-        ])
-        cursor.execute(query + " ORDER BY file_path, service_name")
+        ], order_by="file_path, service_name")
+        cursor.execute(query)
 
         for row in cursor.fetchall():
             service_findings = analyze_service(row)

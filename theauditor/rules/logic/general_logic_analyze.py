@@ -278,15 +278,14 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Email Regex Validation (Anti-pattern)
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-        cursor.execute(query + """
-            WHERE (callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where="""(callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')
                    AND argument_expr LIKE '%@%'
                    AND (argument_expr LIKE '%email%'
                         OR argument_expr LIKE '%mail%'
-                        OR argument_expr LIKE '%\\\\@%'))
-            ORDER BY file, line
-        """)
+                        OR argument_expr LIKE '%\\\\@%'))""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, regex_func, pattern in cursor.fetchall():
             findings.append(StandardFinding(
@@ -417,9 +416,8 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Database Connections Without Cleanup
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
-        cursor.execute(query + """
-            WHERE (callee_function LIKE '%connect%'
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where="""(callee_function LIKE '%connect%'
                    OR callee_function LIKE '%createConnection%'
                    OR callee_function LIKE '%getConnection%')
               AND callee_function NOT LIKE '%disconnect%'
@@ -432,9 +430,9 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                          OR fca2.callee_function LIKE '%release%')
                     AND fca2.line > function_call_args.line
                     AND fca2.line < function_call_args.line + 50
-              )
-            ORDER BY file, line
-        """)
+              )""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, connect_func in cursor.fetchall():
             findings.append(StandardFinding(
@@ -485,9 +483,8 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 8: Sockets Without Cleanup
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
-        cursor.execute(query + """
-            WHERE (callee_function LIKE '%socket%'
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where="""(callee_function LIKE '%socket%'
                    OR callee_function LIKE '%Socket%'
                    OR callee_function = 'createSocket')
               AND callee_function NOT LIKE '%close%'
@@ -499,9 +496,9 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                          OR fca2.callee_function LIKE '%end%')
                     AND fca2.line > function_call_args.line
                     AND fca2.line < function_call_args.line + 50
-              )
-            ORDER BY file, line
-        """)
+              )""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, socket_func in cursor.fetchall():
             findings.append(StandardFinding(
@@ -544,9 +541,8 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 10: Stream Operations Without Cleanup
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
-        cursor.execute(query + """
-            WHERE callee_function IN (
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where="""callee_function IN (
                 'createReadStream', 'createWriteStream', 'stream',
                 'fs.createReadStream', 'fs.createWriteStream'
             )
@@ -558,9 +554,9 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                          OR fca2.callee_function LIKE '%.on%close%')
                     AND fca2.line > function_call_args.line
                     AND fca2.line < function_call_args.line + 30
-              )
-            ORDER BY file, line
-        """)
+              )""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, stream_func in cursor.fetchall():
             findings.append(StandardFinding(
@@ -578,9 +574,8 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 11: Async Operations Without Error Handling
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
-        cursor.execute(query + """
-            WHERE (callee_function LIKE '%.then%'
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where="""(callee_function LIKE '%.then%'
                    OR callee_function = 'await'
                    OR callee_function LIKE '%Promise%')
               AND NOT EXISTS (
@@ -589,10 +584,10 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                     AND fca2.line BETWEEN function_call_args.line AND function_call_args.line + 5
                     AND (fca2.callee_function LIKE '%.catch%'
                          OR fca2.callee_function = 'try')
-              )
-            ORDER BY file, line
-            LIMIT 10
-        """)
+              )""",
+                           order_by="file, line",
+                           limit=10)
+        cursor.execute(query)
 
         for file, line, async_func in cursor.fetchall():
             findings.append(StandardFinding(
