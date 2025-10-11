@@ -50,13 +50,14 @@ class MemoryCache:
         self.cfg_block_statements = []
         self.function_returns = []
 
-        # NEW: Specialized table storage for multi-table taint analysis (Phase 3.3)
+        # Specialized taint analysis tables (8 indexes: sql_queries, orm_queries, react_hooks, variable_usage)
         self.sql_queries = []
         self.orm_queries = []
         self.react_hooks = []
         self.variable_usage = []
 
-        # Phase 3.4: Additional security tables
+        # Specialized security tables (4 indexes: api_endpoints, jwt_patterns)
+        # INDEX BREAKDOWN: 31 primary indexes = 11 base + 8 CFG + 8 taint-specialized + 4 security-specialized
         self.api_endpoints = []
         self.jwt_patterns = []
 
@@ -506,7 +507,7 @@ class MemoryCache:
             self._update_pattern_sets(sources_dict, sinks_dict)
 
             print(f"[MEMORY] Total memory used: {self.current_memory / 1024 / 1024:.1f}MB", file=sys.stderr)
-            print(f"[MEMORY] Indexes built: 31 primary (11 base + 8 CFG + 8 Phase3.3 + 4 Phase3.4), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
+            print(f"[MEMORY] Indexes built: 31 primary (11 base + 8 CFG + 8 taint-specialized + 4 security-specialized), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
 
             self.is_loaded = True
             return True

@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
+from datetime import datetime
 from theauditor.config_runtime import load_runtime_config
 
 
@@ -82,8 +83,38 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
         
         # Handle JSON files
         with open(raw_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
+            content = f.read()
+
+        # Check if file is empty
+        if not content or not content.strip():
+            print(f"  [SKIPPED] {raw_path.name} - empty file (likely no findings)")
+            return []  # Empty list = success with no output
+
+        # Try standard JSON first
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as e:
+            # Check if it's JSONL format (multiple JSON objects)
+            if "Extra data" in str(e):
+                print(f"  [DETECTED] {raw_path.name} - JSONL format, parsing line-by-line")
+                data = []
+                for line_num, line in enumerate(content.splitlines(), 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        data.append(obj)
+                    except json.JSONDecodeError as line_err:
+                        print(f"    [WARNING] Line {line_num}: {line_err}")
+
+                if not data:
+                    print(f"  [SKIPPED] {raw_path.name} - no valid JSON objects found")
+                    return []
+            else:
+                # Some other JSON error - re-raise for outer handler
+                raise
+
         # Check if file needs chunking
         full_json = json.dumps(data, indent=2)
         if len(full_json) <= max_chunk_size:
@@ -169,15 +200,13 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                     # Add infrastructure issues only if they're different from all_rule_findings
                     # (to avoid duplicates when they're the same list)
                     if 'infrastructure_issues' in data:
-                        # Check if they're different objects (not the same list)
-                        if data['infrastructure_issues'] is not data.get('all_rule_findings'):
-                            # Only add if they're actually different content
-                            infra_set = {json.dumps(item, sort_keys=True) for item in data['infrastructure_issues']}
-                            rules_set = {json.dumps(item, sort_keys=True) for item in data.get('all_rule_findings', [])}
-                            if infra_set != rules_set:
-                                for item in data['infrastructure_issues']:
-                                    item['finding_type'] = 'infrastructure'
-                                    all_taint_items.append(item)
+                        # Only add if they're actually different content
+                        infra_set = {json.dumps(item, sort_keys=True) for item in data['infrastructure_issues']}
+                        rules_set = {json.dumps(item, sort_keys=True) for item in data.get('all_rule_findings', [])}
+                        if infra_set != rules_set:
+                            for item in data['infrastructure_issues']:
+                                item['finding_type'] = 'infrastructure'
+                                all_taint_items.append(item)
                     
                     # Add paths (data flow paths) - these are often duplicates of taint_paths but may have extra info
                     if 'paths' in data:
@@ -416,31 +445,37 @@ def extract_all_to_readthis(root_path_str: str, budget_kb: int = 1500) -> bool:
         # Just chunk everything - ignore budget for chunking
         # The whole point is to break large files into manageable pieces
         chunks = _chunk_large_file(raw_path)
-        
+
         if chunks is None:
-            # Chunking failed for this file
+            # Chunking failed for this file (parse error)
             print(f"  [FAILED] {filename} - chunking error")
             failed_files.append(filename)
             continue
-        
-        if chunks:
-            for chunk_path, chunk_size in chunks:
-                # Optionally check budget per chunk (or ignore completely)
-                if total_used + chunk_size > total_budget:
-                    # Could skip remaining chunks or just ignore budget
-                    # For now, let's just ignore budget and extract everything
-                    pass
-                
-                total_used += chunk_size
-                extracted_files.append((chunk_path.name, chunk_size))
+        elif not chunks:
+            # Empty file or no content to extract (not an error)
+            skipped_files.append(filename)
+            continue
+
+        # Successfully chunked - add all chunks
+        for chunk_path, chunk_size in chunks:
+            # Track budget usage but don't enforce limit
+            # (we want all files out, but report if over budget)
+            total_used += chunk_size
+            extracted_files.append((chunk_path.name, chunk_size))
+
+            if total_used > total_budget:
+                # Just track that we're over budget, don't stop extraction
+                pass
     
     # Create extraction summary
     summary = {
-        'extraction_timestamp': str(Path(root_path_str).stat().st_mtime),
+        'extraction_timestamp': datetime.now().isoformat(),
         'budget_kb': budget_kb,
         'total_used_bytes': total_used,
         'total_used_kb': total_used // 1024,
         'utilization_percent': (total_used / total_budget) * 100,
+        'budget_exceeded': total_used > total_budget,
+        'over_budget_kb': max(0, (total_used - total_budget) // 1024),
         'files_extracted': len(extracted_files),
         'files_skipped': len(skipped_files),
         'files_failed': len(failed_files),
@@ -462,6 +497,12 @@ def extract_all_to_readthis(root_path_str: str, budget_kb: int = 1500) -> bool:
     print(f"  Files failed: {len(failed_files)}")
     print(f"  Total size: {total_used:,} bytes ({total_used//1024}KB)")
     print(f"  Budget used: {(total_used/total_budget)*100:.1f}%")
+
+    # Warn if over budget
+    if total_used > total_budget:
+        over_kb = (total_used - total_budget) // 1024
+        print(f"  [WARNING] Over budget by {over_kb}KB - consider reviewing chunk limits")
+
     print(f"  Summary saved: {summary_path}")
     
     # List what was extracted

@@ -296,12 +296,39 @@ def graph_analyze(db, out, max_depth, workset, no_insights):
             "impact": impact,
             "summary": summary,
         }
-        
+
+        # DUAL-WRITE PATTERN: Write to database for FCE performance + JSON for AI consumption
+        from theauditor.utils.meta_findings import format_hotspot_finding, format_cycle_finding
+        from theauditor.indexer.database import DatabaseManager
+
+        # Prepare meta-findings for database
+        meta_findings = []
+
+        # 1. Hotspot findings
+        for hotspot in hotspots[:50]:  # Top 50 hotspots
+            meta_findings.append(format_hotspot_finding(hotspot))
+
+        # 2. Cycle findings (one finding per file in cycle)
+        for cycle in cycles:
+            meta_findings.extend(format_cycle_finding(cycle))
+
+        # Write findings to repo_index.db (NOT graphs.db - that's for graph storage only)
+        repo_db_path = Path(".pf") / "repo_index.db"
+        if repo_db_path.exists() and meta_findings:
+            try:
+                db_manager = DatabaseManager(str(repo_db_path.resolve()))
+                db_manager.write_findings_batch(meta_findings, "graph-analysis")
+                db_manager.close()
+                click.echo(f"  Wrote {len(meta_findings)} graph findings to database")
+            except Exception as e:
+                click.echo(f"  Warning: Could not write findings to database: {e}", err=True)
+
+        # Write JSON for AI consumption (existing behavior)
         out_path = Path(out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with open(out_path, "w") as f:
             json.dump(analysis, f, indent=2, sort_keys=True)
-        
+
         click.echo(f"\nAnalysis saved to {out}")
         
         # Save metrics for ML consumption (if insights available)

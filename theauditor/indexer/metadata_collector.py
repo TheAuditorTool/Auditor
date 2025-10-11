@@ -138,7 +138,31 @@ class MetadataCollector:
             'total_files_analyzed': len(files),
             'files': files
         }
-        
+
+        # DUAL-WRITE PATTERN: Write to database for FCE performance + JSON for AI consumption
+        from theauditor.utils.meta_findings import format_churn_finding
+        from theauditor.indexer.database import DatabaseManager
+
+        # Prepare meta-findings for database
+        meta_findings = []
+        churn_threshold = 50  # Flag files with 50+ commits
+
+        for file_data in files:
+            finding = format_churn_finding(file_data, threshold=churn_threshold)
+            if finding:
+                meta_findings.append(finding)
+
+        # Write findings to database if available
+        db_path = self.root_path / '.pf' / 'repo_index.db'
+        if db_path.exists() and meta_findings:
+            try:
+                db_manager = DatabaseManager(str(db_path))
+                db_manager.write_findings_batch(meta_findings, "churn-analysis")
+                db_manager.close()
+                print(f"[METADATA] Wrote {len(meta_findings)} churn findings to database")
+            except Exception as e:
+                print(f"[METADATA] Warning: Could not write findings to database: {e}")
+
         # Save to file if path provided
         if output_path:
             output_file = Path(output_path)
@@ -146,7 +170,7 @@ class MetadataCollector:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(result, f, indent=2)
             print(f"[METADATA] Churn analysis saved to {output_path}")
-        
+
         return result
     
     def collect_coverage(self, coverage_file: Optional[str] = None, 
@@ -301,7 +325,31 @@ class MetadataCollector:
             ) if files else 0.0,
             'files': files
         }
-        
+
+        # DUAL-WRITE PATTERN: Write to database for FCE performance + JSON for AI consumption
+        from theauditor.utils.meta_findings import format_coverage_finding
+        from theauditor.indexer.database import DatabaseManager
+
+        # Prepare meta-findings for database
+        meta_findings = []
+        coverage_threshold = 50.0  # Flag files with <50% coverage
+
+        for file_data in files:
+            finding = format_coverage_finding(file_data, threshold=coverage_threshold)
+            if finding:
+                meta_findings.append(finding)
+
+        # Write findings to database if available
+        db_path = self.root_path / '.pf' / 'repo_index.db'
+        if db_path.exists() and meta_findings:
+            try:
+                db_manager = DatabaseManager(str(db_path))
+                db_manager.write_findings_batch(meta_findings, "coverage-analysis")
+                db_manager.close()
+                print(f"[METADATA] Wrote {len(meta_findings)} coverage findings to database")
+            except Exception as e:
+                print(f"[METADATA] Warning: Could not write findings to database: {e}")
+
         # Save to file if path provided
         if output_path:
             output_file = Path(output_path)
@@ -309,7 +357,7 @@ class MetadataCollector:
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(result, f, indent=2)
             print(f"[METADATA] Coverage analysis saved to {output_path}")
-        
+
         return result
 
 

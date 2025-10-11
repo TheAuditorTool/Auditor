@@ -20,7 +20,7 @@ AUDIT FIXES APPLIED: 2025-10-10
 """
 
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Any, Optional
 import json
 import subprocess
 import platform
@@ -152,21 +152,26 @@ class LinterOrchestrator:
             logger.error(f"Unexpected database error: {e}")
             return []
 
-    def _get_venv_binary(self, name: str) -> Optional[Path]:
+    def _get_venv_binary(self, name: str) -> Path:
         """Get path to binary in venv.
 
         Args:
             name: Binary name (e.g., 'ruff', 'mypy')
 
         Returns:
-            Path to binary, or None if not found
+            Path to binary
+
+        Raises:
+            FileNotFoundError: If binary is not found in venv
         """
         venv_bin = self.root / ".auditor_venv" / ("Scripts" if IS_WINDOWS else "bin")
         binary = venv_bin / (f"{name}.exe" if IS_WINDOWS else name)
 
         if not binary.exists():
-            logger.error(f"{name} not found at {binary}")
-            return None
+            raise FileNotFoundError(
+                f"{name} not found at {binary}. "
+                f"Run 'aud setup-ai --target {self.root}' to install linting tools."
+            )
 
         return binary
 
@@ -220,9 +225,10 @@ class LinterOrchestrator:
         Returns:
             List of finding dictionaries from this batch
         """
-        # Output file for JSON results (one per batch to avoid conflicts)
-        output_file = self.root / ".pf" / "raw" / f"eslint_output_batch{batch_num}.json"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
+        # Output file for JSON results (temp location, will be deleted after parsing)
+        temp_dir = self.root / ".pf" / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        output_file = temp_dir / f"eslint_output_batch{batch_num}.json"
 
         # Build command
         cmd = [
@@ -272,6 +278,12 @@ class LinterOrchestrator:
                     "category": "lint"
                 })
 
+        # Clean up temp file
+        try:
+            output_file.unlink()
+        except Exception:
+            pass
+
         return findings
 
     def _run_ruff(self, files: List[str]) -> List[Dict[str, Any]]:
@@ -291,10 +303,8 @@ class LinterOrchestrator:
             logger.error(f"Ruff config not found: {config_path}")
             return []
 
-        # Find Ruff binary in venv
+        # Find Ruff binary in venv (will raise FileNotFoundError if missing)
         ruff_bin = self._get_venv_binary("ruff")
-        if not ruff_bin:
-            return []
 
         # Run in batches
         all_findings = []
@@ -322,9 +332,10 @@ class LinterOrchestrator:
         Returns:
             List of finding dictionaries from this batch
         """
-        # Output file for JSON results
-        output_file = self.root / ".pf" / "raw" / f"ruff_output_batch{batch_num}.json"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
+        # Output file for JSON results (temp location, will be deleted after parsing)
+        temp_dir = self.root / ".pf" / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        output_file = temp_dir / f"ruff_output_batch{batch_num}.json"
 
         # Build command
         cmd = [
@@ -383,6 +394,12 @@ class LinterOrchestrator:
                 "category": "lint"
             })
 
+        # Clean up temp file
+        try:
+            output_file.unlink()
+        except Exception:
+            pass
+
         return findings
 
     def _run_mypy(self, files: List[str]) -> List[Dict[str, Any]]:
@@ -402,10 +419,8 @@ class LinterOrchestrator:
             logger.error(f"Mypy config not found: {config_path}")
             return []
 
-        # Find Mypy binary in venv
+        # Find Mypy binary in venv (will raise FileNotFoundError if missing)
         mypy_bin = self._get_venv_binary("mypy")
-        if not mypy_bin:
-            return []
 
         # Run in batches
         all_findings = []
@@ -433,9 +448,10 @@ class LinterOrchestrator:
         Returns:
             List of finding dictionaries from this batch
         """
-        # Output file for JSON results
-        output_file = self.root / ".pf" / "raw" / f"mypy_output_batch{batch_num}.json"
-        output_file.parent.mkdir(parents=True, exist_ok=True)
+        # Output file for JSON results (temp location, will be deleted after parsing)
+        temp_dir = self.root / ".pf" / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        output_file = temp_dir / f"mypy_output_batch{batch_num}.json"
 
         # Build command
         cmd = [
@@ -496,6 +512,12 @@ class LinterOrchestrator:
         except Exception as e:
             logger.error(f"Failed to parse Mypy batch {batch_num} output: {e}")
             return []
+
+        # Clean up temp file
+        try:
+            output_file.unlink()
+        except Exception:
+            pass
 
         return findings
 
