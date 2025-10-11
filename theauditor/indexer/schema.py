@@ -491,6 +491,27 @@ VARIABLE_USAGE = TableSchema(
     ]
 )
 
+OBJECT_LITERALS = TableSchema(
+    name="object_literals",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("variable_name", "TEXT"),  # The object variable (e.g., "handlers")
+        Column("property_name", "TEXT", nullable=False),  # The property key (e.g., "create")
+        Column("property_value", "TEXT", nullable=False),  # The property value (e.g., "handleCreate")
+        Column("property_type", "TEXT"),  # 'function_ref', 'literal', 'expression', 'object', 'method_definition', 'shorthand'
+        Column("nested_level", "INTEGER", default="0"),  # Depth of nesting (0 = top level)
+        Column("in_function", "TEXT")  # Containing function context
+    ],
+    indexes=[
+        ("idx_object_literals_file", ["file"]),
+        ("idx_object_literals_var", ["variable_name"]),
+        ("idx_object_literals_value", ["property_value"]),
+        ("idx_object_literals_type", ["property_type"])
+    ]
+)
+
 # ============================================================================
 # CONTROL FLOW GRAPH TABLES
 # ============================================================================
@@ -909,6 +930,7 @@ TABLES: Dict[str, TableSchema] = {
     "function_returns": FUNCTION_RETURNS,
     "function_returns_jsx": FUNCTION_RETURNS_JSX,
     "variable_usage": VARIABLE_USAGE,
+    "object_literals": OBJECT_LITERALS,
 
     # Control flow graph
     "cfg_blocks": CFG_BLOCKS,
@@ -952,7 +974,8 @@ TABLES: Dict[str, TableSchema] = {
 # ============================================================================
 
 def build_query(table_name: str, columns: Optional[List[str]] = None,
-                where: Optional[str] = None, order_by: Optional[str] = None) -> str:
+                where: Optional[str] = None, order_by: Optional[str] = None,
+                limit: Optional[int] = None) -> str:
     """
     Build a SELECT query using schema definitions.
 
@@ -961,6 +984,7 @@ def build_query(table_name: str, columns: Optional[List[str]] = None,
         columns: List of column names to select (None = all columns)
         where: Optional WHERE clause (without 'WHERE' keyword)
         order_by: Optional ORDER BY clause (without 'ORDER BY' keyword)
+        limit: Optional LIMIT clause (just the number, e.g., 1, 10, 100)
 
     Returns:
         Complete SELECT query string
@@ -971,6 +995,9 @@ def build_query(table_name: str, columns: Optional[List[str]] = None,
 
         >>> build_query('sql_queries', where="command != 'UNKNOWN'")
         'SELECT file_path, line_number, query_text, command, tables, extraction_source FROM sql_queries WHERE command != \\'UNKNOWN\\''
+
+        >>> build_query('symbols', ['name', 'line'], where="type = 'function'", order_by="line DESC", limit=1)
+        'SELECT name, line FROM symbols WHERE type = \\'function\\' ORDER BY line DESC LIMIT 1'
     """
     if table_name not in TABLES:
         raise ValueError(f"Unknown table: {table_name}. Available tables: {', '.join(sorted(TABLES.keys()))}")
@@ -1001,6 +1028,9 @@ def build_query(table_name: str, columns: Optional[List[str]] = None,
 
     if order_by:
         query_parts.extend(["ORDER BY", order_by])
+
+    if limit is not None:
+        query_parts.extend(["LIMIT", str(limit)])
 
     return " ".join(query_parts)
 

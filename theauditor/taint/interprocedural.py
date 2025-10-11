@@ -17,7 +17,7 @@ from theauditor.indexer.schema import build_query
 from .database import get_containing_function, get_code_snippet
 
 
-def trace_inter_procedural_flow(
+def trace_inter_procedural_flow_insensitive(
     cursor: sqlite3.Cursor,
     source_var: str,
     source_file: str,
@@ -25,13 +25,11 @@ def trace_inter_procedural_flow(
     source_function: str,
     sinks: List[Dict[str, Any]],
     max_depth: int = 5,
-    use_cfg: bool = False,
-    stage3: bool = False,
     cache: Optional[Any] = None
 ) -> List[Any]:  # Returns List[TaintPath]
     """
-    The 'Toss the Salad' algorithm for inter-procedural taint tracking.
-    
+    The 'Toss the Salad' algorithm for flow-INSENSITIVE inter-procedural taint tracking.
+
     This function traces taint flow across function boundaries by:
     1. Following variables passed as function arguments
     2. Mapping arguments to function parameters inside callees
@@ -52,22 +50,7 @@ def trace_inter_procedural_flow(
     """
     # Import TaintPath here to avoid circular dependency
     from .core import TaintPath
-    
-    # Stage 3: Use CFG-based inter-procedural analysis if enabled
-    if stage3 and use_cfg:
-        from .interprocedural_cfg import InterProceduralCFGAnalyzer
 
-        # Initialize analyzer with memory_cache (NOT the old graph_cache which caused 2x slowdown)
-        # The old graph_cache for CFG was removed due to performance regression
-        # BUT memory_cache (RAM-based) should be used for O(1) lookups
-        analyzer = InterProceduralCFGAnalyzer(cursor, cache)
-        
-        # Use enhanced CFG-based analysis
-        return trace_inter_procedural_flow_cfg(
-            analyzer, cursor, source_var, source_file, source_line,
-            source_function, sinks, max_depth
-        )
-    
     paths = []
     debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_DEBUG")
     
@@ -140,12 +123,13 @@ def trace_inter_procedural_flow(
                     continue
 
                 # Check if parameter flows to sink
-                query = build_query('function_call_args', ['COUNT(*)'],
-                    where="file = ? AND line = ? AND argument_expr LIKE ?"
+                query = build_query('function_call_args', ['argument_expr'],
+                    where="file = ? AND line = ? AND argument_expr LIKE ?",
+                    limit=1
                 )
                 cursor.execute(query, (sink["file"], sink["line"], f"%{param_name}%"))
 
-                if cursor.fetchone()[0] > 0:
+                if cursor.fetchone() is not None:
                     # Found inter-procedural vulnerability!
                     if debug:
                         print(f"[INTER-PROCEDURAL] VULNERABILITY FOUND!", file=sys.stderr)
@@ -220,12 +204,13 @@ def trace_inter_procedural_flow(
                 continue
 
             # Check if current variable is used in sink
-            query = build_query('function_call_args', ['COUNT(*)'],
-                where="file = ? AND line = ? AND argument_expr LIKE ?"
+            query = build_query('function_call_args', ['argument_expr'],
+                where="file = ? AND line = ? AND argument_expr LIKE ?",
+                limit=1
             )
             cursor.execute(query, (sink["file"], sink["line"], f"%{current_var}%"))
 
-            if cursor.fetchone()[0] > 0:
+            if cursor.fetchone() is not None:
                 # Direct vulnerability in current function
                 if debug:
                     print(f"[INTER-PROCEDURAL] Direct sink reached in {current_func}", file=sys.stderr)

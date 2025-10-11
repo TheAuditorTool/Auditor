@@ -181,6 +181,28 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             else:
                 click.echo("[OK] No unreachable code detected")
         
+        # DUAL-WRITE PATTERN: Write to database for FCE performance + JSON for AI consumption
+        from theauditor.utils.meta_findings import format_complexity_finding
+        from theauditor.indexer.database import DatabaseManager
+
+        # Prepare meta-findings for database
+        meta_findings = []
+
+        # Format complex function findings
+        for func in complex_functions:
+            meta_findings.append(format_complexity_finding(func))
+
+        # Write findings to repo_index.db
+        repo_db_path = Path(".pf") / "repo_index.db"
+        if repo_db_path.exists() and meta_findings:
+            try:
+                db_manager = DatabaseManager(str(repo_db_path.resolve()))
+                db_manager.write_findings_batch(meta_findings, "cfg-analysis")
+                db_manager.close()
+                click.echo(f"  Wrote {len(meta_findings)} CFG findings to database")
+            except Exception as e:
+                click.echo(f"  Warning: Could not write findings to database: {e}", err=True)
+
         # Save results to output file (always saves to .pf/raw/ by default)
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)

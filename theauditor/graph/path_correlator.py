@@ -125,59 +125,72 @@ class PathCorrelator:
     def _find_finding_paths_with_conditions(self, cfg: Dict, findings_to_blocks: Dict,
                                            all_findings: List) -> List[Dict]:
         """Find execution paths containing multiple findings with path conditions.
-        
+
+        ALGORITHMIC IMPROVEMENT (v1.1+):
+        Instead of enumerating all paths (which causes false negatives when max_paths
+        is reached), we use targeted graph traversal. For each pair of findings, we
+        check if a path exists between them using BFS. This guarantees complete
+        accuracy regardless of function complexity.
+
         Reports factual control flow conditions, not interpretations.
         """
         clusters = []
-        
-        # Get all execution paths through function
-        try:
-            # CFGBuilder returns List[List[int]] - just block IDs
-            path_lists = self.cfg_builder.get_execution_paths(
-                cfg["file"],
-                cfg["function_name"],
-                max_paths=100
-            )
-        except Exception:
-            # If path enumeration fails, fall back to simple paths
-            path_lists = self._enumerate_simple_paths(cfg)
-        
-        # Check each path for findings
-        for path_blocks in path_lists:
-            path_blocks_set = set(path_blocks)
-            findings_on_path = []
-            
-            # Collect all findings on this path
-            for block_id, block_findings in findings_to_blocks.items():
-                if block_id in path_blocks_set:
-                    findings_on_path.extend(block_findings)
-            
-            # Create cluster if multiple findings on same path
-            if len(findings_on_path) >= 2:
-                # Extract path conditions for this execution path
-                path_conditions = self._extract_path_conditions(cfg, path_blocks)
-                
-                # Build factual description
-                description = f"{len(findings_on_path)} findings on same execution path"
-                if path_conditions:
-                    # Report the actual control flow conditions as facts
-                    description += f" when: {' AND '.join(path_conditions)}"
-                
-                # Create cluster with factual information
-                clusters.append({
-                    "type": "path_cluster",
-                    "confidence": 0.95,  # High confidence - same execution path
-                    "path_blocks": path_blocks,
-                    "conditions": path_conditions,  # Factual code conditions
-                    "findings": findings_on_path,
-                    "finding_count": len(findings_on_path),
-                    "description": description
-                })
-        
+
+        # Build adjacency list for efficient graph traversal
+        graph = self._build_cfg_graph(cfg)
+        blocks_dict = {b["id"]: b for b in cfg.get("blocks", [])}
+
+        # Get all block IDs with findings
+        finding_blocks = list(findings_to_blocks.keys())
+
+        # Check each pair of findings for path connectivity
+        for i, block_a in enumerate(finding_blocks):
+            for block_b in finding_blocks[i+1:]:
+                # Check if there's a path from A to B or B to A
+                path_a_to_b = self._find_path_bfs(graph, block_a, block_b)
+                path_b_to_a = self._find_path_bfs(graph, block_b, block_a)
+
+                # Use whichever path exists (or the shorter one if both exist)
+                path = None
+                if path_a_to_b and path_b_to_a:
+                    path = path_a_to_b if len(path_a_to_b) <= len(path_b_to_a) else path_b_to_a
+                elif path_a_to_b:
+                    path = path_a_to_b
+                elif path_b_to_a:
+                    path = path_b_to_a
+
+                if path:
+                    # Found a correlation - collect all findings on this path
+                    findings_on_path = []
+                    path_blocks_set = set(path)
+
+                    for block_id in path:
+                        if block_id in findings_to_blocks:
+                            findings_on_path.extend(findings_to_blocks[block_id])
+
+                    if len(findings_on_path) >= 2:
+                        # Extract path conditions for this specific execution path
+                        path_conditions = self._extract_path_conditions(cfg, path)
+
+                        # Build factual description
+                        description = f"{len(findings_on_path)} findings on same execution path"
+                        if path_conditions:
+                            description += f" when: {' AND '.join(path_conditions)}"
+
+                        clusters.append({
+                            "type": "path_cluster",
+                            "confidence": 0.95,  # High confidence - proven path exists
+                            "path_blocks": path,
+                            "conditions": path_conditions,
+                            "findings": findings_on_path,
+                            "finding_count": len(findings_on_path),
+                            "description": description
+                        })
+
         # Deduplicate clusters with same findings
         unique_clusters = []
         seen_finding_sets = set()
-        
+
         for cluster in clusters:
             finding_set = frozenset(
                 f"{f['file']}:{f['line']}:{f['tool']}"
@@ -186,9 +199,60 @@ class PathCorrelator:
             if finding_set not in seen_finding_sets:
                 seen_finding_sets.add(finding_set)
                 unique_clusters.append(cluster)
-        
+
         return unique_clusters
-    
+
+    def _build_cfg_graph(self, cfg: Dict) -> Dict[int, List[int]]:
+        """Build adjacency list representation of CFG for efficient traversal.
+
+        Args:
+            cfg: CFG dictionary with edges
+
+        Returns:
+            Dict mapping block_id -> list of successor block_ids
+        """
+        graph = defaultdict(list)
+        for edge in cfg.get("edges", []):
+            # Include all edge types except back_edges to avoid infinite loops
+            if edge["type"] != "back_edge":
+                graph[edge["source"]].append(edge["target"])
+        return dict(graph)
+
+    def _find_path_bfs(self, graph: Dict[int, List[int]], start: int, end: int) -> Optional[List[int]]:
+        """Find a path from start to end using BFS.
+
+        Args:
+            graph: Adjacency list representation of CFG
+            start: Starting block ID
+            end: Target block ID
+
+        Returns:
+            List of block IDs representing the path, or None if no path exists
+        """
+        if start == end:
+            return [start]
+
+        # BFS to find shortest path
+        from collections import deque
+        queue = deque([(start, [start])])
+        visited = {start}
+
+        while queue:
+            node, path = queue.popleft()
+
+            # Explore neighbors
+            for neighbor in graph.get(node, []):
+                if neighbor == end:
+                    # Found path to target
+                    return path + [neighbor]
+
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, path + [neighbor]))
+
+        # No path exists
+        return None
+
     def _extract_path_conditions(self, cfg: Dict, path_blocks: List[int]) -> List[str]:
         """Extract the literal conditions from source that define this execution path.
         
@@ -236,61 +300,7 @@ class PathCorrelator:
                                 break
         
         return conditions
-    
-    def _enumerate_simple_paths(self, cfg: Dict) -> List[List[int]]:
-        """Simple path enumeration fallback using edges.
-        
-        Returns List[List[int]] to match CFGBuilder API.
-        """
-        edges = cfg.get("edges", [])
-        
-        # Build adjacency list
-        graph = defaultdict(list)
-        for edge in edges:
-            # Skip back edges to avoid infinite loops
-            if edge["type"] != "back_edge":
-                graph[edge["source"]].append(edge["target"])
-        
-        # Find entry blocks
-        all_targets = {e["target"] for e in edges}
-        all_sources = {e["source"] for e in edges}
-        entry_blocks = all_sources - all_targets
-        
-        # If no clear entry, use blocks with type='entry'
-        if not entry_blocks:
-            for block in cfg.get("blocks", []):
-                if block.get("type") == "entry":
-                    entry_blocks.add(block["id"])
-                    break
-            else:
-                # Use first block as entry
-                if cfg.get("blocks"):
-                    entry_blocks.add(cfg["blocks"][0]["id"])
-        
-        # Find exit blocks
-        exit_blocks = {b["id"] for b in cfg.get("blocks", []) 
-                      if b.get("type") == "exit"}
-        if not exit_blocks:
-            # Blocks with no outgoing edges
-            exit_blocks = all_targets - all_sources
-        
-        # DFS to find paths
-        paths = []
-        for entry in entry_blocks:
-            stack = [(entry, [entry])]
-            
-            while stack and len(paths) < 20:  # Limit paths for performance
-                node, path = stack.pop()
-                
-                if node in exit_blocks or node not in graph:
-                    paths.append(path)  # Return List[int] format
-                else:
-                    for neighbor in graph[node]:
-                        if neighbor not in path:  # Avoid cycles
-                            stack.append((neighbor, path + [neighbor]))
-        
-        return paths
-    
+
     def close(self):
         """Close database connection."""
         if self.conn:

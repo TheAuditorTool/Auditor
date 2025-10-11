@@ -332,19 +332,20 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if there's validation nearby
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 10
+            query_validation = build_query('function_call_args', ['callee_function', 'line'],
+                where="""file = ?
                   AND (callee_function LIKE '%includes%'
                        OR callee_function LIKE '%indexOf%'
                        OR callee_function LIKE '%test%'
                        OR callee_function LIKE '%match%'
                        OR argument_expr LIKE '%whitelist%'
-                       OR argument_expr LIKE '%allowed%')
-            """, (file, line))
+                       OR argument_expr LIKE '%allowed%')"""
+            )
+            self.cursor.execute(query_validation, (file,))
 
-            validation_count = self.cursor.fetchone()[0]
+            # Filter in Python for ABS(line - ?) <= 10
+            nearby_validation = [row for row in self.cursor.fetchall() if abs(row[1] - line) <= 10]
+            validation_count = len(nearby_validation)
 
             if validation_count == 0:
                 self.findings.append(StandardFinding(
@@ -509,15 +510,16 @@ class CORSAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if toLowerCase/toUpperCase is nearby
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 3
+            query_case = build_query('function_call_args', ['callee_function', 'line'],
+                where="""file = ?
                   AND (callee_function LIKE '%toLowerCase%'
-                       OR callee_function LIKE '%toUpperCase%')
-            """, (file, line))
+                       OR callee_function LIKE '%toUpperCase%')"""
+            )
+            self.cursor.execute(query_case, (file,))
 
-            if self.cursor.fetchone()[0] == 0:
+            # Filter in Python for ABS(line - ?) <= 3
+            nearby_case = [row for row in self.cursor.fetchall() if abs(row[1] - line) <= 3]
+            if len(nearby_case) == 0:
                 self.findings.append(StandardFinding(
                     rule_name='cors-case-sensitivity',
                     message='Case-sensitive origin comparison - can be bypassed with different casing',
@@ -546,14 +548,15 @@ class CORSAnalyzer:
 
         for file in cors_files:
             # Check if Vary header is set in same file
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
+            query_vary = build_query('function_call_args', ['argument_expr'],
+                where="""file = ?
                   AND argument_expr LIKE '%Vary%'
-                  AND argument_expr LIKE '%Origin%'
-            """, (file,))
+                  AND argument_expr LIKE '%Origin%'""",
+                limit=1
+            )
+            self.cursor.execute(query_vary, (file,))
 
-            if self.cursor.fetchone()[0] == 0:
+            if self.cursor.fetchone() is None:
                 # Find a line number for reporting
                 self.cursor.execute("""
                     SELECT MIN(line) FROM function_call_args

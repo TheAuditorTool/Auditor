@@ -99,6 +99,7 @@ class IndexerOrchestrator:
             "function_calls": 0,
             "returns": 0,
             "variable_usage": 0,
+            "object_literals": 0,  # PHASE 3: Object literal properties
             # Control flow tracking
             "cfg_blocks": 0,
             "cfg_edges": 0,
@@ -294,6 +295,8 @@ class IndexerOrchestrator:
                 flow_parts.append(f"{self.counts['returns']} returns")
             if self.counts.get('variable_usage', 0) > 0:
                 flow_parts.append(f"{self.counts['variable_usage']} variable usages")
+            if self.counts.get('object_literals', 0) > 0:
+                flow_parts.append(f"{self.counts['object_literals']} object literal properties")
             print(flow_msg + ", ".join(flow_parts))
 
         # Control flow analysis
@@ -346,10 +349,39 @@ class IndexerOrchestrator:
         # ================================================================
         # SECOND PASS: JSX PRESERVED MODE EXTRACTION (UNCONDITIONAL)
         # ================================================================
-        # Re-process JSX/TSX files with preserved mode for _jsx tables
-        # This is REQUIRED because TypeScript compiler can only parse in
-        # ONE jsx mode at a time - first pass uses transformed for taint
-        # tracking, second pass uses preserved for structural analysis
+        #
+        # WHY THIS IS NECESSARY - CRITICAL ARCHITECTURAL DECISION:
+        #
+        # The TypeScript compiler can only operate in ONE JSX mode at a time,
+        # but we need TWO different views of JSX code for complete analysis:
+        #
+        # 1. TRANSFORMED MODE (First Pass):
+        #    - Converts JSX to React.createElement() calls
+        #    - Example: <div>{data}</div> → React.createElement('div', null, data)
+        #    - Purpose: Enables data-flow and taint analysis
+        #    - Why: Taint analysis needs to see data flow through function calls,
+        #            not JSX syntax. This reveals how user input flows through
+        #            component props and into DOM rendering.
+        #    - Stored in: Standard tables (symbols, assignments, function_call_args, etc.)
+        #
+        # 2. PRESERVED MODE (Second Pass):
+        #    - Keeps original JSX syntax intact
+        #    - Example: <div>{data}</div> stays as JSX
+        #    - Purpose: Enables structural and accessibility analysis
+        #    - Why: Rules checking JSX structure (e.g., a11y rules, component
+        #            composition patterns, prop validation) need to see the
+        #            actual JSX syntax, not transformed calls.
+        #    - Stored in: Parallel _jsx tables (symbols_jsx, assignments_jsx, etc.)
+        #
+        # RESULT:
+        # Downstream tools query the appropriate table based on their needs:
+        # - Taint analyzer → queries standard tables (transformed view)
+        # - JSX structural rules → query _jsx tables (preserved view)
+        # - Pattern detector → queries both as needed
+        #
+        # WARNING: DO NOT REMOVE THIS SECOND PASS
+        # Doing so will break all JSX-aware rules and cause false negatives
+        # in taint analysis for React/Vue applications.
         jsx_extensions = ['.jsx', '.tsx']
         jsx_files = [f for f in files if f['ext'] in jsx_extensions]
 
@@ -915,6 +947,21 @@ class IndexerOrchestrator:
                     var.get('scope_level', 0)
                 )
                 self.counts['variable_usage'] += 1
+
+        # === PHASE 3: OBJECT LITERAL STORAGE ===
+        if 'object_literals' in extracted:
+            for obj_lit in extracted['object_literals']:
+                self.db_manager.add_object_literal(
+                    obj_lit['file'],
+                    obj_lit['line'],
+                    obj_lit['variable_name'],
+                    obj_lit['property_name'],
+                    obj_lit['property_value'],
+                    obj_lit['property_type'],
+                    obj_lit.get('nested_level', 0),
+                    obj_lit.get('in_function', '')
+                )
+                self.counts['object_literals'] += 1
 
         # Store build analysis data
         if 'package_configs' in extracted:

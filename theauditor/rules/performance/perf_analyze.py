@@ -320,10 +320,9 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
     findings = []
 
     # Get all loops
-    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line'])
-    cursor.execute(query + """
-        WHERE block_type LIKE '%loop%'
-    """)
+    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line'],
+                       where="block_type LIKE '%loop%'")
+    cursor.execute(query)
 
     loops = cursor.fetchall()
 
@@ -332,14 +331,13 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
         expensive_ops_list = list(EXPENSIVE_OPS)
         placeholders = ','.join('?' * len(expensive_ops_list))
 
-        query = build_query('function_call_args', ['line', 'callee_function', 'argument_expr'])
-        cursor.execute(query + f"""
-            WHERE file = ?
+        query = build_query('function_call_args', ['line', 'callee_function', 'argument_expr'],
+                           where=f"""file = ?
               AND line >= ?
               AND line <= ?
-              AND callee_function IN ({placeholders})
-            ORDER BY line
-        """, [file, loop_start, loop_end] + expensive_ops_list)
+              AND callee_function IN ({placeholders})""",
+                           order_by="line")
+        cursor.execute(query, [file, loop_start, loop_end] + expensive_ops_list)
 
         for line, operation, args in cursor.fetchall():
             # Determine severity based on operation type
@@ -378,18 +376,16 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find loops
-    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line', 'function_name'])
-    cursor.execute(query + """
-        WHERE block_type LIKE '%loop%'
-    """)
+    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line', 'function_name'],
+                       where="block_type LIKE '%loop%'")
+    cursor.execute(query)
 
     loops = cursor.fetchall()
 
     for file, loop_start, loop_end, function in loops:
         # Find string concatenation assignments within loop
-        query = build_query('assignments', ['line', 'target_var', 'source_expr'])
-        cursor.execute(query + """
-            WHERE file = ?
+        query = build_query('assignments', ['line', 'target_var', 'source_expr'],
+                           where="""file = ?
               AND line >= ?
               AND line <= ?
               AND (
@@ -408,9 +404,9 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
                   OR source_expr LIKE '"%'
                   OR source_expr LIKE "'%"
                   OR source_expr LIKE '`%'
-              )
-            ORDER BY line
-        """, (file, loop_start, loop_end))
+              )""",
+                           order_by="line")
+        cursor.execute(query, (file, loop_start, loop_end))
 
         for line, var_name, expr in cursor.fetchall():
             # Check if it looks like string concatenation
@@ -436,11 +432,10 @@ def _find_synchronous_io_patterns(cursor) -> List[StandardFinding]:
     sync_ops_list = list(SYNC_BLOCKERS)
     placeholders = ','.join('?' * len(sync_ops_list))
 
-    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function', 'argument_expr'])
-    cursor.execute(query + f"""
-        WHERE callee_function IN ({placeholders})
-        ORDER BY file, line
-    """, sync_ops_list)
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function', 'argument_expr'],
+                       where=f"callee_function IN ({placeholders})",
+                       order_by="file, line")
+    cursor.execute(query, sync_ops_list)
 
     for file, line, operation, caller, args in cursor.fetchall():
         # Check if in async context
@@ -486,18 +481,17 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
     findings = []
 
     # Check for database queries without limits
-    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-    cursor.execute(query + """
-        WHERE callee_function IN ('find', 'findMany', 'findAll', 'select', 'query', 'all')
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                       where="""callee_function IN ('find', 'findMany', 'findAll', 'select', 'query', 'all')
           AND (argument_expr IS NULL OR argument_expr = '' OR (
               argument_expr NOT LIKE '%limit%'
               AND argument_expr NOT LIKE '%take%'
               AND argument_expr NOT LIKE '%first%'
               AND argument_expr NOT LIKE '%pageSize%'
               AND argument_expr NOT LIKE '%max%'
-          ))
-        ORDER BY file, line
-    """)
+          ))""",
+                       order_by="file, line")
+    cursor.execute(query)
 
     for file, line, operation, args in cursor.fetchall():
         # Skip if it's a count or single-result operation
@@ -516,9 +510,8 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
         ))
 
     # Check for readFile on potentially large files
-    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-    cursor.execute(query + """
-        WHERE callee_function IN ('readFile', 'readFileSync', 'read')
+    query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                       where="""callee_function IN ('readFile', 'readFileSync', 'read')
           AND (
               argument_expr LIKE '%.log%'
               OR argument_expr LIKE '%.csv%'
@@ -526,8 +519,8 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
               OR argument_expr LIKE '%.xml%'
               OR argument_expr LIKE '%.sql%'
               OR argument_expr LIKE '%.txt%'
-          )
-    """)
+          )""")
+    cursor.execute(query)
 
     for file, line, operation, file_arg in cursor.fetchall():
         findings.append(StandardFinding(
@@ -545,17 +538,16 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
     memory_ops_list = list(MEMORY_OPS)
     placeholders = ','.join('?' * len(memory_ops_list))
 
-    query = build_query('function_call_args', ['file', 'line', 'callee_function'])
-    cursor.execute(query + f"""
-        WHERE callee_function IN ({placeholders})
+    query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                       where=f"""callee_function IN ({placeholders})
           AND line IN (
               SELECT line FROM function_call_args
               WHERE callee_function IN ('find', 'findMany', 'findAll', 'query')
                 AND file = function_call_args.file
                 AND ABS(line - function_call_args.line) <= 5
-          )
-        ORDER BY file, line
-    """, memory_ops_list)
+          )""",
+                       order_by="file, line")
+    cursor.execute(query, memory_ops_list)
 
     for file, line, operation in cursor.fetchall():
         findings.append(StandardFinding(
@@ -577,12 +569,10 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find property accesses with multiple dots
-    query = build_query('symbols', ['path', 'name', 'line'])
-    cursor.execute(query + """
-        WHERE type = 'property'
-          AND LENGTH(name) - LENGTH(REPLACE(name, '.', '')) >= 3
-        ORDER BY path, line
-    """)
+    query = build_query('symbols', ['path', 'name', 'line'],
+                       where="type = 'property' AND LENGTH(name) - LENGTH(REPLACE(name, '.', '')) >= 3",
+                       order_by="path, line")
+    cursor.execute(query)
 
     for file, prop_chain, line in cursor.fetchall():
         # Count dots to determine depth
@@ -731,12 +721,10 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
     findings = []
 
     # Find JSON operations on large data
-    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
-    cursor.execute(query + """
-        WHERE (source_expr LIKE '%JSON.parse%' OR source_expr LIKE '%JSON.stringify%')
-          AND LENGTH(source_expr) > 500
-        ORDER BY file, line
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                       where="(source_expr LIKE '%JSON.parse%' OR source_expr LIKE '%JSON.stringify%') AND LENGTH(source_expr) > 500",
+                       order_by="file, line")
+    cursor.execute(query)
 
     for file, line, var_name, expr in cursor.fetchall():
         expr_len = len(expr)
@@ -762,13 +750,11 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
         ))
 
     # Find very long assignment expressions (potential large object copies)
-    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
-    cursor.execute(query + """
-        WHERE LENGTH(source_expr) > 1000
-          AND (source_expr LIKE '%{%}%' OR source_expr LIKE '%[%]%')
-        ORDER BY LENGTH(source_expr) DESC
-        LIMIT 10
-    """)
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                       where="LENGTH(source_expr) > 1000 AND (source_expr LIKE '%{%}%' OR source_expr LIKE '%[%]%')",
+                       order_by="LENGTH(source_expr) DESC",
+                       limit=10)
+    cursor.execute(query)
 
     for file, line, var_name, expr in cursor.fetchall():
         findings.append(StandardFinding(

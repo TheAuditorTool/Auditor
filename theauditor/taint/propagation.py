@@ -18,7 +18,7 @@ from collections import deque
 from theauditor.indexer.schema import build_query
 from .sources import SANITIZERS, TAINT_SOURCES
 from .database import get_containing_function, get_function_boundaries, get_code_snippet
-from .interprocedural import trace_inter_procedural_flow
+from .interprocedural import trace_inter_procedural_flow_insensitive
 
 
 def is_sanitizer(function_name: str) -> bool:
@@ -178,116 +178,58 @@ def trace_from_source(
                     )
                     paths.append(path)
 
-    # Schema contract guarantees assignments table exists
-    # Proceed directly to assignment-based tracing
-
-    # Initialize the set of tainted elements for assignment-based tracing
-    # Format: "function:variable" or "function:__return__" for return values
-    tainted_elements = set()
-    
-    # CRITICAL AMENDMENT: Check assignments table for taint source instantiation
-    # Find initial tainted variables from assignments that match ANY taint source
+    # ============================================================================
+    # INITIAL TAINT IDENTIFICATION - Clean 2-Phase Strategy
+    # ============================================================================
+    # Phase 1: Look for variable assignments that capture this source
+    # Phase 2: If no assignments, treat source pattern itself as tainted
+    #
+    # Rationale: Not all sources create assignments. For example:
+    #   - Assignment-based: const userData = req.body;  [captured in assignments table]
+    #   - Direct-use: res.send(req.body);               [no assignment, handled separately]
+    #
     # Schema Contract: assignments table guaranteed to exist
-    query = build_query('assignments', ['target_var', 'in_function', 'source_expr'],
-        where="file = ? AND line BETWEEN ? AND ?"
-    )
-    cursor.execute(query, (source["file"], source["line"] - 1, source["line"] + 1))
-    
-    initial_assignments = cursor.fetchall()
-    
-    # Get all taint source patterns for comparison
-    all_taint_sources = []
-    for source_list in TAINT_SOURCES.values():
-        all_taint_sources.extend(source_list)
-    
-    # Check each assignment to see if it contains a taint source
-    for target_var, in_function, source_expr in initial_assignments:
-        # Check if the source expression contains any known taint source
-        for source_pattern in all_taint_sources:
-            if source_pattern in source_expr:
-                # Add this variable as initially tainted
-                tainted_elements.add(f"{in_function}:{target_var}")
-                break  # Move to the next assignment
-    
-    # DEBUG: Log what we're looking for
+
+    tainted_elements = set()
     debug_mode = os.environ.get("THEAUDITOR_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG")
+
     if debug_mode:
         print(f"\n{'='*60}", file=sys.stderr)
         print(f"[TAINT] Processing source: {source['pattern']} at {source['file']}:{source['line']}", file=sys.stderr)
         print(f"[TAINT] Source function: {source_function.get('name', 'unknown')} ({source_function['file']}:{source_function['line']})", file=sys.stderr)
-        print(f"[TAINT] Initial tainted variables: {tainted_elements}", file=sys.stderr)
-        print(f"[TAINT] Found {len(sinks)} potential sinks to check", file=sys.stderr)
-    
-    # Step 1: Also check for direct assignment matching the specific source pattern
-    # Check if the source directly taints a variable through assignment
-    query = build_query('assignments', ['target_var', 'in_function'],
-        where="file = ? AND line = ? AND source_expr LIKE ?"
+
+    # PHASE 1: Find assignments that capture this specific source
+    # Use ±2 line tolerance to handle multi-line statements
+    query = build_query('assignments', ['target_var', 'in_function', 'line'],
+        where="file = ? AND line BETWEEN ? AND ? AND source_expr LIKE ?",
+        order_by="line"
     )
-    cursor.execute(query, (source["file"], source["line"], f"%{source['pattern']}%"))
-    
-    initial_taints = cursor.fetchall()
-    
-    # DEBUG: Log what we found
-    if debug_mode:
-        print(f"[TAINT] Found {len(initial_taints)} initial taints from direct assignment", file=sys.stderr)
-        for taint in initial_taints[:3]:  # Show first 3
-            print(f"[TAINT]   - {taint[0]} in {taint[1]}", file=sys.stderr)
-    if not initial_taints:
-        # Try to find assignments near the source (within 3 lines)
-        query = build_query('assignments', ['target_var', 'in_function', 'line', 'source_expr'],
-            where="file = ? AND line BETWEEN ? AND ? AND source_expr LIKE ?"
-        )
-        cursor.execute(query, (source["file"], source["line"] - 1, source["line"] + 3, f"%{source['pattern']}%"))
-        initial_taints = cursor.fetchall()
-    
-    # Add initially tainted variables to the worklist
-    for row in initial_taints:
-        target_var = row[0]
-        in_function = row[1]
+    cursor.execute(query, (
+        source["file"],
+        source["line"] - 2,
+        source["line"] + 2,
+        f"%{source['pattern']}%"
+    ))
+
+    assignments_found = cursor.fetchall()
+
+    for target_var, in_function, line in assignments_found:
         tainted_elements.add(f"{in_function}:{target_var}")
-    
-    # If no direct assignment found, check if source is in a property access
+        if debug_mode:
+            print(f"[TAINT] Phase 1: Found assignment {target_var} in {in_function} at line {line}", file=sys.stderr)
+
+    # PHASE 2: If no assignments found, treat source pattern itself as tainted
+    # This ensures the worklist algorithm always has a starting point
     if not tainted_elements:
-        # For sources like req.body, req.query, treat the entire expression as tainted
-        if "." in source["pattern"]:
-            # Find where this property is used
-            query = build_query('assignments', ['target_var', 'in_function'],
-                where="file = ? AND source_expr LIKE ?"
-            )
-            cursor.execute(query, (source["file"], f"%{source['pattern']}%"))
-            for target_var, in_function in cursor.fetchall():
-                tainted_elements.add(f"{in_function}:{target_var}")
-        
-        # ENHANCEMENT: If still no tainted elements, check for source usage in expressions
-        # This helps catch cases where source is used in expressions without assignment
-        if not tainted_elements:
-            # Look for any usage of the source pattern in expressions
-            query = build_query('assignments', ['DISTINCT in_function'],
-                where="file = ? AND (source_expr LIKE ? OR source_vars LIKE ?)"
-            )
-            query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
-            cursor.execute(query, (source["file"], f"%{source['pattern']}%", f'%"{source["pattern"]}"%'))
-            result = cursor.fetchone()
-            if result:
-                # Mark the source pattern itself as tainted in this function
-                tainted_elements.add(f"{result[0]}:{source['pattern']}")
-    
-    # DEBUG: Log tainted elements before propagation
+        func_name = source_function.get("name", "global")
+        tainted_elements.add(f"{func_name}:{source['pattern']}")
+        if debug_mode:
+            print(f"[TAINT] Phase 2: No assignments found, treating source pattern as tainted: {func_name}:{source['pattern']}", file=sys.stderr)
+
+    # Final diagnostic
     if debug_mode:
-        print(f"[TAINT] Tainted elements before propagation: {tainted_elements}", file=sys.stderr)
-        if not tainted_elements:
-            print(f"[TAINT] WARNING: No tainted elements found for source {source['pattern']}", file=sys.stderr)
-            print(f"[TAINT]   This means taint will be LOST here!", file=sys.stderr)
-    
-    # CRITICAL FIX: For JavaScript, ensure source patterns create initial taint
-    if source["file"].endswith(('.js', '.jsx', '.ts', '.tsx')):
-        # If no tainted elements found yet for common JS sources, create one
-        if not tainted_elements and source["pattern"] in ["req.body", "req.query", "req.params", "req.headers", "req.cookies"]:
-            # Treat the source itself as tainted within its function scope
-            func_name = source_function.get("name", "unknown")
-            tainted_elements.add(f"{func_name}:{source['pattern']}")
-            if debug_mode:
-                print(f"[TAINT] Created initial taint for JS source: {func_name}:{source['pattern']}", file=sys.stderr)
+        print(f"[TAINT] Initial tainted elements: {tainted_elements}", file=sys.stderr)
+        print(f"[TAINT] Will check {len(sinks)} potential sinks", file=sys.stderr)
 
     # DELETED: JavaScript-specific taint tracking (lines 298-305)
     # This called enhance_javascript_tracking() from taint/javascript.py
@@ -430,12 +372,13 @@ def trace_from_source(
         # This catches cases where source is used directly without variable assignment
         if sink_function["name"] == source_function["name"]:
             # Check if source pattern appears directly in sink's arguments
-            query = build_query('function_call_args', ['COUNT(*)'],
-                where="file = ? AND line = ? AND argument_expr LIKE ?"
+            query = build_query('function_call_args', ['argument_expr'],
+                where="file = ? AND line = ? AND argument_expr LIKE ?",
+                limit=1
             )
             cursor.execute(query, (sink["file"], sink["line"], f"%{source['pattern']}%"))
 
-            if cursor.fetchone()[0] > 0:
+            if cursor.fetchone() is not None:
                 # Direct use of source in sink arguments
                 if not has_sanitizer_between(cursor, source, sink):
                     path = TaintPath(
@@ -470,20 +413,37 @@ def trace_from_source(
                 # CRITICAL: Attempt inter-procedural tracking
                 if debug_mode:
                     print(f"[TAINT] Attempting inter-procedural tracking: {var_name} in {func_name} to sink in {sink_function['name']}", file=sys.stderr)
-                
-                # Try to trace inter-procedural flow from this tainted variable to the sink
-                inter_paths = trace_inter_procedural_flow(
-                    cursor=cursor,
-                    source_var=var_name,
-                    source_file=source["file"],
-                    source_line=source["line"],
-                    source_function=func_name,
-                    sinks=[sink],  # Check just this specific sink
-                    max_depth=3,  # Limited depth for performance
-                    use_cfg=use_cfg,
-                    stage3=stage3,
-                    cache=cache  # Pass cache through
-                )
+
+                # CENTRALIZED DECISION LOGIC: Choose between CFG-sensitive and insensitive analysis
+                if use_cfg and stage3:
+                    # Use CFG-based flow-sensitive inter-procedural analysis
+                    from .interprocedural import trace_inter_procedural_flow_cfg
+                    from .interprocedural_cfg import InterProceduralCFGAnalyzer
+
+                    analyzer = InterProceduralCFGAnalyzer(cursor, cache)
+                    inter_paths = trace_inter_procedural_flow_cfg(
+                        analyzer=analyzer,
+                        cursor=cursor,
+                        source_var=var_name,
+                        source_file=source["file"],
+                        source_line=source["line"],
+                        source_function=func_name,
+                        sinks=[sink],
+                        max_depth=3,
+                        cache=cache
+                    )
+                else:
+                    # Use call-graph-based flow-insensitive analysis (faster, less precise)
+                    inter_paths = trace_inter_procedural_flow_insensitive(
+                        cursor=cursor,
+                        source_var=var_name,
+                        source_file=source["file"],
+                        source_line=source["line"],
+                        source_function=func_name,
+                        sinks=[sink],  # Check just this specific sink
+                        max_depth=3,  # Limited depth for performance
+                        cache=cache  # Pass cache through
+                    )
                 
                 if inter_paths:
                     # Found inter-procedural vulnerability!
@@ -517,13 +477,14 @@ def trace_from_source(
             # Also check if sink pattern matches and variable is in scope
             if not sink_context_found and var_name != "__return__":
                 # Check if there's an assignment or usage near the sink
-                query = build_query('assignments', ['COUNT(*)'],
-                    where="file = ? AND in_function = ? AND line BETWEEN ? AND ? AND (target_var = ? OR source_expr LIKE ?)"
+                query = build_query('assignments', ['line'],
+                    where="file = ? AND in_function = ? AND line BETWEEN ? AND ? AND (target_var = ? OR source_expr LIKE ?)",
+                    limit=1
                 )
                 cursor.execute(query, (sink["file"], func_name, sink["line"] - 5, sink["line"] + 5,
                      var_name, f"%{var_name}%"))
 
-                if cursor.fetchone()[0] > 0:
+                if cursor.fetchone() is not None:
                     sink_context_found = True
             
             if sink_context_found:
@@ -560,98 +521,6 @@ def trace_from_source(
                     )
                     paths.append(path)
                     break  # One path per sink is enough
-    
-    return paths
-
-
-def trace_from_source_legacy(
-    cursor: sqlite3.Cursor,
-    source: Dict[str, Any],
-    source_function: Dict[str, Any],
-    sinks: List[Dict[str, Any]],
-    call_graph: Dict[str, List[str]],
-    max_depth: int
-) -> List[Any]:  # Returns List[TaintPath]
-    """Legacy proximity-based taint tracing for backward compatibility."""
-    # Import TaintPath here to avoid circular dependency
-    from .core import TaintPath
-    
-    paths = []
-    
-    # Check if source function directly contains any sinks
-    for sink in sinks:
-        if sink["file"] == source_function["file"]:
-            # Use unified boundary detection instead of arbitrary 100-line limit
-            source_start, source_end = get_function_boundaries(
-                cursor, source["file"], source_function["line"]
-            )
-            if source_start <= sink["line"] <= source_end:
-                # Check if sink is in same function
-                sink_function = get_containing_function(cursor, sink)
-                if sink_function and sink_function["name"] == source_function["name"]:
-                    # Check if there's a sanitizer between source and sink
-                    if not has_sanitizer_between(cursor, source, sink):
-                        # Only add path if no sanitizer found
-                        path = TaintPath(
-                            source=source,
-                            sink=sink,
-                            path=[source_function]
-                        )
-                        paths.append(path)
-    
-    # Trace interprocedural taint flow using BFS
-    visited = set()
-    sanitized_paths = set()  # Track paths that have been sanitized
-    queue = deque([(source_function, [source_function], 0, False)])
-    
-    while queue:
-        current_func, path, depth, is_sanitized = queue.popleft()
-        
-        if depth >= max_depth:
-            continue
-        
-        func_key = f"{current_func['file']}:{current_func['name']}"
-        if func_key in visited:
-            continue
-        visited.add(func_key)
-        
-        # Get functions called by current function
-        called_functions = call_graph.get(func_key, [])
-        
-        for called_name in called_functions:
-            # Check if this call is a sanitizer
-            if is_sanitizer(called_name):
-                # Mark this path as sanitized and continue tracing (but don't report vulnerabilities)
-                is_sanitized = True
-                sanitized_paths.add(func_key)
-            
-            # Check if this call is to a sink
-            for sink in sinks:
-                if called_name in sink["name"] or sink["pattern"] in called_name:
-                    # Only report if path is not sanitized
-                    if not is_sanitized:
-                        taint_path = TaintPath(
-                            source=source,
-                            sink=sink,
-                            path=path + [{"name": called_name, "type": "call", "file": sink["file"], "line": sink["line"]}]
-                        )
-                        paths.append(taint_path)
-            
-            # Find definition of called function
-            query = build_query('symbols', ['path', 'line'],
-                where="name = ? AND type = 'function'"
-            )
-            query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
-            cursor.execute(query, (called_name.split(".")[-1],))  # Handle method calls
-
-            func_def = cursor.fetchone()
-            if func_def:
-                next_func = {
-                    "file": func_def[0],
-                    "name": called_name,
-                    "line": func_def[1]
-                }
-                queue.append((next_func, path + [next_func], depth + 1, is_sanitized))
     
     return paths
 

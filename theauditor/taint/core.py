@@ -144,8 +144,9 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     
     # Load framework data from database (not output files)
     frameworks = []
-    db_path = Path(".pf/repo_index.db")
-    if db_path.exists():
+    # CRITICAL FIX: Use parameter, don't shadow it
+    db_path_obj = Path(db_path)
+    if db_path_obj.exists():
         try:
             import sqlite3
             conn = sqlite3.connect(db_path)
@@ -172,212 +173,16 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
             # Gracefully continue without framework enhancement
             pass
     
-    # CRITICAL: Use registry if provided, otherwise use framework enhancement
+    # ARCHITECTURAL FIX: Database-first architecture
+    # Framework patterns are handled upstream and registered via TaintRegistry
+    # The taint analyzer operates ONLY on patterns provided by the registry
     if registry:
-        # Use registry's enriched patterns (from rules)
-        dynamic_sources = {}
-        for category, patterns in registry.sources.items():
-            dynamic_sources[category] = [p.pattern for p in patterns]
-        
-        dynamic_sinks = {}
-        for category, patterns in registry.sinks.items():
-            dynamic_sinks[category] = [p.pattern for p in patterns]
-        
-        # Registry already has all framework patterns from rules
-        # Skip the framework enhancement below
-    else:
-        # Original framework enhancement logic
-        # Dynamically extend taint sources based on detected frameworks
-        # Create local copies to avoid modifying global constants
-        dynamic_sources = dict(TAINT_SOURCES)
-        dynamic_sinks = dict(SECURITY_SINKS)
-        
-        # Add framework-specific patterns
-        for fw_info in frameworks:
-            framework = fw_info.get("framework", "").lower()
-            language = fw_info.get("language", "").lower()
-            
-            # Django-specific sources (uppercase patterns)
-            if framework == "django" and language == "python":
-                if "python" not in dynamic_sources:
-                    dynamic_sources["python"] = []
-                    django_sources = [
-                    "request.GET",
-                    "request.POST",
-                    "request.FILES",
-                    "request.META",
-                    "request.session",
-                    "request.COOKIES",
-                    "request.user",
-                    "request.path",
-                    "request.path_info",
-                    "request.method",
-                ]
-                # Add Django sources if not already present
-                for source in django_sources:
-                    if source not in dynamic_sources["python"]:
-                        dynamic_sources["python"].append(source)
-            
-            # Flask-specific sources (already mostly covered but ensure completeness)
-            elif framework == "flask" and language == "python":
-                if "python" not in dynamic_sources:
-                    dynamic_sources["python"] = []
-                flask_sources = [
-                "request.args",
-                "request.form",
-                "request.json",
-                "request.data",
-                "request.values",
-                "request.files",
-                "request.cookies",
-                "request.headers",
-                "request.get_json",
-                "request.get_data",
-                "request.environ",
-                "request.view_args",
-                ]
-                for source in flask_sources:
-                    if source not in dynamic_sources["python"]:
-                        dynamic_sources["python"].append(source)
-            
-            # FastAPI-specific sources 
-            elif framework == "fastapi" and language == "python":
-                if "python" not in dynamic_sources:
-                    dynamic_sources["python"] = []
-                fastapi_sources = [
-                # Starlette Request object (used in FastAPI)
-                "Request",
-                "request.url",
-                "request.headers",
-                "request.cookies",
-                "request.query_params",
-                "request.path_params",
-                "request.client",
-                "request.session",
-                "request.auth",
-                "request.user",
-                "request.state",
-                # FastAPI dependency injection parameters
-                "Query(",
-                "Path(",
-                "Body(",
-                "Header(",
-                "Cookie(",
-                "Form(",
-                "File(",
-                "UploadFile(",
-                "Depends(",
-                # FastAPI security
-                "HTTPBearer",
-                "HTTPBasic",
-                "OAuth2PasswordBearer",
-                "APIKeyHeader",
-                "APIKeyCookie",
-                "APIKeyQuery",
-                ]
-                for source in fastapi_sources:
-                    if source not in dynamic_sources["python"]:
-                        dynamic_sources["python"].append(source)
-            
-            # Express/Node.js sources
-            elif framework in ["express", "fastify", "koa"] and language == "javascript":
-                if "js" not in dynamic_sources:
-                    dynamic_sources["js"] = []
-                node_sources = [
-                "req.body",
-                "req.query",
-                "req.params",
-                "req.headers",
-                "req.cookies",
-                "req.ip",
-                "req.hostname",
-                "req.path",
-                "req.url",
-                ]
-                for source in node_sources:
-                    if source not in dynamic_sources["js"]:
-                        dynamic_sources["js"].append(source)
-                
-                # CRITICAL FIX: Add Express.js specific sinks
-                if "xss" not in dynamic_sinks:
-                    dynamic_sinks["xss"] = []
-                # Ensure it's a list (not a reference to the original)
-                if not isinstance(dynamic_sinks["xss"], list):
-                    dynamic_sinks["xss"] = list(dynamic_sinks["xss"])
-                express_xss_sinks = [
-                # Express response methods with chained status
-                "res.status().json",
-                "res.status().send", 
-                "res.status().jsonp",
-                "res.status().end",
-                # Other Express response methods
-                "res.redirect",
-                "res.cookie",
-                "res.header",
-                "res.set",
-                "res.jsonp",
-                "res.sendFile",  # Path traversal risk
-                "res.download",  # Path traversal risk
-                "res.sendStatus",
-                "res.format",
-                "res.attachment",
-                "res.append",
-                "res.location",
-                ]
-                for sink in express_xss_sinks:
-                    if sink not in dynamic_sinks["xss"]:
-                        dynamic_sinks["xss"].append(sink)
-                
-                # Add Express SQL sinks for ORMs commonly used with Express
-                if "sql" not in dynamic_sinks:
-                    dynamic_sinks["sql"] = []
-                # Ensure it's a list (not a reference to the original)
-                if not isinstance(dynamic_sinks["sql"], list):
-                    dynamic_sinks["sql"] = list(dynamic_sinks["sql"])
-                express_sql_sinks = [
-                "models.sequelize.query",  # Sequelize raw queries
-                "sequelize.query",
-                "knex.raw",  # Knex.js raw queries
-                "db.raw",
-                "db.query",
-                "pool.query",  # Direct pg pool queries
-                "client.query",  # Direct database client queries
-                ]
-                for sink in express_sql_sinks:
-                    if sink not in dynamic_sinks["sql"]:
-                        dynamic_sinks["sql"].append(sink)
-                
-                # Add path traversal sinks specific to Express/Node.js
-                if "path" not in dynamic_sinks:
-                    dynamic_sinks["path"] = []
-                # Ensure it's a list (not a reference to the original)
-                if not isinstance(dynamic_sinks["path"], list):
-                    dynamic_sinks["path"] = list(dynamic_sinks["path"])
-                express_path_sinks = [
-                "res.sendFile",
-                "res.download", 
-                "fs.promises.readFile",
-                "fs.promises.writeFile",
-                "fs.promises.unlink",
-                "fs.promises.rmdir",
-                "fs.promises.mkdir",
-                "require",  # Dynamic require with user input
-                ]
-                for sink in express_path_sinks:
-                    if sink not in dynamic_sinks["path"]:
-                        dynamic_sinks["path"].append(sink)
-    
-    # Create immutable config with all patterns
-    if registry:
-        # Use registry configuration
+        # Use registry configuration (populated upstream with framework patterns)
         config = TaintConfig().with_registry(registry)
     else:
-        # Use enhanced configuration with frameworks
-        config = TaintConfig(
-            sources=dynamic_sources,
-            sinks=dynamic_sinks,
-            sanitizers=SANITIZERS
-        )
+        # Fallback to defaults if no registry provided
+        # This maintains backward compatibility but won't include framework-specific patterns
+        config = TaintConfig().from_defaults()
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()

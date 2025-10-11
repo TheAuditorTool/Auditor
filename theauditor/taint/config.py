@@ -38,179 +38,127 @@ class TaintConfig:
             sinks=dict(SECURITY_SINKS),
             sanitizers=list(SANITIZERS)
         )
-    
-    def with_frameworks(self, frameworks: List[Dict[str, Any]]) -> 'TaintConfig':
-        """Create new config enhanced with framework-specific patterns.
-        
-        This method returns a NEW TaintConfig instance with additional
-        framework patterns, preserving immutability.
-        
-        Args:
-            frameworks: List of framework detection results
-            
-        Returns:
-            New TaintConfig with framework patterns added
-        """
-        # Create mutable copies of sources and sinks
-        # CRITICAL: Convert frozenset values to lists for mutability
-        enhanced_sources = {
-            category: list(patterns) if isinstance(patterns, frozenset) else list(patterns)
-            for category, patterns in self.sources.items()
-        }
-        enhanced_sinks = {
-            category: list(patterns) if isinstance(patterns, frozenset) else list(patterns)
-            for category, patterns in self.sinks.items()
-        }
-        
-        # Add framework-specific patterns
-        for fw_info in frameworks:
-            framework = fw_info.get("framework", "").lower()
-            language = fw_info.get("language", "").lower()
-            
-            # Django-specific sources
-            if framework == "django" and language == "python":
-                if "python" not in enhanced_sources:
-                    enhanced_sources["python"] = []
-                
-                django_sources = [
-                    "request.GET", "request.POST", "request.FILES",
-                    "request.META", "request.session", "request.COOKIES",
-                    "request.user", "request.path", "request.path_info",
-                    "request.method"
-                ]
-                
-                for source in django_sources:
-                    if source not in enhanced_sources["python"]:
-                        enhanced_sources["python"].append(source)
-            
-            # Flask-specific sources
-            elif framework == "flask" and language == "python":
-                if "python" not in enhanced_sources:
-                    enhanced_sources["python"] = []
-                
-                flask_sources = [
-                    "request.args", "request.form", "request.json",
-                    "request.data", "request.values", "request.files",
-                    "request.cookies", "request.headers", "request.get_json",
-                    "request.get_data", "request.environ", "request.view_args"
-                ]
-                
-                for source in flask_sources:
-                    if source not in enhanced_sources["python"]:
-                        enhanced_sources["python"].append(source)
-            
-            # FastAPI-specific sources
-            elif framework == "fastapi" and language == "python":
-                if "python" not in enhanced_sources:
-                    enhanced_sources["python"] = []
-                
-                fastapi_sources = [
-                    "Request", "request.url", "request.headers",
-                    "request.cookies", "request.query_params", "request.path_params",
-                    "request.client", "request.session", "request.auth",
-                    "request.user", "request.state",
-                    "Query(", "Path(", "Body(", "Header(", "Cookie(",
-                    "Form(", "File(", "UploadFile(", "Depends(",
-                    "HTTPBearer", "HTTPBasic", "OAuth2PasswordBearer",
-                    "APIKeyHeader", "APIKeyCookie", "APIKeyQuery"
-                ]
-                
-                for source in fastapi_sources:
-                    if source not in enhanced_sources["python"]:
-                        enhanced_sources["python"].append(source)
-            
-            # Express/Node.js patterns
-            elif framework in ["express", "fastify", "koa"] and language == "javascript":
-                if "js" not in enhanced_sources:
-                    enhanced_sources["js"] = []
-                
-                node_sources = [
-                    "req.body", "req.query", "req.params", "req.headers",
-                    "req.cookies", "req.ip", "req.hostname", "req.path", "req.url"
-                ]
-                
-                for source in node_sources:
-                    if source not in enhanced_sources["js"]:
-                        enhanced_sources["js"].append(source)
-                
-                # Express-specific sinks
-                if "xss" not in enhanced_sinks:
-                    enhanced_sinks["xss"] = []
-                
-                express_xss_sinks = [
-                    "res.status().json", "res.status().send", "res.status().jsonp",
-                    "res.status().end", "res.redirect", "res.cookie",
-                    "res.header", "res.set", "res.jsonp", "res.sendFile",
-                    "res.download", "res.sendStatus", "res.format",
-                    "res.attachment", "res.append", "res.location"
-                ]
-                
-                for sink in express_xss_sinks:
-                    if sink not in enhanced_sinks["xss"]:
-                        enhanced_sinks["xss"].append(sink)
-                
-                # Express SQL sinks
-                if "sql" not in enhanced_sinks:
-                    enhanced_sinks["sql"] = []
-                
-                express_sql_sinks = [
-                    "models.sequelize.query", "sequelize.query", "knex.raw",
-                    "db.raw", "db.query", "pool.query", "client.query"
-                ]
-                
-                for sink in express_sql_sinks:
-                    if sink not in enhanced_sinks["sql"]:
-                        enhanced_sinks["sql"].append(sink)
-                
-                # Express path traversal sinks
-                if "path" not in enhanced_sinks:
-                    enhanced_sinks["path"] = []
-                
-                express_path_sinks = [
-                    "res.sendFile", "res.download", "fs.promises.readFile",
-                    "fs.promises.writeFile", "fs.promises.unlink",
-                    "fs.promises.rmdir", "fs.promises.mkdir", "require"
-                ]
-                
-                for sink in express_path_sinks:
-                    if sink not in enhanced_sinks["path"]:
-                        enhanced_sinks["path"].append(sink)
-        
-        # Return NEW config with enhanced patterns
-        return TaintConfig(
-            sources=enhanced_sources,
-            sinks=enhanced_sinks,
-            sanitizers=list(self.sanitizers),
-            registry=self.registry
-        )
-    
+
     def with_registry(self, registry: Any) -> 'TaintConfig':
         """Create new config with TaintRegistry patterns.
-        
+
         Args:
             registry: TaintRegistry with rule-based patterns
-            
+
         Returns:
             New TaintConfig using registry patterns
         """
         if not registry:
             return self
-        
+
         # Extract patterns from registry
         registry_sources = {}
         for category, patterns in registry.sources.items():
             registry_sources[category] = [p.pattern for p in patterns]
-        
+
         registry_sinks = {}
         for category, patterns in registry.sinks.items():
             registry_sinks[category] = [p.pattern for p in patterns]
-        
+
+        # HARD FAILURE: If registry is empty, fail loudly
+        # This prevents silent success with 0 results when registry is malformed
+        if not registry_sources and not registry_sinks:
+            raise ValueError(
+                "TaintRegistry contains no sources or sinks. "
+                "Cannot perform taint analysis with empty patterns. "
+                "This indicates a configuration error or failed rule loading."
+            )
+
         # Return NEW config with registry patterns
         return TaintConfig(
             sources=registry_sources,
             sinks=registry_sinks,
             sanitizers=list(self.sanitizers),
             registry=registry
+        )
+
+    def with_frameworks(self, frameworks: List[Dict[str, str]]) -> 'TaintConfig':
+        """Create new config enhanced with framework-specific patterns.
+
+        Args:
+            frameworks: List of detected frameworks with name, version, language, path
+
+        Returns:
+            New TaintConfig with framework-specific sources/sinks added
+        """
+        if not frameworks:
+            return self
+
+        # Copy existing patterns
+        enhanced_sources = dict(self.sources)
+        enhanced_sinks = dict(self.sinks)
+
+        # Framework-specific pattern enhancements
+        for fw in frameworks:
+            fw_name = fw.get('framework', '').lower()
+            fw_lang = fw.get('language', '').lower()
+
+            # Django patterns
+            if 'django' in fw_name:
+                if 'user_input' not in enhanced_sources:
+                    enhanced_sources['user_input'] = []
+                enhanced_sources['user_input'].extend([
+                    'request.GET',
+                    'request.POST',
+                    'request.FILES',
+                    'request.COOKIES',
+                ])
+                if 'sql_injection' not in enhanced_sinks:
+                    enhanced_sinks['sql_injection'] = []
+                enhanced_sinks['sql_injection'].extend([
+                    '.raw(',
+                    '.execute(',
+                    'cursor.execute(',
+                ])
+
+            # Flask patterns
+            elif 'flask' in fw_name:
+                if 'user_input' not in enhanced_sources:
+                    enhanced_sources['user_input'] = []
+                enhanced_sources['user_input'].extend([
+                    'request.args',
+                    'request.form',
+                    'request.files',
+                    'request.cookies',
+                    'request.json',
+                ])
+
+            # Express patterns
+            elif 'express' in fw_name:
+                if 'user_input' not in enhanced_sources:
+                    enhanced_sources['user_input'] = []
+                enhanced_sources['user_input'].extend([
+                    'req.query',
+                    'req.body',
+                    'req.params',
+                    'req.cookies',
+                ])
+
+            # React patterns
+            elif 'react' in fw_name:
+                if 'xss' not in enhanced_sinks:
+                    enhanced_sinks['xss'] = []
+                enhanced_sinks['xss'].extend([
+                    'dangerouslySetInnerHTML',
+                    'innerHTML',
+                ])
+
+        # Deduplicate patterns
+        for category in enhanced_sources:
+            enhanced_sources[category] = list(set(enhanced_sources[category]))
+        for category in enhanced_sinks:
+            enhanced_sinks[category] = list(set(enhanced_sinks[category]))
+
+        return TaintConfig(
+            sources=enhanced_sources,
+            sinks=enhanced_sinks,
+            sanitizers=list(self.sanitizers),
+            registry=self.registry
         )
     
     @classmethod

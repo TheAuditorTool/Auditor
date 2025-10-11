@@ -131,12 +131,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # Build conditions for unbounded methods
         method_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in UNBOUNDED_METHODS])
 
-        query = build_query('orm_queries', ['file', 'line', 'query_type'])
-        cursor.execute(query + f"""
-            WHERE ({method_conditions})
-              AND (has_limit = 0 OR has_limit IS NULL)
-            ORDER BY file, line
-        """)
+        query = build_query('orm_queries', ['file', 'line', 'query_type'],
+                           where=f"""({method_conditions})
+              AND (has_limit = 0 OR has_limit IS NULL)""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, query_type in cursor.fetchall():
             model = query_type.split('.')[0] if '.' in query_type else 'unknown'
@@ -156,12 +155,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: N+1 Query Patterns
         # ========================================================
-        query = build_query('orm_queries', ['file', 'line', 'query_type', 'includes'])
-        cursor.execute(query + """
-            WHERE query_type LIKE '%.findMany'
-              AND (includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = '')
-            ORDER BY file, line
-        """)
+        query = build_query('orm_queries', ['file', 'line', 'query_type', 'includes'],
+                           where="""query_type LIKE '%.findMany'
+              AND (includes IS NULL OR includes = '[]' OR includes = '{}' OR includes = '')""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, query_type, includes in cursor.fetchall():
             model = query_type.split('.')[0] if '.' in query_type else 'unknown'
@@ -183,11 +181,10 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # Build conditions for write methods
         write_conditions = ' OR '.join([f"query_type LIKE '%.{method}%'" for method in WRITE_METHODS])
 
-        query = build_query('orm_queries', ['file', 'line', 'query_type', 'has_transaction'])
-        cursor.execute(query + f"""
-            WHERE ({write_conditions})
-            ORDER BY file, line
-        """)
+        query = build_query('orm_queries', ['file', 'line', 'query_type', 'has_transaction'],
+                           where=f"({write_conditions})",
+                           order_by="file, line")
+        cursor.execute(query)
 
         # Group operations by file
         file_operations = {}
@@ -229,23 +226,22 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # Build conditions for throw methods
         throw_conditions = ' OR '.join([f"query_type LIKE '%.{method}'" for method in THROW_METHODS])
 
-        query = build_query('orm_queries', ['file', 'line', 'query_type'])
-        cursor.execute(query + f"""
-            WHERE ({throw_conditions})
-            ORDER BY file, line
-        """)
+        query = build_query('orm_queries', ['file', 'line', 'query_type'],
+                           where=f"({throw_conditions})",
+                           order_by="file, line")
+        cursor.execute(query)
         # ✅ FIX: Store results before loop to avoid cursor state bug
         orthrow_methods = cursor.fetchall()
 
         for file, line, query_type in orthrow_methods:
             # Check if there's error handling nearby
-            cfg_query = build_query('cfg_blocks', ['COUNT(*)'])
+            cfg_query = build_query('cfg_blocks', ['block_type'], limit=1)
             cursor.execute(cfg_query + """
                 WHERE file = ?
                   AND block_type IN ('try', 'catch', 'except', 'finally')
                   AND ? BETWEEN start_line - 5 AND end_line + 5
             """, (file, line))
-            has_error_handling = cursor.fetchone()[0] > 0
+            has_error_handling = cursor.fetchone() is not None
 
             if not has_error_handling:
                 method = query_type.split('.')[-1] if '.' in query_type else query_type
@@ -267,13 +263,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         raw_methods_list = list(RAW_QUERY_METHODS)
         placeholders = ','.join('?' * len(raw_methods_list))
 
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-        cursor.execute(query + f"""
-            WHERE callee_function IN ({placeholders})
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"""callee_function IN ({placeholders})
                OR callee_function LIKE '%queryRaw%'
-               OR callee_function LIKE '%executeRaw%'
-            ORDER BY file, line
-        """, raw_methods_list)
+               OR callee_function LIKE '%executeRaw%'""",
+                           order_by="file, line")
+        cursor.execute(query, raw_methods_list)
 
         for file, line, func, args in cursor.fetchall():
             # Check for unsafe patterns
@@ -314,13 +309,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         if poorly_indexed_models:
             # Find queries on these models
-            query = build_query('orm_queries', ['file', 'line', 'query_type'])
-            cursor.execute(query + """
-                WHERE query_type LIKE '%.findMany%'
+            query = build_query('orm_queries', ['file', 'line', 'query_type'],
+                               where="""query_type LIKE '%.findMany%'
                    OR query_type LIKE '%.findFirst%'
-                   OR query_type LIKE '%.findUnique%'
-                ORDER BY file, line
-            """)
+                   OR query_type LIKE '%.findUnique%'""",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, query_type in cursor.fetchall():
                 model = query_type.split('.')[0] if '.' in query_type else None
@@ -342,24 +336,22 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 7: Connection Pool Configuration Issues
         # ========================================================
         # Look for schema.prisma files
-        query = build_query('files', ['path'])
-        cursor.execute(query + """
-            WHERE path LIKE '%schema.prisma%'
-               OR path LIKE '%prisma/schema%'
-            LIMIT 1
-        """)
+        query = build_query('files', ['path'],
+                           where="""path LIKE '%schema.prisma%'
+               OR path LIKE '%prisma/schema%'""",
+                           limit=1)
+        cursor.execute(query)
         schema_file = cursor.fetchone()
 
         if schema_file:
             # Check for DATABASE_URL configuration
-            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
-            cursor.execute(query + """
-                WHERE target_var LIKE '%DATABASE_URL%'
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where="""target_var LIKE '%DATABASE_URL%'
                    OR target_var LIKE '%DATABASE%'
                    OR target_var LIKE '%POSTGRES%'
-                   OR target_var LIKE '%MYSQL%'
-                ORDER BY file, line
-            """)
+                   OR target_var LIKE '%MYSQL%'""",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, var, expr in cursor.fetchall():
                 # Check for missing connection limit

@@ -23,6 +23,10 @@ from .database import (
     get_containing_function,
     get_function_boundaries,
     get_code_snippet,
+    # Object literal resolution (v1.2+)
+    resolve_object_literal_properties,
+    find_dynamic_dispatch_targets,
+    check_object_literals_available,
 )
 
 from .sources import (
@@ -34,7 +38,7 @@ from .sources import (
 
 from .propagation import (
     trace_from_source,
-    trace_from_source_legacy,
+    # DELETED: trace_from_source_legacy - proximity-based algorithm removed (v1.2)
     is_sanitizer,
     has_sanitizer_between,
     # DELETED: is_external_source - string matching fallback removed
@@ -42,7 +46,8 @@ from .propagation import (
 )
 
 from .interprocedural import (
-    trace_inter_procedural_flow,
+    trace_inter_procedural_flow_insensitive,
+    trace_inter_procedural_flow_cfg,
 )
 
 # DELETED: taint/javascript.py (375 lines) - All string parsing fallbacks removed
@@ -103,6 +108,11 @@ __all__ = [
     "get_containing_function",
     "get_function_boundaries",
     "get_code_snippet",
+
+    # Object literal resolution (v1.2+)
+    "resolve_object_literal_properties",
+    "find_dynamic_dispatch_targets",
+    "check_object_literals_available",
     
     # Constants
     "TAINT_SOURCES",
@@ -112,14 +122,15 @@ __all__ = [
     
     # Propagation functions
     "trace_from_source",
-    "trace_from_source_legacy",
+    # DELETED: "trace_from_source_legacy" - proximity-based algorithm removed (v1.2)
     "is_sanitizer",
     "has_sanitizer_between",
     # DELETED: "is_external_source" - string matching fallback removed
     "deduplicate_paths",
-    
-    # Inter-procedural
-    "trace_inter_procedural_flow",
+
+    # Inter-procedural (flow-insensitive and CFG-based)
+    "trace_inter_procedural_flow_insensitive",
+    "trace_inter_procedural_flow_cfg",
 
     # DELETED: JavaScript enhancements - taint/javascript.py removed (375 lines)
     # These functions were string parsing fallbacks:

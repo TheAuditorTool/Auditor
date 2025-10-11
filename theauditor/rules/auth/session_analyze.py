@@ -356,16 +356,18 @@ def _check_session_fixation(cursor) -> List[StandardFinding]:
 
     for file, line, var, expr in session_assignments:
         # Check if session.regenerate() is called nearby (within 10 lines)
-        # NOTE: Using manual SQL for COUNT(*) since build_query() doesn't support aggregate functions
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM function_call_args
-            WHERE file = ?
-              AND ABS(line - ?) <= 10
-              AND callee_function LIKE '%session.regenerate%'
-        """, [file, line])
+        query_regenerate = build_query('function_call_args', ['callee_function', 'line'],
+            where="file = ?"
+        )
+        cursor.execute(query_regenerate, [file])
 
-        has_regenerate = cursor.fetchone()[0] > 0
+        # Filter in Python for nearby session.regenerate calls
+        nearby_regenerate = [
+            row for row in cursor.fetchall()
+            if abs(row[1] - line) <= 10 and 'session.regenerate' in (row[0] or '').lower()
+        ]
+
+        has_regenerate = len(nearby_regenerate) > 0
 
         if not has_regenerate:
             findings.append(StandardFinding(

@@ -43,12 +43,12 @@ class BlockTaintState:
         """Check if a variable is tainted in this block."""
         return var_name in self.tainted_vars and var_name not in self.sanitized_vars
     
-    def add_taint(self, var_name: str):
+    def add_taint(self, var_name: str) -> None:
         """Mark a variable as tainted."""
         self.tainted_vars.add(var_name)
         self.sanitized_vars.discard(var_name)
-    
-    def sanitize(self, var_name: str):
+
+    def sanitize(self, var_name: str) -> None:
         """Mark a variable as sanitized."""
         self.sanitized_vars.add(var_name)
     
@@ -75,10 +75,10 @@ class BlockTaintState:
 class PathAnalyzer:
     """Analyzes execution paths through CFG for taint propagation."""
     
-    def __init__(self, cursor: sqlite3.Cursor, file_path: str, function_name: str):
+    def __init__(self, cursor: sqlite3.Cursor, file_path: str, function_name: str) -> None:
         """
         Initialize path analyzer for a specific function.
-        
+
         Args:
             cursor: Database cursor
             file_path: Path to source file
@@ -680,9 +680,9 @@ def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
     # Get function containing sink
     query = build_query('symbols', ['name', 'line'],
         where="path = ? AND type = 'function' AND line <= ?",
-        order_by="line DESC"
+        order_by="line DESC",
+        limit=1
     )
-    query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
     cursor.execute(query, (sink["file"], sink["line"]))
 
     sink_func = cursor.fetchone()
@@ -704,9 +704,9 @@ def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
     else:
         # Try to find assigned variable
         query = build_query('assignments', ['target_var'],
-            where="file = ? AND line = ? AND source_expr LIKE ?"
+            where="file = ? AND line = ? AND source_expr LIKE ?",
+            limit=1
         )
-        query += " LIMIT 1"  # Append LIMIT (not yet supported by build_query)
         cursor.execute(query, (source["file"], source["line"], f"%{source['pattern']}%"))
 
         result = cursor.fetchone()
@@ -797,12 +797,13 @@ def should_use_cfg(cursor: sqlite3.Cursor, source: Dict[str, Any],
 
     # Check if there are conditional statements between source and sink
     # This is a heuristic - CFG is most useful when there are branches
-    query = build_query('cfg_blocks', ['COUNT(*)'],
-        where="file = ? AND block_type IN ('condition', 'loop_condition') AND start_line > ? AND end_line < ?"
+    query = build_query('cfg_blocks', ['id'],
+        where="file = ? AND block_type IN ('condition', 'loop_condition') AND start_line > ? AND end_line < ?",
+        limit=1
     )
     cursor.execute(query, (source["file"], source["line"], sink["line"]))
 
-    condition_count = cursor.fetchone()[0]
+    has_conditional_blocks = cursor.fetchone() is not None
 
     # Use CFG if there are conditional blocks
-    return condition_count > 0
+    return has_conditional_blocks
