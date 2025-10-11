@@ -577,20 +577,22 @@ class FlaskAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check for CSRF imports - use raw SQL for COUNT(*)
-            cursor.execute("""
-                SELECT COUNT(*) FROM refs
-                WHERE value IN ('flask_wtf', 'CSRFProtect', 'csrf')
-            """)
-            has_csrf = cursor.fetchone()[0] > 0
+            # Check for CSRF imports
+            query_csrf = build_query('refs', ['value'],
+                where="value IN ('flask_wtf', 'CSRFProtect', 'csrf')",
+                limit=1
+            )
+            cursor.execute(query_csrf)
+            has_csrf = cursor.fetchone() is not None
 
             if not has_csrf:
-                # Check if there are state-changing endpoints - use raw SQL for COUNT(*)
-                cursor.execute("""
-                    SELECT COUNT(*) FROM api_endpoints
-                    WHERE method IN ('POST', 'PUT', 'DELETE', 'PATCH')
-                """)
-                has_state_changing = cursor.fetchone()[0] > 0
+                # Check if there are state-changing endpoints
+                query_endpoints = build_query('api_endpoints', ['method'],
+                    where="method IN ('POST', 'PUT', 'DELETE', 'PATCH')",
+                    limit=1
+                )
+                cursor.execute(query_endpoints)
+                has_state_changing = cursor.fetchone() is not None
 
                 if has_state_changing and self.flask_files:
                     self.findings.append(StandardFinding(

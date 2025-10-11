@@ -217,29 +217,29 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         ssr_files = {row[0] for row in cursor.fetchall()}
 
-        # Check these files for unsanitized user input - use raw SQL for COUNT(*)
+        # Check these files for unsanitized user input
         for file in ssr_files:
-            cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
+            query_input = build_query('function_call_args', ['argument_expr'],
+                where="""file = ?
                   AND (argument_expr LIKE '%req.query%'
                        OR argument_expr LIKE '%req.body%'
-                       OR argument_expr LIKE '%params%')
-            """, (file,))
-
-            has_user_input = cursor.fetchone()[0] > 0
+                       OR argument_expr LIKE '%params%')""",
+                limit=1
+            )
+            cursor.execute(query_input, (file,))
+            has_user_input = cursor.fetchone() is not None
 
             if has_user_input:
-                # Check for sanitization - use raw SQL for COUNT(*)
+                # Check for sanitization
                 sanitize_list = list(SANITIZATION_FUNCTIONS)
                 placeholders_san = ','.join('?' * len(sanitize_list))
 
-                cursor.execute(f"""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ? AND callee_function IN ({placeholders_san})
-                """, [file] + sanitize_list)
-
-                has_sanitization = cursor.fetchone()[0] > 0
+                query_sanitize = build_query('function_call_args', ['callee_function'],
+                    where=f"file = ? AND callee_function IN ({placeholders_san})",
+                    limit=1
+                )
+                cursor.execute(query_sanitize, [file] + sanitize_list)
+                has_sanitization = cursor.fetchone() is not None
 
                 if not has_sanitization:
                     findings.append(StandardFinding(
@@ -280,27 +280,30 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: Missing CSRF in API Routes
         # ========================================================
-        # Use raw SQL for DISTINCT
-        cursor.execute("""
-            SELECT DISTINCT file, method FROM api_endpoints
-            WHERE (file LIKE '%pages/api/%' OR file LIKE '%app/api/%')
-              AND method IN ('POST', 'PUT', 'DELETE', 'PATCH')
-        """)
+        # Get API routes with state-changing methods
+        query_api = build_query('api_endpoints', ['file', 'method'],
+            where="""(file LIKE '%pages/api/%' OR file LIKE '%app/api/%')
+              AND method IN ('POST', 'PUT', 'DELETE', 'PATCH')"""
+        )
+        cursor.execute(query_api)
 
-        for file, method in cursor.fetchall():
-            # Check if CSRF protection exists - use raw SQL for COUNT(*)
+        # Get distinct file/method pairs in Python
+        api_routes = list(set(cursor.fetchall()))
+
+        for file, method in api_routes:
+            # Check if CSRF protection exists
             csrf_list = list(CSRF_INDICATORS)
             conditions = ' OR '.join(['callee_function LIKE ?' for _ in csrf_list])
             conditions += ' OR ' + ' OR '.join(['argument_expr LIKE ?' for _ in csrf_list])
 
             params = ['%' + indicator + '%' for indicator in csrf_list] * 2
 
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ? AND ({conditions})
-            """, [file] + params)
-
-            has_csrf = cursor.fetchone()[0] > 0
+            query_csrf = build_query('function_call_args', ['callee_function'],
+                where=f"file = ? AND ({conditions})",
+                limit=1
+            )
+            cursor.execute(query_csrf, [file] + params)
+            has_csrf = cursor.fetchone() is not None
 
             if not has_csrf:
                 findings.append(StandardFinding(
@@ -346,18 +349,18 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         cursor.execute(query)
 
         for file, line, html_content in cursor.fetchall():
-            # Check if sanitization is nearby - use raw SQL for COUNT(*)
+            # Check if sanitization is nearby
             sanitize_list = list(SANITIZATION_FUNCTIONS)
             placeholders = ','.join('?' * len(sanitize_list))
 
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
+            query_sanitize = build_query('function_call_args', ['callee_function'],
+                where=f"""file = ?
                   AND line BETWEEN ? AND ?
-                  AND callee_function IN ({placeholders})
-            """, [file, line - 10, line + 10] + sanitize_list)
-
-            has_sanitization = cursor.fetchone()[0] > 0
+                  AND callee_function IN ({placeholders})""",
+                limit=1
+            )
+            cursor.execute(query_sanitize, [file, line - 10, line + 10] + sanitize_list)
+            has_sanitization = cursor.fetchone() is not None
 
             if not has_sanitization:
                 findings.append(StandardFinding(
@@ -375,33 +378,32 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 8: API Routes Without Rate Limiting (DEGRADED)
         # ========================================================
         # Note: Global check, not per-route - reduced confidence
-        # Use raw SQL for COUNT(DISTINCT)
-        cursor.execute("""
-            SELECT COUNT(DISTINCT file) FROM api_endpoints
-            WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
-        """)
-        api_route_count = cursor.fetchone()[0]
+        # Get distinct API route files
+        query_api_files = build_query('api_endpoints', ['file'],
+            where="file LIKE '%pages/api/%' OR file LIKE '%app/api/%'"
+        )
+        cursor.execute(query_api_files)
+        api_route_count = len(set(row[0] for row in cursor.fetchall()))
 
         if api_route_count >= 3:  # Only flag if multiple API routes
-            # Check for rate limiting libraries - use raw SQL for COUNT(*)
+            # Check for rate limiting libraries
             rate_limit_list = list(RATE_LIMIT_LIBRARIES)
             placeholders = ','.join('?' * len(rate_limit_list))
 
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM refs
-                WHERE value IN ({placeholders})
-            """, rate_limit_list)
-
-            has_rate_limiting = cursor.fetchone()[0] > 0
+            query_rate_limit = build_query('refs', ['value'],
+                where=f"value IN ({placeholders})",
+                limit=1
+            )
+            cursor.execute(query_rate_limit, rate_limit_list)
+            has_rate_limiting = cursor.fetchone() is not None
 
             if not has_rate_limiting:
-                # Use raw SQL for LIMIT
-                cursor.execute("""
-                    SELECT file FROM api_endpoints
-                    WHERE file LIKE '%pages/api/%' OR file LIKE '%app/api/%'
-                    LIMIT 1
-                """)
-
+                # Get first API route file
+                query_first_api = build_query('api_endpoints', ['file'],
+                    where="file LIKE '%pages/api/%' OR file LIKE '%app/api/%'",
+                    limit=1
+                )
+                cursor.execute(query_first_api)
                 api_file = cursor.fetchone()
                 if api_file:
                     findings.append(StandardFinding(

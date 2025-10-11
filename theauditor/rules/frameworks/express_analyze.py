@@ -218,11 +218,12 @@ class ExpressAnalyzer:
                     continue
 
                 # Check if this function has try/catch blocks
-                query = build_query('cfg_blocks', ['COUNT(*)'],
-                                   where="file = ? AND function_name = ? AND block_type IN ('try', 'except', 'catch')")
+                query = build_query('cfg_blocks', ['block_type'],
+                                   where="file = ? AND function_name = ? AND block_type IN ('try', 'except', 'catch')",
+                                   limit=1)
                 cursor.execute(query, (endpoint['file'], handler))
 
-                has_error_handling = cursor.fetchone()[0] > 0
+                has_error_handling = cursor.fetchone() is not None
 
                 if not has_error_handling:
                     self.findings.append(StandardFinding(
@@ -257,10 +258,10 @@ class ExpressAnalyzer:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
 
-                query = build_query('function_call_args', ['COUNT(*)'],
+                query = build_query('function_call_args', ['callee_function'],
                                    where="callee_function LIKE '%helmet%' OR (callee_function = 'use' AND argument_expr LIKE '%helmet%')")
                 cursor.execute(query)
-                helmet_calls = cursor.fetchone()[0]
+                helmet_calls = len(cursor.fetchall())
                 conn.close()
 
                 if helmet_calls == 0:
@@ -352,11 +353,12 @@ class ExpressAnalyzer:
 
                 if has_user_input:
                     # Check for sanitization nearby
-                    query2 = build_query('function_call_args', ['COUNT(*)'],
-                                        where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'escape', 'encode', 'DOMPurify', 'xss')")
+                    query2 = build_query('function_call_args', ['callee_function'],
+                                        where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'escape', 'encode', 'DOMPurify', 'xss')",
+                                        limit=1)
                     cursor.execute(query2, (file, line - 5, line + 5))
 
-                    has_sanitization = cursor.fetchone()[0] > 0
+                    has_sanitization = cursor.fetchone() is not None
 
                     if not has_sanitization:
                         self.findings.append(StandardFinding(
@@ -535,10 +537,10 @@ class ExpressAnalyzer:
                 cursor = conn.cursor()
 
                 # Check for CSRF in function calls
-                query = build_query('function_call_args', ['COUNT(*)'],
+                query = build_query('function_call_args', ['callee_function'],
                                    where="callee_function IN ('csurf', 'csrf') OR (callee_function = 'use' AND argument_expr LIKE '%csrf%')")
                 cursor.execute(query)
-                csrf_calls = cursor.fetchone()[0]
+                csrf_calls = len(cursor.fetchall())
                 conn.close()
 
                 if csrf_calls == 0:

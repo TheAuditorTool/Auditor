@@ -215,27 +215,29 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
             continue
 
         # Check if state parameter is generated/validated
-        check_query = build_query('function_call_args', ['COUNT(*)'],
+        check_query = build_query('function_call_args', ['argument_expr'],
                                   where="""file = ?
               AND (argument_expr LIKE '%state%'
                    OR argument_expr LIKE '%csrf%'
                    OR argument_expr LIKE '%oauthState%'
-                   OR argument_expr LIKE '%csrfToken%')""")
+                   OR argument_expr LIKE '%csrfToken%')""",
+                                  limit=1)
         cursor.execute(check_query, [file])
 
-        has_state = cursor.fetchone()[0] > 0
+        has_state = cursor.fetchone() is not None
 
         if not has_state:
             # Also check assignments for state generation
-            assign_query = build_query('assignments', ['COUNT(*)'],
+            assign_query = build_query('assignments', ['target_var'],
                                        where="""file = ?
                   AND (target_var LIKE '%state%'
                        OR target_var LIKE '%oauthState%'
                        OR target_var LIKE '%csrfToken%'
-                       OR source_expr LIKE '%state%')""")
+                       OR source_expr LIKE '%state%')""",
+                                       limit=1)
             cursor.execute(assign_query, [file])
 
-            has_state_assignment = cursor.fetchone()[0] > 0
+            has_state_assignment = cursor.fetchone() is not None
 
             if not has_state_assignment:
                 findings.append(StandardFinding(
@@ -297,7 +299,7 @@ def _check_redirect_validation(cursor) -> List[StandardFinding]:
 
     for file, line, func, args in cursor.fetchall():
         # Check if validation is performed nearby (within 10 lines before)
-        val_query = build_query('function_call_args', ['COUNT(*)'],
+        val_query = build_query('function_call_args', ['callee_function'],
                                where="""file = ?
               AND line >= ? AND line < ?
               AND (callee_function LIKE '%validate%'
@@ -305,10 +307,11 @@ def _check_redirect_validation(cursor) -> List[StandardFinding]:
                    OR callee_function LIKE '%allowed%'
                    OR callee_function LIKE '%check%'
                    OR argument_expr LIKE '%whitelist%'
-                   OR argument_expr LIKE '%allowed%')""")
+                   OR argument_expr LIKE '%allowed%')""",
+                               limit=1)
         cursor.execute(val_query, [file, max(1, line - 10), line])
 
-        has_validation = cursor.fetchone()[0] > 0
+        has_validation = cursor.fetchone() is not None
 
         if not has_validation:
             findings.append(StandardFinding(
@@ -342,16 +345,17 @@ def _check_redirect_validation(cursor) -> List[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check for validation after assignment (within 10 lines)
-        val_query = build_query('function_call_args', ['COUNT(*)'],
+        val_query = build_query('function_call_args', ['callee_function'],
                                where="""file = ?
               AND line > ? AND line <= ?
               AND argument_expr LIKE ?
               AND (callee_function LIKE '%validate%'
                    OR callee_function LIKE '%check%'
-                   OR callee_function LIKE '%whitelist%')""")
+                   OR callee_function LIKE '%whitelist%')""",
+                               limit=1)
         cursor.execute(val_query, [file, line, line + 10, f'%{var}%'])
 
-        has_validation = cursor.fetchone()[0] > 0
+        has_validation = cursor.fetchone() is not None
 
         if not has_validation:
             findings.append(StandardFinding(

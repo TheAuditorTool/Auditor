@@ -245,20 +245,24 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
         algo = 'MD5' if 'md5' in args.lower() else 'SHA1'
 
         # Check if this is being used in password context (nearby)
-        # NOTE: Using manual SQL for COUNT(*) since build_query() doesn't support aggregate functions
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM assignments
-            WHERE file = ?
-              AND ABS(line - ?) <= 5
-              AND (target_var LIKE '%password%'
-                   OR target_var LIKE '%passwd%'
-                   OR target_var LIKE '%pwd%'
-                   OR source_expr LIKE '%password%'
-                   OR source_expr LIKE '%passwd%')
-        """, [file, line])
+        query_nearby = build_query('assignments', ['target_var', 'source_expr', 'line'],
+            where="file = ?"
+        )
+        cursor.execute(query_nearby, [file])
 
-        if cursor.fetchone()[0] > 0:
+        # Filter in Python for ABS(line - ?) <= 5 and password patterns
+        nearby_password_assignments = [
+            row for row in cursor.fetchall()
+            if abs(row[2] - line) <= 5 and (
+                'password' in (row[0] or '').lower() or
+                'passwd' in (row[0] or '').lower() or
+                'pwd' in (row[0] or '').lower() or
+                'password' in (row[1] or '').lower() or
+                'passwd' in (row[1] or '').lower()
+            )
+        ]
+
+        if len(nearby_password_assignments) > 0:
             findings.append(StandardFinding(
                 rule_name='password-weak-hashing-createhash',
                 message=f'crypto.createHash("{algo.lower()}") used in password context',

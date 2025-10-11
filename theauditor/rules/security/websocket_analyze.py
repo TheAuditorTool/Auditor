@@ -138,33 +138,31 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
     for file, line, func, args in websocket_handlers:
         # Check if authentication is performed nearby (within ±30 lines)
         # Build static query - NO dynamic SQL
-        auth_placeholders = ' OR '.join(['f2.callee_function LIKE ?'] * len(AUTH_PATTERNS))
-        auth_params = [file, line - 30, line + 30] + [f'%{auth}%' for auth in AUTH_PATTERNS]
+        auth_placeholders = ' OR '.join(['callee_function LIKE ?'] * len(AUTH_PATTERNS))
+        auth_params = [f'%{auth}%' for auth in AUTH_PATTERNS]
 
-        cursor.execute(f"""
-            SELECT COUNT(*)
-            FROM function_call_args f2
-            WHERE f2.file = ?
-              AND f2.line BETWEEN ? AND ?
-              AND ({auth_placeholders})
-        """, auth_params)
+        query_auth = build_query('function_call_args', ['callee_function', 'line'],
+            where=f"file = ? AND ({auth_placeholders})"
+        )
+        cursor.execute(query_auth, [file] + auth_params)
 
-        has_auth = cursor.fetchone()[0] > 0
+        # Filter in Python for line BETWEEN line - 30 AND line + 30
+        nearby_auth = [row for row in cursor.fetchall() if line - 30 <= row[1] <= line + 30]
+        has_auth = len(nearby_auth) > 0
 
         # Also check for auth-related variables
         if not has_auth:
-            auth_sym_placeholders = ' OR '.join(['s.name LIKE ?'] * len(AUTH_PATTERNS))
-            auth_sym_params = [file, line - 30, line + 30] + [f'%{auth}%' for auth in AUTH_PATTERNS]
+            auth_sym_placeholders = ' OR '.join(['name LIKE ?'] * len(AUTH_PATTERNS))
+            auth_sym_params = [f'%{auth}%' for auth in AUTH_PATTERNS]
 
-            cursor.execute(f"""
-                SELECT COUNT(*)
-                FROM symbols s
-                WHERE s.path = ?
-                  AND s.line BETWEEN ? AND ?
-                  AND ({auth_sym_placeholders})
-            """, auth_sym_params)
+            query_auth_sym = build_query('symbols', ['name', 'line'],
+                where=f"path = ? AND ({auth_sym_placeholders})"
+            )
+            cursor.execute(query_auth_sym, [file] + auth_sym_params)
 
-            has_auth = cursor.fetchone()[0] > 0
+            # Filter in Python for line BETWEEN line - 30 AND line + 30
+            nearby_sym = [row for row in cursor.fetchall() if line - 30 <= row[1] <= line + 30]
+            has_auth = len(nearby_sym) > 0
 
         if not has_auth:
             findings.append(StandardFinding(
@@ -192,18 +190,17 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
 
     for file, line, name in python_handlers:
         # Check for auth in function body - static query
-        py_auth_placeholders = ' OR '.join(['f.callee_function LIKE ?'] * len(AUTH_PATTERNS))
-        py_auth_params = [file, line, line + 50] + [f'%{auth}%' for auth in AUTH_PATTERNS]
+        py_auth_placeholders = ' OR '.join(['callee_function LIKE ?'] * len(AUTH_PATTERNS))
+        py_auth_params = [f'%{auth}%' for auth in AUTH_PATTERNS]
 
-        cursor.execute(f"""
-            SELECT COUNT(*)
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.line BETWEEN ? AND ?
-              AND ({py_auth_placeholders})
-        """, py_auth_params)
+        query_py_auth = build_query('function_call_args', ['callee_function', 'line'],
+            where=f"file = ? AND ({py_auth_placeholders})"
+        )
+        cursor.execute(query_py_auth, [file] + py_auth_params)
 
-        has_auth = cursor.fetchone()[0] > 0
+        # Filter in Python for line BETWEEN line AND line + 50
+        auth_in_body = [row for row in cursor.fetchall() if line <= row[1] <= line + 50]
+        has_auth = len(auth_in_body) > 0
 
         if not has_auth and ('connect' in name.lower() or 'handshake' in name.lower()):
             findings.append(StandardFinding(
@@ -239,18 +236,17 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
 
     for file, line, func, args in message_handlers:
         # Check for validation nearby - static query
-        val_placeholders = ' OR '.join(['f2.callee_function LIKE ?'] * len(VALIDATION_PATTERNS))
-        val_params = [file, line, line + 20] + [f'%{val}%' for val in VALIDATION_PATTERNS]
+        val_placeholders = ' OR '.join(['callee_function LIKE ?'] * len(VALIDATION_PATTERNS))
+        val_params = [f'%{val}%' for val in VALIDATION_PATTERNS]
 
-        cursor.execute(f"""
-            SELECT COUNT(*)
-            FROM function_call_args f2
-            WHERE f2.file = ?
-              AND f2.line BETWEEN ? AND ?
-              AND ({val_placeholders})
-        """, val_params)
+        query_validation = build_query('function_call_args', ['callee_function', 'line'],
+            where=f"file = ? AND ({val_placeholders})"
+        )
+        cursor.execute(query_validation, [file] + val_params)
 
-        has_validation = cursor.fetchone()[0] > 0
+        # Filter in Python for line BETWEEN line AND line + 20
+        validation_nearby = [row for row in cursor.fetchall() if line <= row[1] <= line + 20]
+        has_validation = len(validation_nearby) > 0
 
         if not has_validation:
             findings.append(StandardFinding(
@@ -279,17 +275,16 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
     for file, line, name in python_message_handlers:
         # Check for validation in function - static query
         py_val_placeholders = ' OR '.join(['f.callee_function LIKE ?'] * len(VALIDATION_PATTERNS))
-        py_val_params = [file, line, line + 30] + [f'%{val}%' for val in VALIDATION_PATTERNS]
+        py_val_params = [f'%{val}%' for val in VALIDATION_PATTERNS]
 
-        cursor.execute(f"""
-            SELECT COUNT(*)
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND f.line BETWEEN ? AND ?
-              AND ({py_val_placeholders})
-        """, py_val_params)
+        query_py_validation = build_query('function_call_args', ['callee_function', 'line'],
+            where=f"file = ? AND ({py_val_placeholders})"
+        )
+        cursor.execute(query_py_validation, [file] + py_val_params)
 
-        has_validation = cursor.fetchone()[0] > 0
+        # Filter in Python for line BETWEEN line AND line + 30
+        py_validation_nearby = [row for row in cursor.fetchall() if line <= row[1] <= line + 30]
+        has_validation = len(py_validation_nearby) > 0
 
         if not has_validation:
             findings.append(StandardFinding(
@@ -326,41 +321,37 @@ def _find_websocket_no_rate_limit(cursor) -> List[StandardFinding]:
     for (file,) in ws_files:
         # Check if file has any rate limiting - static query
         rl_placeholders = ' OR '.join(['f.callee_function LIKE ?'] * len(RATE_LIMIT_PATTERNS))
-        rl_params = [file] + [f'%{rl}%' for rl in RATE_LIMIT_PATTERNS]
+        rl_params = [f'%{rl}%' for rl in RATE_LIMIT_PATTERNS]
 
-        cursor.execute(f"""
-            SELECT COUNT(*)
-            FROM function_call_args f
-            WHERE f.file = ?
-              AND ({rl_placeholders})
-        """, rl_params)
-
-        has_rate_limit = cursor.fetchone()[0] > 0
+        query_rate_limit = build_query('function_call_args', ['callee_function'],
+            where=f"file = ? AND ({rl_placeholders})",
+            limit=1
+        )
+        cursor.execute(query_rate_limit, [file] + rl_params)
+        has_rate_limit = cursor.fetchone() is not None
 
         # Also check for rate limiting variables/imports - static query
         if not has_rate_limit:
-            rl_sym_placeholders = ' OR '.join(['s.name LIKE ?'] * len(RATE_LIMIT_PATTERNS))
-            rl_sym_params = [file] + [f'%{rl}%' for rl in RATE_LIMIT_PATTERNS]
+            rl_sym_placeholders = ' OR '.join(['name LIKE ?'] * len(RATE_LIMIT_PATTERNS))
+            rl_sym_params = [f'%{rl}%' for rl in RATE_LIMIT_PATTERNS]
 
-            cursor.execute(f"""
-                SELECT COUNT(*)
-                FROM symbols s
-                WHERE s.path = ?
-                  AND ({rl_sym_placeholders})
-            """, rl_sym_params)
-
-            has_rate_limit = cursor.fetchone()[0] > 0
+            query_rate_limit_sym = build_query('symbols', ['name'],
+                where=f"path = ? AND ({rl_sym_placeholders})",
+                limit=1
+            )
+            cursor.execute(query_rate_limit_sym, [file] + rl_sym_params)
+            has_rate_limit = cursor.fetchone() is not None
 
         if not has_rate_limit:
             # Get first message handler location
-            cursor.execute("""
-                SELECT MIN(f.line)
-                FROM function_call_args f
-                WHERE f.file = ?
-                  AND (f.callee_function LIKE '%message%' OR f.callee_function LIKE '%recv%')
-            """, (file,))
+            query_first_handler = build_query('function_call_args', ['line'],
+                where="file = ? AND (callee_function LIKE '%message%' OR callee_function LIKE '%recv%')"
+            )
+            cursor.execute(query_first_handler, (file,))
 
-            line = cursor.fetchone()[0] or 0
+            # Get minimum line in Python
+            all_lines = [row[0] for row in cursor.fetchall()]
+            line = min(all_lines) if all_lines else 0
 
             findings.append(StandardFinding(
                 rule_name='websocket-no-rate-limiting',

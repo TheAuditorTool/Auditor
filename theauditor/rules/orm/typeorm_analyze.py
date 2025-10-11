@@ -249,7 +249,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                 # Operations within 20 lines
                 if op2['line'] - op1['line'] <= 20:
                     # Check for transaction
-                    trans_query = build_query('function_call_args', ['COUNT(*)'])
+                    trans_query = build_query('function_call_args', ['line'], limit=1)
                     cursor.execute(trans_query + """
                         WHERE file = ?
                           AND (callee_function LIKE '%transaction%'
@@ -257,7 +257,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                           AND line BETWEEN ? AND ?
                     """, (file, op1['line'] - 10, op2['line'] + 10))
 
-                    has_transaction = cursor.fetchone()[0] > 0
+                    has_transaction = cursor.fetchone() is not None
 
                     if not has_transaction:
                         findings.append(StandardFinding(
@@ -322,7 +322,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         for file, line, method, args in getmany_calls:
             # Check if there's a limit() or take() call nearby
-            limit_query = build_query('function_call_args', ['COUNT(*)'])
+            limit_query = build_query('function_call_args', ['line'], limit=1)
             cursor.execute(limit_query + """
                 WHERE file = ?
                   AND (callee_function LIKE '%.limit'
@@ -330,7 +330,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                   AND ABS(line - ?) <= 5
             """, (file, line))
 
-            has_limit_nearby = cursor.fetchone()[0] > 0
+            has_limit_nearby = cursor.fetchone() is not None
 
             if not has_limit_nearby:
                 findings.append(StandardFinding(
@@ -422,14 +422,14 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                     field_line = field_result[0]
 
                     # Check if there's an @Index nearby
-                    index_query = build_query('symbols', ['COUNT(*)'])
+                    index_query = build_query('symbols', ['name'], limit=1)
                     cursor.execute(index_query + """
                         WHERE path = ?
                           AND name LIKE '%Index%'
                           AND ABS(line - ?) <= 3
                     """, (entity_file, field_line))
 
-                    has_index = cursor.fetchone()[0] > 0
+                    has_index = cursor.fetchone() is not None
 
                     if not has_index:
                         findings.append(StandardFinding(
@@ -466,7 +466,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         for key, data in join_counts.items():
             if data['count'] >= 3:
                 # Check for limit/take
-                limit_query = build_query('function_call_args', ['COUNT(*)'])
+                limit_query = build_query('function_call_args', ['line'], limit=1)
                 cursor.execute(limit_query + """
                     WHERE file = ?
                       AND (callee_function LIKE '%.limit'
@@ -474,7 +474,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
                       AND ABS(line - ?) <= 10
                 """, (data['file'], data['line']))
 
-                has_limit = cursor.fetchone()[0] > 0
+                has_limit = cursor.fetchone() is not None
 
                 if not has_limit:
                     findings.append(StandardFinding(
@@ -502,13 +502,13 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         if len(manager_usage) > 20:  # Significant EntityManager usage
             # Check if using repositories
-            repo_query = build_query('function_call_args', ['COUNT(*)'])
+            repo_query = build_query('function_call_args', ['callee_function'])
             cursor.execute(repo_query + """
                 WHERE callee_function LIKE '%getRepository%'
                    OR callee_function LIKE '%getCustomRepository%'
             """)
 
-            repo_count = cursor.fetchone()[0]
+            repo_count = len(cursor.fetchall())
 
             if repo_count < 5:  # Very few repository uses
                 findings.append(StandardFinding(

@@ -233,13 +233,13 @@ class ReactAnalyzer:
 
             for file, line, html_content in dangerous_html_usages:
                 # Check if sanitization is nearby
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ? AND line BETWEEN ? AND ?
-                      AND callee_function IN ('sanitize', 'DOMPurify', 'escape', 'xss', 'purify')
-                """, (file, line - 10, line + 10))
-
-                has_sanitization = cursor.fetchone()[0] > 0
+                query_sanitize = build_query('function_call_args', ['callee_function'],
+                    where="""file = ? AND line BETWEEN ? AND ?
+                      AND callee_function IN ('sanitize', 'DOMPurify', 'escape', 'xss', 'purify')""",
+                    limit=1
+                )
+                cursor.execute(query_sanitize, (file, line - 10, line + 10))
+                has_sanitization = cursor.fetchone() is not None
 
                 if not has_sanitization:
                     self.findings.append(StandardFinding(
@@ -526,22 +526,22 @@ class ReactAnalyzer:
 
             for file, line in form_handlers:
                 # Check for nearby validation/sanitization calls
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ? AND line BETWEEN ? AND ?
-                      AND (callee_function LIKE '%validate%' OR callee_function LIKE '%sanitize%')
-                """, (file, line - 20, line + 20))
-
-                has_validation_nearby = cursor.fetchone()[0] > 0
+                query_validation = build_query('function_call_args', ['callee_function'],
+                    where="""file = ? AND line BETWEEN ? AND ?
+                      AND (callee_function LIKE '%validate%' OR callee_function LIKE '%sanitize%')""",
+                    limit=1
+                )
+                cursor.execute(query_validation, (file, line - 20, line + 20))
+                has_validation_nearby = cursor.fetchone() is not None
 
                 if not has_validation_nearby:
                     # Also check if validation libraries are imported
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM refs
-                        WHERE src = ? AND value IN ('yup', 'joi', 'zod', 'validator')
-                    """, (file,))
-
-                    has_validation_lib = cursor.fetchone()[0] > 0
+                    query_libs = build_query('refs', ['value'],
+                        where="src = ? AND value IN ('yup', 'joi', 'zod', 'validator')",
+                        limit=1
+                    )
+                    cursor.execute(query_libs, (file,))
+                    has_validation_lib = cursor.fetchone() is not None
 
                     if not has_validation_lib:
                         self.findings.append(StandardFinding(
@@ -608,24 +608,24 @@ class ReactAnalyzer:
 
             for (file,) in route_files:
                 # Check if file has any auth-related function calls
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%Auth%')
-                """, (file,))
-
-                has_auth_pattern = cursor.fetchone()[0] > 0
+                query_auth_pattern = build_query('function_call_args', ['callee_function'],
+                    where="file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%Auth%')",
+                    limit=1
+                )
+                cursor.execute(query_auth_pattern, (file,))
+                has_auth_pattern = cursor.fetchone() is not None
 
                 if not has_auth_pattern:
                     # Also check if auth functions are used
                     auth_funcs_list = list(self.patterns.AUTH_FUNCTIONS)
                     placeholders = ','.join('?' * len(auth_funcs_list))
 
-                    cursor.execute(f"""
-                        SELECT COUNT(*) FROM function_call_args
-                        WHERE file = ? AND callee_function IN ({placeholders})
-                    """, [file] + auth_funcs_list)
-
-                    has_auth = cursor.fetchone()[0] > 0
+                    query_auth_funcs = build_query('function_call_args', ['callee_function'],
+                        where=f"file = ? AND callee_function IN ({placeholders})",
+                        limit=1
+                    )
+                    cursor.execute(query_auth_funcs, [file] + auth_funcs_list)
+                    has_auth = cursor.fetchone() is not None
 
                     if not has_auth:
                         self.findings.append(StandardFinding(
@@ -675,14 +675,14 @@ class ReactAnalyzer:
                     # Check if CSRF token is present
                     if 'csrf' not in form_lower and 'xsrf' not in form_lower:
                         # Also check if there's CSRF handling nearby
-                        cursor.execute("""
-                            SELECT COUNT(*) FROM assignments
-                            WHERE file = ? AND line BETWEEN ? AND ?
+                        query_csrf = build_query('assignments', ['target_var'],
+                            where="""file = ? AND line BETWEEN ? AND ?
                               AND (target_var LIKE '%csrf%' OR source_expr LIKE '%csrf%'
-                                   OR target_var LIKE '%xsrf%' OR source_expr LIKE '%xsrf%')
-                        """, (file, line - 10, line + 10))
-
-                        has_csrf_nearby = cursor.fetchone()[0] > 0
+                                   OR target_var LIKE '%xsrf%' OR source_expr LIKE '%xsrf%')""",
+                            limit=1
+                        )
+                        cursor.execute(query_csrf, (file, line - 10, line + 10))
+                        has_csrf_nearby = cursor.fetchone() is not None
 
                         if not has_csrf_nearby:
                             self.findings.append(StandardFinding(
@@ -737,13 +737,13 @@ class ReactAnalyzer:
 
                     if not has_sanitization:
                         # Also check for sanitization nearby
-                        cursor.execute("""
-                            SELECT COUNT(*) FROM function_call_args
-                            WHERE file = ? AND line BETWEEN ? AND ?
-                              AND callee_function IN ('sanitize', 'escape', 'DOMPurify', 'xss')
-                        """, (file, line - 5, line + 5))
-
-                        has_sanitization_nearby = cursor.fetchone()[0] > 0
+                        query_san_nearby = build_query('function_call_args', ['callee_function'],
+                            where="""file = ? AND line BETWEEN ? AND ?
+                              AND callee_function IN ('sanitize', 'escape', 'DOMPurify', 'xss')""",
+                            limit=1
+                        )
+                        cursor.execute(query_san_nearby, (file, line - 5, line + 5))
+                        has_sanitization_nearby = cursor.fetchone() is not None
 
                         if not has_sanitization_nearby:
                             self.findings.append(StandardFinding(

@@ -239,13 +239,13 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         for file, line, query_type in orthrow_methods:
             # Check if there's error handling nearby
-            cfg_query = build_query('cfg_blocks', ['COUNT(*)'])
+            cfg_query = build_query('cfg_blocks', ['block_type'], limit=1)
             cursor.execute(cfg_query + """
                 WHERE file = ?
                   AND block_type IN ('try', 'catch', 'except', 'finally')
                   AND ? BETWEEN start_line - 5 AND end_line + 5
             """, (file, line))
-            has_error_handling = cursor.fetchone()[0] > 0
+            has_error_handling = cursor.fetchone() is not None
 
             if not has_error_handling:
                 method = query_type.split('.')[-1] if '.' in query_type else query_type

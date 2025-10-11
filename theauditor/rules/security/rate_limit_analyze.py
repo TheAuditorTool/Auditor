@@ -382,31 +382,31 @@ def _detect_unprotected_endpoints(cursor) -> List[StandardFinding]:
 
         if endpoint_found:
             # Check for rate limiting within ±30 lines
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 30
+            query_rate_limit = build_query('function_call_args', ['callee_function', 'line'],
+                where="""file = ?
                   AND (callee_function LIKE '%limit%'
                        OR callee_function LIKE '%throttle%'
                        OR argument_expr LIKE '%limit%'
-                       OR argument_expr LIKE '%throttle%')
-            """, (file, line))
+                       OR argument_expr LIKE '%throttle%')"""
+            )
+            cursor.execute(query_rate_limit, (file,))
 
-            has_rate_limit = cursor.fetchone()[0] > 0
+            # Filter in Python for ABS(line - ?) <= 30
+            nearby_rate_limits = [row for row in cursor.fetchall() if abs(row[1] - line) <= 30]
+            has_rate_limit = len(nearby_rate_limits) > 0
 
             # Also check for decorators
             if not has_rate_limit:
-                cursor.execute("""
-                    SELECT COUNT(*)
-                    FROM symbols
-                    WHERE path = ?
-                      AND ABS(line - ?) <= 10
+                query_decorators = build_query('symbols', ['name', 'line'],
+                    where="""path = ?
                       AND type = 'decorator'
-                      AND (name LIKE '%limit%' OR name LIKE '%throttle%')
-                """, (file, line))
+                      AND (name LIKE '%limit%' OR name LIKE '%throttle%')"""
+                )
+                cursor.execute(query_decorators, (file,))
 
-                has_rate_limit = cursor.fetchone()[0] > 0
+                # Filter in Python for ABS(line - ?) <= 10
+                nearby_decorators = [row for row in cursor.fetchall() if abs(row[1] - line) <= 10]
+                has_rate_limit = len(nearby_decorators) > 0
 
             if not has_rate_limit:
                 framework = _detect_framework(file)
@@ -505,17 +505,17 @@ def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check if this var is used in rate limiting
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM function_call_args
-            WHERE file = ?
+        query_var_usage = build_query('function_call_args', ['callee_function'],
+            where="""file = ?
               AND line > ?
               AND line <= ? + 50
               AND argument_expr LIKE ?
-              AND (callee_function LIKE '%limit%' OR callee_function LIKE '%throttle%')
-        """, (file, line, line, f'%{var}%'))
+              AND (callee_function LIKE '%limit%' OR callee_function LIKE '%throttle%')""",
+            limit=1
+        )
+        cursor.execute(query_var_usage, (file, line, line, f'%{var}%'))
 
-        if cursor.fetchone()[0] > 0:
+        if cursor.fetchone() is not None:
             findings.append(StandardFinding(
                 rule_name='bypassable-key-indirect',
                 message='Rate limiting key derived from spoofable header',
@@ -704,17 +704,17 @@ def _detect_api_rate_limits(cursor) -> List[StandardFinding]:
 
         if is_critical:
             # Check for rate limiting near this endpoint
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 50
+            query_limit = build_query('function_call_args', ['callee_function', 'line'],
+                where="""file = ?
                   AND (callee_function LIKE '%limit%'
                        OR callee_function LIKE '%throttle%'
-                       OR argument_expr LIKE '%rateLimit%')
-            """, (file, line))
+                       OR argument_expr LIKE '%rateLimit%')"""
+            )
+            cursor.execute(query_limit, (file,))
 
-            has_rate_limit = cursor.fetchone()[0] > 0
+            # Filter in Python for ABS(line - ?) <= 50
+            nearby_limits = [row for row in cursor.fetchall() if abs(row[1] - line) <= 50]
+            has_rate_limit = len(nearby_limits) > 0
 
             if not has_rate_limit:
                 findings.append(StandardFinding(
@@ -832,16 +832,16 @@ def _detect_bypass_configs(cursor) -> List[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check if this relates to rate limiting
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM function_call_args
-            WHERE file = ?
-              AND ABS(line - ?) <= 30
+        query_limit_nearby = build_query('function_call_args', ['callee_function', 'line'],
+            where="""file = ?
               AND (callee_function LIKE '%limit%'
-                   OR argument_expr LIKE '%rateLimit%')
-        """, (file, line))
+                   OR argument_expr LIKE '%rateLimit%')"""
+        )
+        cursor.execute(query_limit_nearby, (file,))
 
-        if cursor.fetchone()[0] > 0:
+        # Filter in Python for ABS(line - ?) <= 30
+        nearby = [row for row in cursor.fetchall() if abs(row[1] - line) <= 30]
+        if len(nearby) > 0:
             findings.append(StandardFinding(
                 rule_name='rate-limit-bypass-config',
                 message='Potential rate limit bypass configuration detected',
@@ -946,17 +946,17 @@ def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
             # Check if this is a weak limit for authentication
             if num > 10:
                 # Check if this is an auth endpoint
-                cursor.execute("""
-                    SELECT COUNT(*)
-                    FROM function_call_args
-                    WHERE file = ?
-                      AND ABS(line - ?) <= 20
+                query_auth = build_query('function_call_args', ['argument_expr', 'line'],
+                    where="""file = ?
                       AND (argument_expr LIKE '%login%'
                            OR argument_expr LIKE '%auth%'
-                           OR argument_expr LIKE '%password%')
-                """, (file, line))
+                           OR argument_expr LIKE '%password%')"""
+                )
+                cursor.execute(query_auth, (file,))
 
-                if cursor.fetchone()[0] > 0:
+                # Filter in Python for ABS(line - ?) <= 20
+                nearby_auth = [row for row in cursor.fetchall() if abs(row[1] - line) <= 20]
+                if len(nearby_auth) > 0:
                     findings.append(StandardFinding(
                         rule_name='weak-rate-limit-value',
                         message=f'Rate limit too high ({num}) for authentication endpoint',

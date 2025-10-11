@@ -202,16 +202,15 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         money_terms_list = list(MONEY_TERMS)
         money_placeholders = ','.join(['?' for _ in MONEY_TERMS])
 
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
-        cursor.execute(query + f"""
-            WHERE (target_var IN ({money_placeholders}))
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                           where=f"""(target_var IN ({money_placeholders}))
               AND (source_expr LIKE '%/%'
                    OR source_expr LIKE '%*%'
                    OR source_expr LIKE '%parseFloat%'
                    OR source_expr LIKE '%float(%'
-                   OR source_expr LIKE '%.toFixed%')
-            ORDER BY file, line
-        """, money_terms_list)
+                   OR source_expr LIKE '%.toFixed%')""",
+                           order_by="file, line")
+        cursor.execute(query, money_terms_list)
 
         for file, line, var_name, expr in cursor.fetchall():
             findings.append(StandardFinding(
@@ -230,15 +229,11 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         float_funcs_list = list(FLOAT_FUNCTIONS)
         float_placeholders = ','.join('?' * len(float_funcs_list))
 
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-        # Build conditions for money arguments
-        money_arg_conditions = ' OR '.join([f"argument_expr LIKE '%{term}%'" for term in MONEY_TERMS])
-
-        cursor.execute(query + f"""
-            WHERE callee_function IN ({float_placeholders})
-              AND ({money_arg_conditions})
-            ORDER BY file, line
-        """, float_funcs_list)
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"""callee_function IN ({float_placeholders})
+              AND ({money_arg_conditions})""",
+                           order_by="file, line")
+        cursor.execute(query, float_funcs_list)
 
         for file, line, func, arg in cursor.fetchall():
             findings.append(StandardFinding(
@@ -259,14 +254,13 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         datetime_funcs_list = list(DATETIME_FUNCTIONS)
         datetime_placeholders = ','.join('?' * len(datetime_funcs_list))
 
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-        cursor.execute(query + f"""
-            WHERE callee_function IN ({datetime_placeholders})
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"""callee_function IN ({datetime_placeholders})
               AND argument_expr NOT LIKE '%tz%'
               AND argument_expr NOT LIKE '%timezone%'
-              AND argument_expr NOT LIKE '%UTC%'
-            ORDER BY file, line
-        """, datetime_funcs_list)
+              AND argument_expr NOT LIKE '%UTC%'""",
+                           order_by="file, line")
+        cursor.execute(query, datetime_funcs_list)
 
         for file, line, datetime_func, args in cursor.fetchall():
             findings.append(StandardFinding(
@@ -311,33 +305,32 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 4: Division by Zero Risks
         # ========================================================
         # Look for division operations with risky denominators
-        query = build_query('assignments', ['file', 'line', 'source_expr'])
-        cursor.execute(query + """
-            WHERE source_expr LIKE '%/%'
+        query = build_query('assignments', ['file', 'line', 'source_expr'],
+                           where="""source_expr LIKE '%/%'
               AND (source_expr LIKE '%count%'
                    OR source_expr LIKE '%length%'
                    OR source_expr LIKE '%size%'
                    OR source_expr LIKE '%.length%'
                    OR source_expr LIKE '%.size%'
-                   OR source_expr LIKE '%.count%')
-            ORDER BY file, line
-        """)
+                   OR source_expr LIKE '%.count%')""",
+                           order_by="file, line")
+        cursor.execute(query)
         # Store results before nested query loop (best practice, not a workaround)
         division_operations = cursor.fetchall()
 
         for file, line, expr in division_operations:
             # Try to check if there's a zero check nearby in assignment expressions
-            assignments_query = build_query('assignments', ['COUNT(*)'])
-            cursor.execute(assignments_query + """
-                WHERE file = ?
+            assignments_query = build_query('assignments', ['source_expr'],
+                                           where="""file = ?
                   AND line BETWEEN ? AND ?
                   AND (source_expr LIKE '%!= 0%'
                        OR source_expr LIKE '%> 0%'
                        OR source_expr LIKE '%if%!= 0%'
-                       OR source_expr LIKE '%if%> 0%')
-            """, (file, line - 5, line))
+                       OR source_expr LIKE '%if%> 0%')""",
+                                           limit=1)
+            cursor.execute(assignments_query, (file, line - 5, line))
 
-            has_check = cursor.fetchone()[0] > 0
+            has_check = cursor.fetchone() is not None
 
             if not has_check:
                 findings.append(StandardFinding(
@@ -371,18 +364,17 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         ops_placeholders = ','.join('?' * len(file_ops_list))
         cleanup_placeholders = ','.join('?' * len(file_cleanup_list))
 
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'])
-        cursor.execute(query + f"""
-            WHERE callee_function IN ({ops_placeholders})
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'],
+                           where=f"""callee_function IN ({ops_placeholders})
               AND NOT EXISTS (
                   SELECT 1 FROM function_call_args AS fca2
                   WHERE fca2.file = function_call_args.file
                     AND fca2.caller_function = function_call_args.caller_function
                     AND fca2.callee_function IN ({cleanup_placeholders})
                     AND fca2.line > function_call_args.line
-              )
-            ORDER BY file, line
-        """, file_ops_list + file_cleanup_list)
+              )""",
+                           order_by="file, line")
+        cursor.execute(query, file_ops_list + file_cleanup_list)
         # Store results before nested query loop (best practice)
         file_operations = cursor.fetchall()
 
@@ -391,23 +383,23 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
             has_context_manager = False
 
             # Check cfg_blocks for try/finally/with blocks
-            cfg_query = build_query('cfg_blocks', ['COUNT(*)'])
-            cursor.execute(cfg_query + """
-                WHERE file = ?
+            cfg_query = build_query('cfg_blocks', ['id'],
+                                   where="""file = ?
                   AND block_type IN ('try', 'finally', 'with')
-                  AND ? BETWEEN start_line AND end_line
-            """, (file, line))
-            has_context_manager = cursor.fetchone()[0] > 0
+                  AND ? BETWEEN start_line AND end_line""",
+                                   limit=1)
+            cursor.execute(cfg_query, (file, line))
+            has_context_manager = cursor.fetchone() is not None
 
             # Check for __enter__ in symbols as backup (context manager indicator)
             if not has_context_manager:
-                symbols_query = build_query('symbols', ['COUNT(*)'])
-                cursor.execute(symbols_query + """
-                    WHERE path = ?
+                symbols_query = build_query('symbols', ['name'],
+                                           where="""path = ?
                       AND line BETWEEN ? AND ?
-                      AND name = '__enter__'
-                """, (file, line - 5, line + 5))
-                has_context_manager = cursor.fetchone()[0] > 0
+                      AND name = '__enter__'""",
+                                           limit=1)
+                cursor.execute(symbols_query, (file, line - 5, line + 5))
+                has_context_manager = cursor.fetchone() is not None
 
             if not has_context_manager:
                 findings.append(StandardFinding(
@@ -465,18 +457,17 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         trans_placeholders = ','.join('?' * len(trans_funcs_list))
         end_placeholders = ','.join('?' * len(trans_end_list))
 
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
-        cursor.execute(query + f"""
-            WHERE callee_function IN ({trans_placeholders})
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where=f"""callee_function IN ({trans_placeholders})
               AND NOT EXISTS (
                   SELECT 1 FROM function_call_args AS fca2
                   WHERE fca2.file = function_call_args.file
                     AND fca2.callee_function IN ({end_placeholders})
                     AND fca2.line > function_call_args.line
                     AND fca2.line < function_call_args.line + 100
-              )
-            ORDER BY file, line
-        """, trans_funcs_list + trans_end_list)
+              )""",
+                           order_by="file, line")
+        cursor.execute(query, trans_funcs_list + trans_end_list)
 
         for file, line, trans_func in cursor.fetchall():
             findings.append(StandardFinding(
@@ -529,14 +520,13 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 9: Percentage Calculation Errors
         # ========================================================
         # Look for patterns like value / 100 * something (missing parentheses)
-        query = build_query('assignments', ['file', 'line', 'source_expr'])
-        cursor.execute(query + """
-            WHERE (source_expr LIKE '%/ 100 *%'
+        query = build_query('assignments', ['file', 'line', 'source_expr'],
+                           where="""(source_expr LIKE '%/ 100 *%'
                    OR source_expr LIKE '%/100*%'
                    OR source_expr LIKE '%/ 100.0 *%')
-              AND source_expr NOT LIKE '%(%/ 100%)%'
-            ORDER BY file, line
-        """)
+              AND source_expr NOT LIKE '%(%/ 100%)%'""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, expr in cursor.fetchall():
             findings.append(StandardFinding(
@@ -620,9 +610,8 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 12: Lock/Mutex Without Release
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'])
-        cursor.execute(query + """
-            WHERE (callee_function LIKE '%lock%'
+        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
+                           where="""(callee_function LIKE '%lock%'
                    OR callee_function LIKE '%Lock%'
                    OR callee_function LIKE '%acquire%'
                    OR callee_function LIKE '%mutex%')
@@ -635,9 +624,9 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
                          OR fca2.callee_function LIKE '%release%')
                     AND fca2.line > function_call_args.line
                     AND fca2.line < function_call_args.line + 50
-              )
-            ORDER BY file, line
-        """)
+              )""",
+                           order_by="file, line")
+        cursor.execute(query)
 
         for file, line, lock_func in cursor.fetchall():
             findings.append(StandardFinding(

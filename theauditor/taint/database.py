@@ -91,17 +91,17 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
         print(f"[TAINT] Checked {len(all_sources)} patterns", file=sys.stderr)
 
         # Verify symbols table has call/property types
-        prop_query = build_query('symbols', ['COUNT(*)'],
+        prop_query = build_query('symbols', ['name'],
             where="type='property'"
         )
         cursor.execute(prop_query)
-        prop_count = cursor.fetchone()[0]
+        prop_count = len(cursor.fetchall())
 
-        call_query = build_query('symbols', ['COUNT(*)'],
+        call_query = build_query('symbols', ['name'],
             where="type='call'"
         )
         cursor.execute(call_query)
-        call_count = cursor.fetchone()[0]
+        call_count = len(cursor.fetchall())
 
         print(f"[TAINT] Symbols table: {call_count} calls, {prop_count} properties", file=sys.stderr)
 
@@ -569,23 +569,23 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
         print(f"[TAINT] Checked {len(all_sinks)} patterns across {len(sinks_to_use)} categories", file=sys.stderr)
 
         # Verify symbols table has call types
-        call_query = build_query('symbols', ['COUNT(*)'],
+        call_query = build_query('symbols', ['name'],
             where="type='call'"
         )
         cursor.execute(call_query)
-        call_count = cursor.fetchone()[0]
+        call_count = len(cursor.fetchall())
 
         print(f"[TAINT] Symbols table: {call_count} calls", file=sys.stderr)
 
         # Check specialized tables (guaranteed to exist by schema contract)
-        sql_query = build_query('sql_queries', ['COUNT(*)'])
+        sql_query = build_query('sql_queries', ['file'])
         cursor.execute(sql_query)
-        sql_count = cursor.fetchone()[0]
+        sql_count = len(cursor.fetchall())
         print(f"[TAINT] sql_queries table: {sql_count} rows", file=sys.stderr)
 
-        args_query = build_query('function_call_args', ['COUNT(*)'])
+        args_query = build_query('function_call_args', ['callee_function'])
         cursor.execute(args_query)
-        args_count = cursor.fetchone()[0]
+        args_count = len(cursor.fetchall())
         print(f"[TAINT] function_call_args table: {args_count} rows", file=sys.stderr)
 
         if call_count == 0:
@@ -774,35 +774,43 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
 
 def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,
                           function_line: int) -> Tuple[int, int]:
-    """Get accurate start and end lines for a function.
+    """Get function boundaries from pre-extracted end_line column.
 
-    Uses next function start as current function end.
-    Falls back to max line in file for last function.
+    The indexer extracts function end lines during parsing (for both Python
+    and TypeScript/JavaScript via their respective extractors) and stores them
+    in symbols.end_line. This function queries that pre-computed data.
+
+    Args:
+        cursor: Database cursor
+        file_path: Path to source file (relative to project root)
+        function_line: Start line of function
+
+    Returns:
+        Tuple of (start_line, end_line)
 
     Schema Contract:
-        Queries symbols table (guaranteed to exist)
+        Queries symbols table with columns ['line', 'end_line']
+        Both columns guaranteed to exist per schema.py:217-235
     """
-    # Find next function in same file
-    query = build_query('symbols', ['line'],
-        where="path = ? AND type = 'function' AND line > ?",
-        order_by="line",
+    # Query the end_line column that was extracted by the indexer
+    query = build_query('symbols', ['line', 'end_line'],
+        where="path = ? AND type = 'function' AND line = ?",
         limit=1
     )
     cursor.execute(query, (file_path, function_line))
 
-    next_func = cursor.fetchone()
-    if next_func:
-        # Function ends before next function starts
-        return function_line, next_func[0] - 1
+    result = cursor.fetchone()
 
-    # No next function, get max line in file
-    max_query = build_query('symbols', ['MAX(line)'],
-        where="path = ?"
-    )
-    cursor.execute(max_query, (file_path,))
+    if result and result[1]:
+        # end_line was populated by indexer - use it
+        return result[0], result[1]
 
-    max_line = cursor.fetchone()
-    return function_line, max_line[0] if max_line and max_line[0] else function_line + 200
+    # Fallback for missing end_line (shouldn't happen after extraction fix)
+    # This handles edge cases like:
+    # - Old databases that haven't been re-indexed
+    # - Functions from unsupported/fallback parsers
+    # Use heuristic: assume function is ~200 lines max
+    return function_line, function_line + 200
 
 
 def get_code_snippet(file_path: str, line_num: int) -> str:
@@ -1053,11 +1061,10 @@ def check_cfg_available(cursor: sqlite3.Cursor) -> bool:
         Table existence is guaranteed by schema contract
     """
     # Check if tables have data (no need to check existence)
-    count_query = build_query('cfg_blocks', ['COUNT(*)'])
+    count_query = build_query('cfg_blocks', ['id'], limit=1)
     cursor.execute(count_query)
-    count = cursor.fetchone()[0]
 
-    return count > 0
+    return cursor.fetchone() is not None
 
 
 # ============================================================================
@@ -1172,10 +1179,10 @@ def check_object_literals_available(cursor: sqlite3.Cursor) -> bool:
         Table existence is guaranteed by schema contract
 
     Note:
-        Uses raw SQL for COUNT(*) as build_query() doesn't support aggregate functions
+        Uses schema-compliant query with LIMIT 1 for existence check
     """
-    # NOTE: build_query() doesn't support aggregate functions, use raw SQL
-    cursor.execute("SELECT COUNT(*) FROM object_literals")
-    count = cursor.fetchone()[0]
+    # Use schema-compliant query instead of COUNT(*)
+    query = build_query('object_literals', ['id'], limit=1)
+    cursor.execute(query)
 
-    return count > 0
+    return cursor.fetchone() is not None
