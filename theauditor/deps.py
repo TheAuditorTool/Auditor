@@ -190,10 +190,21 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
         except SecurityError as e:
             if debug:
                 print(f"Debug: Security error with {dockerfile}: {e}")
-    
+
+    # Parse Cargo.toml for Rust dependencies
+    try:
+        cargo_toml = sanitize_path("Cargo.toml", root_path)
+        if cargo_toml.exists():
+            if debug:
+                print(f"Debug: Found {cargo_toml}")
+            deps.extend(_parse_cargo_toml(cargo_toml))
+    except SecurityError as e:
+        if debug:
+            print(f"Debug: Security error checking Cargo.toml: {e}")
+
     if debug:
         print(f"Debug: Total dependencies found: {len(deps)}")
-    
+
     return deps
 
 
@@ -740,12 +751,80 @@ def _parse_dockerfile(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
+def _parse_cargo_deps(deps_dict: Dict[str, Any], kind: str) -> List[Dict[str, Any]]:
+    """Parse a Cargo.toml dependency section.
+
+    Args:
+        deps_dict: Dictionary from [dependencies] or [dev-dependencies]
+        kind: 'normal' or 'dev'
+
+    Returns:
+        List of dependency dicts
+    """
+    deps = []
+
+    for name, spec in deps_dict.items():
+        if isinstance(spec, str):
+            # Simple version: dep = "1.0"
+            version = _clean_version(spec)
+            features = []
+        elif isinstance(spec, dict):
+            # Dict format: dep = { version = "1.0", features = ["derive"] }
+            version = _clean_version(spec.get("version", "*"))
+            features = spec.get("features", [])
+        else:
+            continue
+
+        deps.append({
+            "name": name,
+            "version": version,
+            "manager": "cargo",
+            "features": features,
+            "kind": kind,
+            "files": [],
+            "source": "Cargo.toml"
+        })
+
+    return deps
+
+
+def _parse_cargo_toml(path: Path) -> List[Dict[str, Any]]:
+    """Parse dependencies from Cargo.toml."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    deps = []
+    try:
+        import tomllib
+    except ImportError:
+        # Python < 3.11
+        try:
+            import tomli as tomllib
+        except ImportError:
+            # Can't parse TOML without library
+            logger.warning(f"Cannot parse {path} - tomllib not available")
+            return deps
+
+    try:
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+
+        # Parse [dependencies] and [dev-dependencies]
+        deps.extend(_parse_cargo_deps(data.get("dependencies", {}), kind="normal"))
+        deps.extend(_parse_cargo_deps(data.get("dev-dependencies", {}), kind="dev"))
+
+    except Exception as e:
+        logger.error(f"Could not parse {path}: {e}")
+
+    return deps
+
+
 def write_deps_json(deps: List[Dict[str, Any]], output_path: str = "./.pf/deps.json") -> None:
     """Write dependencies to JSON file."""
     try:
         output = sanitize_path(output_path, ".")
         output.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(output, "w", encoding="utf-8") as f:
             json.dump(deps, f, indent=2, sort_keys=True)
     except SecurityError as e:

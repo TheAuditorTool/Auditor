@@ -55,7 +55,7 @@ aud refactor <operation>     # Perform refactoring operations
 
 ## Project Overview
 
-TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python and JavaScript/TypeScript projects, producing AI-consumable reports optimized for LLM context windows.
+TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python, JavaScript/TypeScript, and Rust projects, producing AI-consumable reports optimized for LLM context windows.
 
 ## Core Philosophy: Truth Courier, Not Mind Reader
 
@@ -569,6 +569,15 @@ The indexer automatically detects monorepo structures and applies intelligent fi
 - Uses bundled Node.js v20.11.1 in `.auditor_venv/.theauditor_tools/`
 - TypeScript semantic analysis requires `js_semantic_parser.py`
 - ESLint runs in sandboxed environment, not project's node_modules
+
+### Rust Special Handling
+- Auto-detected via Cargo.toml in project root
+- Uses rust-analyzer LSP for semantic analysis (no compilation required)
+- Sandboxed binary installed to `~/.auditor_venv/.theauditor_tools/rust/`
+- Temporary workspace created per file (rust-analyzer requirement)
+- Extracts: functions, structs, enums, traits, impl blocks, fields
+- Symbols extracted via LSP, imports via regex patterns
+- Performance: ~200ms per file with persistent LSP session
 
 ### Environment Variables
 Key environment variables for configuration:
