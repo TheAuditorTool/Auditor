@@ -140,12 +140,13 @@ def trace_inter_procedural_flow(
                     continue
 
                 # Check if parameter flows to sink
-                query = build_query('function_call_args', ['COUNT(*)'],
-                    where="file = ? AND line = ? AND argument_expr LIKE ?"
+                query = build_query('function_call_args', ['argument_expr'],
+                    where="file = ? AND line = ? AND argument_expr LIKE ?",
+                    limit=1
                 )
                 cursor.execute(query, (sink["file"], sink["line"], f"%{param_name}%"))
 
-                if cursor.fetchone()[0] > 0:
+                if cursor.fetchone() is not None:
                     # Found inter-procedural vulnerability!
                     if debug:
                         print(f"[INTER-PROCEDURAL] VULNERABILITY FOUND!", file=sys.stderr)
@@ -220,12 +221,13 @@ def trace_inter_procedural_flow(
                 continue
 
             # Check if current variable is used in sink
-            query = build_query('function_call_args', ['COUNT(*)'],
-                where="file = ? AND line = ? AND argument_expr LIKE ?"
+            query = build_query('function_call_args', ['argument_expr'],
+                where="file = ? AND line = ? AND argument_expr LIKE ?",
+                limit=1
             )
             cursor.execute(query, (sink["file"], sink["line"], f"%{current_var}%"))
 
-            if cursor.fetchone()[0] > 0:
+            if cursor.fetchone() is not None:
                 # Direct vulnerability in current function
                 if debug:
                     print(f"[INTER-PROCEDURAL] Direct sink reached in {current_func}", file=sys.stderr)

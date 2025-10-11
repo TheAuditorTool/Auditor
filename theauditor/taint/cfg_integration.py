@@ -797,12 +797,13 @@ def should_use_cfg(cursor: sqlite3.Cursor, source: Dict[str, Any],
 
     # Check if there are conditional statements between source and sink
     # This is a heuristic - CFG is most useful when there are branches
-    query = build_query('cfg_blocks', ['COUNT(*)'],
-        where="file = ? AND block_type IN ('condition', 'loop_condition') AND start_line > ? AND end_line < ?"
+    query = build_query('cfg_blocks', ['id'],
+        where="file = ? AND block_type IN ('condition', 'loop_condition') AND start_line > ? AND end_line < ?",
+        limit=1
     )
     cursor.execute(query, (source["file"], source["line"], sink["line"]))
 
-    condition_count = cursor.fetchone()[0]
+    has_conditional_blocks = cursor.fetchone() is not None
 
     # Use CFG if there are conditional blocks
-    return condition_count > 0
+    return has_conditional_blocks

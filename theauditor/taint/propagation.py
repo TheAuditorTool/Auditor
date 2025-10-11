@@ -430,12 +430,13 @@ def trace_from_source(
         # This catches cases where source is used directly without variable assignment
         if sink_function["name"] == source_function["name"]:
             # Check if source pattern appears directly in sink's arguments
-            query = build_query('function_call_args', ['COUNT(*)'],
-                where="file = ? AND line = ? AND argument_expr LIKE ?"
+            query = build_query('function_call_args', ['argument_expr'],
+                where="file = ? AND line = ? AND argument_expr LIKE ?",
+                limit=1
             )
             cursor.execute(query, (sink["file"], sink["line"], f"%{source['pattern']}%"))
 
-            if cursor.fetchone()[0] > 0:
+            if cursor.fetchone() is not None:
                 # Direct use of source in sink arguments
                 if not has_sanitizer_between(cursor, source, sink):
                     path = TaintPath(
@@ -517,13 +518,14 @@ def trace_from_source(
             # Also check if sink pattern matches and variable is in scope
             if not sink_context_found and var_name != "__return__":
                 # Check if there's an assignment or usage near the sink
-                query = build_query('assignments', ['COUNT(*)'],
-                    where="file = ? AND in_function = ? AND line BETWEEN ? AND ? AND (target_var = ? OR source_expr LIKE ?)"
+                query = build_query('assignments', ['line'],
+                    where="file = ? AND in_function = ? AND line BETWEEN ? AND ? AND (target_var = ? OR source_expr LIKE ?)",
+                    limit=1
                 )
                 cursor.execute(query, (sink["file"], func_name, sink["line"] - 5, sink["line"] + 5,
                      var_name, f"%{var_name}%"))
 
-                if cursor.fetchone()[0] > 0:
+                if cursor.fetchone() is not None:
                     sink_context_found = True
             
             if sink_context_found:

@@ -175,12 +175,11 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('files', ['COUNT(*)'])
-            cursor.execute(query + """
-                WHERE ext IN ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')
-            """)
+            query = build_query('files', ['path'],
+                               where="ext IN ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')")
+            cursor.execute(query)
 
-            count = cursor.fetchone()[0]
+            count = len(cursor.fetchall())
             conn.close()
             return count > 0
 
@@ -197,12 +196,10 @@ class RuntimeAnalyzer:
             self._identify_tainted_variables(cursor)
 
             # Check direct exec calls with user input
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-            cursor.execute(query + """
-                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
-                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, func, args in cursor.fetchall():
                 # Check if it's an exec function
@@ -244,14 +241,10 @@ class RuntimeAnalyzer:
                         ))
 
             # Check for template literals with user input
-            query = build_query('assignments', ['file', 'line', 'source_expr'])
-            cursor.execute(query + """
-                WHERE source_expr LIKE '%`%'
-                  AND source_expr LIKE '%$%'
-                  AND (file LIKE '%.js' OR file LIKE '%.jsx'
-                       OR file LIKE '%.ts' OR file LIKE '%.tsx')
-                ORDER BY file, line
-            """)
+            query = build_query('assignments', ['file', 'line', 'source_expr'],
+                               where="source_expr LIKE '%`%' AND source_expr LIKE '%$%' AND (file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx')",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, expr in cursor.fetchall():
                 # Check if template contains user input
@@ -263,15 +256,12 @@ class RuntimeAnalyzer:
 
                 if has_user_input:
                     # Check if used near exec functions
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM function_call_args
-                        WHERE file = ?
-                          AND line BETWEEN ? AND ?
-                          AND (callee_function LIKE '%exec%'
-                               OR callee_function LIKE '%spawn%')
-                    """, (file, line - 5, line + 5))
+                    exec_query = build_query('function_call_args', ['callee_function'],
+                                            where="file = ? AND line BETWEEN ? AND ? AND (callee_function LIKE '%exec%' OR callee_function LIKE '%spawn%')",
+                                            limit=1)
+                    cursor.execute(exec_query, (file, line - 5, line + 5))
 
-                    near_exec = cursor.fetchone()[0] > 0
+                    near_exec = cursor.fetchone() is not None
 
                     if near_exec:
                         self.findings.append(StandardFinding(
@@ -297,12 +287,10 @@ class RuntimeAnalyzer:
             cursor = conn.cursor()
 
             # Look for spawn calls
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-            cursor.execute(query + """
-                WHERE callee_function LIKE '%spawn%'
-                  AND argument_expr LIKE '%shell%'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
+                               where="callee_function LIKE '%spawn%' AND argument_expr LIKE '%shell%'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, args in cursor.fetchall():
                 # Check if shell:true is present
@@ -338,12 +326,10 @@ class RuntimeAnalyzer:
             cursor = conn.cursor()
 
             # Check Object.assign with spread
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-            cursor.execute(query + """
-                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
-                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, func, args in cursor.fetchall():
                 # Check if it's a merge function
@@ -371,24 +357,19 @@ class RuntimeAnalyzer:
                                 break
 
             # Check for for...in loops without validation
-            query = build_query('symbols', ['path', 'line', 'name'])
-            cursor.execute(query + """
-                WHERE name IN ('for', 'in')
-                  AND (path LIKE '%.js' OR path LIKE '%.jsx'
-                       OR path LIKE '%.ts' OR path LIKE '%.tsx')
-                ORDER BY path, line
-            """)
+            query = build_query('symbols', ['path', 'line', 'name'],
+                               where="name IN ('for', 'in') AND (path LIKE '%.js' OR path LIKE '%.jsx' OR path LIKE '%.ts' OR path LIKE '%.tsx')",
+                               order_by="path, line")
+            cursor.execute(query)
 
             for file, line, _ in cursor.fetchall():
                 # Check if there's validation nearby
-                cursor.execute("""
-                    SELECT COUNT(*) FROM symbols
-                    WHERE path = ?
-                      AND line BETWEEN ? AND ?
-                      AND name IN ('hasOwnProperty', 'hasOwn', '__proto__', 'constructor')
-                """, (file, line, line + 10))
+                val_query = build_query('symbols', ['name'],
+                                       where="path = ? AND line BETWEEN ? AND ? AND name IN ('hasOwnProperty', 'hasOwn', '__proto__', 'constructor')",
+                                       limit=1)
+                cursor.execute(val_query, (file, line, line + 10))
 
-                has_validation = cursor.fetchone()[0] > 0
+                has_validation = cursor.fetchone() is not None
 
                 if not has_validation:
                     self.findings.append(StandardFinding(
@@ -403,37 +384,28 @@ class RuntimeAnalyzer:
                     ))
 
             # Check recursive merge patterns
-            query = build_query('symbols', ['path', 'line', 'name', 'type'])
-            cursor.execute(query + """
-                WHERE type = 'function'
-                  AND (name LIKE '%merge%' OR name LIKE '%extend%')
-                  AND (path LIKE '%.js' OR path LIKE '%.jsx'
-                       OR path LIKE '%.ts' OR path LIKE '%.tsx')
-                ORDER BY path, line
-            """)
+            query = build_query('symbols', ['path', 'line', 'name', 'type'],
+                               where="type = 'function' AND (name LIKE '%merge%' OR name LIKE '%extend%') AND (path LIKE '%.js' OR path LIKE '%.jsx' OR path LIKE '%.ts' OR path LIKE '%.tsx')",
+                               order_by="path, line")
+            cursor.execute(query)
 
             for file, line, func_name, func_type in cursor.fetchall():
                 # Check if function has recursive calls
-                cursor.execute("""
-                    SELECT COUNT(*) FROM function_call_args
-                    WHERE file = ?
-                      AND line > ?
-                      AND line < ? + 50
-                      AND callee_function = ?
-                """, (file, line, line, func_name))
+                rec_query = build_query('function_call_args', ['callee_function'],
+                                       where="file = ? AND line > ? AND line < ? AND callee_function = ?",
+                                       limit=1)
+                cursor.execute(rec_query, (file, line, line + 50, func_name))
 
-                has_recursion = cursor.fetchone()[0] > 0
+                has_recursion = cursor.fetchone() is not None
 
                 if has_recursion:
                     # Check for validation
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM symbols
-                        WHERE path = ?
-                          AND line BETWEEN ? AND ?
-                          AND name IN ('hasOwnProperty', 'hasOwn', '__proto__')
-                    """, (file, line, line + 50))
+                    val_query = build_query('symbols', ['name'],
+                                           where="path = ? AND line BETWEEN ? AND ? AND name IN ('hasOwnProperty', 'hasOwn', '__proto__')",
+                                           limit=1)
+                    cursor.execute(val_query, (file, line, line + 50))
 
-                    has_validation = cursor.fetchone()[0] > 0
+                    has_validation = cursor.fetchone() is not None
 
                     if not has_validation:
                         self.findings.append(StandardFinding(
@@ -458,12 +430,10 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-            cursor.execute(query + """
-                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
-                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, func, args in cursor.fetchall():
                 # Check if it's an eval function
@@ -517,15 +487,10 @@ class RuntimeAnalyzer:
             cursor = conn.cursor()
 
             # Look for RegExp constructor with user input
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-            cursor.execute(query + """
-                WHERE (callee_function = 'RegExp'
-                       OR callee_function = 'new RegExp'
-                       OR callee_function LIKE '%RegExp%')
-                  AND (file LIKE '%.js' OR file LIKE '%.jsx'
-                       OR file LIKE '%.ts' OR file LIKE '%.tsx')
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="(callee_function = 'RegExp' OR callee_function = 'new RegExp' OR callee_function LIKE '%RegExp%') AND (file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx')",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, func, args in cursor.fetchall():
                 if args:
@@ -567,12 +532,10 @@ class RuntimeAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'])
-            cursor.execute(query + """
-                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
-                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
-                ORDER BY file, line
-            """)
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, func, args in cursor.fetchall():
                 # Check if it's a file operation
@@ -619,12 +582,10 @@ class RuntimeAnalyzer:
         """Identify variables assigned from user input sources."""
         try:
             # Find assignments from user input
-            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'])
-            cursor.execute(query + """
-                WHERE file LIKE '%.js' OR file LIKE '%.jsx'
-                   OR file LIKE '%.ts' OR file LIKE '%.tsx'
-                ORDER BY file, line
-            """)
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where="file LIKE '%.js' OR file LIKE '%.jsx' OR file LIKE '%.ts' OR file LIKE '%.tsx'",
+                               order_by="file, line")
+            cursor.execute(query)
 
             for file, line, var, source in cursor.fetchall():
                 # Check if source contains user input

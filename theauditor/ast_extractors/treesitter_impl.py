@@ -51,6 +51,7 @@ def _extract_tree_sitter_functions(node: Any, language: str) -> List[Dict]:
         functions.append({
             "name": name,
             "line": node.start_point[0] + 1,
+            "end_line": node.end_point[0] + 1,  # Extract end line from tree-sitter node
             "type": node.type,
         })
 

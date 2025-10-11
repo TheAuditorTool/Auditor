@@ -454,6 +454,7 @@ def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Di
                 "line": symbol.get("line", 0),
                 "col": symbol.get("column", symbol.get("col", 0)),
                 "column": symbol.get("column", 0),
+                "end_line": symbol.get("endLine"),  # CRITICAL: Extract end_line from helper script
                 "type": "function",
                 "kind": ts_kind,
             }

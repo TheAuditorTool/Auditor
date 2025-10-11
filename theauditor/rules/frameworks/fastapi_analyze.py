@@ -178,15 +178,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Missing CORS Middleware
         # ========================================================
-        query = build_query('refs', ['COUNT(*)'],
+        query = build_query('refs', ['value'],
                            where="value = 'CORSMiddleware'")
         cursor.execute(query)
-        has_cors = cursor.fetchone()[0] > 0
+        has_cors = cursor.fetchone() is not None
 
-        query2 = build_query('function_call_args', ['COUNT(*)'],
+        query2 = build_query('function_call_args', ['callee_function'],
                             where="callee_function = 'FastAPI'")
         cursor.execute(query2)
-        has_fastapi_app = cursor.fetchone()[0] > 0
+        has_fastapi_app = cursor.fetchone() is not None
 
         if has_fastapi_app and not has_cors:
             findings.append(StandardFinding(
@@ -272,11 +272,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         for file, line, func in background_tasks:
             # Check for error handling nearby
-            query2 = build_query('cfg_blocks', ['COUNT(*)'],
+            query2 = build_query('cfg_blocks', ['id'],
                                 where="file = ? AND block_type IN ('try', 'except', 'finally') AND start_line BETWEEN ? AND ?")
             cursor.execute(query2, (file, line - 20, line + 20))
 
-            has_error_handling = cursor.fetchone()[0] > 0
+            has_error_handling = cursor.fetchone() is not None
 
             if not has_error_handling:
                 findings.append(StandardFinding(
@@ -300,11 +300,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         websocket_results = list(set(cursor.fetchall()))
         for file, pattern in websocket_results:
             # Check if authentication functions are called in the same file
-            query2 = build_query('function_call_args', ['COUNT(*)'],
+            query2 = build_query('function_call_args', ['callee_function'],
                                 where="file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%verify%' OR callee_function LIKE '%current_user%' OR callee_function LIKE '%token%')")
             cursor.execute(query2, (file,))
 
-            has_auth = cursor.fetchone()[0] > 0
+            has_auth = cursor.fetchone() is not None
 
             if not has_auth:
                 findings.append(StandardFinding(
@@ -379,16 +379,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 10: Missing Request Timeout Configuration
         # ========================================================
-        query = build_query('function_call_args', ['COUNT(*)'],
+        query = build_query('function_call_args', ['callee_function'],
                            where="callee_function = 'FastAPI' AND argument_expr LIKE '%timeout%'")
         cursor.execute(query)
-        has_timeout = cursor.fetchone()[0] > 0
+        has_timeout = cursor.fetchone() is not None
 
         if has_fastapi_app and not has_timeout:
-            query = build_query('refs', ['COUNT(*)'],
+            query = build_query('refs', ['value'],
                                where="value IN ('slowapi', 'timeout_middleware')")
             cursor.execute(query)
-            has_timeout_middleware = cursor.fetchone()[0] > 0
+            has_timeout_middleware = cursor.fetchone() is not None
             
             if not has_timeout_middleware:
                 findings.append(StandardFinding(
