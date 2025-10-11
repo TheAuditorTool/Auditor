@@ -24,6 +24,7 @@ black theauditor tests             # Alternative formatter
 mypy theauditor --strict           # Type checking
 
 # Running TheAuditor
+aud setup-claude --target .  # Setup project (includes rust-analyzer for Rust projects)
 aud init                     # Initialize project
 aud full                     # Complete analysis (multiple phases)
 aud full --offline           # Skip network operations (deps, docs)
@@ -50,7 +51,16 @@ aud refactor <operation>     # Perform refactoring operations
 
 ## Project Overview
 
-TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python and JavaScript/TypeScript projects, producing AI-consumable reports optimized for LLM context windows.
+TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python, JavaScript/TypeScript, and Rust projects, producing AI-consumable reports optimized for LLM context windows.
+
+## Supported Languages
+
+- **Python** (.py, .pyx) — Full AST analysis, taint tracking, security patterns
+- **JavaScript/TypeScript** (.js, .ts, .tsx, .jsx) — Semantic analysis via TypeScript compiler
+- **Rust** (.rs) — Semantic analysis via rust-analyzer LSP (NEW)
+- **SQL** (.sql) — Query extraction and analysis
+- **Docker** (Dockerfile, docker-compose.yml) — Configuration analysis
+- **Nginx** (nginx.conf) — Configuration parsing
 
 ## Core Philosophy: Truth Courier, Not Mind Reader
 
@@ -69,15 +79,19 @@ TheAuditor is about **consistency checking**, not semantic understanding. It fin
 
 ## Critical Setup Requirements
 
-### For JavaScript/TypeScript Analysis
-TheAuditor requires a sandboxed environment for JS/TS tools. This is NOT optional:
+### For JavaScript/TypeScript and Rust Analysis
+TheAuditor requires sandboxed environments for language-specific tools:
 
 ```bash
-# MANDATORY: Set up sandboxed tools
+# MANDATORY: Set up sandboxed tools (detects project languages automatically)
 aud setup-claude --target .
 ```
 
-This creates `.auditor_venv/.theauditor_tools/` with isolated TypeScript compiler and ESLint. Without this, TypeScript semantic analysis will fail.
+This creates `.auditor_venv/.theauditor_tools/` with isolated tools:
+- **JavaScript/TypeScript**: TypeScript compiler, ESLint v9
+- **Rust**: rust-analyzer LSP server (if Cargo.toml detected)
+
+Without setup, semantic analysis for these languages will fail. Python works without additional setup.
 
 ## Key Architectural Decisions
 
@@ -348,6 +362,15 @@ The indexer automatically detects monorepo structures and applies intelligent fi
 - Uses bundled Node.js v20.11.1 in `.auditor_venv/.theauditor_tools/`
 - TypeScript semantic analysis requires `js_semantic_parser.py`
 - ESLint runs in sandboxed environment, not project's node_modules
+
+### Rust Special Handling
+- Auto-detected via Cargo.toml in project root
+- Uses rust-analyzer LSP for semantic analysis (no compilation required)
+- Sandboxed binary installed to `~/.auditor_venv/.theauditor_tools/rust/`
+- Temporary workspace created per file (rust-analyzer requirement)
+- Extracts: functions, structs, enums, traits, impl blocks, fields
+- Symbols extracted via LSP, imports via regex patterns
+- Performance: ~1s per file (optimizable to ~200ms with persistent LSP)
 
 ### Environment Variables
 Key environment variables for configuration:

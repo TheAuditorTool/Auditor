@@ -46,17 +46,28 @@ class BaseExtractor(ABC):
         pass
     
     @abstractmethod
-    def extract(self, file_info: Dict[str, Any], content: str, 
+    def extract(self, file_info: Dict[str, Any], content: str,
                 tree: Optional[Any] = None) -> Dict[str, Any]:
         """Extract all relevant information from a file.
-        
+
         Args:
             file_info: File metadata dictionary
             content: File content
             tree: Optional pre-parsed AST tree
-            
+
         Returns:
             Dictionary containing all extracted data
+        """
+        pass
+
+    def cleanup(self) -> None:
+        """Clean up any resources held by the extractor.
+
+        Called once after all files have been processed. Override this method
+        if your extractor maintains persistent resources (e.g., LSP sessions,
+        database connections, temp directories).
+
+        Default implementation does nothing.
         """
         pass
     

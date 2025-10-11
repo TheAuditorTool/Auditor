@@ -799,6 +799,29 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             print("    ⚠ To retry: Delete .auditor_venv and run setup again")
         except Exception as e:
             print(f"    ⚠ Unexpected error setting up JS tools: {e}")
-        
-    
+
+        # Setup Rust toolchain if project uses Rust
+        print("\nDetecting Rust projects...", flush=True)
+        try:
+            from theauditor.toolboxes.rust import RustToolbox
+
+            rust_toolbox = RustToolbox()
+            if rust_toolbox.detect_project(target_dir):
+                print(f"  Rust project detected (Cargo.toml found)")
+                print(f"  Installing rust-analyzer to sandboxed environment...", flush=True)
+
+                result = rust_toolbox.install()
+
+                if result.get('status') in ['success', 'cached']:
+                    check_mark = "[OK]" if IS_WINDOWS else "✓"
+                    cached_msg = " (cached)" if result.get('cached') else ""
+                    print(f"    {check_mark} rust-analyzer installed{cached_msg}: {result.get('path')}")
+                    print(f"    {check_mark} Version: {result.get('version')}")
+                else:
+                    print(f"    ⚠ rust-analyzer installation failed: {result.get('message')}")
+            else:
+                print(f"  No Rust project detected (no Cargo.toml)")
+        except Exception as e:
+            print(f"    ⚠ Could not set up Rust toolchain: {e}")
+
     return venv_path, success

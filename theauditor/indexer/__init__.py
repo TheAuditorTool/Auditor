@@ -126,16 +126,19 @@ class IndexerOrchestrator:
         for idx, file_info in enumerate(files):
             # Debug progress
             if os.environ.get("THEAUDITOR_DEBUG") and idx % 50 == 0:
-                print(f"[INDEXER_DEBUG] Processing file {idx+1}/{len(files)}: {file_info['path']}", 
+                print(f"[INDEXER_DEBUG] Processing file {idx+1}/{len(files)}: {file_info['path']}",
                       file=sys.stderr)
-            
+
             # Process the file
             self._process_file(file_info, js_ts_cache)
-            
+
             # Execute batch inserts periodically
             if (idx + 1) % self.db_manager.batch_size == 0 or idx == len(files) - 1:
                 self.db_manager.flush_batch()
-        
+
+        # Cleanup extractor resources (e.g., persistent LSP sessions)
+        self._cleanup_extractors()
+
         # Final commit
         self.db_manager.commit()
         
@@ -362,6 +365,33 @@ class IndexerOrchestrator:
                     file_path, ret['line'], ret['function_name'],
                     ret['return_expr'], ret['return_vars']
                 )
+
+    def _cleanup_extractors(self) -> None:
+        """Clean up all extractors' resources.
+
+        Calls cleanup() on all registered extractors to release any persistent
+        resources (e.g., LSP sessions, temp directories).
+        """
+        # Cleanup registry extractors
+        for extractor in self.extractor_registry.extractors.values():
+            try:
+                extractor.cleanup()
+            except Exception as e:
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"Debug: Extractor cleanup failed: {e}", file=sys.stderr)
+
+        # Cleanup special extractors
+        try:
+            self.docker_extractor.cleanup()
+        except Exception as e:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"Debug: Docker extractor cleanup failed: {e}", file=sys.stderr)
+
+        try:
+            self.generic_extractor.cleanup()
+        except Exception as e:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"Debug: Generic extractor cleanup failed: {e}", file=sys.stderr)
 
 
 # Import backward compatibility functions from the compat module
