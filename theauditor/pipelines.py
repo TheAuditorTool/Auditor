@@ -750,67 +750,7 @@ def run_full_pipeline(
             failed_phases += 1
             log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
             break
-    
-    # CRITICAL: Create pipeline-level cache after foundation (database exists)
-    # This cache will be reused for taint analysis to avoid repeated loading
-    pipeline_cache = None
-    if failed_phases == 0 and not use_subprocess_for_taint:
-        try:
-            log_output("\n[CACHE] Creating pipeline-level memory cache for taint analysis...")
-            import sqlite3
-            from theauditor.taint.memory_cache import MemoryCache
-            from theauditor.utils.memory import get_recommended_memory_limit
-            
-            # Database is ALWAYS at .pf/repo_index.db
-            db_path = Path(root) / ".pf" / "repo_index.db"
-            
-            # Get intelligent memory limit based on system resources
-            memory_limit = get_recommended_memory_limit()
-            log_output(f"[CACHE] Memory limit set to {memory_limit}MB based on system resources")
 
-            # Create cache with dynamic memory limit
-            pipeline_cache = MemoryCache(max_memory_mb=memory_limit)
-
-            # Preload database into cache with framework-aware patterns
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
-
-            frameworks = []
-            try:
-                cursor.execute("SELECT name, version, language, path FROM frameworks")
-                for name, version, language, path in cursor.fetchall():
-                    frameworks.append({
-                        "framework": name or "",
-                        "version": version or "",
-                        "language": language or "",
-                        "path": path or "."
-                    })
-            except sqlite3.Error:
-                frameworks = []
-
-            from theauditor.taint.config import TaintConfig
-
-            taint_config = TaintConfig.from_defaults()
-            if frameworks:
-                taint_config = taint_config.with_frameworks(frameworks)
-
-            cache_loaded = pipeline_cache.preload(
-                cursor,
-                sources_dict=taint_config.sources,
-                sinks_dict=taint_config.sinks,
-            )
-            conn.close()
-            
-            if cache_loaded:
-                log_output(f"[CACHE] Successfully pre-loaded {pipeline_cache.get_memory_usage_mb():.1f}MB into memory")
-                log_output("[CACHE] This cache will be reused for taint analysis (avoiding reload)")
-            else:
-                log_output("[CACHE] Failed to pre-load cache, will fall back to disk queries")
-                pipeline_cache = None
-        except Exception as e:
-            log_output(f"[CACHE] Failed to create pipeline cache: {e}")
-            pipeline_cache = None
-    
     # STAGE 2: Data Preparation (Sequential) - Only if foundation succeeded
     if failed_phases == 0 and data_prep_commands:
         log_output("\n" + "="*60)
@@ -936,31 +876,29 @@ def run_full_pipeline(
             # Submit Track A if it has commands (Taint Analysis)
             if track_a_commands:
                 # Check if we should run taint analysis directly (in-process)
-                if not use_subprocess_for_taint and pipeline_cache is not None:
+                if not use_subprocess_for_taint:
                     # Create a wrapper function for direct execution
                     def run_taint_direct():
-                        """Run taint analysis directly in-process with pre-loaded cache."""
+                        """Run taint analysis directly in-process."""
                         try:
                             from theauditor.taint import trace_taint, save_taint_analysis
                             from theauditor.utils.memory import get_recommended_memory_limit
-                            
+
                             # Log start
                             print(f"[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]", file=sys.stderr)
                             start_time = time.time()
-                            
-                            # Get same memory limit as cache
+
                             memory_limit = get_recommended_memory_limit()
-                            
-                            # Run taint analysis with pre-loaded cache
+
+                            # Run taint analysis
                             result = trace_taint(
                                 db_path=str(Path(root) / ".pf" / "repo_index.db"),
                                 max_depth=5,
-                                registry=None,  # Will use framework enhancement from frameworks.json
-                                use_cfg=True,   # Enable CFG analysis
-                                stage3=True,    # Enable inter-procedural analysis
+                                registry=None,
+                                use_cfg=True,
+                                stage3=True,
                                 use_memory_cache=True,
-                                memory_limit_mb=memory_limit,
-                                cache=pipeline_cache  # Pass pre-loaded cache
+                                memory_limit_mb=memory_limit
                             )
                             
                             # Save results

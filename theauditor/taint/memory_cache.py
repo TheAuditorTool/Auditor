@@ -141,6 +141,15 @@ class MemoryCache:
             True if successful, False if memory exceeded or error
         """
         try:
+            # Guard against re-loading if already loaded
+            if self.is_loaded:
+                print(f"[MEMORY] Cache already loaded ({self.get_memory_usage_mb():.1f}MB), checking patterns...", file=sys.stderr)
+                # Only update patterns if they changed
+                if sources_dict is not None or sinks_dict is not None:
+                    self._update_pattern_sets(sources_dict, sinks_dict)
+                    print(f"[MEMORY] Pattern sets updated without reload", file=sys.stderr)
+                return True
+
             print(f"[MEMORY] Starting database preload...", file=sys.stderr)
 
             # Schema contract guarantees all tables exist
