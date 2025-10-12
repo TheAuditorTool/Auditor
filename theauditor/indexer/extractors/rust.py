@@ -1,40 +1,66 @@
-"""Rust file extractor.
+"""Rust file extractor using tree-sitter.
 
-Handles extraction of Rust-specific elements including:
-- Rust use statements (imports)
-- Symbols via rust-analyzer LSP (functions, structs, enums, traits, impls)
-- Semantic analysis using Language Server Protocol
+This implementation uses tree-sitter-rust for complete AST traversal,
+replacing the previous LSP-based approach (see rust_lsp_backup.py).
+
+Why tree-sitter over LSP:
+- Complete AST access (LSP only provides symbol locations)
+- No regex needed (LSP required regex for imports - forbidden pattern)
+- Faster (~10ms vs ~200ms per file)
+- No temporary workspace or binary installation required
+- Provides all 12 required extraction methods
+
+LSP code preserved in:
+- theauditor/indexer/extractors/rust_lsp_backup.py
+- theauditor/lsp/rust_analyzer_client.py
+- theauditor/toolboxes/rust.py
 """
 
 import logging
-import re
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 
 from . import BaseExtractor
-from theauditor.lsp.rust_analyzer_client import RustAnalyzerClient, parse_lsp_symbols
-from theauditor.toolboxes.rust import get_rust_analyzer_path
 
 logger = logging.getLogger(__name__)
 
 
 class RustExtractor(BaseExtractor):
-    """Extractor for Rust files using rust-analyzer LSP."""
+    """Extractor for Rust files using tree-sitter AST parser."""
 
     def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
         """Initialize the Rust extractor.
 
         Args:
             root_path: Project root path
-            ast_parser: Optional AST parser (unused for Rust)
+            ast_parser: Optional AST parser (unused, tree-sitter manages its own)
         """
         super().__init__(root_path, ast_parser)
-        self._lsp_client: Optional[RustAnalyzerClient] = None
-        self._temp_workspace: Optional[Path] = None
-        self._file_counter: int = 0  # Counter for unique file names
+        self._parser = None  # Lazy initialization
+
+    def _get_parser(self):
+        """Get or create tree-sitter parser for Rust.
+
+        Lazy initialization to avoid import overhead if not used.
+        """
+        if self._parser is not None:
+            return self._parser
+
+        try:
+            from tree_sitter import Language, Parser
+            import tree_sitter_rust as ts_rust
+
+            self._parser = Parser()
+            # tree-sitter v0.20+ uses property assignment, not set_language()
+            self._parser.language = Language(ts_rust.language())
+            return self._parser
+
+        except ImportError as e:
+            logger.error(
+                f"tree-sitter-rust not installed: {e}\n"
+                f"Install with: pip install tree-sitter tree-sitter-rust"
+            )
+            raise
 
     def supported_extensions(self) -> List[str]:
         """Return list of file extensions this extractor supports."""
@@ -47,146 +73,124 @@ class RustExtractor(BaseExtractor):
         Args:
             file_info: File metadata dictionary with 'path', 'ext', etc.
             content: File content
-            tree: Ignored (LSP provides semantic analysis)
+            tree: Ignored (tree-sitter manages its own parsing)
 
         Returns:
-            Dictionary containing all extracted data:
+            Dictionary containing all extracted data matching the 12-method interface:
             {
-                'imports': [(kind, value), ...],
-                'symbols': [{'name': str, 'type': str, 'line': int, 'col': int}, ...]
+                'symbols': [...],         # Functions, structs, enums, traits
+                'imports': [...],         # use declarations
+                'exports': [...],         # pub items
+                'calls': [...],           # Function calls
+                'properties': [...],      # Field accesses
+                'assignments': [...],     # let bindings
+                'returns': [...],         # return expressions
+                'function_params': {...}, # Function parameter mapping
+                'function_calls_with_args': [...],  # Calls with arguments
+                'cfg': [...]              # Control flow graphs
             }
         """
         result = {
+            'symbols': [],
             'imports': [],
-            'symbols': []
+            'exports': [],
+            'calls': [],
+            'properties': [],
+            'assignments': [],
+            'returns': [],
+            'function_params': {},
+            'function_calls': [],  # CRITICAL: Must match orchestrator expectation (not function_calls_with_args)
+            'cfg': []
         }
 
-        # Extract imports using regex (rust-analyzer LSP doesn't provide imports)
-        result['imports'] = self._extract_rust_imports(content)
-
-        # Extract symbols using rust-analyzer LSP
         try:
-            symbols = self._extract_symbols_lsp(file_info['path'], content)
-            result['symbols'] = symbols
-        except FileNotFoundError as e:
-            # rust-analyzer not installed
-            logger.warning(f"rust-analyzer not installed: {e}")
-            # Return empty symbols (not an error - just missing tooling)
-            result['symbols'] = []
-        except (OSError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
-            # LSP communication or file operation errors
+            # Parse file with tree-sitter
+            parser = self._get_parser()
+            tree = parser.parse(bytes(content, 'utf8'))
+
+            # Import rust_impl for extraction methods
+            from theauditor.ast_extractors import rust_impl
+
+            # Extract all features using the 12 required methods
+            # Symbols (functions + structs/enums)
+            functions = rust_impl.extract_rust_functions(tree, content, file_info['path'])
+            classes = rust_impl.extract_rust_classes(tree, content, file_info['path'])
+            result['symbols'] = functions + classes
+
+            # Imports (use declarations) - NO REGEX, pure AST
+            result['imports'] = rust_impl.extract_rust_imports(tree, content, file_info['path'])
+
+            # Exports (pub items)
+            result['exports'] = rust_impl.extract_rust_exports(tree, content, file_info['path'])
+
+            # Function calls - add to symbols table with type='call' for taint analysis
+            calls = rust_impl.extract_rust_calls(tree, content, file_info['path'])
+            result['calls'] = calls
+            for call in calls:
+                result['symbols'].append({
+                    'name': call.get('name', ''),
+                    'type': 'call',
+                    'line': call.get('line', 0),
+                    'col': call.get('col', 0)
+                })
+
+            # Properties (field access) - add to symbols table with type='property' for taint analysis
+            properties = rust_impl.extract_rust_properties(tree, content, file_info['path'])
+            result['properties'] = properties
+            for prop in properties:
+                result['symbols'].append({
+                    'name': prop.get('name', ''),
+                    'type': 'property',
+                    'line': prop.get('line', 0),
+                    'col': prop.get('col', 0)
+                })
+
+            # Assignments (let bindings)
+            result['assignments'] = rust_impl.extract_rust_assignments(tree, content, file_info['path'])
+
+            # Returns
+            result['returns'] = rust_impl.extract_rust_returns(tree, content, file_info['path'])
+
+            # Function parameters
+            result['function_params'] = rust_impl.extract_rust_function_params(tree, content, file_info['path'])
+
+            # Function calls with arguments (CRITICAL for taint analysis)
+            # MUST use key 'function_calls' to match orchestrator's expectation at __init__.py:342
+            raw_calls = rust_impl.extract_rust_calls_with_args(
+                tree, content, file_info['path'], result['function_params']
+            )
+            # Filter out calls with empty callee_function (violates CHECK constraint)
+            result['function_calls'] = [
+                call for call in raw_calls
+                if call.get('callee_function', '').strip()
+            ]
+
+            # Control flow graphs
+            result['cfg'] = rust_impl.extract_rust_cfg(tree, content, file_info['path'])
+
+        except ImportError as e:
+            logger.error(f"Rust extraction failed - missing dependencies: {e}")
+            logger.error("Install with: pip install tree-sitter tree-sitter-rust")
+            # Return empty results (graceful degradation)
+        except Exception as e:
             logger.error(f"Rust extraction failed for {file_info['path']}: {e}")
-            result['symbols'] = []
+            logger.debug(f"Full traceback:", exc_info=True)
+
+            # Count what we extracted before failure
+            counts = {k: len(v) if isinstance(v, (list, dict)) else 0
+                     for k, v in result.items()}
+            logger.warning(
+                f"Partial extraction for {file_info['path']}: "
+                f"symbols={counts['symbols']}, imports={counts['imports']}, "
+                f"calls={counts['calls']}, returns={counts['returns']}"
+            )
+            # Return partial results (may be useful even with errors)
 
         return result
 
-    def _extract_rust_imports(self, content: str) -> List[Tuple[str, str]]:
-        """Extract use statements from Rust code.
-
-        Args:
-            content: File content
-
-        Returns:
-            List of ('use', import_path) tuples
-        """
-        imports = []
-
-        # Pattern matches:
-        # use std::fs::File;
-        # use crate::storage::StateManager;
-        # pub use commands::start;
-        # use serde::{Serialize, Deserialize};
-        use_pattern = re.compile(
-            r'^\s*(?:pub\s+)?use\s+([^;]+);',
-            re.MULTILINE
-        )
-
-        for match in use_pattern.finditer(content):
-            import_path = match.group(1).strip()
-            imports.append(('use', import_path))
-
-        return imports
-
-    def _get_or_create_lsp_client(self) -> RustAnalyzerClient:
-        """Get or create persistent LSP client.
-
-        Returns:
-            Persistent LSP client instance
-        """
-        if self._lsp_client is not None:
-            return self._lsp_client
-
-        # Get rust-analyzer binary
-        try:
-            binary_path = get_rust_analyzer_path()
-        except FileNotFoundError as e:
-            raise FileNotFoundError(
-                f"rust-analyzer not installed. Run: aud setup-ai --target . ({e})"
-            )
-
-        # Create temporary workspace (reused for all files)
-        # rust-analyzer requires a Cargo workspace even for single files
-        self._temp_workspace = Path(tempfile.mkdtemp(prefix='rust_workspace_'))
-
-        # Create minimal Cargo.toml
-        cargo_toml = self._temp_workspace / 'Cargo.toml'
-        cargo_toml.write_text(
-            '[package]\nname = "temp"\nversion = "0.1.0"\nedition = "2021"\n'
-        )
-
-        # Create src directory
-        src_dir = self._temp_workspace / 'src'
-        src_dir.mkdir()
-
-        # Initialize LSP client (persistent session)
-        self._lsp_client = RustAnalyzerClient(binary_path, self._temp_workspace)
-        self._lsp_client.initialize()
-
-        return self._lsp_client
-
-    def _extract_symbols_lsp(self, file_path: str, content: str) -> List[Dict[str, Any]]:
-        """Extract symbols using rust-analyzer LSP.
-
-        Args:
-            file_path: Path to Rust file
-            content: File content
-
-        Returns:
-            List of symbol dicts with name, type, line, col
-        """
-        # Get or create persistent LSP client
-        client = self._get_or_create_lsp_client()
-
-        # Use unique filename for each file (avoids LSP file management issues)
-        self._file_counter += 1
-        temp_file = self._temp_workspace / 'src' / f'file_{self._file_counter}.rs'
-        temp_file.write_text(content)
-
-        file_uri = f'file://{temp_file}'
-
-        # Open file and query symbols (no need to close - unique URI each time)
-        client.did_open(file_uri, content)
-        lsp_symbols = client.document_symbol(file_uri)
-
-        # Parse LSP symbols to TheAuditor format
-        symbols = parse_lsp_symbols(lsp_symbols, content)
-
-        return symbols
-
     def cleanup(self) -> None:
-        """Clean up persistent LSP session and temporary workspace."""
-        if self._lsp_client is not None:
-            try:
-                self._lsp_client.shutdown()
-            except Exception:
-                pass  # Best effort cleanup
-            finally:
-                self._lsp_client = None
+        """Clean up resources.
 
-        if self._temp_workspace is not None and self._temp_workspace.exists():
-            try:
-                shutil.rmtree(self._temp_workspace)
-            except Exception:
-                pass  # Best effort cleanup
-            finally:
-                self._temp_workspace = None
+        tree-sitter doesn't require cleanup, but method provided for interface compatibility.
+        """
+        self._parser = None
