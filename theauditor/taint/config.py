@@ -89,9 +89,24 @@ class TaintConfig:
         if not frameworks:
             return self
 
-        # Copy existing patterns
-        enhanced_sources = dict(self.sources)
-        enhanced_sinks = dict(self.sinks)
+        # Convert frozensets to sets for merging
+        enhanced_sources = {}
+        for key, patterns in self.sources.items():
+            if isinstance(patterns, frozenset):
+                enhanced_sources[key] = set(patterns)
+            elif isinstance(patterns, (list, tuple)):
+                enhanced_sources[key] = set(patterns)
+            else:
+                enhanced_sources[key] = set()
+
+        enhanced_sinks = {}
+        for key, patterns in self.sinks.items():
+            if isinstance(patterns, frozenset):
+                enhanced_sinks[key] = set(patterns)
+            elif isinstance(patterns, (list, tuple)):
+                enhanced_sinks[key] = set(patterns)
+            else:
+                enhanced_sinks[key] = set()
 
         # Framework-specific pattern enhancements
         for fw in frameworks:
@@ -100,17 +115,17 @@ class TaintConfig:
 
             # Django patterns
             if 'django' in fw_name:
-                if 'user_input' not in enhanced_sources:
-                    enhanced_sources['user_input'] = []
-                enhanced_sources['user_input'].extend([
+                if 'python' not in enhanced_sources:
+                    enhanced_sources['python'] = set()
+                enhanced_sources['python'].update([
                     'request.GET',
                     'request.POST',
                     'request.FILES',
                     'request.COOKIES',
                 ])
                 if 'sql_injection' not in enhanced_sinks:
-                    enhanced_sinks['sql_injection'] = []
-                enhanced_sinks['sql_injection'].extend([
+                    enhanced_sinks['sql_injection'] = set()
+                enhanced_sinks['sql_injection'].update([
                     '.raw(',
                     '.execute(',
                     'cursor.execute(',
@@ -118,9 +133,9 @@ class TaintConfig:
 
             # Flask patterns
             elif 'flask' in fw_name:
-                if 'user_input' not in enhanced_sources:
-                    enhanced_sources['user_input'] = []
-                enhanced_sources['user_input'].extend([
+                if 'python' not in enhanced_sources:
+                    enhanced_sources['python'] = set()
+                enhanced_sources['python'].update([
                     'request.args',
                     'request.form',
                     'request.files',
@@ -130,9 +145,9 @@ class TaintConfig:
 
             # Express patterns
             elif 'express' in fw_name:
-                if 'user_input' not in enhanced_sources:
-                    enhanced_sources['user_input'] = []
-                enhanced_sources['user_input'].extend([
+                if 'js' not in enhanced_sources:
+                    enhanced_sources['js'] = set()
+                enhanced_sources['js'].update([
                     'req.query',
                     'req.body',
                     'req.params',
@@ -142,21 +157,19 @@ class TaintConfig:
             # React patterns
             elif 'react' in fw_name:
                 if 'xss' not in enhanced_sinks:
-                    enhanced_sinks['xss'] = []
-                enhanced_sinks['xss'].extend([
+                    enhanced_sinks['xss'] = set()
+                enhanced_sinks['xss'].update([
                     'dangerouslySetInnerHTML',
                     'innerHTML',
                 ])
 
-        # Deduplicate patterns
-        for category in enhanced_sources:
-            enhanced_sources[category] = list(set(enhanced_sources[category]))
-        for category in enhanced_sinks:
-            enhanced_sinks[category] = list(set(enhanced_sinks[category]))
+        # Convert sets back to frozensets for O(1) lookup
+        final_sources = {k: frozenset(v) for k, v in enhanced_sources.items()}
+        final_sinks = {k: frozenset(v) for k, v in enhanced_sinks.items()}
 
         return TaintConfig(
-            sources=enhanced_sources,
-            sinks=enhanced_sinks,
+            sources=final_sources,
+            sinks=final_sinks,
             sanitizers=list(self.sanitizers),
             registry=self.registry
         )
