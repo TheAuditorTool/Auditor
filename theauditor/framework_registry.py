@@ -396,6 +396,119 @@ FRAMEWORK_REGISTRY = {
         "content_patterns": ["com.typesafe.play"],
     },
     
+    # Rust frameworks
+    "actix-web": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "actix-web",
+        "import_patterns": ["use actix_web", "actix_web::", "HttpServer"],
+    },
+    "rocket": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "rocket",
+        "import_patterns": ["use rocket", "rocket::", "#[launch]", "#[get(", "#[post("],
+    },
+    "axum": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "axum",
+        "import_patterns": ["use axum", "axum::", "Router::new"],
+    },
+    "warp": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "warp",
+        "import_patterns": ["use warp", "warp::", "warp::Filter"],
+    },
+    "tokio": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "tokio",
+        "import_patterns": ["use tokio", "tokio::", "#[tokio::main]"],
+    },
+    "async-std": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "async-std",
+        "import_patterns": ["use async_std", "async_std::"],
+    },
+    "diesel": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "diesel",
+        "import_patterns": ["use diesel", "diesel::", "diesel::prelude::*"],
+        "file_markers": ["diesel.toml"],
+    },
+    "sqlx": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "sqlx",
+        "import_patterns": ["use sqlx", "sqlx::", "sqlx::query"],
+    },
+    "sea-orm": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "sea-orm",
+        "import_patterns": ["use sea_orm", "sea_orm::"],
+    },
+    "serde": {
+        "language": "rust",
+        "detection_sources": {
+            "Cargo.toml": [
+                ["dependencies"],
+                ["dev-dependencies"],
+            ],
+        },
+        "package_pattern": "serde",
+        "import_patterns": ["use serde", "serde::", "#[derive(Serialize", "#[derive(Deserialize"],
+    },
+
     # Ruby frameworks
     "rails": {
         "language": "ruby",
@@ -545,5 +658,15 @@ TEST_FRAMEWORK_REGISTRY = {
         },
         "config_files": [".rspec", "spec/spec_helper.rb"],
         "directory_markers": ["spec/"],
+    },
+    "cargo": {
+        "language": "rust",
+        "command": "cargo test",
+        "detection_sources": {
+            "Cargo.toml": "exists",
+        },
+        "file_patterns": ["*_test.rs", "tests/*.rs"],
+        "directory_markers": ["tests/"],
+        "content_patterns": ["#[test]", "#[cfg(test)]"],
     },
 }
