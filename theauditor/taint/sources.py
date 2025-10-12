@@ -162,8 +162,77 @@ TAINT_SOURCES = {
         "os.getenv",
         "os.environ.get",
         "environ.get",
-    ])
+    ]),
     # Database category REMOVED - internal database data is trusted, not a taint source
+
+    # Rust sources - Web frameworks, CLI, and network input
+    "rust": frozenset([
+        # Standard library input sources
+        "std::io::stdin",
+        "io::stdin",
+        "stdin",
+        "Stdin::read_line",
+        "std::env::args",
+        "env::args",
+        "std::env::vars",
+        "env::vars",
+        "std::env::var",
+        "env::var",
+
+        # File I/O sources
+        "std::fs::read",
+        "std::fs::read_to_string",
+        "fs::read",
+        "fs::read_to_string",
+        "File::open",
+        "BufReader::read_line",
+
+        # Network sources
+        "TcpStream::read",
+        "UdpSocket::recv",
+        "UdpSocket::recv_from",
+
+        # actix-web framework
+        "HttpRequest::body",
+        "HttpRequest::query_string",
+        "HttpRequest::match_info",
+        "HttpRequest::headers",
+        "HttpRequest::cookie",
+        "web::Query",
+        "web::Json",
+        "web::Form",
+        "web::Path",
+
+        # Rocket framework
+        "rocket::request::Form",
+        "rocket::request::Query",
+        "rocket::Data",
+        "Request::headers",
+        "Request::cookies",
+
+        # Axum framework
+        "axum::extract::Query",
+        "axum::extract::Json",
+        "axum::extract::Form",
+        "axum::extract::Path",
+        "axum::body::Body",
+        "Request::body",
+
+        # Warp framework
+        "warp::body::json",
+        "warp::body::form",
+        "warp::query",
+        "warp::path",
+
+        # Hyper (low-level HTTP)
+        "hyper::Body",
+        "Request::body",
+
+        # Serde JSON parsing (commonly used with HTTP)
+        "serde_json::from_str",
+        "serde_json::from_slice",
+        "serde_json::from_reader",
+    ])
 }
 
 # Define sanitizers that clean/validate data for different vulnerability types
@@ -185,6 +254,15 @@ SANITIZERS = {
         "psycopg2.sql.SQL",
         "psycopg2.sql.Identifier",
         "psycopg2.sql.Literal",
+        # Rust SQL sanitizers (parameterized queries)
+        "diesel::insert_into",
+        "diesel::update",
+        "diesel::delete",
+        "diesel::dsl::insert_into",
+        "sqlx::query",  # Safe when used with parameterized queries
+        "sqlx::query_as",
+        "postgres::Statement::query",  # Prepared statements
+        "rusqlite::Statement::query",  # Prepared statements
     ]),
     # XSS sanitizers - HTML escaping functions
     "xss": frozenset([
@@ -218,6 +296,11 @@ SANITIZERS = {
         "path.resolve",
         "path.normalize",
         "werkzeug.utils.secure_filename",
+        # Rust path sanitizers
+        "Path::canonicalize",
+        "std::fs::canonicalize",
+        "Path::file_name",
+        "Path::components",
     ]),
     # Command injection sanitizers
     "command": frozenset([
@@ -283,6 +366,15 @@ SECURITY_SINKS = {
         "typeorm.createQueryBuilder",
         "objection.raw",
         "knex.raw",
+        # Rust SQL sinks (raw/unsafe query functions)
+        "diesel::sql_query",
+        "diesel::dsl::sql",
+        "sqlx::query_unchecked",
+        "sqlx::raw_sql",
+        "postgres::Client::execute",
+        "postgres::Client::query",
+        "rusqlite::Connection::execute",
+        "rusqlite::Connection::query_row",
     ]),
     # Command execution sinks (factual: functions that execute system commands)
     "command": frozenset([
@@ -299,6 +391,13 @@ SECURITY_SINKS = {
         "child_process.spawn",
         "child_process.execFile",
         "shell.exec",
+        # Rust command execution sinks
+        "std::process::Command",
+        "Command::new",
+        "Command::spawn",
+        "Command::output",
+        "Command::status",
+        "process::Command",
     ]),
     # HTML/Response output sinks (factual: functions that output to HTML/HTTP responses)
     "xss": frozenset([
@@ -312,6 +411,12 @@ SECURITY_SINKS = {
         "res.send",
         "res.render",
         "res.json",
+        # Rust HTTP response sinks
+        "HttpResponse::body",
+        "HttpResponse::html",
+        "Response::body",
+        "warp::reply::html",
+        "rocket::response::content::Html",
     ]),
     # File system operation sinks (factual: functions that interact with file system)
     "path": frozenset([
@@ -326,6 +431,16 @@ SECURITY_SINKS = {
         "Path.join",
         "path.join",
         "os.path.join",
+        # Rust file system sinks
+        "std::fs::read",
+        "std::fs::read_to_string",
+        "std::fs::write",
+        "std::fs::create_dir",
+        "std::fs::remove_file",
+        "std::fs::remove_dir",
+        "File::open",
+        "File::create",
+        "OpenOptions::open",
     ]),
     # LDAP injection sinks
     "ldap": frozenset([
@@ -379,5 +494,56 @@ SECURITY_SINKS = {
         "__getattribute__",
         "__getitem__",
         "__setitem__",
+    ]),
+
+    # Rust unsafe memory operations (NEW - v1.1 Rust support)
+    # Factual: operations that bypass Rust's safety guarantees
+    # Vulnerability types: memory corruption, use-after-free, null pointer dereference
+    "unsafe": frozenset([
+        # Unsafe block marker
+        "unsafe",
+
+        # Raw pointer operations
+        "ptr::read",
+        "ptr::write",
+        "ptr::copy",
+        "ptr::copy_nonoverlapping",
+        "ptr::swap",
+        "ptr::replace",
+        "ptr::offset",
+        "ptr::add",
+        "ptr::sub",
+        "ptr::offset_from",
+        "ptr::read_volatile",
+        "ptr::write_volatile",
+        "ptr::read_unaligned",
+        "ptr::write_unaligned",
+
+        # Type transmutation
+        "mem::transmute",
+        "mem::transmute_copy",
+        "std::mem::transmute",
+
+        # Uninitialized memory
+        "mem::uninitialized",
+        "mem::zeroed",
+        "MaybeUninit::uninit",
+        "MaybeUninit::assume_init",
+
+        # Raw slice/array operations
+        "slice::from_raw_parts",
+        "slice::from_raw_parts_mut",
+        "std::slice::from_raw_parts",
+
+        # Manual memory management
+        "alloc::alloc",
+        "alloc::dealloc",
+        "alloc::realloc",
+        "Box::from_raw",
+        "Box::into_raw",
+
+        # Foreign function interface
+        "extern",
+        "extern \"C\"",
     ])
 }
