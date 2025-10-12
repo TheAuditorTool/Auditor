@@ -277,9 +277,75 @@ def find_containing_function_tree_sitter(node: Any, content: str, language: str)
     return "global"
 
 
+def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> List[str]:
+    """Extract all variable names from a Rust tree-sitter AST node.
+
+    This is the AST-pure extraction for Rust, matching the pattern of
+    extract_vars_from_typescript_node().
+
+    Recursively traverses the tree-sitter AST to find all identifiers.
+
+    Args:
+        node: Rust tree-sitter node
+        content: File content for text extraction
+        depth: Recursion depth to prevent infinite loops
+
+    Returns:
+        List of variable names found in the expression
+
+    Example:
+        node = field_expression for "request.body.name"
+        returns ["request.body.name", "request.body", "request"]
+    """
+    if depth > 50 or node is None:
+        return []
+
+    vars_list = []
+
+    def _get_text(n):
+        """Helper to extract text from tree-sitter node."""
+        if n is None:
+            return ''
+        return content[n.start_byte:n.end_byte]
+
+    # Field expressions: obj.field, self.value, etc.
+    if node.type == 'field_expression':
+        full_text = _get_text(node).strip()
+        if full_text:
+            vars_list.append(full_text)
+            # Add prefixes: req.body.name → ["req.body.name", "req.body", "req"]
+            parts = full_text.split('.')
+            for i in range(len(parts) - 1, 0, -1):
+                prefix = '.'.join(parts[:i])
+                if prefix:
+                    vars_list.append(prefix)
+
+    # Identifiers: single variable name
+    elif node.type == 'identifier':
+        text = _get_text(node).strip()
+        # Filter out Rust keywords
+        if text and text not in ['self', 'super', 'crate', 'true', 'false', 'None', 'Some']:
+            vars_list.append(text)
+
+    # Recurse through children
+    if hasattr(node, 'children'):
+        for child in node.children:
+            vars_list.extend(extract_vars_from_rust_node(child, content, depth + 1))
+
+    # Remove duplicates while preserving order
+    seen = set()
+    result = []
+    for var in vars_list:
+        if var not in seen:
+            seen.add(var)
+            result.append(var)
+
+    return result
+
+
 def detect_language(file_path: Path) -> str:
     """Detect language from file extension.
-    
+
     Returns empty string for unsupported languages.
     """
     ext_map = {
@@ -291,5 +357,6 @@ def detect_language(file_path: Path) -> str:
         ".mjs": "javascript",
         ".cjs": "javascript",
         ".vue": "javascript",  # Vue SFCs contain JavaScript/TypeScript
+        ".rs": "rust",  # Rust language support
     }
     return ext_map.get(file_path.suffix.lower(), "")
