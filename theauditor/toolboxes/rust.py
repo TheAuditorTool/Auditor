@@ -1,4 +1,23 @@
-"""Rust language toolbox for TheAuditor."""
+"""Rust language toolbox for TheAuditor.
+
+================== PRESERVATION NOTICE ==================
+STATUS: Currently unused (tree-sitter doesn't need rust-analyzer)
+PRESERVED FOR: Potential future hybrid approach
+
+This toolbox downloads and manages rust-analyzer binary for LSP-based
+semantic analysis.
+
+CURRENT USAGE: None (extractor uses tree-sitter, not LSP)
+POTENTIAL FUTURE USE: Hybrid LSP (types) + tree-sitter (AST) approach
+
+If future hybrid approach is implemented:
+- This toolbox provides binary management
+- See lsp/rust_analyzer_client.py for LSP client
+- See indexer/extractors/rust_lsp_backup.py for integration example
+
+PRESERVED: 2025-10-11
+===========================================================
+"""
 
 import os
 import subprocess
