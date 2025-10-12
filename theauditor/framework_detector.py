@@ -106,6 +106,7 @@ class FrameworkDetector:
             "setup.cfg",
             "Gemfile",
             "Gemfile.lock",
+            "Cargo.toml",
             "go.mod",
             "pom.xml",
             "build.gradle",
