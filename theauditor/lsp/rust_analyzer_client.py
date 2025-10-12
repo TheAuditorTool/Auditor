@@ -1,4 +1,25 @@
-"""rust-analyzer LSP client for semantic Rust code analysis."""
+"""rust-analyzer LSP client for semantic Rust code analysis.
+
+================== PRESERVATION NOTICE ==================
+STATUS: Currently unused (tree-sitter approach in production)
+PRESERVED FOR: Potential future hybrid LSP + tree-sitter approach
+
+This LSP client provides semantic analysis capabilities:
+- Type information and inference
+- Symbol references and definitions
+- Semantic navigation
+
+CURRENT USAGE: None (indexer/extractors/rust.py uses tree-sitter)
+PRESERVED USAGE: See indexer/extractors/rust_lsp_backup.py for example
+
+TO USE IN HYBRID APPROACH:
+1. Use tree-sitter for AST extraction (structure)
+2. Use this LSP client for semantic info (types)
+3. Combine both for complete analysis
+
+PRESERVED: 2025-10-11
+===========================================================
+"""
 
 import json
 import os

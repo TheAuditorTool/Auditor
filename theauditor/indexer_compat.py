@@ -246,6 +246,10 @@ def build_index(
         extract_counts, _ = orchestrator.index()
         
     except Exception as e:
+        import traceback
+        import sys
+        tb = traceback.format_exc()
+        print(f"[DEBUG] Full traceback:\n{tb}", file=sys.stderr)
         return {"error": f"Failed to create database: {e}"}
 
     if print_stats:
