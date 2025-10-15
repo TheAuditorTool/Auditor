@@ -321,6 +321,54 @@ Features:
 - Supports both assignment-based and direct-use taint flows
 - Merges findings from multiple detection methods (taint_paths, rule_findings, infrastructure)
 
+#### Object Literal Parsing (v1.2+)
+
+TheAuditor extracts object literal structures from JavaScript/TypeScript files to enable dynamic dispatch resolution in taint analysis.
+
+**What is extracted:**
+- Property-function mappings: `{ create: handleCreate }`
+- Shorthand properties: `{ handleClick }`
+- ES6 method definitions: `{ method() {} }`
+- Nested objects: `{ api: { handler: fn } }`
+- Spread operators: `{ ...base }`
+
+**Why this matters:**
+Dynamic dispatch patterns like `const handler = actions[req.query.action]; handler(req.body)` are common in modern JavaScript and represent a security vulnerability when user input controls dispatch. Without object literal parsing, taint analysis cannot resolve which function `handler` points to. With it, we can:
+1. Detect the vulnerability (user input → property access = `dynamic_dispatch` sink)
+2. Query the database to find all possible target functions
+3. Trace taint flow through all possible execution paths
+
+**Query example:**
+```python
+from theauditor.indexer.schema import build_query
+
+query = build_query('object_literals',
+    ['property_value'],
+    where="variable_name = ? AND property_type IN ('function_ref', 'shorthand')"
+)
+cursor.execute(query, ('actions',))
+possible_targets = [row[0] for row in cursor.fetchall()]
+```
+
+**Architecture:**
+- **Extraction:** AST-based traversal in `theauditor/indexer/extractors/javascript.py` (lines 1131-1396)
+- **Storage:** `object_literals` table in `repo_index.db` with 4 indexes for fast lookup
+- **Consumption:** Taint analyzer queries database for dispatch resolution (`theauditor/taint/interprocedural_cfg.py`)
+- **Sink Detection:** New `dynamic_dispatch` category in `SECURITY_SINKS` (`theauditor/taint/sources.py` line 352)
+
+**Detected Vulnerability Patterns:**
+- `handlers[req.query.action]()` - User-controlled function dispatch
+- `obj[userInput]` - Dynamic property access with tainted key
+- Prototype pollution via `__proto__`, `constructor`, `prototype`
+- Python dynamic access via `getattr(obj, userInput)`
+
+**Performance:**
+- Adds ~10-20ms per JavaScript file during indexing
+- Query time: <1ms (measured: 0.029ms average with indexed lookups)
+- 18x average speedup over file I/O + regex approach
+
+**Documentation:** See `docs/OBJECT_LITERAL_PARSING.md` for complete guide and API reference.
+
 #### Framework Detection (`theauditor/framework_detector.py`)
 - Auto-detects Django, Flask, React, Vue, etc.
 - Applies framework-specific rules
