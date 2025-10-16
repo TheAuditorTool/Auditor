@@ -29,3 +29,46 @@ ame, which contains only the terminal identifier when fed by the 	sc_* helpers.
 
 ## Conclusion
 The truth pipeline is intact, but the TypeScript extraction stage dropped dotted property names, starving taint source discovery. Restoring full accessor names (or enriching the analyzer with fallbacks) will realign the database with the taint engine while preserving current sink coverage.
+
+---
+
+## Phase 0: Diagnostic Results (2025-10-16)
+
+### Root Cause Confirmed via Debug Logging
+
+**Exact Location**: `theauditor/ast_extractors/js_helper_templates.py:241-356` (serializeNode function)
+
+**Problem**: The `serializeNode` function in the JavaScript helper template does NOT extract the `expression` field for PropertyAccessExpression nodes.
+
+**Evidence from Debug Logs**:
+```
+[AST_DEBUG] PropertyAccessExpression detected at line 27
+[AST_DEBUG]   expression node: kind=None, text=N/A
+[AST_DEBUG]   name node: kind=str, text=body
+[AST_DEBUG]   _canonical_member_name() returned: 'body'
+```
+
+**Analysis**:
+1. PropertyAccessExpression nodes are being detected correctly
+2. The `expression` field (containing the base object like `req`) has `kind=None` - it was never serialized
+3. The `name` field (containing the property like `body`) is a simple string, not a proper AST node
+4. `_canonical_member_name()` at `typescript_impl.py:75` tries to recursively build the path via `node.get("expression")` but receives None
+5. Result: Only the property name is returned (`body`) instead of the full path (`req.body`)
+
+**Code Path**:
+```
+js_semantic_parser.py (subprocess call)
+  → Node.js helper script with serializeNode()
+    → serializeNode() extracts name field (line 260-272)
+    → serializeNode() SKIPS expression field (missing special case)
+    → ts.forEachChild() recursively processes children (line 333-335)
+  → Returns incomplete AST to Python
+→ typescript_impl.py:extract_semantic_ast_symbols()
+  → Receives PropertyAccessExpression with expression=None
+  → _canonical_member_name() returns only leaf identifier
+→ javascript.py appends symbol with name='body' instead of name='req.body'
+```
+
+**Fix Required**: Add special-case handling in `serializeNode()` to explicitly extract `node.expression` for PropertyAccessExpression nodes before processing children.
+
+**Discovery Method**: Added debug logging to `typescript_impl.py:139-155` to trace PropertyAccessExpression processing and discovered that the AST structure arriving from the semantic parser was incomplete.
