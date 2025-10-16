@@ -949,7 +949,7 @@ class IndexerOrchestrator:
         if 'object_literals' in extracted:
             for obj_lit in extracted['object_literals']:
                 self.db_manager.add_object_literal(
-                    obj_lit['file'],
+                    file_path,
                     obj_lit['line'],
                     obj_lit['variable_name'],
                     obj_lit['property_name'],

@@ -1237,6 +1237,160 @@ def extract_typescript_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return cfgs
 
 
+def extract_typescript_object_literals(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract object literal properties via direct semantic AST traversal.
+
+    This is the centralized, correct implementation for object literal extraction.
+    """
+    object_literals = []
+
+    # Get the semantic AST root
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
+        return object_literals
+
+    ast_root = actual_tree.get("ast", {})
+    if not ast_root:
+        return object_literals
+
+    # For text extraction, we need the original content
+    content = tree.get("content", "")
+
+    # Build scope map for accurate function context
+    scope_map = build_scope_map(ast_root)
+
+    def _get_ts_value(value_node):
+        """Helper to extract text from a value node."""
+        if not value_node or not isinstance(value_node, dict):
+            return ""
+        # The 'text' field populated by the JS helper is the most reliable source
+        return value_node.get("text", "")[:250]  # Limit size for database
+
+    def _get_ts_name(name_node):
+        """Helper to extract a name identifier."""
+        if not name_node or not isinstance(name_node, dict):
+            return "<unknown>"
+        return name_node.get("name") or name_node.get("escapedText") or name_node.get("text", "<unknown>")
+
+    def _extract_from_object_node(obj_node, var_name, in_function, line_num):
+        """Recursively extract properties from an ObjectLiteralExpression node."""
+        props = obj_node.get("properties", obj_node.get("children", []))
+        if not isinstance(props, list):
+            return
+
+        for prop in props:
+            if not isinstance(prop, dict):
+                continue
+
+            prop_kind = prop.get("kind", "")
+            prop_line = prop.get("line", line_num)
+
+            if prop_kind == "PropertyAssignment":
+                prop_name = _get_ts_name(prop.get("name"))
+                prop_value = _get_ts_value(prop.get("initializer"))
+                prop_type = "value"
+
+                object_literals.append({
+                    "line": prop_line,
+                    "variable_name": var_name,
+                    "property_name": prop_name,
+                    "property_value": prop_value,
+                    "property_type": prop_type,
+                    "nested_level": 0,
+                    "in_function": in_function
+                })
+
+            elif prop_kind == "ShorthandPropertyAssignment":
+                prop_name = _get_ts_name(prop.get("name"))
+                object_literals.append({
+                    "line": prop_line,
+                    "variable_name": var_name,
+                    "property_name": prop_name,
+                    "property_value": prop_name,
+                    "property_type": "shorthand",
+                    "nested_level": 0,
+                    "in_function": in_function
+                })
+
+    def traverse(node, depth=0):
+        if depth > 100 or not isinstance(node, dict):
+            return
+
+        kind = node.get("kind")
+        line = node.get("line", 0)
+        in_function = scope_map.get(line, "global")
+
+        # Pattern 1: Variable Declaration (const x = { ... })
+        if kind == "VariableDeclaration":
+            initializer = node.get("initializer")
+            if initializer and initializer.get("kind") == "ObjectLiteralExpression":
+                var_name = _get_ts_name(node.get("name"))
+                _extract_from_object_node(initializer, var_name, in_function, line)
+
+        # Pattern 2: Assignment (x = { ... })
+        elif kind == "BinaryExpression" and node.get("operatorToken", {}).get("kind") == "EqualsToken":
+            right = node.get("right")
+            if right and right.get("kind") == "ObjectLiteralExpression":
+                var_name = _get_ts_value(node.get("left"))
+                _extract_from_object_node(right, var_name, in_function, line)
+
+        # Pattern 3: Return statement (return { ... })
+        elif kind == "ReturnStatement":
+            expr = node.get("expression")
+            if expr and expr.get("kind") == "ObjectLiteralExpression":
+                # Use function name for context
+                var_name = f"<return:{in_function}>"
+                _extract_from_object_node(expr, var_name, in_function, line)
+
+        # Pattern 4: Function argument (fn({ ... })) ← CRITICAL FOR SEQUELIZE/PRISMA
+        elif kind == "CallExpression":
+            # Get arguments from either 'arguments' field or children[1:] structure
+            args = node.get("arguments", [])
+            if not args:
+                children = node.get("children", [])
+                # First child is the function expression, rest are arguments
+                args = children[1:] if len(children) > 1 else []
+
+            # Check each argument for object literals
+            for i, arg in enumerate(args):
+                if isinstance(arg, dict) and arg.get("kind") == "ObjectLiteralExpression":
+                    # Get function name for context
+                    callee_name = _canonical_callee_from_call(node) or "unknown"
+                    var_name = f"<arg{i}:{callee_name}>"
+                    _extract_from_object_node(arg, var_name, in_function, arg.get("line", line))
+
+        # Pattern 5: Array element ([{ id: 1 }, { id: 2 }])
+        elif kind == "ArrayLiteralExpression":
+            elements = node.get("elements", node.get("children", []))
+            for i, elem in enumerate(elements):
+                if isinstance(elem, dict) and elem.get("kind") == "ObjectLiteralExpression":
+                    var_name = f"<array_elem{i}>"
+                    _extract_from_object_node(elem, var_name, in_function, elem.get("line", line))
+
+        # Pattern 6: Nested property (const x = { config: { port: 3000 } })
+        elif kind == "PropertyAssignment":
+            init = node.get("initializer")
+            if init and init.get("kind") == "ObjectLiteralExpression":
+                prop_name = _get_ts_name(node.get("name"))
+                var_name = f"<property:{prop_name}>"
+                _extract_from_object_node(init, var_name, in_function, line)
+
+        # Pattern 7: Class property (class C { config = { debug: true } })
+        elif kind == "PropertyDeclaration":
+            init = node.get("initializer")
+            if init and init.get("kind") == "ObjectLiteralExpression":
+                prop_name = _get_ts_name(node.get("name"))
+                var_name = f"<class_property:{prop_name}>"
+                _extract_from_object_node(init, var_name, in_function, line)
+
+        # Recurse through all children
+        for child in node.get("children", []):
+            traverse(child, depth + 1)
+
+    traverse(ast_root)
+    return object_literals
+
+
 def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
     """Build CFG for a single TypeScript function using AST traversal.
 

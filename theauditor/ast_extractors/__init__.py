@@ -274,3 +274,20 @@ class ASTExtractorMixin:
 
         return []
 
+    def extract_object_literals(self, tree: Any) -> List[Dict[str, Any]]:
+        """Extract object literal properties from AST."""
+        if not tree or not isinstance(tree, dict):
+            return []
+
+        tree_type = tree.get("type")
+
+        if tree_type == "semantic_ast":
+            # The new, correct path for TypeScript/JavaScript
+            return typescript_impl.extract_typescript_object_literals(tree, self)
+
+        elif tree_type == "python_ast":
+            # Python dict literal extraction
+            return python_impl.extract_python_dicts(tree, self)
+
+        return []
+
