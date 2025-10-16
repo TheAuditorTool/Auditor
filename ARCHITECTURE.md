@@ -79,6 +79,136 @@ theauditor/indexer/
     └── generic.py        # Generic extractor (webpack, nginx, compose)
 ```
 
+#### File Path Responsibility Architecture
+
+**CRITICAL DESIGN PATTERN**: TheAuditor enforces strict separation of concerns for file path management across three architectural layers.
+
+**The Problem This Solves:**
+In early iterations, implementations tried to track file paths directly, leading to:
+- Architectural violations (implementations tracking file context)
+- Database corruption (NULL file paths when keys didn't match)
+- Code duplication (file path handling in multiple layers)
+- Maintenance nightmares (changing file paths required touching 10+ files)
+
+**The Solution: 3-Layer Architecture**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ LAYER 1: INDEXER (indexer/__init__.py)                      │
+│ ─────────────────────────────────────────────────────────── │
+│ PROVIDES: file_path (source of truth)                       │
+│ CALLS:    extractor.extract(file_info, content, tree)       │
+│ RECEIVES: Data WITHOUT file_path keys                       │
+│ STORES:   db_manager.add_X(file_path, data['line'], ...)    │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│ LAYER 2: EXTRACTOR (indexer/extractors/*.py)                │
+│ ─────────────────────────────────────────────────────────── │
+│ RECEIVES: file_info dict (contains 'path' key)              │
+│ DELEGATES: ast_parser.extract_X(tree)                       │
+│ RETURNS:  {'line': 42, 'name': 'foo', ...}                  │
+│           NO 'file' or 'file_path' keys                     │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│ LAYER 3: IMPLEMENTATION (ast_extractors/*_impl.py)          │
+│ ─────────────────────────────────────────────────────────── │
+│ RECEIVES: AST tree only (NO file context)                   │
+│ EXTRACTS: Data with line numbers and content                │
+│ RETURNS:  [{'line': 42, 'name': 'foo', ...}]                │
+│ MUST NOT: Include 'file' or 'file_path' in returned dicts   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Real-World Example: Object Literal Extraction**
+
+```python
+# LAYER 1: INDEXER provides file_path (indexer/__init__.py:952)
+for obj_lit in extracted['object_literals']:
+    self.db_manager.add_object_literal(
+        file_path,                      # ← From orchestrator (line 564)
+        obj_lit['line'],                # ← From implementation
+        obj_lit['variable_name'],       # ← From implementation
+        obj_lit['property_name'],       # ← From implementation
+        obj_lit['property_value'],      # ← From implementation
+        obj_lit['property_type'],       # ← From implementation
+        obj_lit.get('nested_level', 0), # ← From implementation
+        obj_lit.get('in_function', '')  # ← From implementation
+    )
+
+# LAYER 2: EXTRACTOR delegates (indexer/extractors/javascript.py:290)
+result['object_literals'] = self.ast_parser.extract_object_literals(tree)
+
+# LAYER 3: IMPLEMENTATION returns (ast_extractors/typescript_impl.py:1293)
+object_literals.append({
+    "line": prop_line,              # ✅ Line number only
+    "variable_name": var_name,      # ✅ Data
+    "property_name": prop_name,     # ✅ Data
+    "property_value": prop_value,   # ✅ Data
+    "property_type": prop_type,     # ✅ Data
+    "nested_level": 0,              # ✅ Data
+    "in_function": in_function      # ✅ Data
+    # NO 'file' or 'file_path' key   ✅ Correct architecture
+})
+```
+
+**Why This Matters:**
+
+1. **Single Source of Truth**: File paths exist in ONE place (indexer orchestrator)
+2. **Clear Boundaries**: Each layer has specific responsibilities
+3. **Easy Testing**: Implementations can be tested without file system
+4. **Maintainability**: Changing file path handling touches ONE file
+5. **Type Safety**: Database operations validate complete records
+
+**Violation Detection:**
+
+❌ **WRONG - Implementation tracking files:**
+```python
+# ast_extractors/typescript_impl.py
+return [{
+    "file": file_path,    # ❌ ARCHITECTURAL VIOLATION
+    "line": 42,
+    "name": "foo"
+}]
+```
+
+❌ **WRONG - Indexer expecting file from implementation:**
+```python
+# indexer/__init__.py
+db_manager.add_object_literal(
+    obj_lit['file'],      # ❌ KeyError when 'file' not in dict
+    obj_lit['line'],
+    ...
+)
+```
+
+✅ **CORRECT - Implementation returns line only:**
+```python
+# ast_extractors/typescript_impl.py
+return [{
+    "line": 42,           # ✅ Line number
+    "name": "foo"         # ✅ Data
+}]
+```
+
+✅ **CORRECT - Indexer provides file_path:**
+```python
+# indexer/__init__.py (line 952)
+db_manager.add_object_literal(
+    file_path,            # ✅ From orchestrator context
+    obj_lit['line'],      # ✅ From implementation
+    ...
+)
+```
+
+**Enforcement:**
+
+- All `*_impl.py` files have docstring contracts prohibiting file path keys
+- Code reviews check for architectural violations
+- Database NULL constraints catch missing file paths immediately
+- Unit tests verify implementations return correct key structures
+
 Key features:
 - **Dynamic extractor registry** for automatic language detection
 - **Batched database operations** (200 records per batch by default)

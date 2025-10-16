@@ -2,6 +2,39 @@
 
 This module provides the main ASTExtractorMixin class that routes extraction
 requests to the appropriate language-specific implementation.
+
+ARCHITECTURAL CONTRACT: File Path Responsibility
+=================================================
+This module is part of a 3-layer extraction architecture:
+
+1. **Indexer Layer** (indexer/__init__.py):
+   - PROVIDES: file_path (absolute or relative path to source file)
+   - CALLS: extractor.extract(file_info, content, tree)
+   - STORES: Database records with file_path context
+
+2. **Extractor Layer** (indexer/extractors/*.py):
+   - RECEIVES: file_info dict (contains 'path' key)
+   - DELEGATES: To ast_parser.extract_X(tree) methods
+   - RETURNS: Extracted data WITHOUT file_path keys
+
+3. **Implementation Layer** (ast_extractors/*_impl.py):
+   - RECEIVES: AST tree only
+   - EXTRACTS: Data with 'line' numbers and content
+   - RETURNS: List[Dict] with keys like 'line', 'name', 'type', etc.
+   - MUST NOT: Include 'file' or 'file_path' keys in returned dicts
+
+CRITICAL: All extraction functions in *_impl.py files return data with 'line'
+numbers only. The indexer layer adds file_path when storing to database.
+
+Example flow for object literals:
+  indexer/__init__.py:952 → Uses file_path parameter
+  javascript.py:290 → Calls ast_parser.extract_object_literals(tree)
+  __init__.py:277 → Routes to typescript_impl.extract_typescript_object_literals()
+  typescript_impl.py:1293 → Returns {"line": 42, "variable_name": "x", ...}
+  indexer/__init__.py:952 → Stores with add_object_literal(file_path, obj_lit['line'], ...)
+
+WHY: This separation ensures single source of truth for file paths and prevents
+architectural violations where implementations incorrectly attempt to track files.
 """
 
 import os
