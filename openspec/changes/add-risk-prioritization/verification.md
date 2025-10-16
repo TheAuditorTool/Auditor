@@ -5,22 +5,27 @@ SOP Reference: Standard Operating Procedure v4.20
 ## Hypotheses & Evidence
 
 1. Coverage facts already persist in SQLite for downstream consumers.
-   - Evidence: `theauditor/indexer/database.py:827`-`840` defines `findings_consolidated` but no coverage tables.
-   - Evidence: `theauditor/indexer/metadata_collector.py:329`-`348` only writes low-coverage meta findings via `write_findings_batch` before exiting.
+   - Evidence: `theauditor/indexer/database.py:807`-`836` defines `findings_consolidated` but no coverage tables.
+   - Evidence: `theauditor/indexer/metadata_collector.py:333`-`351` only writes low-coverage meta findings via `write_findings_batch` before exiting, never persisting coverage ratios.
    - Result: FALSE — coverage metrics live only in JSON outputs and derived meta findings.
 
 2. The full pipeline collects coverage data by default.
-   - Evidence: `theauditor/pipelines.py:421`-`434` schedules `aud metadata churn` but never invokes the coverage subcommand.
+   - Evidence: `theauditor/pipelines.py:416`-`437` schedules `aud metadata churn` but never invokes the coverage subcommand.
    - Result: FALSE — coverage analysis is skipped during `aud full`, leaving the database empty.
 
 3. FCE already accounts for coverage when organizing findings.
    - Evidence: `theauditor/fce.py:75`-`87` sorts findings in SQL purely by severity.
-   - Evidence: `theauditor/fce.py:1293`-`1306` normalizes severity and delegates to `sort_findings` without referencing coverage.
+   - Evidence: `theauditor/fce.py:1287`-`1306` normalizes severity and delegates to `sort_findings` without referencing coverage.
    - Result: FALSE — prioritization ignores coverage context entirely.
 
 4. Existing summaries provide an AI-sized prioritized overview.
-   - Evidence: `theauditor/commands/summary.py:16`-`226` aggregates counts and emits a single monolithic JSON report with no risk ordering or size guardrails.
+   - Evidence: `theauditor/commands/summary.py:15`-`200` aggregates counts and emits a single monolithic JSON report with no risk ordering or size guardrails.
    - Result: FALSE — copilots must load large raw chunks to identify high-risk work.
+
+5. The pipeline already publishes per-analyzer summaries (`lint summary`, `graph summary`, etc.) sized for AI ingestion.
+   - Evidence: `theauditor/commands/summary.py:93`-`168` rolls multiple analyzer metrics into `audit_summary.json` instead of emitting per-tool capsules.
+   - Evidence: `theauditor/extraction.py:470`-`506` emits a single `extraction_summary.json` without generating lint/graph/import/taint-specific capsules.
+   - Result: FALSE — there are no dedicated per-analyzer risk summaries, so AI consumers must parse megabyte-scale raw outputs.
 
 ## Discrepancies & Alignment Notes
 - Coverage facts are limited to `.pf/raw/coverage_analysis.json`; there is no normalized schema or ingestion path for coverage percentages or uncovered lines.
