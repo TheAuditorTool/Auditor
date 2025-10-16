@@ -3,7 +3,25 @@
 **Change ID**: `verify-cfg-graph-taint-integration`
 **Type**: Investigation + Enhancement
 **Priority**: P0 (Performance + Correctness)
-**Status**: Proposed
+**Status**: Ready for Implementation (Back Burner)
+
+---
+
+## 🚀 HOW TO USE THIS PROPOSAL
+
+**If you're implementing this (now or later):**
+
+1. **START HERE**: Open `START.md` in this directory
+2. **Follow**: `IMPLEMENTATION_GUIDE.md` step-by-step
+3. **Reference**: This file (proposal.md) for context/background
+4. **Verify**: Use `verification.md` testing strategy
+
+**If you're reviewing this proposal:**
+- Read this file (proposal.md) for findings and rationale
+- Check `specs/taint-analysis/spec.md` for requirements
+- Review `tasks.md` for implementation breakdown
+
+---
 
 ## Problem Statement
 
