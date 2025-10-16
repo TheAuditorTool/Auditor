@@ -319,6 +319,13 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
         result.type = serializeNode(node.type, depth + 1, node, parentNode, sourceFile, sourceCode, ts);
     }
 
+    // CRITICAL FIX: Extract expression field for PropertyAccessExpression
+    // This enables taint analysis to build dotted names (req.body, res.send, etc.)
+    // Without this, only leaf identifiers are captured (body, send)
+    if (nodeKind === 'PropertyAccessExpression' && node.expression) {
+        result.expression = serializeNode(node.expression, depth + 1, node, parentNode, sourceFile, sourceCode, ts);
+    }
+
     // Process children
     const children = [];
 

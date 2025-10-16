@@ -12,12 +12,17 @@ import os
 import sys
 import sqlite3
 import json
-from typing import Dict, List, Set, Any, Optional
+from typing import Dict, List, Set, Any, Optional, Tuple
 from collections import deque
 
 from theauditor.indexer.schema import build_query
 from .sources import SANITIZERS, TAINT_SOURCES
-from .database import get_containing_function, get_function_boundaries, get_code_snippet
+from .database import (
+    get_containing_function,
+    get_function_boundaries,
+    get_code_snippet,
+    check_cfg_available,
+)
 from .interprocedural import trace_inter_procedural_flow_insensitive
 
 
@@ -108,16 +113,34 @@ def trace_from_source(
     # Import TaintPath here to avoid circular dependency
     from .core import TaintPath
 
+    # Define debug_mode once at function scope to avoid UnboundLocalError
+    # Checks all debug environment variables used throughout this function
+    debug_mode = (
+        os.environ.get("THEAUDITOR_DEBUG") or
+        os.environ.get("THEAUDITOR_TAINT_DEBUG") or
+        os.environ.get("THEAUDITOR_CFG_DEBUG")
+    )
+
     # HARD FAILURE PROTOCOL: No validation needed.
     # All sources from database are valid by definition.
     # If we get invalid sources, fix the indexer or source patterns.
 
+    # Cache of per-sink CFG results so we reuse analysis when verifying flows
+    flow_sensitive_cache: Dict[Tuple[str, int], Optional[List[TaintPath]]] = {}
+    cfg_verifier_enabled = False
+
     # If CFG analysis is requested and available, use flow-sensitive analysis
     if use_cfg:
-        from .cfg_integration import trace_flow_sensitive, should_use_cfg
-        
+        from .cfg_integration import (
+            trace_flow_sensitive,
+            should_use_cfg,
+            verify_unsanitized_cfg_paths,
+        )
+
+        cfg_verifier_enabled = check_cfg_available(cursor)
+
         # Check if we should use CFG for these specific sources/sinks
-        cfg_paths = []
+        cfg_paths: List[TaintPath] = []
         for sink in sinks:
             if should_use_cfg(cursor, source, sink):
                 # Perform flow-sensitive analysis for this source-sink pair
@@ -126,19 +149,21 @@ def trace_from_source(
                     source=source,
                     sink=sink,
                     source_function=source_function,
-                    max_paths=100  # Reasonable limit for path explosion
+                    max_paths=100,  # Reasonable limit for path explosion
                 )
+                flow_sensitive_cache[(sink["file"], sink["line"])] = flow_paths
                 cfg_paths.extend(flow_paths)
-        
+
         # If we found any flow-sensitive paths, prefer those
         if cfg_paths:
             # Also run flow-insensitive for comparison (can be removed in production)
-            debug_mode = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
             if debug_mode:
                 print(f"[CFG] Found {len(cfg_paths)} flow-sensitive paths", file=sys.stderr)
                 print(f"[CFG] Running flow-insensitive analysis for comparison...", file=sys.stderr)
             # Convert flow-sensitive paths to TaintPath objects
             return cfg_paths
+    else:
+        cfg_verifier_enabled = False
     
     paths = []
     
@@ -159,6 +184,34 @@ def trace_from_source(
                 # Guaranteed same function - no false positives
                 # Check if there's a sanitizer between source and sink
                 if not has_sanitizer_between(cursor, source, sink):
+                    cfg_paths_for_sink: Optional[List[TaintPath]] = None
+                    if cfg_verifier_enabled:
+                        cfg_key = (sink["file"], sink["line"])
+                        cfg_paths_for_sink = flow_sensitive_cache.get(cfg_key)
+
+                        if cfg_paths_for_sink is None:
+                            cfg_paths_for_sink = verify_unsanitized_cfg_paths(
+                                cursor=cursor,
+                                source=source,
+                                sink=sink,
+                                source_function=source_function,
+                                max_paths=100,
+                            )
+                            flow_sensitive_cache[cfg_key] = cfg_paths_for_sink
+
+                    if cfg_paths_for_sink is not None:
+                        if not cfg_paths_for_sink:
+                            if debug_mode:
+                                print(
+                                    f"[TAINT][CFG] Skipping sanitized path to sink {sink['pattern']} at "
+                                    f"{sink['file']}:{sink['line']}",
+                                    file=sys.stderr,
+                                )
+                            continue
+
+                        paths.extend(cfg_paths_for_sink)
+                        continue
+
                     # Direct vulnerability found - source flows directly to sink
                     path = TaintPath(
                         source=source,
@@ -191,7 +244,6 @@ def trace_from_source(
     # Schema Contract: assignments table guaranteed to exist
 
     tainted_elements = set()
-    debug_mode = os.environ.get("THEAUDITOR_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG")
 
     if debug_mode:
         print(f"\n{'='*60}", file=sys.stderr)
@@ -401,6 +453,7 @@ def trace_from_source(
                     continue  # Move to next sink
         
         # Check if any tainted variable is used in the sink
+        skip_sink_due_to_cfg = False
         for element in tainted_elements:
             if ":" in element:
                 func_name, var_name = element.split(":", 1)
@@ -486,10 +539,44 @@ def trace_from_source(
 
                 if cursor.fetchone() is not None:
                     sink_context_found = True
-            
+
             if sink_context_found:
                 # Check for sanitizers between source and sink
                 if not has_sanitizer_between(cursor, source, sink):
+                    cfg_paths_for_sink = None
+                    if (
+                        cfg_verifier_enabled
+                        and sink["file"] == source["file"]
+                        and sink_function["name"] == source_function["name"]
+                    ):
+                        cfg_key = (sink["file"], sink["line"])
+                        cfg_paths_for_sink = flow_sensitive_cache.get(cfg_key)
+
+                        if cfg_paths_for_sink is None:
+                            cfg_paths_for_sink = verify_unsanitized_cfg_paths(
+                                cursor=cursor,
+                                source=source,
+                                sink=sink,
+                                source_function=source_function,
+                                max_paths=100,
+                            )
+                            flow_sensitive_cache[cfg_key] = cfg_paths_for_sink
+
+                    if cfg_paths_for_sink is not None:
+                        if not cfg_paths_for_sink:
+                            if debug_mode:
+                                print(
+                                    f"[TAINT][CFG] Skipping sanitized branch to sink {sink['pattern']} at "
+                                    f"{sink['file']}:{sink['line']}",
+                                    file=sys.stderr,
+                                )
+                            skip_sink_due_to_cfg = True
+                            break
+
+                        paths.extend(cfg_paths_for_sink)
+                        skip_sink_due_to_cfg = True
+                        break
+
                     # We found a real taint path!
                     if debug_mode:
                         print(f"[TAINT] VULNERABILITY FOUND!", file=sys.stderr)
@@ -521,6 +608,9 @@ def trace_from_source(
                     )
                     paths.append(path)
                     break  # One path per sink is enough
+
+        if skip_sink_due_to_cfg:
+            continue
     
     return paths
 

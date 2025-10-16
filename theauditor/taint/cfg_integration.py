@@ -807,3 +807,54 @@ def should_use_cfg(cursor: sqlite3.Cursor, source: Dict[str, Any],
 
     # Use CFG if there are conditional blocks
     return has_conditional_blocks
+
+
+def verify_unsanitized_cfg_paths(
+    cursor: sqlite3.Cursor,
+    source: Dict[str, Any],
+    sink: Dict[str, Any],
+    source_function: Dict[str, Any],
+    max_paths: int = 100
+) -> Optional[List[TaintPath]]:
+    """
+    Verify that at least one unsanitized CFG path connects source to sink.
+
+    Returns None when CFG data is unavailable for the function so callers can
+    fall back to flow-insensitive analysis, returns an empty list when all
+    candidate paths are sanitized, and returns a list of TaintPath objects when
+    an unsanitized path exists.
+    """
+    if source.get("file") != sink.get("file"):
+        return None
+
+    if not source_function or "name" not in source_function:
+        return None
+
+    if not check_cfg_available(cursor):
+        return None
+
+    # Ensure both source and sink map to known CFG blocks; otherwise we cannot
+    # reason about path sensitivity for this function.
+    source_block = get_block_for_line(
+        cursor,
+        source["file"],
+        source.get("line", -1),
+        source_function["name"],
+    )
+    sink_block = get_block_for_line(
+        cursor,
+        sink["file"],
+        sink.get("line", -1),
+        source_function["name"],
+    )
+
+    if not source_block or not sink_block:
+        return None
+
+    return trace_flow_sensitive(
+        cursor=cursor,
+        source=source,
+        sink=sink,
+        source_function=source_function,
+        max_paths=max_paths,
+    )
