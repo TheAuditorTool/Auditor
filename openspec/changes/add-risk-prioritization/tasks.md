@@ -10,18 +10,20 @@
 
 ## 2. Risk Prioritization Module
 - [ ] 2.1 Implement a coverage-aware risk scorer (e.g., `theauditor/risk_prioritizer.py`) that normalizes severity and computes `risk_score = severity_weight * (1 - coverage_ratio)`.
-- [ ] 2.2 Add a CLI entry point (`aud prioritize`) that runs the scorer, accepts `--root`/`--db` options, and respects Truth Courier conventions.
-- [ ] 2.3 Persist risk results to SQLite (new table keyed by `findings_consolidated.id`) and emit `.pf/raw/prioritized_findings.json` sorted by descending risk.
+- [ ] 2.2 Add a CLI entry point (`aud prioritize`) under `theauditor/commands/prioritize.py` that runs the scorer, accepts `--root`/`--db` options, and respects Truth Courier conventions.
+- [ ] 2.3 Persist risk results to SQLite (new table keyed by `findings_consolidated.id`), emit `.pf/raw/prioritized_findings.json`, and mirror a trimmed `.pf/risk_scores.json` summary sorted by descending risk.
+- [ ] 2.4 Update `theauditor/docgen.py` and CLI help text so the new command appears in generated documentation.
 
 ## 3. Pipeline & FCE Integration
-- [ ] 3.1 Update `run_full_pipeline` to invoke coverage collection (switch to `aud metadata analyze` or equivalent) and run `aud prioritize` after findings generation.
-- [ ] 3.2 Extend FCE ingestion to select finding IDs, join risk metadata, attach `risk_score`/coverage context to `results["all_findings"]`, and sort by risk before severity.
-- [ ] 3.3 Ensure chunking/extraction modules can access the new risk metadata without regressing existing outputs.
+- [ ] 3.1 Update `run_full_pipeline` (`theauditor/pipelines.py`) to invoke `aud metadata analyze` (coverage + churn) and schedule `aud prioritize` in Stage 3B before FCE.
+- [ ] 3.2 Extend FCE ingestion to join `finding_risk_scores`, attach risk metadata to `results["all_findings"]`, update sorting, and surface risk telemetry in logs.
+- [ ] 3.3 Refresh extraction/chunking modules so `.pf/readthis/` lists the prioritized files and per-track capsules ahead of raw outputs.
 
 ## 4. Summary & AI Outputs
-- [ ] 4.1 Enhance `aud summary` to build a combined prioritized summary (≤100 KB across ≤2 files) plus per-track capsules (`lint`, `graph`, `taint`, etc.) that reference risk data.
-- [ ] 4.2 Update report/readthis orchestration so new summary files are published and discoverable by downstream agents.
-- [ ] 4.3 Add automated checks (unit/integration) that validate risk ordering and file size limits for the new summaries.
+- [ ] 4.1 Enhance `aud summary` to build `summary_prioritized_combined.json` (≤100 KB) plus `summary_prioritized_overflow.json` when needed, embedding risk metadata.
+- [ ] 4.2 Generate per-track capsules (`summary_lint_top_risk.json`, `summary_graph_top_risk.json`, `summary_import_top_risk.json`, `summary_taint_top_risk.json`, etc.) that reference DB tables and keep payloads bounded.
+- [ ] 4.3 Update extraction/report publishing to include the combined summary and capsules in `.pf/readthis/manifest.json`.
+- [ ] 4.4 Add automated checks (unit/integration) that validate risk ordering, file size limits, and capsule item caps.
 
 ## 5. Documentation & Validation
 - [ ] 5.1 Document the new coverage tables, `aud prioritize` command, and summary outputs in contributor/user guides.
