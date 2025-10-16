@@ -91,12 +91,11 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
         click.echo(f"  Cross-referencing findings across 3 sources...")
 
         vulnerabilities = scan_dependencies(deps_list, offline=offline)
-        
+
         if vulnerabilities:
-            # Write JSON report
+            # JSON report already written by scanner (with tool_status)
             vuln_output = out.replace("deps.json", "vulnerabilities.json")
-            write_vulnerabilities_json(vulnerabilities, output_path=vuln_output)
-            
+
             # Display human-readable report
             report = format_vulnerability_report(vulnerabilities)
             click.echo("\n" + report)
