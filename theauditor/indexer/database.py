@@ -2,6 +2,11 @@
 
 This module contains the DatabaseManager class which handles all database
 operations including schema creation, batch inserts, and transaction management.
+
+CRITICAL ARCHITECTURE RULE: NO FALLBACKS ALLOWED.
+The database is generated fresh every run. It MUST exist and MUST be correct.
+NO graceful degradation, NO try/except around schema operations, NO migrations.
+Hard failure is the only acceptable behavior for missing data or schema errors.
 """
 
 import sqlite3
@@ -838,6 +843,7 @@ class DatabaseManager:
                 code_snippet TEXT,
                 cwe TEXT,
                 timestamp TEXT NOT NULL,
+                details_json TEXT DEFAULT '{}',
                 FOREIGN KEY(file) REFERENCES files(path)
             )
         """
@@ -939,6 +945,7 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_severity ON findings_consolidated(severity)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_rule ON findings_consolidated(rule)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_category ON findings_consolidated(category)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_tool_rule ON findings_consolidated(tool, rule)")
 
         # Migration: Add type_annotation column to symbols table if it doesn't exist
         try:
@@ -1501,6 +1508,23 @@ class DatabaseManager:
         # Normalize findings to standard format
         normalized = []
         for f in findings:
+            # Extract structured data from additional_info or details_json
+            details = f.get('additional_info', f.get('details_json', {}))
+
+            # JSON serialize if it's a dict, otherwise use empty object
+            import json
+            if isinstance(details, dict):
+                details_str = json.dumps(details)
+            elif isinstance(details, str):
+                # Already JSON string, validate it
+                try:
+                    json.loads(details)
+                    details_str = details
+                except (json.JSONDecodeError, TypeError):
+                    details_str = '{}'
+            else:
+                details_str = '{}'
+
             # Handle different finding formats from various tools
             # Try multiple field names for compatibility
             normalized.append((
@@ -1515,7 +1539,8 @@ class DatabaseManager:
                 f.get('confidence'),  # Optional
                 f.get('code_snippet'),  # Optional
                 f.get('cwe'),  # Optional
-                f.get('timestamp', datetime.now(UTC).isoformat())
+                f.get('timestamp', datetime.now(UTC).isoformat()),
+                details_str  # Structured data
             ))
 
         # Batch insert using configured batch size for performance
@@ -1524,8 +1549,8 @@ class DatabaseManager:
             cursor.executemany(
                 """INSERT INTO findings_consolidated
                    (file, line, column, rule, tool, message, severity, category,
-                    confidence, code_snippet, cwe, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    confidence, code_snippet, cwe, timestamp, details_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 batch
             )
 
