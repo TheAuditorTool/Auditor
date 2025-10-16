@@ -1,4 +1,10 @@
-"""Factual Correlation Engine - aggregates and correlates findings from all analysis tools."""
+"""Factual Correlation Engine - aggregates and correlates findings from all analysis tools.
+
+CRITICAL ARCHITECTURE RULE: NO FALLBACKS ALLOWED.
+The database is generated fresh every run. It MUST exist and MUST contain all required data.
+NO JSON fallbacks, NO graceful degradation, NO try/except to handle missing data.
+Hard failure is the only acceptable behavior. If data is missing, the pipeline should crash.
+"""
 
 import json
 import os
@@ -14,6 +20,200 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from theauditor.test_frameworks import detect_test_framework
 
 
+
+
+def load_graph_data_from_db(db_path: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """
+    Load graph analysis data (hotspots and cycles) from database.
+
+    Queries findings_consolidated for graph-analysis findings with structured data
+    in details_json column. This is faster than loading JSON files and enables
+    database-first FCE operation.
+
+    Args:
+        db_path: Path to repo_index.db database
+
+    Returns:
+        Tuple of (hotspot_files dict, cycles list)
+        - hotspot_files: {file_path: hotspot_data} for O(1) lookup
+        - cycles: List of cycle dicts with nodes and size
+    """
+    hotspot_files = {}
+    cycles = []
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Load hotspots with structured data from details_json
+        cursor.execute("""
+            SELECT file, details_json
+            FROM findings_consolidated
+            WHERE tool='graph-analysis' AND rule='ARCHITECTURAL_HOTSPOT'
+        """)
+
+        for row in cursor.fetchall():
+            file_path, details_json = row
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    # Use file path as key, store full hotspot data
+                    hotspot_files[file_path] = details
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Load cycles - deduplicate by cycle nodes
+        cursor.execute("""
+            SELECT DISTINCT details_json
+            FROM findings_consolidated
+            WHERE tool='graph-analysis' AND rule='CIRCULAR_DEPENDENCY'
+        """)
+
+        seen_cycles = set()
+        for row in cursor.fetchall():
+            details_json = row[0]
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    cycle_nodes = details.get('cycle_nodes', [])
+                    cycle_size = details.get('cycle_size', len(cycle_nodes))
+
+                    # Deduplicate cycles by sorted node list
+                    cycle_key = tuple(sorted(cycle_nodes))
+                    if cycle_key and cycle_key not in seen_cycles:
+                        cycles.append({
+                            'nodes': list(cycle_key),
+                            'size': cycle_size
+                        })
+                        seen_cycles.add(cycle_key)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading graph data: {e}")
+
+    return hotspot_files, cycles
+
+
+def load_cfg_data_from_db(db_path: str) -> Dict[str, Any]:
+    """
+    Load CFG complexity data from database.
+
+    Args:
+        db_path: Path to repo_index.db database
+
+    Returns:
+        Dict mapping 'file:function' to complexity data
+    """
+    complex_functions = {}
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT file, details_json
+            FROM findings_consolidated
+            WHERE tool='cfg-analysis' AND rule='HIGH_CYCLOMATIC_COMPLEXITY'
+        """)
+
+        for row in cursor.fetchall():
+            file_path, details_json = row
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    function_name = details.get('function', 'unknown')
+                    key = f"{file_path}:{function_name}"
+                    complex_functions[key] = details
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading CFG data: {e}")
+
+    return complex_functions
+
+
+def load_churn_data_from_db(db_path: str) -> Dict[str, Any]:
+    """
+    Load code churn data from database.
+
+    Args:
+        db_path: Path to repo_index.db database
+
+    Returns:
+        Dict mapping file path to churn metrics
+    """
+    churn_files = {}
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT file, details_json
+            FROM findings_consolidated
+            WHERE tool='churn-analysis' AND rule='HIGH_CODE_CHURN'
+        """)
+
+        for row in cursor.fetchall():
+            file_path, details_json = row
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    churn_files[file_path] = details
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading churn data: {e}")
+
+    return churn_files
+
+
+def load_coverage_data_from_db(db_path: str) -> Dict[str, Any]:
+    """
+    Load test coverage data from database.
+
+    Args:
+        db_path: Path to repo_index.db database
+
+    Returns:
+        Dict mapping file path to coverage metrics
+    """
+    coverage_files = {}
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT file, details_json
+            FROM findings_consolidated
+            WHERE tool='coverage-analysis' AND rule='LOW_TEST_COVERAGE'
+        """)
+
+        for row in cursor.fetchall():
+            file_path, details_json = row
+            try:
+                if details_json:
+                    details = json.loads(details_json)
+                    coverage_files[file_path] = details
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading coverage data: {e}")
+
+    return coverage_files
 
 
 def scan_all_findings(db_path: str) -> Tuple[List[dict[str, Any]], Dict[str, Any]]:
@@ -520,72 +720,20 @@ def run_fce(
             }
         
         # Step B1: Load Graph Analysis Data (Hotspots, Cycles, Health)
-        graph_data = {}
-        hotspot_files = {}  # File -> hotspot data mapping
-        cycles = []  # List of dependency cycles
-        graph_path = raw_dir / "graph_analysis.json"
-        if graph_path.exists():
-            try:
-                with open(graph_path, 'r', encoding='utf-8') as f:
-                    graph_data = json.load(f)
-                # Index hotspots by file for O(1) lookup during correlation
-                for hotspot in graph_data.get('hotspots', []):
-                    file_key = hotspot.get('file') or hotspot.get('id')
-                    if not file_key:
-                        continue
-                    hotspot_files[file_key] = hotspot
-                cycles = graph_data.get('cycles', [])
-                print(f"[FCE] Loaded graph analysis: {len(hotspot_files)} hotspots, {len(cycles)} cycles")
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"[FCE] Warning: Could not load graph analysis: {e}")
-        
+        hotspot_files, cycles = load_graph_data_from_db(full_db_path)
+        print(f"[FCE] Loaded from database: {len(hotspot_files)} hotspots, {len(cycles)} cycles")
+
         # Step B1.5: Load CFG Complexity Data (Function Complexity Metrics)
-        cfg_data = {}
-        complex_functions = {}  # file:function -> complexity data
-        cfg_path = raw_dir / "cfg_analysis.json"
-        if cfg_path.exists():
-            try:
-                with open(cfg_path, 'r', encoding='utf-8') as f:
-                    cfg_data = json.load(f)
-                # Index complex functions for correlation
-                for func in cfg_data.get('complex_functions', []):
-                    key = f"{func['file']}:{func['function']}"
-                    complex_functions[key] = func
-                print(f"[FCE] Loaded CFG analysis: {len(complex_functions)} complex functions")
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"[FCE] Warning: Could not load CFG analysis: {e}")
-        
+        complex_functions = load_cfg_data_from_db(full_db_path)
+        print(f"[FCE] Loaded from database: {len(complex_functions)} complex functions")
+
         # Step B1.6: Load Metadata - Code Churn (Temporal Dimension)
-        churn_data = {}
-        churn_files = {}  # path -> churn metrics mapping
-        churn_path = raw_dir / "churn_analysis.json"
-        if churn_path.exists():
-            try:
-                with open(churn_path, 'r', encoding='utf-8') as f:
-                    churn_data = json.load(f)
-                # Index by file path for O(1) lookup during correlation
-                for file_data in churn_data.get('files', []):
-                    churn_files[file_data['path']] = file_data
-                print(f"[FCE] Loaded churn analysis: {len(churn_files)} files with git history")
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"[FCE] Warning: Could not load churn analysis: {e}")
-        
+        churn_files = load_churn_data_from_db(full_db_path)
+        print(f"[FCE] Loaded from database: {len(churn_files)} files with git history")
+
         # Step B1.7: Load Metadata - Test Coverage (Quality Dimension)
-        coverage_data = {}
-        coverage_files = {}  # path -> coverage metrics mapping
-        coverage_path = raw_dir / "coverage_analysis.json"
-        if coverage_path.exists():
-            try:
-                with open(coverage_path, 'r', encoding='utf-8') as f:
-                    coverage_data = json.load(f)
-                # Index by file path for O(1) lookup
-                for file_data in coverage_data.get('files', []):
-                    coverage_files[file_data['path']] = file_data
-                format_type = coverage_data.get('format_detected', 'unknown')
-                avg_coverage = coverage_data.get('average_coverage', 0)
-                print(f"[FCE] Loaded {format_type} coverage: {len(coverage_files)} files, {avg_coverage}% average")
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"[FCE] Warning: Could not load coverage analysis: {e}")
+        coverage_files = load_coverage_data_from_db(full_db_path)
+        print(f"[FCE] Loaded from database: {len(coverage_files)} files with coverage data")
         
         # Step B2: Load Optional Insights (Interpretive Analysis)
         # IMPORTANT: Insights are kept separate from factual findings to maintain Truth Courier principles
@@ -1221,16 +1369,21 @@ def run_fce(
             print("[FCE] No architectural meta-findings generated (good architecture!)")
         
         # Store graph/CFG/metadata metrics in correlations for reference
+        max_complexity = max((func.get('complexity', 0) for func in complex_functions.values()), default=0) if complex_functions else 0
+
+        total_coverage = sum(f.get('line_coverage_percent', 0) for f in coverage_files.values())
+        average_coverage = total_coverage / len(coverage_files) if coverage_files else 0
+
         results["correlations"]["graph_metrics"] = {
             "hotspot_count": len(hotspot_files),
             "cycle_count": len(cycles),
             "largest_cycle": cycles[0].get('size', 0) if cycles else 0,
             "complex_function_count": len(complex_functions),
-            "max_complexity": cfg_data.get('statistics', {}).get('max_complexity', 0) if cfg_data else 0,
+            "max_complexity": max_complexity,
             # Metadata metrics (temporal and quality dimensions)
             "files_with_churn_data": len(churn_files),
             "files_with_coverage_data": len(coverage_files),
-            "average_coverage": coverage_data.get('average_coverage', 0) if coverage_data else 0
+            "average_coverage": average_coverage
         }
         results["correlations"]["finding_dedupe"] = dedupe_stats
         

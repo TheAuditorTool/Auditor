@@ -888,6 +888,7 @@ FINDINGS_CONSOLIDATED = TableSchema(
         Column("code_snippet", "TEXT"),
         Column("cwe", "TEXT"),
         Column("timestamp", "TEXT", nullable=False),
+        Column("details_json", "TEXT", default="'{}'"),
     ],
     indexes=[
         ("idx_findings_file_line", ["file", "line"]),
@@ -895,6 +896,7 @@ FINDINGS_CONSOLIDATED = TableSchema(
         ("idx_findings_severity", ["severity"]),
         ("idx_findings_rule", ["rule"]),
         ("idx_findings_category", ["category"]),
+        ("idx_findings_tool_rule", ["tool", "rule"]),
     ]
 )
 
