@@ -1,8 +1,16 @@
-"""AST parser using Tree-sitter for multi-language support.
+"""AST parser with language-specific parsers for optimal analysis.
 
-This module provides true structural code analysis using Tree-sitter,
-enabling high-fidelity pattern detection that understands code semantics
-rather than just text matching.
+Architecture:
+- Python: CPython ast module (stdlib) - NOT Tree-sitter
+- JavaScript/TypeScript: TypeScript Compiler API for semantic analysis
+- Tree-sitter: Used for JS/TS syntax-only fallback, never for Python
+
+This module provides true structural code analysis using the best parser for
+each language, enabling high-fidelity pattern detection that understands code
+semantics rather than just text matching.
+
+CRITICAL: Python is NEVER parsed by Tree-sitter. See _init_tree_sitter_parsers()
+lines 63-90 for detailed explanation of why Python uses CPython ast exclusively.
 """
 
 import ast
@@ -60,17 +68,35 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         try:
             from tree_sitter_language_pack import get_language, get_parser
             
-            # Python parser
-            try:
-                python_lang = get_language("python")
-                python_parser = get_parser("python")
-                self.parsers["python"] = python_parser
-                self.languages["python"] = python_lang
-            except Exception as e:
-                # Python has built-in fallback, so we can continue with a warning
-                print(f"Warning: Failed to initialize Python parser: {e}")
-                print("         AST analysis for Python will use built-in parser as fallback.")
-            
+            # ============================================================================
+            # CRITICAL ARCHITECTURAL DECISION: PYTHON IS NEVER PARSED BY TREE-SITTER
+            # ============================================================================
+            # Python MUST use CPython's built-in ast module (stdlib) for these reasons:
+            #
+            # 1. CORRECTNESS: All Python extractors expect ast.Module objects and use
+            #    ast.walk(), ast.Import, ast.FunctionDef, etc. Tree-sitter has completely
+            #    different node types (.type, .children, .text) that will cause silent
+            #    failures and return empty results.
+            #
+            # 2. SUPERIORITY: CPython ast is the authoritative Python parser - complete,
+            #    mature, zero dependencies, faster than Tree-sitter subprocess.
+            #
+            # 3. ARCHITECTURE: TheAuditor uses language-specific excellence, NOT generic
+            #    unification. Each language gets its best tool:
+            #    - Python → CPython ast (this is THE correct choice)
+            #    - JavaScript/TypeScript → TypeScript Compiler API (semantic + types)
+            #    - SQL → sqlparse
+            #    - Docker → dockerfile-parse
+            #
+            # DO NOT ADD Python to self.parsers dict below. It will break import extraction.
+            # If you think "prefer tree-sitter for consistency" - you are wrong. Read this
+            # comment again. Python parsing happens at parse_file() lines 211-219 and
+            # parse_content() lines 354-360.
+            #
+            # Last incident: 2025-10-16 - Tree-sitter Python was added, broke all Python
+            # import extraction (0 refs in database). Fixed by removing it. Don't repeat.
+            # ============================================================================
+
             # JavaScript parser (CRITICAL - must fail fast)
             try:
                 js_lang = get_language("javascript")
@@ -216,7 +242,10 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                     print(f"         Falling back to alternative parser if available.")
                     # Continue to fallback options below
 
-            # Fallback to built-in parsers for Python
+            # PRIMARY PYTHON PARSER - CPython ast module (NOT a fallback!)
+            # Python is NEVER parsed by Tree-sitter - CPython ast is the correct, intended tool.
+            # Tree-sitter adds zero value for Python. See lines 63-64 where Python is explicitly
+            # excluded from Tree-sitter initialization.
             if language == "python":
                 decoded = content.decode("utf-8", errors="ignore")
                 python_ast = self._parse_python_cached(content_hash, decoded)
@@ -295,7 +324,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         Returns:
             True if AST parsing is supported.
         """
-        # Python is always supported via built-in ast module
+        # Python is always supported via built-in ast module (NOT Tree-sitter)
         if language == "python":
             return True
 
@@ -349,13 +378,16 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             finally:
                 os.unlink(tmp_path)
         
-        # Python - prefer tree-sitter for consistency
+        # Tree-sitter for supported languages (JS/TS only - NOT Python)
+        # Python is explicitly excluded from self.parsers at initialization (lines 63-64)
         if self.has_tree_sitter and language in self.parsers:
             tree = self._parse_treesitter_cached(content_hash, content_bytes, language)
             if tree:
                 return {"type": "tree_sitter", "tree": tree, "language": language, "content": content}
-        
-        # Python fallback to built-in
+
+        # PRIMARY PYTHON PARSER - CPython ast module (NOT a fallback!)
+        # Python is NEVER parsed by Tree-sitter - CPython ast is the correct, intended tool.
+        # This is the ONLY Python parsing path - intentional architectural decision.
         if language == "python":
             python_ast = self._parse_python_cached(content_hash, content)
             if python_ast:
