@@ -41,7 +41,8 @@ class PythonExtractor(BaseExtractor):
             'function_calls': [],
             'returns': [],
             'variable_usage': [],  # CRITICAL: Track all variable usage for complete analysis
-            'cfg': []  # Control flow graph data
+            'cfg': [],  # Control flow graph data
+            'object_literals': []  # Dict literal parsing for dynamic dispatch
         }
         
         # Extract imports using AST (proper Python import extraction)
@@ -146,6 +147,10 @@ class PythonExtractor(BaseExtractor):
             # Extract control flow graph using centralized AST infrastructure
             if tree and self.ast_parser:
                 result['cfg'] = self.ast_parser.extract_cfg(tree)
+
+            # Extract dict literals using centralized AST infrastructure
+            if tree and self.ast_parser:
+                result['object_literals'] = self.ast_parser.extract_object_literals(tree)
         else:
             # Fallback to regex extraction for routes if no AST
             # Convert regex results to dictionary format for consistency
