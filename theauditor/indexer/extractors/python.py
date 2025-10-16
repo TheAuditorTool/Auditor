@@ -292,6 +292,11 @@ class PythonExtractor(BaseExtractor):
             - ('from', 'pathlib', 23)
         """
         imports = []
+
+        # Handle None or non-dict input gracefully
+        if not tree or not isinstance(tree, dict):
+            return imports
+
         actual_tree = tree.get("tree")
 
         import os
