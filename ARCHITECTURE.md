@@ -178,6 +178,55 @@ Specialized parsers for configuration file analysis:
 
 These parsers are used by extractors during indexing to extract security-relevant configuration data.
 
+### Vulnerability Scanner (`theauditor/vulnerability_scanner.py`)
+
+**OSV-Scanner: Offline-First Vulnerability Detection**
+
+TheAuditor uses a 3-source cross-validation approach for vulnerability detection:
+- **npm audit**: Checks npm registry for JavaScript/TypeScript vulnerabilities
+- **pip-audit**: Checks PyPI for Python vulnerabilities
+- **OSV-Scanner**: Google's official offline vulnerability database scanner
+
+**OSV-Scanner Architecture**:
+- **Binary Location**: `.auditor_venv/.theauditor_tools/osv-scanner/osv-scanner.exe` (Windows) or `osv-scanner` (Linux/Mac)
+- **Database Location**: `.auditor_venv/.theauditor_tools/osv-scanner/db/{ecosystem}/all.zip`
+- **Execution Mode**: 100% offline operation (ALWAYS uses `--offline-vulnerabilities` flag)
+- **Database Updates**: Via `aud setup-ai --target .` command (one-time download)
+
+**Why Offline-Only Design**:
+1. **Feature-Rich Database**: Complete vulnerability data without API limitations
+2. **Privacy**: No dependency information sent to external services
+3. **Performance**: Local database queries are instant, no rate limits or network delays
+4. **Reliability**: Works in air-gapped environments, no network dependencies
+5. **Project-Agnostic**: Single database serves all projects (stored in sandbox)
+
+**Database Contents**:
+- npm ecosystem vulnerabilities (JavaScript/TypeScript)
+- PyPI ecosystem vulnerabilities (Python)
+- Cross-referenced with CVE, GHSA, OSV, and other advisory sources
+- CWE classifications and severity ratings
+- Detailed descriptions, references, and affected version ranges
+
+**Cross-Validation Process**:
+```python
+# All 3 scanners run independently
+npm_findings = _run_npm_audit()      # May hit npm registry (unless --offline)
+pip_findings = _run_pip_audit()      # May hit PyPI (unless --offline)
+osv_findings = _run_osv_scanner()    # ALWAYS uses local database
+
+# Cross-reference findings by vulnerability ID
+validated = _cross_reference(npm_findings, pip_findings, osv_findings)
+# Confidence = number of sources that found the same vulnerability
+```
+
+**Key Implementation Detail** (`vulnerability_scanner.py:478-479`):
+```python
+# ALWAYS use offline database (never hit API)
+cmd.append("--offline-vulnerabilities")
+```
+
+This ensures OSV-Scanner operates without network access regardless of the `--offline` flag to `aud full`. The offline flag only affects npm-audit and pip-audit registry checks.
+
 ### Refactoring Detection (`theauditor/commands/refactor.py`)
 Detects incomplete refactorings and cross-stack inconsistencies:
 - Analyzes database migrations to detect schema changes
@@ -645,6 +694,36 @@ TheAuditor v1.2 introduces a comprehensive caching system that transforms perfor
   - Maximum 20,000 cached files
   - LRU eviction when limits exceeded
   - Prevents disk exhaustion
+
+**Cache Preservation Strategy (v1.2+):**
+TheAuditor preserves caches between runs by default to maximize performance:
+
+- **Preserved Caches**:
+  - `.pf/.cache/` - AST parsing cache
+  - `.pf/context/` - Documentation cache (~1.6MB typical) and summaries
+
+- **Archive Behavior**:
+  - By default, `aud full` preserves caches when archiving previous runs
+  - Caches are NOT moved to `.pf/history/` directories
+  - Result: ~40-90s faster on subsequent runs (docs cache reuse)
+
+- **Force Cache Rebuild**:
+  ```bash
+  aud full --wipecache  # Delete all caches before analysis
+  ```
+  - Use this flag for cache corruption recovery
+  - Useful when dependency versions change significantly
+  - Documentation cache will be rebuilt from npm/PyPI (rate-limited)
+
+- **Implementation**:
+  - Archive logic: `theauditor/commands/_archive.py`
+  - Cache directory detection via `CACHE_DIRS` constant
+  - Metadata tracking in `_metadata.json` files
+
+**Performance Impact**:
+- First run: Full analysis (~120s medium project)
+- Subsequent runs: ~40-90s faster (cache hits)
+- With `--wipecache`: Equivalent to first run
 
 ### Core Optimizations
 - **Batched database operations**: 200 records per batch (configurable)

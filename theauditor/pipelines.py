@@ -313,6 +313,7 @@ def run_full_pipeline(
     exclude_self: bool = False,
     offline: bool = False,
     use_subprocess_for_taint: bool = False,  # NEW: default to in-process for performance
+    wipe_cache: bool = False,  # NEW: force cache rebuild (for corruption recovery)
     log_callback: Callable[[str, bool], None] = None
 ) -> dict[str, Any]:
     """
@@ -324,6 +325,7 @@ def run_full_pipeline(
         exclude_self: Whether to exclude TheAuditor's own files from analysis
         offline: Whether to skip network operations (deps, docs)
         use_subprocess_for_taint: Whether to run taint analysis as subprocess (slower)
+        wipe_cache: Whether to delete caches before run (for corruption recovery)
         log_callback: Optional callback function for logging messages (message, is_error)
         
     Returns:
@@ -341,7 +343,7 @@ def run_full_pipeline(
         from theauditor.commands._archive import _archive
         # Call the function directly with appropriate parameters
         # Note: Click commands can be invoked as regular functions
-        _archive.callback(run_type="full", diff_spec=None)
+        _archive.callback(run_type="full", diff_spec=None, wipe_cache=wipe_cache)
         print("[INFO] Previous run archived successfully", file=sys.stderr)
     except ImportError as e:
         print(f"[WARNING] Could not import archive command: {e}", file=sys.stderr)
@@ -414,7 +416,8 @@ def run_full_pipeline(
     command_order = [
         ("index", []),
         ("detect-frameworks", []),
-        ("deps", ["--check-latest", "--vuln-scan"]),  # Added --vuln-scan for vulnerability scanning
+        ("deps", ["--vuln-scan"]),  # Phase 1: Offline vulnerability scanning (Track B)
+        ("deps", ["--check-latest"]),  # Phase 2: Network version checks (Track C)
         ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
         ("docs", ["summarize"]),
         ("workset", ["--all"]),
@@ -450,11 +453,13 @@ def run_full_pipeline(
                     extra_args = extra_args + ["--exclude-self"]
             elif cmd_name == "detect-frameworks":
                 description = f"{phase_num}. Detect frameworks"
+            elif cmd_name == "deps" and "--vuln-scan" in extra_args and "--check-latest" not in extra_args:
+                description = f"{phase_num}. Scan dependencies for vulnerabilities (offline)"
+                # Add --offline flag when pipeline is in offline mode (fixes misleading message)
+                if offline and "--offline" not in extra_args:
+                    extra_args = extra_args + ["--offline"]
             elif cmd_name == "deps" and "--check-latest" in extra_args:
-                if "--vuln-scan" in extra_args:
-                    description = f"{phase_num}. Check dependencies & scan vulnerabilities"
-                else:
-                    description = f"{phase_num}. Check dependencies"
+                description = f"{phase_num}. Check dependency versions (network)"
             elif cmd_name == "docs" and "fetch" in extra_args:
                 description = f"{phase_num}. Fetch documentation"
             elif cmd_name == "docs" and "summarize" in extra_args:
@@ -602,9 +607,13 @@ def run_full_pipeline(
             track_b_commands.append((phase_name, cmd))
         elif "graph viz" in cmd_str:
             track_b_commands.append((phase_name, cmd))
-        
+        # NEW: Offline vulnerability scanning goes to Track B
+        elif "deps" in cmd_str and "--vuln-scan" in cmd_str and "--check-latest" not in cmd_str:
+            track_b_commands.append((phase_name, cmd))
+
         # Track C: Network I/O
-        elif "deps" in cmd_str:
+        # NEW: Network version checks go to Track C
+        elif "deps" in cmd_str and "--check-latest" in cmd_str:
             if not offline:  # Skip deps if offline mode
                 track_c_commands.append((phase_name, cmd))
         elif "docs" in cmd_str:
@@ -862,9 +871,9 @@ def run_full_pipeline(
         if track_a_commands:
             log_output("  Track A: Taint Analysis (isolated heavy task)")
         if track_b_commands:
-            log_output("  Track B: Static & Graph Analysis (lint, patterns, graph)")
+            log_output("  Track B: Static Analysis & Offline Security (lint, patterns, graph, vuln-scan)")
         if track_c_commands and not offline:
-            log_output("  Track C: Network I/O (deps, docs)")
+            log_output("  Track C: Network I/O (version checks, docs)")
         elif offline:
             log_output("  [OFFLINE MODE] Track C skipped")
         

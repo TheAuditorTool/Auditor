@@ -407,6 +407,35 @@ We believe in complete transparency about these limitations. This interaction wi
   pip install -e .  # Use system pip
   ```
 
+### Cache Management
+
+TheAuditor caches data to speed up subsequent runs:
+- **AST Cache**: `.pf/.cache/ast_cache/` - Parsed syntax trees
+- **Docs Cache**: `.pf/context/docs/` - npm/PyPI documentation (~1.6MB typical)
+
+**Cache Preservation**:
+By default, caches are PRESERVED between runs for faster execution (~40s savings on second run).
+
+**Force Cache Rebuild**:
+If you encounter cache corruption or stale documentation:
+```bash
+aud full --wipecache  # Delete all caches before analysis
+```
+
+**What Gets Cached**:
+- Documentation from npm/PyPI (rate-limited, ~90s to rebuild)
+- AST parsing results (minimal, mostly database-first now)
+
+**What Doesn't Get Cached**:
+- Analysis results (always fresh on every run)
+- Database contents (rebuilt on each index)
+- OSV vulnerability database (separate install in `.auditor_venv/`, never wiped)
+
+**Performance Impact**:
+- First run: Full analysis time (~120s on medium project)
+- Second run: ~40s faster due to docs cache reuse
+- With `--wipecache`: Full rebuild time (equivalent to first run)
+
 ---
 
 ## Documentation

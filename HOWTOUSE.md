@@ -1117,6 +1117,34 @@ cat .pf/error.log
 cat .pf/error_phase_08.log
 ```
 
+#### Cache corruption or stale documentation
+
+**Problem**: Analysis producing unexpected results or failing due to corrupted cache data.
+
+**Symptoms**:
+- Dependency documentation showing outdated versions
+- AST parsing errors for unchanged files
+- Unexpected analysis failures on previously successful runs
+
+**Solution**: Force a complete cache rebuild:
+```bash
+aud full --wipecache  # Delete all caches before analysis
+```
+
+**What this does**:
+- Deletes `.pf/.cache/` (AST parsing cache)
+- Deletes `.pf/context/` (documentation cache and summaries)
+- Forces fresh rebuild of all cached data
+- Adds ~40-90 seconds to analysis time (one-time cost)
+
+**When to use**:
+- After major dependency version updates
+- When seeing stale dependency documentation
+- Cache corruption suspected
+- First-time debugging of analysis issues
+
+**Normal behavior**: Caches are PRESERVED between runs for performance (~40s savings). Only use `--wipecache` when troubleshooting.
+
 ### Performance Optimization
 
 For large repositories:

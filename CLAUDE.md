@@ -321,6 +321,48 @@ Features:
 - Supports both assignment-based and direct-use taint flows
 - Merges findings from multiple detection methods (taint_paths, rule_findings, infrastructure)
 
+#### Vulnerability Scanner (`theauditor/vulnerability_scanner.py`)
+
+**OSV-Scanner: Offline-First Architecture**
+
+TheAuditor uses 3-source cross-validation for vulnerability detection:
+- **npm audit**: JavaScript/TypeScript vulnerabilities (may query npm registry)
+- **pip-audit**: Python vulnerabilities (may query PyPI)
+- **OSV-Scanner**: Google's offline vulnerability database (ALWAYS offline)
+
+**Critical Design Decision: OSV is 100% Offline**
+- **Binary**: `.auditor_venv/.theauditor_tools/osv-scanner/osv-scanner.exe`
+- **Database**: `.auditor_venv/.theauditor_tools/osv-scanner/db/{ecosystem}/all.zip`
+- **Flag**: ALWAYS uses `--offline-vulnerabilities` (line 478-479 of vulnerability_scanner.py)
+- **Network**: Never hits API, regardless of `aud full --offline` flag
+
+**Why Offline-Only**:
+1. **Feature-Rich**: Complete vulnerability data without API rate limits
+2. **Privacy**: No dependency information sent to external services
+3. **Performance**: Instant local queries, no network delays
+4. **Reliability**: Works in air-gapped environments
+5. **Project-Agnostic**: Single database serves all projects (stored in sandbox)
+
+**Database Contents**:
+- npm ecosystem (JavaScript/TypeScript)
+- PyPI ecosystem (Python)
+- CVE, GHSA, OSV cross-references
+- CWE classifications, severity ratings
+- Version ranges, fix versions, detailed descriptions
+
+**Track Assignment** (v1.2+):
+- OSV runs in **Track B** (Static Analysis & Offline Security)
+- Runs in parallel with pattern detection, graph analysis
+- NOT bottlenecked by Track C network operations (~90s of rate limits)
+
+**Usage**:
+```bash
+aud deps --vuln-scan           # Run vulnerability scan (OSV always offline)
+aud deps --vuln-scan --offline # Same behavior + npm/pip skip registry
+aud full                       # OSV runs in Track B (parallel)
+aud full --offline             # OSV still runs (Track C skipped)
+```
+
 #### Object Literal Parsing (v1.2+)
 
 TheAuditor extracts object literal structures from JavaScript/TypeScript files to enable dynamic dispatch resolution in taint analysis.
