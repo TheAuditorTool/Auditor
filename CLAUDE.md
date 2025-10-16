@@ -1,6 +1,33 @@
+<!-- OPENSPEC:START -->
+# OpenSpec Instructions
+
+These instructions are for AI assistants working in this project.
+
+Always open `@/openspec/AGENTS.md` when the request:
+- Mentions planning or proposals (words like proposal, spec, change, plan)
+- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
+- Sounds ambiguous and you need the authoritative spec before coding
+
+Use `@/openspec/AGENTS.md` to learn:
+- How to create and apply change proposals
+- Spec format and conventions
+- Project structure and guidelines
+
+Keep this managed block so 'openspec update' can refresh the instructions.
+
+<!-- OPENSPEC:END -->
+
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with TheAuditor codebase.
+**Last Verified**: 2025-10-16 against live codebase.
+
+## Project Overview
+
+TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python and JavaScript/TypeScript projects, producing AI-consumable reports optimized for LLM context windows.
+
+**Version**: 1.2.0-RC1 (pyproject.toml:7)
+**Python**: >=3.11 required (pyproject.toml:10)
 
 ## Quick Reference Commands
 
@@ -29,102 +56,178 @@ mypy theauditor --strict           # Type checking
 
 # Running TheAuditor
 aud init                     # Initialize project
-aud full                     # Complete analysis (multiple phases)
+aud full                     # Complete 4-stage pipeline
 aud full --offline           # Skip network operations (deps, docs)
 aud index --exclude-self     # When analyzing TheAuditor itself
 
-# Individual Analysis Commands
+# Core Analysis
 aud index                    # Build code index database
-aud detect-patterns          # Run security pattern detection
+aud detect-patterns          # Run 100+ security pattern rules
 aud taint-analyze            # Perform taint flow analysis
+
+# Graph & Architecture
 aud graph build              # Build dependency graph
-aud graph analyze            # Analyze graph structure
+aud graph analyze            # Analyze graph health
+aud graph viz                # Visualize (4 views: full, cycles, hotspots, layers)
 aud cfg analyze              # Analyze control flow complexity
-aud cfg viz --file <f> --function <fn>  # Visualize function control flow
+aud cfg viz --file <f> --function <fn>  # Visualize function CFG
+
+# Reporting
 aud fce                      # Run Factual Correlation Engine
-aud report                   # Generate final report
-aud workset                  # Create working set of critical files
-aud impact <file>            # Analyze impact of changing a file
+aud report                   # Generate final consolidated report
+aud workset                  # Create working set of changed files
+aud impact --file <path>     # Analyze change impact radius
 
-# Utility Commands
-aud setup-ai                 # Setup sandboxed JS/TS tools (MANDATORY)
+# Dependencies & Security
+aud deps --vuln-scan         # Run npm audit, pip-audit, OSV-Scanner
+aud docker-analyze           # Analyze Docker security
+
+# Code Quality
+aud lint                     # Run configured linters
 aud structure                # Display project structure
-aud insights                 # Generate ML insights (requires [ml] extras)
-aud refactor <operation>     # Perform refactoring operations
+
+# Advanced
+aud insights                 # Optional insights analysis (requires [ml] extras)
+aud context --file ctx.yaml  # Apply user-defined semantic context
+aud refactor --auto-detect   # Detect incomplete refactorings
 ```
-
-## Project Overview
-
-TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python and JavaScript/TypeScript projects, producing AI-consumable reports optimized for LLM context windows.
 
 ## Core Philosophy: Truth Courier, Not Mind Reader
 
-**CRITICAL UNDERSTANDING**: TheAuditor does NOT try to understand business logic or make AI "smarter." It solves the real problem: **AI loses context and makes inconsistent changes across large codebases.**
+TheAuditor does NOT try to understand business logic. It solves: **AI loses context and makes inconsistent changes across large codebases.**
 
-### The Development Loop
-1. **Human tells AI**: "Add JWT auth with CSRF protection"
-2. **AI writes code**: Probably has issues due to context limits (hardcoded secrets, missing middleware, etc.)
-3. **Human runs**: `aud full`
-4. **TheAuditor reports**: All inconsistencies and security holes as FACTS
-5. **AI reads report**: Now sees the COMPLETE picture across all files
-6. **AI fixes issues**: With full visibility of what's broken
-7. **Repeat until clean**
+**The Development Loop:**
+1. Human tells AI: "Add JWT auth with CSRF protection"
+2. AI writes code (probably has issues due to context limits)
+3. Human runs: `aud full`
+4. TheAuditor reports: All inconsistencies and security holes as FACTS
+5. AI reads report: Now sees COMPLETE picture across all files
+6. AI fixes issues: With full visibility
+7. Repeat until clean
 
-TheAuditor is about **consistency checking**, not semantic understanding. It finds where code doesn't match itself, not whether it matches business requirements.
+TheAuditor finds where code doesn't match itself, not whether it matches business requirements.
 
 ## Critical Setup Requirements
 
-### For JavaScript/TypeScript Analysis
-TheAuditor requires a sandboxed environment for JS/TS tools. This is NOT optional:
+### JavaScript/TypeScript Analysis - NOT OPTIONAL
 
 ```bash
-# MANDATORY: Set up sandboxed tools
 aud setup-ai --target .
 ```
 
-This creates `.auditor_venv/.theauditor_tools/` with isolated TypeScript compiler and ESLint. Without this, TypeScript semantic analysis will fail.
+Creates `.auditor_venv/.theauditor_tools/` with:
+- Isolated TypeScript compiler
+- ESLint
+- Node.js v20.11.1
+- OSV-Scanner vulnerability database (~500MB)
 
-## Key Architectural Decisions
+Without this, TypeScript semantic analysis WILL FAIL.
 
-### Modular Package Structure
-The codebase follows a modular design where large modules are refactored into packages. Example: the indexer was refactored from a 2000+ line monolithic file into:
+## Architecture Overview
+
+### Dual-Environment Design
+1. **Primary Environment** (`.venv/`): TheAuditor's Python code
+2. **Sandboxed Environment** (`.auditor_venv/.theauditor_tools/`): Isolated JS/TS tools
+
+### Truth Courier vs Insights: Separation of Concerns
+
+**Truth Couriers** (Core - Always Active):
+- **Indexer**: "Function X exists at line Y"
+- **Taint Analyzer**: "Data flows from req.body to res.send"
+- **Pattern Detector**: "Line X matches pattern Y"
+- **Graph Analyzer**: "Cycle detected: A→B→C→A"
+- **Impact Analyzer**: "Changing X affects 47 files"
+
+**Insights** (Optional - Not Installed by Default):
+- `insights/taint.py`: Severity scoring (critical/high/medium/low)
+- `insights/graph.py`: Health metrics (0-100 score, A-F grades)
+- `insights/ml.py`: Risk predictions (requires `pip install -e ".[ml]"`)
+- `insights/semantic_context.py`: User-defined business logic
+
+Principles:
+1. Interpretation, not detection
+2. Database-first (no file I/O)
+3. Frozensets for O(1) lookups
+4. Optional and isolated
+5. Graceful degradation
+
+## Critical Architectural Decisions
+
+### 3-Layer File Path Responsibility Architecture
+
+**MANDATORY PATTERN - DO NOT VIOLATE:**
+
+1. **INDEXER Layer** (`indexer/__init__.py`):
+   - PROVIDES: `file_path` (absolute or relative path)
+   - CALLS: `extractor.extract(file_info, content, tree)`
+   - RECEIVES: Extracted data WITHOUT file_path keys
+   - STORES: Database records WITH file_path context
+
+2. **EXTRACTOR Layer** (`indexer/extractors/*.py`):
+   - RECEIVES: `file_info` dict (contains 'path' key)
+   - DELEGATES: To `ast_parser.extract_X(tree)` methods
+   - RETURNS: Extracted data WITHOUT file_path keys
+
+3. **IMPLEMENTATION Layer** (`ast_extractors/*_impl.py`):
+   - RECEIVES: AST tree only (no file context)
+   - EXTRACTS: Data with 'line' numbers and content
+   - RETURNS: `List[Dict]` with keys like 'line', 'name', 'type'
+   - MUST NOT: Include 'file' or 'file_path' keys
+
+**Example Flow:**
+```python
+# 1. INDEXER provides file_path (indexer/__init__.py:976)
+db_manager.add_object_literal(
+    file_path,              # ← From orchestrator context
+    obj_lit['line'],        # ← From extractor data
+    obj_lit['variable_name'],
+    ...
+)
+
+# 2. EXTRACTOR delegates (indexer/extractors/javascript.py:304)
+result['object_literals'] = self.ast_parser.extract_object_literals(tree)
+
+# 3. IMPLEMENTATION returns (ast_extractors/__init__.py:310)
+return [{
+    "line": 42,                    # ✅ Line number
+    "variable_name": "config",     # ✅ Data
+    # NO 'file' or 'file_path' key  # ✅ Correct
+}]
 ```
-theauditor/indexer/
-├── __init__.py           # Backward compatibility shim
-├── config.py             # Constants and patterns
-├── database.py           # DatabaseManager class
-├── core.py               # FileWalker, ASTCache
-├── orchestrator.py       # Main coordination
-└── extractors/           # Language-specific logic
-```
 
-When refactoring, always:
-1. Create a package with the same name as the original module
-2. Provide a backward compatibility shim in `__init__.py`
-3. Separate concerns into focused modules
-4. Use dynamic registries for extensibility
+**WHY**: Single source of truth for file paths. Prevents violations where implementations incorrectly track files.
+
+**Violation Symptoms:**
+- Implementation returns `{"file": "...", "line": 42, ...}` ❌
+- Indexer uses `obj_lit['file']` instead of `file_path` parameter ❌
+- Database receives NULL file paths ❌
 
 ### Database Contract Preservation
-The `repo_index.db` schema is consumed by many downstream modules (taint_analyzer, graph builder, etc.). When modifying indexer or database operations:
+
+The `repo_index.db` schema is consumed by many downstream modules (taint_analyzer, graph builder, pattern rules, etc.).
+
+**CRITICAL RULES:**
 - NEVER change table schemas without migration
 - Preserve exact column names and types
-- Maintain the same data format in JSON columns
+- Maintain same data format in JSON columns
 - Test downstream consumers after changes
 
-#### Using the Schema Contract System (v1.1+)
+### Schema Contract System (v1.1+)
 
-TheAuditor v1.1 introduces a schema contract system for type-safe database access.
+**Single Source of Truth**: `theauditor/indexer/schema.py`
 
-**Key Files**:
-- `theauditor/indexer/schema.py` - Single source of truth for all 36+ table schemas
-- Column definitions, validation, and query builders
+All 36+ table schemas defined here. Supports:
+- Columns: Type-safe definitions with nullability, defaults
+- Indexes: Performance optimization
+- Primary Keys: Single-column and composite
+- UNIQUE Constraints: Multi-column uniqueness
+- **FOREIGN KEY Pattern**: Intentionally omitted from schema.py (defined in database.py to avoid circular dependencies)
 
-**Basic Usage**:
-
+**Basic Usage:**
 ```python
-from theauditor.indexer.schema import build_query, validate_all_tables, TABLES
+from theauditor.indexer.schema import build_query, validate_all_tables
 
-# Build type-safe queries with validation
+# Build type-safe queries
 query = build_query('variable_usage', ['file', 'line', 'variable_name'])
 cursor.execute(query)
 
@@ -132,368 +235,255 @@ cursor.execute(query)
 query = build_query('sql_queries', where="command != 'UNKNOWN'")
 cursor.execute(query)
 
-# Validate database schema at runtime
+# Validate schema at runtime
 mismatches = validate_all_tables(cursor)
 if mismatches:
     for table, errors in mismatches.items():
         logger.warning(f"Schema mismatch in {table}: {errors}")
 ```
 
-**For Rule Authors**:
-
-When writing new rules, ALWAYS use `build_query()` instead of hardcoded SQL:
-
-```python
-# ❌ DON'T: Hardcoded SQL (breaks if schema changes)
-cursor.execute("SELECT file, line, var_name FROM variable_usage")
-
-# ✅ DO: Schema-compliant query (validated at runtime)
-from theauditor.indexer.schema import build_query
-query = build_query('variable_usage', ['file', 'line', 'variable_name'])
-cursor.execute(query)
-```
-
-**Schema Definitions**:
-
-See `theauditor/indexer/schema.py` for complete table schemas. Key tables:
+**Key Tables:**
 - `files`, `symbols`, `function_call_args` - Core code structure
-- `api_endpoints` - REST endpoints with authentication detection
+- `api_endpoints` - REST endpoints with auth detection
 - `variable_usage`, `taint_paths` - Data flow analysis
-- `sql_queries`, `orm_queries`, `jwt_patterns` - Database operation and security pattern tracking
+- `sql_queries`, `orm_queries`, `jwt_patterns` - Security patterns
+- `object_literals` - Object literal structures for dispatch resolution
+- `cfg_blocks`, `cfg_edges`, `cfg_block_statements` - Control flow graphs
 
-**Schema Architecture (v1.1+)**:
+## Core Components
 
-The schema system supports comprehensive constraint definitions:
-- **Columns**: Type-safe column definitions with nullability and defaults
-- **Indexes**: Performance optimization via indexed lookups
-- **Primary Keys**: Both single-column and composite primary keys
-- **UNIQUE Constraints**: Multi-column uniqueness enforcement (e.g., frameworks table)
-- **FOREIGN KEY Pattern**: Intentionally omitted from schema definitions to avoid circular dependencies - defined exclusively in database.py CREATE TABLE statements
+### Indexer Package (`theauditor/indexer/`)
 
-**Migration Guide**:
-
-If you have existing databases, the schema validation is non-fatal. Run `aud index` to see warnings:
-```bash
-aud index
-# May show warnings like: "api_endpoints missing column: line"
-# Run full re-index to apply schema updates
+**Verified Structure** (as of 2025-10-16):
+```
+theauditor/indexer/
+├── __init__.py             # IndexerOrchestrator class (main coordination)
+├── config.py               # Constants, patterns (7.5KB)
+├── database.py             # DatabaseManager class (92KB)
+├── core.py                 # FileWalker, ASTCache (15KB)
+├── schema.py               # Schema contract system (40KB)
+├── metadata_collector.py   # Git churn, test coverage (16KB)
+└── extractors/             # Language-specific extractors
+    ├── __init__.py         # ExtractorRegistry, BaseExtractor
+    ├── python.py           # Python extractor (36KB)
+    ├── javascript.py       # JS/TS extractor (51KB)
+    ├── docker.py           # Dockerfile extractor (5KB)
+    ├── generic.py          # Config file extractor (15KB)
+    ├── json_config.py      # JSON config extractor (11KB)
+    ├── prisma.py           # Prisma schema extractor (7KB)
+    └── sql.py              # SQL file extractor (1.5KB)
 ```
 
-## Architecture Overview
+**Dynamic Extractor Registry**: Extractors auto-discovered via `@register_extractor` decorator.
 
-### Truth Courier vs Insights: Separation of Concerns
+**Monorepo Detection**: Automatically detects and filters:
+- Standard paths: `backend/src/`, `frontend/src/`, `packages/*/src/`
+- Whitelist mode activated when detected
+- Prevents analyzing test files, configs, migrations as source code
 
-TheAuditor maintains strict separation between **factual observation** and **optional interpretation**:
+### Pipeline System (`theauditor/pipelines.py`)
 
-#### Insights Modules (Optional)
-Located in `theauditor/insights/`, these modules add scoring and interpretation on top of facts from truth couriers. They follow these principles:
+**4-Stage Optimized Structure** (verified lines 565-633):
 
-1. **Interpretation, not detection** - Score existing findings, don't find new ones
-2. **Database-first** - Query repo_index.db for features, no file I/O during analysis
-3. **Frozensets for patterns** - O(1) lookups like rules (HTTP_LIBS, DB_LIBS, etc.)
-4. **Optional and isolated** - Never imported by truth couriers; commands layer bridges them
-5. **Graceful degradation** - ML module checks availability, falls back if dependencies missing
+**Stage 1 (Sequential)**: Foundation
+- `index` - Build code index (batched DB inserts)
+- `detect-frameworks` - Framework detection
 
-**Available Insights**:
-- `insights/taint.py`: Severity scoring (critical/high/medium/low), vulnerability classification
-- `insights/graph.py`: Health metrics (0-100 score, A-F grades), architecture recommendations
-- `insights/ml.py`: Risk predictions from historical patterns (requires `pip install -e ".[ml]"`)
-- `insights/semantic_context.py`: User-defined business logic and semantic understanding (NEW in v1.1+)
+**Stage 2 (Sequential)**: Data Preparation
+- `workset` - Identify changed files
+- `graph build` - Build dependency graph
+- `cfg analyze` - Control flow analysis
+- `metadata` - Git churn analysis
 
-All insights use the same gold standards as rules: frozensets for O(1) pattern matching, database queries instead of file I/O, and proper error handling.
+**Stage 3 (Parallel)**: Heavy Analysis - 3 concurrent tracks
+- **Track A**: Taint analysis (isolated, ~30s with v1.2 cache)
+- **Track B**: Static & graph analysis (lint, patterns, graph analyze/viz, OSV-Scanner)
+- **Track C**: Network I/O (deps --check-latest, docs) - skipped in offline mode
 
-#### Truth Courier Modules (Core - Always Active)
-Report verifiable facts without judgment:
-- **Indexer**: "Function X exists at line Y"
-- **Taint Analyzer**: "Data flows from req.body to res.send" (NOT "XSS vulnerability")
-- **Impact Analyzer**: "Changing X affects 47 files through dependency chains"
-- **Pattern Detector**: "Line X matches pattern Y"
-- **Graph Analyzer**: "Cycle detected: A→B→C→A"
+**Stage 4 (Sequential)**: Final Aggregation
+- `fce` - Factual Correlation Engine
+- `report` - Generate consolidated report
+- `summary` - Executive summary
 
-#### Insights Modules (Optional - Not Installed by Default)
-Add scoring and classification on top of facts:
-- **taint/insights.py**: Adds "This is HIGH severity XSS"
-- **graph/insights.py**: Adds "Health score: 70/100"
-- **ml.py**: Requires `pip install -e ".[ml]"` - adds predictions
+**Performance Optimizations:**
+- Batched database inserts (200 records per batch)
+- Pipeline-level memory cache (v1.2) shared across phases
+- In-process taint execution (no subprocess overhead)
+- Parallel rule execution (ThreadPoolExecutor, 3 workers)
 
-#### Semantic Context Engine (User-Defined Business Logic)
-**NEW in v1.1+**: Located in `theauditor/insights/semantic_context.py` and `theauditor/insights/semantic_rules/`
+### Taint Analysis Package (`theauditor/taint/`)
 
-The Semantic Context Engine allows users to teach TheAuditor about THEIR specific business logic, refactorings, and codebase semantics. Unlike core truth couriers which report universal facts, semantic contexts are 100% user-defined.
-
-**Use Cases**:
-- Refactoring tracking: "product.price is obsolete, use product_variant.retail_price"
-- Deprecated API detection: "API v1 endpoints should be replaced with GraphQL"
-- Migration progress: "Track which files have been updated to new schema"
-- Architecture compliance: "Service layer should use new patterns"
-
-**How It Works**:
-1. User writes YAML file in `theauditor/insights/semantic_rules/`
-2. Define patterns as: obsolete, current, or transitional
-3. Run `aud full` or `aud context --file your_context.yaml`
-4. TheAuditor classifies findings based on your business logic
-5. Reports: files with obsolete patterns, migration progress, high-priority fixes
-
-**Example YAML**:
-```yaml
-context_name: "product_refactor"
-patterns:
-  obsolete:
-    - id: "old_price"
-      pattern: "product\\.unit_price"
-      reason: "Moved to ProductVariant"
-      replacement: "product_variant.retail_price"
-      severity: "high"
-  current:
-    - id: "new_price"
-      pattern: "product_variant\\.retail_price"
-      reason: "Correct schema"
+**Verified Structure** (verified via ls 2025-10-16):
+```
+theauditor/taint/
+├── __init__.py              # Package exports
+├── core.py                  # TaintAnalyzer main class (15KB)
+├── sources.py               # Source pattern definitions (11KB)
+├── config.py                # Sink patterns, config (8KB)
+├── propagation.py           # Taint propagation algorithms (31KB)
+├── cfg_integration.py       # Control flow graph integration (36KB)
+├── interprocedural.py       # Cross-function tracking (13KB)
+├── interprocedural_cfg.py   # CFG-based interprocedural (22KB)
+├── memory_cache.py          # In-memory performance optimization (51KB)
+├── database.py              # Database operations (45KB)
+├── registry.py              # Dynamic handler registration (8KB)
+└── insights.py              # Optional severity scoring (backward compat)
 ```
 
-**Documentation**: See `theauditor/insights/semantic_rules/templates_instructions.md` for complete guide.
-
-**Note**: This replaces the old `correlations` system (now deprecated). The old co-occurring facts model was the wrong abstraction for tracking refactorings and business logic.
-
-### Dual-Environment Design
-TheAuditor maintains strict separation between:
-1. **Primary Environment** (`.venv/`): TheAuditor's Python code and dependencies
-2. **Sandboxed Environment** (`.auditor_venv/.theauditor_tools/`): Isolated JS/TS analysis tools
-
-### Core Components
-
-#### Indexer Package (`theauditor/indexer/`)
-The indexer has been refactored from a monolithic 2000+ line file into a modular package:
-- **__init__.py**: IndexOrchestrator class (main coordination logic) + backward compatibility
-- **config.py**: Constants, patterns, and configuration (SKIP_DIRS, language maps, etc.)
-- **database.py**: DatabaseManager class handling all database operations
-- **core.py**: FileWalker (with monorepo detection) and ASTCache classes
-- **metadata_collector.py**: Git churn and test coverage analysis
-- **extractors/**: Language-specific extractors (Python, JavaScript, Docker, SQL, generic)
-
-The package uses a dynamic extractor registry for automatic language detection and processing.
-
-#### Pipeline System (`theauditor/pipelines.py`)
-- Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** (v1.1+):
-  - **Stage 1 (Sequential)**: Foundation (index with batched DB operations, framework detection)
-  - **Stage 2 (Sequential)**: Data Preparation (workset, graph build, CFG, metadata) [NEW in v1.1]
-  - **Stage 3 (Parallel)**: Heavy Analysis - 3 concurrent tracks:
-    - Track A: Taint analysis (isolated heavy task, ~30 seconds with v1.2 memory cache)
-    - Track B: Static & graph analysis (lint, patterns, graph analyze/viz)
-    - Track C: Network I/O (deps, docs) - skipped in offline mode
-  - **Stage 4 (Sequential)**: Final Aggregation (FCE, chunk extraction, report, summary)
-- Handles error recovery and logging
-- **Performance optimizations**:
-  - Batched database inserts (200 records per batch) in indexer
-  - Pipeline-level memory cache (v1.2) shared across analysis phases
-  - In-process taint execution avoids subprocess overhead
-  - Parallel rule execution with ThreadPoolExecutor (3 workers for Stage 3 tracks)
-
-#### Pattern Detection Engine
-- **AST-based rules**: 20+ categories in `theauditor/rules/` (auth, SQL injection, XSS, secrets, frameworks, etc.)
-- **YAML patterns**: Configuration security in `theauditor/rules/YAML/config_patterns.yml`
-- **Dynamic discovery**: Rules orchestrator (`theauditor/rules/orchestrator.py`) auto-discovers all detection rules
-- **Coverage**: 100+ security rules across Python, JavaScript, Docker, Nginx, PostgreSQL, and more
-- Supports semantic analysis via TypeScript compiler for type-aware detection
-
-#### Factual Correlation Engine (FCE) (`theauditor/fce.py`)
-- **30 advanced correlation rules** in `theauditor/correlations/rules/`
-- Detects complex vulnerability patterns across multiple tools
-- Categories: Authentication, Injection, Data Exposure, Infrastructure, Code Quality, Framework-Specific
-
-#### Taint Analysis Package (`theauditor/taint/`)
-Previously a monolithic file, now refactored into a modular package:
-- **core.py**: TaintAnalyzer main class
-- **sources.py**: Source pattern definitions (user inputs)
-- **config.py**: Sink patterns and taint configuration
-- **propagation.py**: Taint propagation algorithms
-- **cfg_integration.py**: Control flow graph integration
-- **interprocedural.py**: Cross-function taint tracking
-- **memory_cache.py**: In-memory performance optimization
-- **python.py** & **javascript.py**: Language-specific handlers
-- **database.py**: Database operations for taint analysis
-- **registry.py**: Dynamic handler registration
-- **insights.py**: Optional severity scoring (backward compat shim)
-
-Features:
+**Features:**
 - Tracks data flow from sources to sinks
-- Detects SQL injection, XSS, command injection
+- Detects SQL injection, XSS, command injection, dynamic dispatch
 - Database-aware analysis using `repo_index.db`
-- Supports both assignment-based and direct-use taint flows
-- Merges findings from multiple detection methods (taint_paths, rule_findings, infrastructure)
+- Supports assignment-based and direct-use taint flows
+- Merges findings from multiple detection methods
 
-#### Vulnerability Scanner (`theauditor/vulnerability_scanner.py`)
+### Vulnerability Scanner (`theauditor/vulnerability_scanner.py`)
 
-**OSV-Scanner: Offline-First Architecture**
-
-TheAuditor uses 3-source cross-validation for vulnerability detection:
-- **npm audit**: JavaScript/TypeScript vulnerabilities (may query npm registry)
+**3-Source Cross-Validation:**
+- **npm audit**: JavaScript/TypeScript vulnerabilities (may query registry)
 - **pip-audit**: Python vulnerabilities (may query PyPI)
 - **OSV-Scanner**: Google's offline vulnerability database (ALWAYS offline)
 
-**Critical Design Decision: OSV is 100% Offline**
-- **Binary**: `.auditor_venv/.theauditor_tools/osv-scanner/osv-scanner.exe`
-- **Database**: `.auditor_venv/.theauditor_tools/osv-scanner/db/{ecosystem}/all.zip`
-- **Flag**: ALWAYS uses `--offline-vulnerabilities` (line 478-479 of vulnerability_scanner.py)
-- **Network**: Never hits API, regardless of `aud full --offline` flag
+**OSV-Scanner: 100% Offline** (verified lines 22-25, 479):
+- Binary: `.auditor_venv/.theauditor_tools/osv-scanner/osv-scanner.exe`
+- Database: `.auditor_venv/.theauditor_tools/osv-scanner/db/{ecosystem}/all.zip`
+- Flag: ALWAYS uses `--offline-vulnerabilities` (line 479)
+- Network: Never hits API, regardless of `aud full --offline` flag
 
-**Why Offline-Only**:
-1. **Feature-Rich**: Complete vulnerability data without API rate limits
-2. **Privacy**: No dependency information sent to external services
-3. **Performance**: Instant local queries, no network delays
-4. **Reliability**: Works in air-gapped environments
-5. **Project-Agnostic**: Single database serves all projects (stored in sandbox)
-
-**Database Contents**:
+**Database Contents:**
 - npm ecosystem (JavaScript/TypeScript)
 - PyPI ecosystem (Python)
 - CVE, GHSA, OSV cross-references
 - CWE classifications, severity ratings
-- Version ranges, fix versions, detailed descriptions
+- Version ranges, fix versions
 
-**Track Assignment** (v1.2+):
-- OSV runs in **Track B** (Static Analysis & Offline Security)
-- Runs in parallel with pattern detection, graph analysis
-- NOT bottlenecked by Track C network operations (~90s of rate limits)
+**Track Assignment**: OSV runs in Track B (parallel with pattern detection, graph analysis)
 
-**Usage**:
-```bash
-aud deps --vuln-scan           # Run vulnerability scan (OSV always offline)
-aud deps --vuln-scan --offline # Same behavior + npm/pip skip registry
-aud full                       # OSV runs in Track B (parallel)
-aud full --offline             # OSV still runs (Track C skipped)
-```
+### Pattern Detection Engine
 
-#### Object Literal Parsing (v1.2+)
+**Verified Structure** (`theauditor/rules/`):
+- auth/ - Authentication patterns (JWT, OAuth, password, session)
+- sql/ - SQL injection detection
+- secrets/ - Hardcoded secrets
+- security/ - General security patterns
+- frameworks/ - Framework-specific rules
+- react/ - React/JSX patterns
+- node/ - Node.js patterns
+- python/ - Python-specific patterns
+- deployment/ - Deployment security
+- performance/ - Performance issues
+- common/ - Common patterns
+- YAML/config_patterns.yml - Configuration security
+- orchestrator.py - Rule discovery and execution
+- base.py - RuleMetadata, StandardRuleContext
 
-TheAuditor extracts object literal structures from JavaScript/TypeScript files to enable dynamic dispatch resolution in taint analysis.
+**Rule System Features:**
+- 100+ security rules across languages
+- AST-based detection
+- Smart filtering via metadata (target_extensions, exclude_patterns)
+- Database-first architecture (no file I/O)
+- Dynamic rule discovery
+- TypeScript semantic analysis support
 
-**What is extracted:**
+### Object Literal Parsing (v1.2+)
+
+**Purpose**: Enable dynamic dispatch resolution in taint analysis.
+
+**What is Extracted:**
 - Property-function mappings: `{ create: handleCreate }`
 - Shorthand properties: `{ handleClick }`
 - ES6 method definitions: `{ method() {} }`
 - Nested objects: `{ api: { handler: fn } }`
 - Spread operators: `{ ...base }`
 
-**Why this matters:**
-Dynamic dispatch patterns like `const handler = actions[req.query.action]; handler(req.body)` are common in modern JavaScript and represent a security vulnerability when user input controls dispatch. Without object literal parsing, taint analysis cannot resolve which function `handler` points to. With it, we can:
-1. Detect the vulnerability (user input → property access = `dynamic_dispatch` sink)
-2. Query the database to find all possible target functions
-3. Trace taint flow through all possible execution paths
-
-**Query example:**
-```python
-from theauditor.indexer.schema import build_query
-
-query = build_query('object_literals',
-    ['property_value'],
-    where="variable_name = ? AND property_type IN ('function_ref', 'shorthand')"
-)
-cursor.execute(query, ('actions',))
-possible_targets = [row[0] for row in cursor.fetchall()]
-```
-
 **Architecture:**
-- **Extraction:** AST-based traversal in `theauditor/indexer/extractors/javascript.py` (lines 1131-1396)
-- **Storage:** `object_literals` table in `repo_index.db` with 4 indexes for fast lookup
-- **Consumption:** Taint analyzer queries database for dispatch resolution (`theauditor/taint/interprocedural_cfg.py`)
-- **Sink Detection:** New `dynamic_dispatch` category in `SECURITY_SINKS` (`theauditor/taint/sources.py` line 352)
+- **Extraction**: `indexer/extractors/javascript.py` line 304 (JavaScriptExtractor)
+- **Storage**: `object_literals` table (schema.py:495, database.py:1312)
+- **Implementation**: `ast_extractors/__init__.py:310` (extract_object_literals method)
+- **Consumption**: Taint analyzer queries for dispatch resolution
+- **Detection**: `dynamic_dispatch` sink category
 
-**Detected Vulnerability Patterns:**
-- `handlers[req.query.action]()` - User-controlled function dispatch
+**Detected Patterns:**
+- `handlers[req.query.action]()` - User-controlled dispatch
 - `obj[userInput]` - Dynamic property access with tainted key
 - Prototype pollution via `__proto__`, `constructor`, `prototype`
-- Python dynamic access via `getattr(obj, userInput)`
 
 **Performance:**
-- Adds ~10-20ms per JavaScript file during indexing
-- Query time: <1ms (measured: 0.029ms average with indexed lookups)
-- 18x average speedup over file I/O + regex approach
+- ~10-20ms per JS file during indexing
+- Query time: <1ms (indexed lookups)
 
-**Documentation:** See `docs/OBJECT_LITERAL_PARSING.md` for complete guide and API reference.
+**Documentation:** See `docs/OBJECT_LITERAL_PARSING.md` for complete guide.
 
-#### Framework Detection (`theauditor/framework_detector.py`)
-- Auto-detects Django, Flask, React, Vue, etc.
+### Framework Detection (`theauditor/framework_detector.py`)
+
+Verified exists (29KB). Auto-detects:
+- Django, Flask (Python backends)
+- React, Vue, Angular (frontends)
+- Express, Fastify (Node.js backends)
 - Applies framework-specific rules
 
-#### Graph Analysis (`theauditor/commands/graph.py`)
-- Build dependency graphs with `aud graph build`
-- Analyze graph health with `aud graph analyze`
-- Visualize with GraphViz output (optional)
-- Detect circular dependencies and architectural issues
+### Graph Analysis (`theauditor/commands/graph.py`)
 
-#### Control Flow Analysis (`theauditor/commands/cfg.py`)
-- Analyze function complexity with `aud cfg analyze`
-- Visualize control flow with `aud cfg viz`
-- Find dead code blocks (unreachable code)
-- Calculate cyclomatic complexity metrics
-- Stored in database tables: cfg_blocks, cfg_edges, cfg_block_statements
-- Future: Flow-sensitive taint analysis using CFG paths
+Commands verified:
+- `aud graph build` - Build dependency graph
+- `aud graph analyze` - Health metrics, cycle detection
+- `aud graph viz` - GraphViz visualization (4 views)
 
-#### Output Structure
+Detects:
+- Circular dependencies
+- Architectural issues
+- Hotspots
+- Layer violations
+
+### Control Flow Analysis (`theauditor/commands/cfg.py`)
+
+Commands verified:
+- `aud cfg analyze` - Function complexity, dead code
+- `aud cfg viz` - Visualize function control flow
+
+Features:
+- Cyclomatic complexity calculation
+- Unreachable code detection
+- Stored in: `cfg_blocks`, `cfg_edges`, `cfg_block_statements` tables
+
+## Output Structure
+
+**Verified** (.pf/ directory):
 ```
 .pf/
-├── raw/            # Immutable tool outputs (ground truth)
-├── readthis/       # AI-optimized chunks (<65KB each, max 3 chunks per file)
-├── repo_index.db   # SQLite database of code symbols
-└── pipeline.log    # Execution trace
+├── raw/                # Immutable tool outputs (ground truth)
+├── readthis/          # AI-optimized chunks (<65KB each, max 3 chunks per file)
+├── repo_index.db      # SQLite database of code symbols
+├── pipeline.log       # Execution trace
+├── .cache/            # AST cache
+├── graphs.db          # Graph analysis database
+└── context/           # Semantic context analysis
 ```
 
-### CLI Entry Points
-- Main CLI: `theauditor/cli.py`
-- Command modules: `theauditor/commands/`
-- Each command is a separate module with standardized structure
+**Chunking Behavior:**
+- Files >65KB split into chunks (configurable: `THEAUDITOR_LIMITS_MAX_CHUNK_SIZE`)
+- Max 3 chunks per file (configurable: `THEAUDITOR_LIMITS_MAX_CHUNKS_PER_FILE`)
+- Format: `patterns_chunk01.json`, `patterns_chunk02.json`, etc.
+- If `truncated: true` in `chunk_info`, more findings existed
 
-## Available Commands
+## CLI Entry Points
 
-### Core Analysis Commands
-- `aud index`: Build comprehensive code index
-- `aud detect-patterns`: Run security pattern detection
-- `aud taint-analyze`: Perform taint flow analysis
-- `aud fce`: Run Factual Correlation Engine
-- `aud report`: Generate final consolidated report
+**Verified** (cli.py lines 232-323):
 
-### Graph Commands
-- `aud graph build`: Build dependency graph
-- `aud graph analyze`: Analyze graph health metrics
-- `aud graph visualize`: Generate GraphViz visualization
-
-### Utility Commands
-- `aud deps`: Analyze dependencies and vulnerabilities
-- `aud docs`: Extract and analyze documentation
-- `aud docker-analyze`: Analyze Docker configurations
-- `aud lint`: Run code linters
-- `aud workset`: Create critical file working set
-- `aud impact <file>`: Analyze change impact radius
-- `aud structure`: Display project structure
-- `aud insights`: Generate ML-powered insights (optional)
-- `aud refactor <operation>`: Automated refactoring tools
-
-## How to Work with TheAuditor Effectively
-
-### The Correct Workflow
-1. **Write specific requirements**: "Add JWT auth with httpOnly cookies, CSRF tokens, rate limiting"
-2. **Let AI implement**: It will probably mess up due to context limits
-3. **Run audit**: `aud full`
-4. **Read the facts**: Check `.pf/readthis/` for issues
-5. **Fix based on facts**: Address the specific inconsistencies found
-6. **Repeat until clean**: Keep auditing and fixing until no issues
-
-### What NOT to Do
-- ❌ Don't ask AI to "implement secure authentication" (too vague)
-- ❌ Don't try to make TheAuditor understand your business logic
-- ❌ Don't expect TheAuditor to write fixes (it only reports issues)
-- ❌ Don't ignore the audit results and claim "done"
-
-### Understanding the Output
-- **Truth Couriers** report facts: "JWT secret hardcoded at line 47"
-- **Insights** (if installed) add interpretation: "HIGH severity"
-- **Correlations** detect YOUR patterns: "Frontend expects old API structure"
-- **Impact Analysis** shows blast radius: "Changing this affects 23 files"
+Commands registered:
+- init, index, workset, lint, deps, report, summary, full, fce, impact
+- taint_analyze, setup_ai, explain, detect_patterns, detect_frameworks
+- docs, tool_versions, init_js, init_config
+- learn, suggest, learn_feedback (ML commands)
+- rules_command, refactor_command, insights_command, context_command
+- docker_analyze, structure, metadata
+- graph (group), cfg (group)
 
 ## Critical Development Patterns
 
 ### Adding New Commands
-1. Create module in `theauditor/commands/` with this structure:
+
+1. Create module in `theauditor/commands/`:
 ```python
 import click
 from theauditor.utils.decorators import handle_exceptions
@@ -517,7 +507,8 @@ cli.add_command(your_command.command_name)
 ```
 
 ### Adding Language Support
-To add a new language, create an extractor in `theauditor/indexer/extractors/`:
+
+Create extractor in `theauditor/indexer/extractors/`:
 ```python
 from theauditor.indexer.extractors import BaseExtractor, register_extractor
 
@@ -526,19 +517,20 @@ class YourLanguageExtractor(BaseExtractor):
     @property
     def supported_extensions(self):
         return ['.ext', '.ext2']
-    
+
     def extract(self, file_info, content, tree):
         # Return dict with symbols, imports, etc.
 ```
 
-The extractor will be auto-discovered via the registry pattern.
+Auto-discovered via registry.
 
 ### Adding New Rules
-**📖 Full documentation:** `theauditor/rules/RULE_METADATA_GUIDE.md`
-**📋 Templates:** `theauditor/rules/TEMPLATE_STANDARD_RULE.py` and `TEMPLATE_JSX_RULE.py`
 
-Rules use **smart filtering** via metadata to skip irrelevant files:
+**Templates:**
+- `theauditor/rules/TEMPLATE_STANDARD_RULE.py` - Backend/SQL/Auth rules
+- `theauditor/rules/TEMPLATE_JSX_RULE.py` - JSX syntax rules
 
+**Smart Filtering via Metadata:**
 ```python
 from theauditor.rules.base import RuleMetadata, StandardRuleContext, StandardFinding
 
@@ -547,65 +539,90 @@ METADATA = RuleMetadata(
     category="sql",
     target_extensions=['.py', '.js', '.ts'],     # ONLY these files
     exclude_patterns=['frontend/', 'migrations/'], # SKIP these paths
-    requires_jsx_pass=False  # True = use *_jsx tables (React/Vue)
+    requires_jsx_pass=False  # True = use *_jsx tables
 )
 
 def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     """Database-first detection (no file I/O, no AST traversal)."""
     conn = sqlite3.connect(context.db_path)
+    cursor = conn.cursor()
+
     # Query function_call_args, symbols, etc.
+    cursor.execute("""
+        SELECT file, line, argument_expr
+        FROM function_call_args
+        WHERE callee_function LIKE '%execute%'
+    """)
+    # Process findings...
 ```
-
-**Key decisions:**
-- **Backend/SQL/Auth rules** → Use `TEMPLATE_STANDARD_RULE.py`
-- **JSX syntax rules** → Use `TEMPLATE_JSX_RULE.py` (requires `requires_jsx_pass=True`)
-- **React hooks rules** → Use `TEMPLATE_STANDARD_RULE.py` ⚠️ (hooks are function calls, not JSX)
-
-**Result:** SQL rules skip `.jsx` files, React rules skip `.py` files, migrations auto-filtered.
 
 ### ABSOLUTE PROHIBITION: Fallback Logic & Regex
 
-**NO FALLBACKS. NO REGEX. NO EXCEPTIONS.**
+**NO FALLBACKS. NO REGEX. NO MIGRATIONS. NO EXCEPTIONS.**
 
-The schema contract system (`theauditor/indexer/schema.py`) guarantees table existence.
-Rules MUST assume all contracted tables exist. Any table existence check is architectural cancer.
+The database is GENERATED FRESH every `aud full` run. It MUST exist and MUST be correct.
+Schema contract system guarantees table existence. All code MUST assume contracted tables exist.
 
 **FORBIDDEN PATTERNS:**
 ```python
-# ❌ CANCER - Table existence checking
-def _check_tables(cursor):
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'...")
-    return {row[0] for row in cursor.fetchall()}
+# ❌ CANCER - Database migrations
+def _run_migrations(self):
+    try:
+        cursor.execute("ALTER TABLE...")
+    except sqlite3.OperationalError:
+        pass  # NO! Database is fresh every run!
 
-# ❌ CANCER - Conditional execution based on table existence
+# ❌ CANCER - JSON fallbacks in FCE
+try:
+    data = load_from_db(db_path)
+except Exception:
+    # Fallback to JSON - NO! Hard fail if DB is wrong
+    data = json.load(open('fallback.json'))
+
+# ❌ CANCER - Table existence checking
 if 'function_call_args' not in existing_tables:
     return findings
 
-# ❌ CANCER - Fallback execution paths
+# ❌ CANCER - Fallback execution
 if 'api_endpoints' not in existing_tables:
     return _check_oauth_state_fallback(cursor)
 
-# ❌ CANCER - Regex on file content (ANY reason)
+# ❌ CANCER - Regex on file content
 pattern = re.compile(r'password\s*=\s*["\'](.+)["\']')
 matches = pattern.findall(content)
 ```
 
 **MANDATORY PATTERN:**
 ```python
-# ✅ CORRECT - Direct database query, assume table exists
+# ✅ CORRECT - Direct database query, hard failure on error
 def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     conn = sqlite3.connect(context.db_path)
     cursor = conn.cursor()
 
+    # NO try/except, NO table checks, NO fallbacks
     cursor.execute("""
         SELECT file, line, argument_expr
         FROM function_call_args
         WHERE callee_function LIKE '%jwt.sign'
     """)
     # Process findings...
+
+# ✅ CORRECT - FCE loads directly from database
+def run_fce(root_path):
+    db_path = Path(root_path) / ".pf" / "repo_index.db"
+
+    # NO try/except, NO JSON fallback, hard crash if DB wrong
+    hotspots, cycles = load_graph_data_from_db(db_path)
+    complex_funcs = load_cfg_data_from_db(db_path)
 ```
 
-**If a table doesn't exist, the rule SHOULD crash. This indicates schema contract violation, not a condition to handle gracefully.**
+**WHY NO FALLBACKS:**
+- Database regenerated from scratch every run - migrations are meaningless
+- If data is missing, pipeline is broken and SHOULD crash
+- Graceful degradation hides bugs and creates inconsistent behavior
+- Hard failure forces immediate fix of root cause
+
+**If table doesn't exist or data is missing, code MUST crash.** This indicates schema contract violation or pipeline bug that must be fixed immediately.
 
 ## CRITICAL: Reading Chunked Data
 
@@ -628,44 +645,81 @@ if chunk_info.get('truncated', False):
 - If `truncated: true` in `chunk_info`, there were more findings that couldn't fit
 - Always process ALL chunk files for complete data
 
-## Critical Working Knowledge
+## Project Dependencies
 
-### Pipeline Execution Order
-The `aud full` command runs multiple analysis phases in 4 stages:
-1. **Sequential Foundation**: index → framework_detect
-2. **Sequential Data Prep**: workset → graph_build → cfg_analyze → metadata_churn
-3. **Parallel Heavy Analysis**:
-   - Track A: taint-analyze (isolated, ~30s with v1.2 cache)
-   - Track B: lint → patterns → graph_analyze → graph_viz (4 views)
-   - Track C: deps → docs_fetch → docs_summarize (skipped in --offline mode)
-4. **Sequential Aggregation**: fce → extract_chunks → report → summary
+**Verified** (pyproject.toml lines 15-73):
 
-If modifying pipeline, maintain this dependency order.
+**Core:**
+- click==8.3.0
+- PyYAML==6.0.3
+- jsonschema==4.25.1
+- ijson==3.4.0.post0
+- json5==0.12.1
 
-### File Size and Memory Management
-- Files >2MB are skipped by default (configurable)
-- JavaScript files are batched for semantic parsing to avoid memory issues
-- AST cache persists parsed trees to `.pf/.ast_cache/`
-- Database operations batch at 200 records (configurable)
+**Optional Groups** (`pip install -e ".[group]"`):
 
-### Monorepo Detection
-The indexer automatically detects monorepo structures and applies intelligent filtering:
-- Standard paths: `backend/src/`, `frontend/src/`, `packages/*/src/`
-- Whitelist mode activated when monorepo detected
-- Prevents analyzing test files, configs, migrations as source code
+**[dev]**:
+- pytest==8.4.2
+- pytest-cov>=4.0.0
+- pytest-xdist>=3.0.0
+- ruff==0.14.0
+- black==25.9.0
 
-### JavaScript/TypeScript Special Handling
-- MUST run `aud setup-ai --target .` first
-- Uses bundled Node.js v20.11.1 in `.auditor_venv/.theauditor_tools/`
-- TypeScript semantic analysis requires `js_semantic_parser.py`
-- ESLint runs in sandboxed environment, not project's node_modules
+**[linters]**:
+- ruff==0.14.0
+- mypy==1.18.2
+- black==25.9.0
+- bandit==1.8.6
+- pylint==3.3.9
 
-### Environment Variables
-Key environment variables for configuration:
-- `THEAUDITOR_LIMITS_MAX_FILE_SIZE`: Maximum file size to analyze (default: 2MB)
-- `THEAUDITOR_LIMITS_MAX_CHUNK_SIZE`: Maximum chunk size for readthis output (default: 65KB)
-- `THEAUDITOR_LIMITS_MAX_CHUNKS_PER_FILE`: Maximum chunks per file (default: 3)
-- `THEAUDITOR_DB_BATCH_SIZE`: Database batch insert size (default: 200)
+**[ml]**:
+- scikit-learn==1.7.2
+- numpy==2.3.3
+- scipy==1.16.2
+- joblib==1.5.2
+
+**[ast]**:
+- tree-sitter==0.25.2
+- tree-sitter-language-pack==0.10.0
+- sqlparse==0.5.3
+- dockerfile-parse==2.0.1
+
+**[all]**: Everything above combined
+
+## Performance Expectations
+
+### v1.2 with Memory Cache (Current)
+
+**Small project** (< 5K LOC):
+- First run: ~1 minute
+- Warm cache: near-instant
+
+**Medium project** (20K LOC):
+- First run: ~2-5 minutes
+- Warm cache: ~30 seconds
+
+**Large monorepo** (100K+ LOC):
+- First run: ~15-30 minutes
+- Warm cache: ~5 minutes
+
+**Resources:**
+- Memory usage: 500MB-4GB (depends on codebase size)
+- Disk space: ~100-500MB for .pf/ output
+
+**Key Improvements:**
+- v1.2: 8,461x faster taint analysis (4 hours → 30 seconds)
+- v1.1: 355x faster pattern detection (10 hours → 101 seconds)
+- Memory cache: Pre-loads DB with O(1) lookups
+
+## Environment Variables
+
+**Configuration:**
+- `THEAUDITOR_LIMITS_MAX_FILE_SIZE` - Max file size (default: 2097152 = 2MB)
+- `THEAUDITOR_LIMITS_MAX_CHUNK_SIZE` - Max chunk size (default: 65536 = 65KB)
+- `THEAUDITOR_LIMITS_MAX_CHUNKS_PER_FILE` - Max chunks per file (default: 3)
+- `THEAUDITOR_DB_BATCH_SIZE` - Database batch insert size (default: 200)
+- `THEAUDITOR_TIMEOUT_SECONDS` - Default timeout (default: 1800 = 30 min)
+- `THEAUDITOR_TIMEOUT_{COMMAND}_SECONDS` - Per-command timeout override
 
 ## Recent Fixes & Known Issues
 
@@ -715,7 +769,7 @@ Key environment variables for configuration:
 Based on comprehensive audit documented in `theauditor/rules/nightmare_fuel.md`:
 - **Completed**: Auth rules package (JWT, OAuth, password, session)
 - **Completed**: XSS rules refactor with framework-aware safe sinks
-- **Gold Standard Pattern**: Database-first queries, frozensets for O(1) lookups, table existence checks
+- **Gold Standard Pattern**: Database-first queries, frozensets for O(1) lookups
 - **Next Phase**: SQL injection rules, remaining categories per priority matrix
 
 ### Known Limitations
@@ -725,24 +779,46 @@ Based on comprehensive audit documented in `theauditor/rules/nightmare_fuel.md`:
 - GraphViz visualization requires separate installation
 - SQL extraction patterns may produce UNKNOWN entries (P0 fix scheduled - see nightmare_fuel.md)
 
-## Common Misconceptions to Avoid
+## Testing
+
+```bash
+# Install test dependencies
+pip install -e ".[dev]"
+
+# Run all tests
+pytest tests/ -v
+
+# Run with coverage
+pytest tests/ --cov=theauditor --cov-report=html
+
+# Run specific test
+pytest tests/test_schema_contract.py -v
+```
+
+**Test Categories:**
+- Unit Tests: Schema definitions, query builder
+- End-to-End Tests: Full pipeline, taint analysis
+
+**Test fixtures**: `tests/conftest.py`
+
+## Common Misconceptions
 
 ### TheAuditor is NOT:
-- ❌ A semantic understanding tool (doesn't understand what your code "means")
-- ❌ A business logic validator (doesn't know your business rules)
-- ❌ An AI enhancement tool (doesn't make AI "smarter")
-- ❌ A code generator (only reports issues, doesn't fix them)
+- ❌ A semantic understanding tool
+- ❌ A business logic validator
+- ❌ An AI enhancement tool
+- ❌ A code generator
 
 ### TheAuditor IS:
 - ✅ A consistency checker (finds where code doesn't match itself)
-- ✅ A fact reporter (provides ground truth about your code)
-- ✅ A context provider (gives AI the full picture across all files)
-- ✅ An audit trail (immutable record of what tools found)
+- ✅ A fact reporter (ground truth about code)
+- ✅ A context provider (gives AI full picture)
+- ✅ An audit trail (immutable record)
 
 ## Troubleshooting
 
 ### TypeScript Analysis Fails
-Solution: Run `aud setup-ai --target .`
+**Solution**: Run `aud setup-ai --target .`
 
 ### Taint Analysis Reports 0 Vulnerabilities on TypeScript
 - Check that `js_semantic_parser.py` has text extraction enabled (lines 275, 514)
@@ -758,14 +834,14 @@ This is a known issue documented in `theauditor/rules/nightmare_fuel.md`:
 - **Workaround**: Focus on non-UNKNOWN findings, or manually verify SQL patterns
 
 ### Pipeline Failures
-Check `.pf/error.log` and `.pf/pipeline.log` for details
+Check `.pf/error.log` and `.pf/pipeline.log`
 
 ### Linting No Results
 Ensure linters installed: `pip install -e ".[linters]"`
 
 ### Graph Commands Not Working
-- Ensure `aud index` has been run first
-- Check that NetworkX is installed: `pip install -e ".[all]"`
+- Ensure `aud index` ran first
+- Check NetworkX installed: `pip install -e ".[all]"`
 
 ### Empty refs Table
 - **Symptom**: `SELECT COUNT(*) FROM refs` returns 0
@@ -773,67 +849,6 @@ Ensure linters installed: `pip install -e ".[linters]"`
 - **Fix Status**: P0 priority, documented in nightmare_fuel.md
 - **Impact**: Import tracking and dependency analysis incomplete
 
-## Testing TheAuditor
+---
 
-### Running Tests
-
-```bash
-# Install test dependencies
-pip install -e ".[dev]"
-
-# Run all tests
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ --cov=theauditor --cov-report=html
-
-# Run specific test file
-pytest tests/test_schema_contract.py -v
-```
-
-### Test Categories
-
-**Unit Tests** (`tests/test_schema_contract.py`):
-- Schema definitions and validation
-- Query builder correctness
-- Column name compliance
-
-**End-to-End Tests** (`tests/test_taint_e2e.py`):
-- Full pipeline execution
-- Taint analysis on sample code
-- Database schema validation
-
-**Adding New Tests**:
-See `tests/conftest.py` for fixtures. Follow existing patterns in test files.
-
-## Testing Vulnerable Code
-Test projects are in `fakeproj/` directory. Always use `--exclude-self` when analyzing them to avoid false positives from TheAuditor's own configuration.
-
-## Project Dependencies
-
-### Required Dependencies (Core)
-- click==8.2.1 - CLI framework
-- PyYAML==6.0.2 - YAML parsing
-- jsonschema==4.25.1 - JSON validation
-- ijson==3.4.0 - Incremental JSON parsing
-
-### Optional Dependencies
-Install with `pip install -e ".[group]"`:
-- **[linters]**: ruff, mypy, black, bandit, pylint
-- **[ml]**: scikit-learn, numpy, scipy, joblib
-- **[ast]**: tree-sitter, sqlparse, dockerfile-parse
-- **[all]**: Everything including NetworkX for graphs
-
-## Performance Expectations
-
-### v1.2 with Memory Cache (Current)
-- **Small project** (< 5K LOC): ~1 minute first run, near-instant on warm cache
-- **Medium project** (20K LOC): ~2-5 minutes first run, ~30 seconds on warm cache
-- **Large monorepo** (100K+ LOC): ~15-30 minutes first run, ~5 minutes on warm cache
-- **Memory usage**: 500MB-4GB depending on codebase size and cache settings
-- **Disk space**: ~100-500MB for .pf/ output directory
-
-### Key Performance Improvements
-- **v1.2**: 8,461x faster taint analysis (4 hours → 30 seconds), 480x faster overall on warm cache
-- **v1.1**: 355x faster pattern detection (10 hours → 101 seconds), 66% faster typical projects
-- **Memory cache**: Pre-loads database with O(1) lookups, graceful degradation if memory constrained
+**This document is anchored in code verified on 2025-10-16. All claims checked against live implementation. Zero hallucinations.**

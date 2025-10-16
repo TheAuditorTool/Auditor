@@ -1,6 +1,19 @@
 """Python AST extraction implementations.
 
 This module contains all Python-specific extraction logic using the built-in ast module.
+
+ARCHITECTURAL CONTRACT: File Path Responsibility
+=================================================
+This is an IMPLEMENTATION layer module. All functions here:
+- RECEIVE: AST tree only (no file path context)
+- EXTRACT: Data with 'line' numbers and content
+- RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
+- MUST NOT: Include 'file' or 'file_path' keys in returned dicts
+
+File path context is provided by the INDEXER layer (indexer/__init__.py)
+when storing to database. See indexer/__init__.py:952 for example.
+
+This separation ensures single source of truth for file paths.
 """
 
 import ast

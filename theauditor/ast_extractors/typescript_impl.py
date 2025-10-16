@@ -1241,6 +1241,19 @@ def extract_typescript_object_literals(tree: Dict, parser_self) -> List[Dict[str
     """Extract object literal properties via direct semantic AST traversal.
 
     This is the centralized, correct implementation for object literal extraction.
+
+    ARCHITECTURAL CONTRACT:
+    -----------------------
+    This function is an IMPLEMENTATION layer component. It:
+    - RECEIVES: AST tree only (no file path context)
+    - EXTRACTS: Object literal data with line numbers
+    - RETURNS: List[Dict] with keys: line, variable_name, property_name, property_value, property_type, nested_level, in_function
+    - MUST NOT: Include 'file' or 'file_path' keys in returned dicts
+
+    File path context is provided by the INDEXER layer when storing to database.
+    See indexer/__init__.py:952 which calls db_manager.add_object_literal(file_path, obj_lit['line'], ...)
+
+    This separation ensures single source of truth for file paths.
     """
     object_literals = []
 

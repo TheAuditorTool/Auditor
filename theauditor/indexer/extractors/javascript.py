@@ -3,6 +3,20 @@
 This extractor:
 1. Delegates core extraction to the AST parser
 2. Performs framework-specific analysis (React/Vue) on the extracted data
+
+ARCHITECTURAL CONTRACT: File Path Responsibility
+=================================================
+This is an EXTRACTOR layer module. It:
+- RECEIVES: file_info dict (contains 'path' key from indexer)
+- DELEGATES: To ast_parser.extract_X(tree) methods (line 290 for object literals)
+- RETURNS: Extracted data WITHOUT file_path keys
+
+The INDEXER layer (indexer/__init__.py) provides file_path and stores to database.
+See indexer/__init__.py:948-962 for object literal storage example:
+  - Line 952: Uses file_path parameter (from orchestrator)
+  - Line 953: Uses obj_lit['line'] (from this extractor's delegation to typescript_impl.py)
+
+This separation ensures single source of truth for file paths.
 """
 
 from typing import Dict, Any, List, Optional

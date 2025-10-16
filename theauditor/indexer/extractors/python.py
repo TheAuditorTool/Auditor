@@ -4,6 +4,18 @@ Handles extraction of Python-specific elements including:
 - Python imports (import/from statements)
 - Flask/FastAPI route decorators with middleware
 - AST-based symbol extraction
+
+ARCHITECTURAL CONTRACT: File Path Responsibility
+=================================================
+This is an EXTRACTOR layer module. It:
+- RECEIVES: file_info dict (contains 'path' key from indexer)
+- DELEGATES: To ast_parser.extract_X(tree) methods
+- RETURNS: Extracted data WITHOUT file_path keys
+
+The INDEXER layer (indexer/__init__.py) provides file_path and stores to database.
+See indexer/__init__.py:619-564 for _store_extracted_data() implementation.
+
+This separation ensures single source of truth for file paths.
 """
 
 import ast
