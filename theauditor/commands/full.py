@@ -13,7 +13,8 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
 @click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
 @click.option("--subprocess-taint", is_flag=True, help="Run taint analysis as subprocess (slower but isolated)")
-def full(root, quiet, exclude_self, offline, subprocess_taint):
+@click.option("--wipecache", is_flag=True, help="Delete all caches before run (for cache corruption recovery)")
+def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache):
     """Run comprehensive security audit pipeline (20 phases).
 
     Executes TheAuditor's complete analysis pipeline in 4 optimized stages
@@ -32,8 +33,8 @@ def full(root, quiet, exclude_self, offline, subprocess_taint):
 
       Stage 3: Heavy Analysis (3 Parallel Tracks)
         Track A: Taint analysis (isolated for performance)
-        Track B: Static analysis (lint, patterns, graph)
-        Track C: Network I/O (deps, docs) - skipped if --offline
+        Track B: Static analysis & offline security (lint, patterns, graph, vuln-scan)
+        Track C: Network I/O (version checks, docs) - skipped if --offline
 
       Stage 4: Aggregation (Sequential)
         - Factual Correlation Engine (cross-reference findings)
@@ -44,6 +45,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint):
       aud full --offline          # Air-gapped analysis (no npm/pip checks)
       aud full --exclude-self     # Skip TheAuditor's own files
       aud full --quiet            # Minimal output for CI/CD pipelines
+      aud full --wipecache        # Force cache rebuild (for corruption recovery)
 
     Output Files:
       .pf/readthis/*_chunk*.json  # Chunked findings for AI consumption
@@ -62,6 +64,14 @@ def full(root, quiet, exclude_self, offline, subprocess_taint):
       Medium project (20K LOC):    ~10 minutes
       Large monorepo (100K+ LOC):  ~30-60 minutes
 
+    Cache Behavior:
+      By default, caches are PRESERVED between runs for speed:
+        - AST parsing cache (.pf/.cache/)
+        - Documentation cache (.pf/context/docs/)
+
+      Use --wipecache to force a complete cache rebuild.
+      This is useful for recovering from cache corruption.
+
     Note: Uses intelligent caching - second run is 5-10x faster"""
     from theauditor.pipelines import run_full_pipeline
     
@@ -79,6 +89,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint):
         exclude_self=exclude_self,
         offline=offline,
         use_subprocess_for_taint=subprocess_taint,
+        wipe_cache=wipecache,
         log_callback=log_callback if not quiet else None
     )
     

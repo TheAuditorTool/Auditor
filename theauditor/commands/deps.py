@@ -86,8 +86,11 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
     if vuln_scan:
         click.echo(f"\n[SCAN] Running native vulnerability scanners...")
         click.echo(f"  Using: npm audit, pip-audit, OSV-Scanner")
-        mode_str = "Offline (local databases)" if offline else "Online (OSV.dev API)"
-        click.echo(f"  Mode: {mode_str}")
+        if offline:
+            click.echo(f"  Mode: Offline (all tools use local data)")
+        else:
+            click.echo(f"  Mode: Online registry checks (npm/pip) + offline OSV database")
+            click.echo(f"        OSV-Scanner always uses local database (never hits API)")
         click.echo(f"  Cross-referencing findings across 3 sources...")
 
         vulnerabilities = scan_dependencies(deps_list, offline=offline)
