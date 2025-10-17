@@ -70,17 +70,6 @@ class XGraphStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type)")
 
-            # Ensure metadata columns exist for legacy databases
-            try:
-                conn.execute("ALTER TABLE nodes ADD COLUMN metadata TEXT")
-            except sqlite3.OperationalError:
-                pass
-
-            try:
-                conn.execute("ALTER TABLE edges ADD COLUMN metadata TEXT")
-            except sqlite3.OperationalError:
-                pass
-
             conn.commit()
     
     def save_import_graph(self, graph: dict[str, Any]) -> None:

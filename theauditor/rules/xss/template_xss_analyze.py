@@ -21,7 +21,8 @@ METADATA = RuleMetadata(
     category="xss",
     target_extensions=['.py', '.js', '.ts', '.html', '.ejs', '.pug', '.vue', '.jinja2'],
     exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.test.js'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope='database'  # Run once globally, not per-file
 )
 
 
@@ -426,7 +427,13 @@ def _check_custom_template_helpers(conn) -> List[StandardFinding]:
 
 
 def _check_server_side_template_injection(conn) -> List[StandardFinding]:
-    """Check for server-side template injection (SSTI)."""
+    r"""Check for server-side template injection (SSTI).
+
+    BUG FIXES (2025-10-17):
+    1. SQL LIKE wildcard escape: _ must be escaped as \_ to avoid matching any character
+    2. Context awareness: Only flag 'config.' when near template rendering functions
+    3. Deduplication: Use DISTINCT to avoid duplicate findings from duplicate DB rows
+    """
     findings = []
     cursor = conn.cursor()
 
@@ -437,16 +444,52 @@ def _check_server_side_template_injection(conn) -> List[StandardFinding]:
         'config.', 'self.', 'lipsum.', 'cycler.',
         '|attr(', '|format(', 'getattr(',
         '{{config', '{{self', '{{request',
-        '${__', '#{__'
+        '${__', '#{__'  # These contain underscores - will be escaped!
     ]
 
+    # Template rendering functions for proximity checks
+    RENDER_FUNCTIONS = frozenset([
+        'render_template_string', 'render_template', 'render',
+        'ejs.render', 'ejs.compile', 'pug.compile',
+        'Handlebars.compile', 'tera.render_str', 'tera.render',
+        'compile', 'Template'
+    ])
+
     for pattern in dangerous_template_patterns:
-        cursor.execute("""
-            SELECT a.file, a.line, a.source_expr
-            FROM assignments a
-            WHERE a.source_expr LIKE ?
-            ORDER BY a.file, a.line
-        """, [f'%{pattern}%'])
+        # FIX 1: Escape underscores for SQL LIKE (prevents ${__ matching ${xy})
+        escaped_pattern = pattern.replace('_', '\\_')
+
+        # FIX 2: Context-aware detection for 'config.' pattern
+        # Only check proximity to render functions for broad patterns
+        needs_proximity_check = pattern in ['config.', 'self.']
+
+        if needs_proximity_check:
+            # Only flag if near template rendering functions
+            cursor.execute("""
+                SELECT DISTINCT a.file, a.line, a.source_expr
+                FROM assignments a
+                WHERE a.source_expr LIKE ? ESCAPE '\\'
+                AND EXISTS (
+                    SELECT 1 FROM function_call_args f
+                    WHERE f.file = a.file
+                    AND ABS(f.line - a.line) <= 20
+                    AND (
+                        f.callee_function IN ('render_template_string', 'render', 'compile',
+                                             'ejs.render', 'ejs.compile', 'Handlebars.compile')
+                        OR f.callee_function LIKE '%render%'
+                        OR f.callee_function LIKE '%compile%'
+                    )
+                )
+                ORDER BY a.file, a.line
+            """, [f'%{escaped_pattern}%'])
+        else:
+            # FIX 3: Use DISTINCT to avoid duplicate findings from duplicate DB rows
+            cursor.execute("""
+                SELECT DISTINCT a.file, a.line, a.source_expr
+                FROM assignments a
+                WHERE a.source_expr LIKE ? ESCAPE '\\'
+                ORDER BY a.file, a.line
+            """, [f'%{escaped_pattern}%'])
 
         for file, line, source in cursor.fetchall():
             findings.append(StandardFinding(

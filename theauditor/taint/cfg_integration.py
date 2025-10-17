@@ -82,12 +82,17 @@ class PathAnalyzer:
         Args:
             cursor: Database cursor
             file_path: Path to source file
-            function_name: Name of function to analyze
+            function_name: Name of function to analyze (will be normalized)
         """
         self.cursor = cursor
         self.file_path = file_path.replace("\\", "/")
-        self.function_name = function_name
-        self.cfg = get_cfg_for_function(cursor, file_path, function_name)
+
+        # CRITICAL FIX: Normalize function name for CFG lookup
+        # function_call_args stores: "accountService.createAccount"
+        # cfg_blocks stores: "createAccount"
+        # Strip object/class prefix to match CFG naming convention
+        self.function_name = self._normalize_function_name(function_name)
+        self.cfg = get_cfg_for_function(cursor, file_path, self.function_name)
         self.debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
         
         # Build block lookup
@@ -99,7 +104,29 @@ class PathAnalyzer:
         for edge in self.cfg["edges"]:
             self.successors[edge["source"]].append((edge["target"], edge["type"]))
             self.predecessors[edge["target"]].append((edge["source"], edge["type"]))
-    
+
+    def _normalize_function_name(self, func_name: str) -> str:
+        """Normalize function name for CFG lookup.
+
+        CRITICAL FIX: Strip object/class prefix to match cfg_blocks table naming.
+
+        Examples:
+            'accountService.createAccount' → 'createAccount'
+            'BatchController.constructor' → 'constructor'
+            'ApiService.setupInterceptors' → 'setupInterceptors'
+            'createAccount' → 'createAccount' (unchanged)
+
+        WHY: function_call_args stores fully qualified names but cfg_blocks
+        stores method names only. This normalization bridges the gap.
+
+        Returns:
+            Normalized function name for CFG lookup
+        """
+        if '.' in func_name:
+            # Split on last dot to handle nested objects: a.b.c → c
+            return func_name.split('.')[-1]
+        return func_name
+
     def find_vulnerable_paths(self, source_line: int, sink_line: int,
                             initial_tainted_var: str, max_paths: int = 100) -> List[Dict[str, Any]]:
         """

@@ -112,23 +112,28 @@ class TaintPath:
         return result
 
 
-def trace_taint(db_path: str, max_depth: int = 5, registry=None, 
-                use_cfg: bool = False, stage3: bool = False,
+def trace_taint(db_path: str, max_depth: int = 5, registry=None,
+                use_cfg: bool = False,
                 use_memory_cache: bool = True, memory_limit_mb: int = 12000,
                 cache: Optional['MemoryCache'] = None) -> Dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
-    
+
     Args:
         db_path: Path to the SQLite database
         max_depth: Maximum depth to trace taint propagation
         registry: Optional TaintRegistry with enriched patterns from rules
-        use_cfg: Enable flow-sensitive CFG analysis (Stage 2)
-        stage3: Enable inter-procedural CFG with caching (Stage 3)
+        use_cfg: Enable CFG-based analysis (Stage 3 multi-hop when True, Stage 2 when False)
         use_memory_cache: Enable in-memory caching for performance (default: True)
         memory_limit_mb: Memory limit for cache in MB (default: 12000)
         cache: Optional pre-loaded MemoryCache to use (avoids reload)
-        
+
+    Stage Selection (v1.2.1):
+        - use_cfg=True: Stage 3 (CFG-based multi-hop with worklist)
+        - use_cfg=False: Stage 2 (call-graph flow-insensitive)
+
+    Note: The stage3 parameter was removed in v1.2.1 - use_cfg now controls everything.
+
     Returns:
         Dictionary containing:
         - taint_paths: List of source-to-sink vulnerability paths
@@ -212,7 +217,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         # Step 1: Find all taint sources in the codebase
         # Pass config sources instead of global TAINT_SOURCES
         sources = find_taint_sources(cursor, config.sources, cache=cache)
-        
+
         # Step 2: Find all security sinks in the codebase
         # Pass config sinks instead of global SECURITY_SINKS
         sinks = find_security_sinks(cursor, config.sinks, cache=cache)
@@ -236,7 +241,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
             
             # Trace taint propagation from this source
             paths = trace_from_source(
-                cursor, source, source_function, sinks, call_graph, max_depth, use_cfg, stage3, cache=cache
+                cursor, source, source_function, sinks, call_graph, max_depth, use_cfg, cache=cache
             )
             taint_paths.extend(paths)
         

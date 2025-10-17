@@ -2,15 +2,16 @@
 
 Architecture:
 - Python: CPython ast module (stdlib) - NOT Tree-sitter
-- JavaScript/TypeScript: TypeScript Compiler API for semantic analysis
-- Tree-sitter: Used for JS/TS syntax-only fallback, never for Python
+- JavaScript/TypeScript: TypeScript Compiler API MANDATORY - NO FALLBACKS
+- Tree-sitter: DEPRECATED for JS/TS (produces corrupted data)
 
 This module provides true structural code analysis using the best parser for
 each language, enabling high-fidelity pattern detection that understands code
 semantics rather than just text matching.
 
-CRITICAL: Python is NEVER parsed by Tree-sitter. See _init_tree_sitter_parsers()
-lines 63-90 for detailed explanation of why Python uses CPython ast exclusively.
+CRITICAL:
+- Python is NEVER parsed by Tree-sitter (see _init_tree_sitter_parsers() lines 63-90)
+- JS/TS MUST use semantic parser - silent fallbacks produce "anonymous" function names
 """
 
 import ast
@@ -196,51 +197,44 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             # Compute content hash for caching
             content_hash = hashlib.md5(content).hexdigest()
 
-            # For JavaScript/TypeScript, try semantic parser first
-            # CRITICAL FIX: Include None and polyglot project types
-            # When project_type is None (not detected yet) or polyglot, still try semantic parsing
-            project_type = self._detect_project_type()
-            if language in ["javascript", "typescript"] and project_type in ["javascript", "polyglot", None, "unknown"]:
-                try:
-                    # Attempt to use the TypeScript Compiler API for semantic analysis
-                    # Normalize path for cross-platform compatibility
-                    normalized_path = str(file_path).replace("\\", "/")
-                    semantic_result = get_semantic_ast(normalized_path, jsx_mode=jsx_mode)
-                    
-                    if semantic_result.get("success"):
-                        # Return the semantic AST with full type information
-                        return {
-                            "type": "semantic_ast",
-                            "tree": semantic_result,
-                            "language": language,
-                            "content": content.decode("utf-8", errors="ignore"),
-                            "has_types": semantic_result.get("hasTypes", False),
-                            "diagnostics": semantic_result.get("diagnostics", []),
-                            "symbols": semantic_result.get("symbols", [])
-                        }
-                    else:
-                        # Log but continue to Tree-sitter/regex fallback
-                        error_msg = semantic_result.get('error', 'Unknown error')
-                        print(f"Warning: Semantic parser failed for {file_path}: {error_msg}")
-                        print(f"         Falling back to Tree-sitter/regex parser.")
-                        # Continue to fallback options below
-                        
-                except Exception as e:
-                    # Log but continue to Tree-sitter/regex fallback
-                    print(f"Warning: Exception in semantic parser for {file_path}: {e}")
-                    print(f"         Falling back to Tree-sitter/regex parser.")
-                    # Continue to fallback options below
+            # For JavaScript/TypeScript, semantic parser is MANDATORY
+            # NO FALLBACKS. If semantic parser fails, we MUST fail loudly.
+            # Silent fallbacks to Tree-sitter produce corrupted databases with "anonymous" function names.
+            if language in ["javascript", "typescript"]:
+                # Normalize path for cross-platform compatibility
+                normalized_path = str(file_path).replace("\\", "/")
 
-            # Use Tree-sitter if available
-            if self.has_tree_sitter and language in self.parsers:
                 try:
-                    # Use cached parser
-                    tree = self._parse_treesitter_cached(content_hash, content, language)
-                    return {"type": "tree_sitter", "tree": tree, "language": language, "content": content}
+                    semantic_result = get_semantic_ast(normalized_path, jsx_mode=jsx_mode)
                 except Exception as e:
-                    print(f"Warning: Tree-sitter parsing failed for {file_path}: {e}")
-                    print(f"         Falling back to alternative parser if available.")
-                    # Continue to fallback options below
+                    raise RuntimeError(
+                        f"FATAL: TypeScript semantic parser failed for {file_path}\n"
+                        f"Error: {e}\n"
+                        f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                        f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                        f"DO NOT use fallback parsers - they produce corrupted data."
+                    )
+
+                if not semantic_result.get("success"):
+                    error_msg = semantic_result.get('error', 'Unknown error')
+                    raise RuntimeError(
+                        f"FATAL: TypeScript semantic parser failed for {file_path}\n"
+                        f"Error: {error_msg}\n"
+                        f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                        f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                        f"DO NOT use fallback parsers - they produce corrupted data."
+                    )
+
+                # Return the semantic AST with full type information
+                return {
+                    "type": "semantic_ast",
+                    "tree": semantic_result,
+                    "language": language,
+                    "content": content.decode("utf-8", errors="ignore"),
+                    "has_types": semantic_result.get("hasTypes", False),
+                    "diagnostics": semantic_result.get("diagnostics", []),
+                    "symbols": semantic_result.get("symbols", [])
+                }
 
             # PRIMARY PYTHON PARSER - CPython ast module (NOT a fallback!)
             # Python is NEVER parsed by Tree-sitter - CPython ast is the correct, intended tool.
@@ -251,12 +245,6 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                 python_ast = self._parse_python_cached(content_hash, decoded)
                 if python_ast:
                     return {"type": "python_ast", "tree": python_ast, "language": language, "content": decoded}
-
-            # Return minimal structure to signal regex fallback for JS/TS
-            if language in ["javascript", "typescript"]:
-                print(f"Warning: AST parsing unavailable for {file_path}. Using regex fallback.")
-                decoded = content.decode("utf-8", errors="ignore")
-                return {"type": "regex_fallback", "tree": None, "language": language, "content": decoded}
 
             # Return None for unsupported languages
             return None
@@ -328,9 +316,9 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         if language == "python":
             return True
 
-        # JavaScript and TypeScript are always supported via fallback
+        # JavaScript and TypeScript require semantic parser (NO FALLBACKS)
         if language in ["javascript", "typescript"]:
-            return True
+            return True  # Will fail loudly at parse time if semantic parser unavailable
 
         # Check Tree-sitter support for other languages
         if self.has_tree_sitter and language in self.parsers:
@@ -359,31 +347,43 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         content_bytes = content.encode('utf-8')
         content_hash = hashlib.md5(content_bytes).hexdigest()
         
-        # JavaScript/TypeScript need temp file for subprocess
+        # JavaScript/TypeScript REQUIRE semantic parser - NO FALLBACKS
         if language in ["javascript", "typescript"]:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
-            
+
             try:
-                # Use existing semantic parser
-                semantic_result = get_semantic_ast(tmp_path, jsx_mode=jsx_mode)
-                if semantic_result and semantic_result.get("success"):
-                    return {
-                        "type": "semantic_ast",
-                        "tree": semantic_result,
-                        "language": language,
-                        "content": content
-                    }
+                # Use semantic parser - MUST succeed
+                try:
+                    semantic_result = get_semantic_ast(tmp_path, jsx_mode=jsx_mode)
+                except Exception as e:
+                    raise RuntimeError(
+                        f"FATAL: TypeScript semantic parser failed for {filepath}\n"
+                        f"Error: {e}\n"
+                        f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                        f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                        f"DO NOT use fallback parsers - they produce corrupted data."
+                    )
+
+                if not (semantic_result and semantic_result.get("success")):
+                    error_msg = semantic_result.get('error', 'Unknown error') if semantic_result else 'No result'
+                    raise RuntimeError(
+                        f"FATAL: TypeScript semantic parser failed for {filepath}\n"
+                        f"Error: {error_msg}\n"
+                        f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                        f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                        f"DO NOT use fallback parsers - they produce corrupted data."
+                    )
+
+                return {
+                    "type": "semantic_ast",
+                    "tree": semantic_result,
+                    "language": language,
+                    "content": content
+                }
             finally:
                 os.unlink(tmp_path)
-        
-        # Tree-sitter for supported languages (JS/TS only - NOT Python)
-        # Python is explicitly excluded from self.parsers at initialization (lines 63-64)
-        if self.has_tree_sitter and language in self.parsers:
-            tree = self._parse_treesitter_cached(content_hash, content_bytes, language)
-            if tree:
-                return {"type": "tree_sitter", "tree": tree, "language": language, "content": content}
 
         # PRIMARY PYTHON PARSER - CPython ast module (NOT a fallback!)
         # Python is NEVER parsed by Tree-sitter - CPython ast is the correct, intended tool.
@@ -496,8 +496,13 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
 
         Returns:
             List of language names.
+
+        Note:
+            JavaScript/TypeScript require semantic parser setup (run: aud setup-ai --target .)
+            Will fail loudly at parse time if not configured.
         """
-        # Always supported via built-in or fallback
+        # Python: always supported via built-in ast
+        # JS/TS: supported but require semantic parser (will fail loudly if not available)
         languages = ["python", "javascript", "typescript"]
 
         if self.has_tree_sitter:

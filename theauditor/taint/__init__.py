@@ -50,6 +50,11 @@ from .interprocedural import (
     trace_inter_procedural_flow_cfg,
 )
 
+from .interprocedural_cfg import (
+    InterProceduralCFGAnalyzer,
+    InterProceduralEffect,
+)
+
 # DELETED: taint/javascript.py (375 lines) - All string parsing fallbacks removed
 #
 # Functions that existed:
@@ -131,6 +136,8 @@ __all__ = [
     # Inter-procedural (flow-insensitive and CFG-based)
     "trace_inter_procedural_flow_insensitive",
     "trace_inter_procedural_flow_cfg",
+    "InterProceduralCFGAnalyzer",
+    "InterProceduralEffect",
 
     # DELETED: JavaScript enhancements - taint/javascript.py removed (375 lines)
     # These functions were string parsing fallbacks:

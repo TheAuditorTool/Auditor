@@ -1,6 +1,10 @@
 """Tree-sitter generic AST extraction implementations.
 
 This module contains Tree-sitter extraction logic that works across multiple languages.
+
+CRITICAL: Tree-sitter is FORBIDDEN for JavaScript/TypeScript files.
+It produces corrupted data (e.g., "anonymous" function names).
+JS/TS MUST use TypeScript Compiler API (semantic parser) - NO EXCEPTIONS.
 """
 
 from typing import Any, List, Dict, Optional
@@ -12,15 +16,39 @@ from .base import (
 )
 
 
+def _check_js_ts_forbidden(language: str) -> None:
+    """Enforce that Tree-sitter is NEVER used for JavaScript/TypeScript.
+
+    Tree-sitter produces corrupted data for JS/TS (e.g., "anonymous" function names).
+    These languages MUST use the TypeScript Compiler API semantic parser.
+
+    Args:
+        language: The programming language being parsed
+
+    Raises:
+        RuntimeError: If language is JavaScript or TypeScript
+    """
+    if language in ["javascript", "typescript"]:
+        raise RuntimeError(
+            f"FATAL: Tree-sitter is FORBIDDEN for {language} files.\n"
+            f"Tree-sitter produces corrupted data (anonymous function names, broken call graphs).\n"
+            f"JavaScript/TypeScript MUST use TypeScript Compiler API semantic parser.\n"
+            f"This is a bug in the parser selection logic - tree-sitter should never be called for JS/TS.\n"
+            f"Ensure ast_parser.py fails loudly if semantic parser is unavailable."
+        )
+
+
 def extract_treesitter_functions(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract function definitions from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_functions(actual_tree.root_node, language)
 
 
@@ -64,13 +92,15 @@ def _extract_tree_sitter_functions(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_classes(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract class definitions from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_classes(actual_tree.root_node, language)
 
 
@@ -114,13 +144,15 @@ def _extract_tree_sitter_classes(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_calls(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract function calls from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_calls(actual_tree.root_node, language)
 
 
@@ -168,13 +200,15 @@ def _extract_tree_sitter_calls(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_imports(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract import statements from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_imports(actual_tree.root_node, language)
 
 
@@ -260,13 +294,15 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any
 
 def extract_treesitter_exports(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract export statements from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_exports(actual_tree.root_node, language)
 
 
@@ -324,13 +360,15 @@ def _extract_tree_sitter_exports(node: Any, language: str) -> List[Dict[str, Any
 
 def extract_treesitter_properties(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract property accesses from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_properties(actual_tree.root_node, language)
 
 
@@ -372,15 +410,17 @@ def _extract_tree_sitter_properties(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_assignments(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract variable assignments from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     content = tree.get("content", "")
-    
+
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_assignments(actual_tree.root_node, language, content)
 
 
@@ -488,13 +528,15 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
 
 def extract_treesitter_function_params(tree: Dict, parser_self, language: str) -> Dict[str, List[str]]:
     """Extract function parameters from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return {}
-    
+
     if not parser_self.has_tree_sitter:
         return {}
-    
+
     return _extract_tree_sitter_function_params(actual_tree.root_node, language)
 
 
@@ -567,15 +609,17 @@ def extract_treesitter_calls_with_args(
     tree: Dict, function_params: Dict[str, List[str]], parser_self, language: str
 ) -> List[Dict[str, Any]]:
     """Extract function calls with arguments from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     content = tree.get("content", "")
-    
+
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_calls_with_args(
         actual_tree.root_node, language, content, function_params
     )
@@ -673,15 +717,17 @@ def _extract_tree_sitter_calls_with_args(
 
 def extract_treesitter_returns(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract return statements from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     content = tree.get("content", "")
-    
+
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_returns(actual_tree.root_node, language, content)
 
 
@@ -764,4 +810,6 @@ def extract_treesitter_cfg(tree: Dict, parser_self, language: str) -> List[Dict[
     Returns:
         Empty list (no CFG data from generic tree-sitter)
     """
+    _check_js_ts_forbidden(language)
+
     return []

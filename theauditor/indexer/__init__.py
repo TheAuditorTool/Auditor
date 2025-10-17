@@ -784,10 +784,13 @@ class IndexerOrchestrator:
                     elif '.decode' in callee:
                         call['callee_function'] = f'JWT_DECODE#{callee}'
 
+                # CRITICAL: Pass callee_file_path resolved by TypeScript checker
+                # This enables unambiguous cross-file taint tracking
                 self.db_manager.add_function_call_arg(
                     file_path, call['line'], call['caller_function'],
                     call['callee_function'], call['argument_index'],
-                    call['argument_expr'], call['param_name']
+                    call['argument_expr'], call['param_name'],
+                    callee_file_path=call.get('callee_file_path')  # Resolved by TypeScript checker (may be None)
                 )
                 self.counts['function_calls'] += 1
 

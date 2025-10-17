@@ -86,50 +86,6 @@ class DatabaseManager:
         # JWT patterns batch list
         self.jwt_patterns_batch = []
 
-    def _migrate_api_endpoints_table(self, cursor):
-        """Migrate api_endpoints table to include new columns for v1.1.
-
-        Adds 4 new columns to the api_endpoints table if they don't exist:
-        - line (INTEGER): Line number where endpoint is defined
-        - path (TEXT): File path context for the endpoint
-        - has_auth (BOOLEAN): Whether endpoint has authentication
-        - handler_function (TEXT): Name of the handler function
-
-        This migration is safe to run multiple times - it checks for column
-        existence before attempting to add them.
-
-        Args:
-            cursor: SQLite cursor to execute migration commands
-        """
-        from theauditor.utils.logger import setup_logger
-        logger = setup_logger(__name__)
-
-        try:
-            # Check existing columns to avoid unnecessary ALTER TABLE commands
-            cursor.execute("PRAGMA table_info(api_endpoints)")
-            existing_columns = {row[1] for row in cursor.fetchall()}
-
-            # Define new columns with their types
-            new_columns = {
-                'line': 'INTEGER',
-                'path': 'TEXT',
-                'has_auth': 'BOOLEAN DEFAULT 0',
-                'handler_function': 'TEXT'
-            }
-
-            # Add missing columns
-            for col_name, col_definition in new_columns.items():
-                if col_name not in existing_columns:
-                    try:
-                        cursor.execute(f"ALTER TABLE api_endpoints ADD COLUMN {col_name} {col_definition}")
-                        logger.info(f"Added column '{col_name}' to api_endpoints table")
-                    except sqlite3.OperationalError as e:
-                        # Table might not exist yet during initial schema creation - that's OK
-                        logger.debug(f"Could not add column '{col_name}': {e}")
-
-        except sqlite3.Error as e:
-            logger.warning(f"api_endpoints table migration failed: {e}")
-
     def begin_transaction(self):
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -237,25 +193,6 @@ class DatabaseManager:
         """
         )
 
-        # Migration: Add new columns to api_endpoints table (Phase 4)
-        # For existing databases with old 4-column schema, add the 4 new columns
-        try:
-            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN line INTEGER")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN path TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN has_auth BOOLEAN DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE api_endpoints ADD COLUMN handler_function TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS sql_objects(
@@ -276,6 +213,9 @@ class DatabaseManager:
                 line INTEGER NOT NULL,
                 col INTEGER NOT NULL,
                 end_line INTEGER,
+                type_annotation TEXT,
+                is_typed BOOLEAN DEFAULT 0,
+                PRIMARY KEY(path, name, line, type, col),
                 FOREIGN KEY(path) REFERENCES files(path)
             )
         """
@@ -363,6 +303,15 @@ class DatabaseManager:
                 environment TEXT,
                 is_privileged BOOLEAN DEFAULT 0,
                 network_mode TEXT,
+                user TEXT,
+                cap_add TEXT,
+                cap_drop TEXT,
+                security_opt TEXT,
+                restart TEXT,
+                command TEXT,
+                entrypoint TEXT,
+                depends_on TEXT,
+                healthcheck TEXT,
                 PRIMARY KEY (file_path, service_name),
                 FOREIGN KEY(file_path) REFERENCES files(path)
             )
@@ -456,6 +405,7 @@ class DatabaseManager:
                 argument_index INTEGER NOT NULL,
                 argument_expr TEXT NOT NULL,
                 param_name TEXT NOT NULL,
+                callee_file_path TEXT,
                 FOREIGN KEY(file) REFERENCES files(path)
             )
         """
@@ -469,6 +419,9 @@ class DatabaseManager:
                 function_name TEXT NOT NULL,
                 return_expr TEXT NOT NULL,
                 return_vars TEXT,
+                has_jsx BOOLEAN DEFAULT 0,
+                returns_component BOOLEAN DEFAULT 0,
+                cleanup_operations TEXT,
                 FOREIGN KEY(file) REFERENCES files(path)
             )
         """
@@ -614,20 +567,6 @@ class DatabaseManager:
             )
         """
         )
-
-        # Enhance function_returns table for React (handle existing columns gracefully)
-        try:
-            cursor.execute("ALTER TABLE function_returns ADD COLUMN has_jsx BOOLEAN DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE function_returns ADD COLUMN returns_component BOOLEAN DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE function_returns ADD COLUMN cleanup_operations TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
 
         # ========================================================
         # PARALLEL JSX TABLES FOR DUAL-PASS EXTRACTION
@@ -878,6 +817,7 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_caller ON function_call_args(caller_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_callee ON function_call_args(callee_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_file_line ON function_call_args(file, line)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_callee_file ON function_call_args(callee_file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_file ON function_returns(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_function ON function_returns(function_name)")
         
@@ -946,80 +886,6 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_rule ON findings_consolidated(rule)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_category ON findings_consolidated(category)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_findings_tool_rule ON findings_consolidated(tool, rule)")
-
-        # Migration: Add type_annotation column to symbols table if it doesn't exist
-        try:
-            cursor.execute("ALTER TABLE symbols ADD COLUMN type_annotation TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE symbols ADD COLUMN is_typed BOOLEAN DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        try:
-            cursor.execute("ALTER TABLE symbols ADD COLUMN end_line INTEGER")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Migration: Add extraction_source column to sql_queries table (Phase 3B)
-        try:
-            cursor.execute("ALTER TABLE sql_queries ADD COLUMN extraction_source TEXT DEFAULT 'code_execute'")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Migration: Add file_category column to files table (Phase 3B)
-        try:
-            cursor.execute("ALTER TABLE files ADD COLUMN file_category TEXT DEFAULT 'source'")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Migration: Add 9 security fields to compose_services table (Phase 3C)
-        # Security-critical fields (P0 priority)
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN user TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN cap_add TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN cap_drop TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN security_opt TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Operational fields (P1/P2 priority)
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN restart TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN command TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN entrypoint TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN depends_on TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            cursor.execute("ALTER TABLE compose_services ADD COLUMN healthcheck TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
 
         self.conn.commit()
 
@@ -1138,10 +1004,22 @@ class DatabaseManager:
                                       source_vars_json, in_function))
 
     def add_function_call_arg(self, file_path: str, line: int, caller_function: str,
-                              callee_function: str, arg_index: int, arg_expr: str, param_name: str):
-        """Add a function call argument record to the batch."""
+                              callee_function: str, arg_index: int, arg_expr: str, param_name: str,
+                              callee_file_path: Optional[str] = None):
+        """Add a function call argument record to the batch.
+
+        Args:
+            file_path: File containing the function call
+            line: Line number of the call
+            caller_function: Name of the calling function
+            callee_function: Name of the called function
+            arg_index: Index of the argument (0-based)
+            arg_expr: Expression passed as argument
+            param_name: Parameter name in callee signature
+            callee_file_path: Resolved file path where callee is defined (for cross-file tracking)
+        """
         self.function_call_args_batch.append((file_path, line, caller_function, callee_function,
-                                             arg_index, arg_expr, param_name))
+                                             arg_index, arg_expr, param_name, callee_file_path))
 
     def add_function_return(self, file_path: str, line: int, function_name: str,
                            return_expr: str, return_vars: List[str]):
@@ -1643,7 +1521,7 @@ class DatabaseManager:
             
             if self.function_call_args_batch:
                 cursor.executemany(
-                    "INSERT INTO function_call_args (file, line, caller_function, callee_function, argument_index, argument_expr, param_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO function_call_args (file, line, caller_function, callee_function, argument_index, argument_expr, param_name, callee_file_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     self.function_call_args_batch
                 )
                 self.function_call_args_batch = []
