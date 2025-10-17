@@ -29,6 +29,103 @@ TheAuditor is an offline-first, AI-centric SAST (Static Application Security Tes
 **Version**: 1.2.0-RC1 (pyproject.toml:7)
 **Python**: >=3.11 required (pyproject.toml:10)
 
+---
+
+# ⚠️ CRITICAL ARCHITECTURE RULE - READ FIRST ⚠️
+
+## ZERO FALLBACK POLICY - ABSOLUTE AND NON-NEGOTIABLE
+
+**NO FALLBACKS. NO EXCEPTIONS. NO WORKAROUNDS. NO "JUST IN CASE" LOGIC.**
+
+This is the MOST IMPORTANT rule in the entire codebase. Violation of this rule is grounds for immediate rejection.
+
+### What is BANNED FOREVER:
+
+1. **Database Query Fallbacks** - NEVER write multiple queries with fallback logic:
+   ```python
+   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
+   cursor.execute("SELECT * FROM table WHERE name = ?", (normalized_name,))
+   result = cursor.fetchone()
+   if not result:  # ← THIS IS CANCER
+       cursor.execute("SELECT * FROM table WHERE name = ?", (original_name,))
+       result = cursor.fetchone()
+   ```
+
+2. **Try-Except Fallbacks** - NEVER catch exceptions to fall back to alternative logic:
+   ```python
+   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
+   try:
+       data = load_from_database()
+   except Exception:  # ← THIS IS CANCER
+       data = load_from_json()  # Fallback to JSON
+   ```
+
+3. **Table Existence Checks** - NEVER check if tables exist before querying:
+   ```python
+   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
+   if 'function_call_args' in existing_tables:  # ← THIS IS CANCER
+       cursor.execute("SELECT * FROM function_call_args")
+   ```
+
+4. **Conditional Fallback Logic** - NEVER write "if X fails, try Y" patterns:
+   ```python
+   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
+   result = method_a()
+   if not result:  # ← THIS IS CANCER
+       result = method_b()  # Fallback method
+   ```
+
+5. **Regex Fallbacks** - NEVER fall back to regex when database query fails:
+   ```python
+   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
+   cursor.execute("SELECT * FROM symbols WHERE name = ?", (name,))
+   if not cursor.fetchone():  # ← THIS IS CANCER
+       matches = re.findall(pattern, content)  # Regex fallback
+   ```
+
+### Why NO FALLBACKS EVER:
+
+The database is regenerated FRESH on every `aud full` run. If data is missing:
+- **The database is WRONG** → Fix the indexer
+- **The query is WRONG** → Fix the query
+- **The schema is WRONG** → Fix the schema
+
+Fallbacks HIDE bugs. They create:
+- Inconsistent behavior across runs
+- Silent failures that compound
+- Technical debt that spreads like cancer
+- False sense of correctness
+
+### CORRECT Pattern - HARD FAIL IMMEDIATELY:
+
+```python
+# ✅ CORRECT - Single query, hard fail if wrong
+cursor.execute("SELECT path FROM symbols WHERE name = ? AND type = 'function'", (name,))
+result = cursor.fetchone()
+if not result:
+    # Log the failure (exposing the bug) and continue
+    if debug:
+        print(f"Symbol not found: {name}")
+    continue  # Skip this path - DO NOT try alternative query
+```
+
+### If a query returns NULL:
+1. **DO NOT** write a second fallback query
+2. **DO NOT** try alternative logic
+3. **DO** log the failure with debug output
+4. **DO** skip that code path (continue/return)
+5. **DO** investigate WHY the query failed (indexer bug, schema bug, query bug)
+
+### This applies to EVERYTHING:
+- Database queries (symbols, function_call_args, assignments, etc.)
+- File operations (reading, parsing, extracting)
+- API calls (module resolution, import resolution)
+- Data transformations (normalization, formatting)
+
+**ONLY ONE CODE PATH. IF IT FAILS, IT FAILS LOUD. NO SAFETY NETS.**
+
+---
+
 ## Quick Reference Commands
 
 ```bash
@@ -336,6 +433,13 @@ theauditor/taint/
 - Database-aware analysis using `repo_index.db`
 - Supports assignment-based and direct-use taint flows
 - Merges findings from multiple detection methods
+
+**CRITICAL: Taint Data Storage**
+- **NO taint_paths table exists** - taint analysis writes to `findings_consolidated` table
+- Taint findings stored with `tool='taint'` and `rule='taint-{category}'`
+- Cross-file tracking data stored in `details_json` column as JSON
+- Query: `SELECT * FROM findings_consolidated WHERE tool='taint'` to get all taint findings
+- Do NOT look for taint_paths table - it does not exist in the schema
 
 ### Vulnerability Scanner (`theauditor/vulnerability_scanner.py`)
 
