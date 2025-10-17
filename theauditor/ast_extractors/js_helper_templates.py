@@ -238,7 +238,7 @@ NODE_SERIALIZATION = '''
  * @param {Object} ts - TypeScript compiler API
  * @returns {Object} - Serialized node representation
  */
-function serializeNode(node, depth = 0, parentNode = null, grandparentNode = null, sourceFile, sourceCode, ts) {
+function serializeNode(node, depth = 0, parentNode = null, grandparentNode = null, sourceFile, sourceCode, ts, checker = null, projectRoot = '') {
     if (depth > 100) {
         return { kind: "TooDeep" };
     }
@@ -264,7 +264,7 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
             } else if (node.name.text !== undefined) {
                 result.name = node.name.text;
             } else {
-                result.name = serializeNode(node.name, depth + 1, node, parentNode, sourceFile, sourceCode, ts);
+                result.name = serializeNode(node.name, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
             }
         } else {
             result.name = node.name;
@@ -316,14 +316,32 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
 
     // Add type information
     if (node.type) {
-        result.type = serializeNode(node.type, depth + 1, node, parentNode, sourceFile, sourceCode, ts);
+        result.type = serializeNode(node.type, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
     }
 
     // CRITICAL FIX: Extract expression field for PropertyAccessExpression
     // This enables taint analysis to build dotted names (req.body, res.send, etc.)
     // Without this, only leaf identifiers are captured (body, send)
     if (nodeKind === 'PropertyAccessExpression' && node.expression) {
-        result.expression = serializeNode(node.expression, depth + 1, node, parentNode, sourceFile, sourceCode, ts);
+        result.expression = serializeNode(node.expression, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
+    }
+
+    // CRITICAL: Resolve callee file path for CallExpression nodes
+    // This enables unambiguous cross-file taint tracking
+    if (nodeKind === 'CallExpression' && node.expression && checker) {
+        try {
+            const symbol = checker.getSymbolAtLocation(node.expression);
+            if (symbol && symbol.declarations && symbol.declarations.length > 0) {
+                const declaration = symbol.declarations[0];
+                const calleeSourceFile = declaration.getSourceFile();
+                if (calleeSourceFile && projectRoot) {
+                    // Normalize path to be relative to project root (path module already imported at top level)
+                    result.calleeFilePath = path.relative(projectRoot, calleeSourceFile.fileName).replace(/\\\\/g, '/');
+                }
+            }
+        } catch (e) {
+            // If resolution fails, field will be absent
+        }
     }
 
     // Process children
@@ -332,13 +350,13 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
     // Handle nodes with members (interfaces, classes, etc.)
     if (node.members && Array.isArray(node.members)) {
         node.members.forEach(member => {
-            if (member) children.push(serializeNode(member, depth + 1, node, parentNode, sourceFile, sourceCode, ts));
+            if (member) children.push(serializeNode(member, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot));
         });
     }
 
     // Handle regular children
     ts.forEachChild(node, child => {
-        if (child) children.push(serializeNode(child, depth + 1, node, parentNode, sourceFile, sourceCode, ts));
+        if (child) children.push(serializeNode(child, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot));
     });
 
     if (children.length > 0) {
@@ -359,6 +377,65 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
 
     // Extract text for taint analysis (critical for symbol tracking)
     result.text = sourceCode.substring(node.pos, node.end).trim();
+
+    // PHASE 1: Add inline type extraction from TypeScript checker
+    // This eliminates the need for separate extractSymbols() pass
+    if (checker) {
+        try {
+            // Get symbol at this location for type information
+            const symbol = checker.getSymbolAtLocation(node);
+            if (symbol) {
+                // Get the TypeScript type for this symbol
+                const type = checker.getTypeOfSymbolAtLocation(symbol, node);
+
+                if (type) {
+                    // Get type string representation
+                    result.type_annotation = checker.typeToString(type);
+
+                    // Check for 'any' type
+                    if (type.flags & ts.TypeFlags.Any) {
+                        result.is_any = true;
+                    }
+
+                    // Check for 'unknown' type
+                    if (type.flags & ts.TypeFlags.Unknown) {
+                        result.is_unknown = true;
+                    }
+
+                    // Check if this is a generic type parameter
+                    if (type.isTypeParameter && type.isTypeParameter()) {
+                        result.is_generic = true;
+                    }
+
+                    // Check for type parameters (generic instantiation)
+                    if (type.aliasTypeArguments && type.aliasTypeArguments.length > 0) {
+                        result.has_type_params = true;
+                        result.type_params = type.aliasTypeArguments
+                            .map(t => checker.typeToString(t))
+                            .join(', ');
+                    }
+
+                    // For function types, extract return type
+                    const callSignatures = type.getCallSignatures();
+                    if (callSignatures && callSignatures.length > 0) {
+                        const returnType = callSignatures[0].getReturnType();
+                        result.return_type = checker.typeToString(returnType);
+                    }
+
+                    // For class types, extract base class
+                    const baseTypes = type.getBaseTypes ? type.getBaseTypes() : null;
+                    if (baseTypes && baseTypes.length > 0) {
+                        result.extends_type = baseTypes
+                            .map(t => checker.typeToString(t))
+                            .join(', ');
+                    }
+                }
+            }
+        } catch (typeError) {
+            // Type extraction failed - continue without type info
+            // This is expected for many node types that don't have symbols
+        }
+    }
 
     return result;
 }
@@ -468,191 +545,8 @@ function extractImports(sourceFile, ts) {
 }
 '''
 
-SYMBOL_EXTRACTION = '''
-/**
- * Extract symbols with type information from TypeScript AST.
- * CRITICAL: Only extracts DECLARATIONS, not references (to avoid massive duplicates).
- *
- * @param {Object} sourceFile - TypeScript source file
- * @param {Object} checker - TypeScript type checker
- * @param {Object} ts - TypeScript compiler API
- * @returns {Array} - List of symbols with type info
- */
-function extractSymbols(sourceFile, checker, ts) {
-    const symbols = [];
-    const seen = new Set();  // Track seen (name, line) to deduplicate
-
-    // Map node kind to symbol type string for database
-    function getSymbolType(nodeKind, ts) {
-        switch (nodeKind) {
-            case ts.SyntaxKind.FunctionDeclaration:
-            case ts.SyntaxKind.MethodDeclaration:
-                return 'function';
-            case ts.SyntaxKind.ClassDeclaration:
-                return 'class';
-            case ts.SyntaxKind.VariableDeclaration:
-            case ts.SyntaxKind.Parameter:
-            case ts.SyntaxKind.PropertyDeclaration:
-                return 'variable';
-            case ts.SyntaxKind.InterfaceDeclaration:
-                return 'interface';
-            case ts.SyntaxKind.TypeAliasDeclaration:
-                return 'type';
-            case ts.SyntaxKind.EnumDeclaration:
-                return 'enum';
-            case ts.SyntaxKind.ModuleDeclaration:
-                return 'module';
-            default:
-                return 'unknown';
-        }
-    }
-
-    function visit(node) {
-        try {
-            const nodeKind = node.kind;
-
-            // CRITICAL FIX: Only extract at DECLARATION sites, not every reference
-            const isDeclaration = (
-                nodeKind === ts.SyntaxKind.FunctionDeclaration ||
-                nodeKind === ts.SyntaxKind.ClassDeclaration ||
-                nodeKind === ts.SyntaxKind.VariableDeclaration ||
-                nodeKind === ts.SyntaxKind.MethodDeclaration ||
-                nodeKind === ts.SyntaxKind.PropertyDeclaration ||
-                nodeKind === ts.SyntaxKind.Parameter ||
-                nodeKind === ts.SyntaxKind.InterfaceDeclaration ||
-                nodeKind === ts.SyntaxKind.TypeAliasDeclaration ||
-                nodeKind === ts.SyntaxKind.EnumDeclaration ||
-                nodeKind === ts.SyntaxKind.ModuleDeclaration
-            );
-
-            if (isDeclaration) {
-                // Get symbol at the declaration name, not the whole node
-                const nameNode = node.name || node;
-                const symbol = checker.getSymbolAtLocation(nameNode);
-
-                if (symbol && symbol.getName) {
-                    const symbolName = symbol.getName() || 'anonymous';
-
-                    // Filter out noise symbols
-                    const NOISE_SYMBOLS = ['console', 'document', 'window', 'process', 'global',
-                                          'require', 'module', 'exports', '__dirname', '__filename'];
-                    if (NOISE_SYMBOLS.includes(symbolName)) {
-                        return;  // Skip noise
-                    }
-
-                    const startPos = sourceFile.getLineAndCharacterOfPosition(nameNode.pos || 0);
-                    const dedupKey = `${symbolName}:${startPos.line}`;
-
-                    // Deduplicate by name+line
-                    if (seen.has(dedupKey)) {
-                        return;  // Already processed this declaration
-                    }
-                    seen.add(dedupKey);
-
-                    // Get the DECLARATION TYPE (function, class, variable, etc.)
-                    // NOT the TypeScript type string
-                    const symbolType = getSymbolType(nodeKind, ts);
-                    const endPos = nameNode.end !== undefined ?
-                        sourceFile.getLineAndCharacterOfPosition(nameNode.end) : startPos;
-
-                    // ENHANCED: Extract rich type information using TypeChecker
-                    let typeInfo = {
-                        type_annotation: null,
-                        is_any: false,
-                        is_unknown: false,
-                        is_generic: false,
-                        has_type_params: false,
-                        type_params: null,
-                        return_type: null,
-                        extends_type: null
-                    };
-
-                    try {
-                        // Get the TypeScript type for this symbol
-                        const type = checker.getTypeOfSymbolAtLocation(symbol, nameNode);
-
-                        if (type) {
-                            // Get type string representation
-                            typeInfo.type_annotation = checker.typeToString(type);
-
-                            // Check for 'any' type
-                            if (type.flags & ts.TypeFlags.Any) {
-                                typeInfo.is_any = true;
-                            }
-
-                            // Check for 'unknown' type
-                            if (type.flags & ts.TypeFlags.Unknown) {
-                                typeInfo.is_unknown = true;
-                            }
-
-                            // Check if this is a generic type parameter
-                            if (type.isTypeParameter && type.isTypeParameter()) {
-                                typeInfo.is_generic = true;
-                            }
-
-                            // Check for type parameters (generic instantiation)
-                            if (type.aliasTypeArguments && type.aliasTypeArguments.length > 0) {
-                                typeInfo.has_type_params = true;
-                                typeInfo.type_params = type.aliasTypeArguments
-                                    .map(t => checker.typeToString(t))
-                                    .join(', ');
-                            }
-
-                            // For function types, extract return type
-                            const callSignatures = type.getCallSignatures();
-                            if (callSignatures && callSignatures.length > 0) {
-                                const returnType = callSignatures[0].getReturnType();
-                                typeInfo.return_type = checker.typeToString(returnType);
-                            }
-
-                            // For class types, extract base class
-                            const baseTypes = type.getBaseTypes ? type.getBaseTypes() : null;
-                            if (baseTypes && baseTypes.length > 0) {
-                                typeInfo.extends_type = baseTypes
-                                    .map(t => checker.typeToString(t))
-                                    .join(', ');
-                            }
-                        }
-                    } catch (typeError) {
-                        // Type extraction failed - continue with defaults
-                        console.error(`[WARN] Type extraction failed for ${symbolName}: ${typeError.message}`);
-                    }
-
-                    symbols.push({
-                        name: symbolName,
-                        kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
-                        type: symbolType,  // Declaration type: "function", "class", etc.
-                        line: startPos.line + 1,
-                        column: startPos.character,
-                        endLine: endPos.line + 1,
-                        // Rich type information
-                        type_annotation: typeInfo.type_annotation,
-                        is_any: typeInfo.is_any,
-                        is_unknown: typeInfo.is_unknown,
-                        is_generic: typeInfo.is_generic,
-                        has_type_params: typeInfo.has_type_params,
-                        type_params: typeInfo.type_params,
-                        return_type: typeInfo.return_type,
-                        extends_type: typeInfo.extends_type
-                    });
-                }
-            }
-        } catch (e) {
-            // Log error for debugging
-            console.error(`[ERROR] Symbol extraction failed at ${sourceFile.fileName}:${node.pos}: ${e.message}`);
-        }
-
-        ts.forEachChild(node, visit);
-    }
-
-    visit(sourceFile);
-
-    // Log symbol extraction results for debugging
-    console.error(`[INFO] Found ${symbols.length} declaration symbols in ${sourceFile.fileName}`);
-
-    return symbols;
-}
-'''
+# PHASE 4: SYMBOL_EXTRACTION constant deleted - replaced by inline type extraction in serializeNode()
+# extractSymbols() function removed - single-pass AST traversal with type info is now the only mechanism
 
 COUNT_NODES = '''
 /**
@@ -691,8 +585,6 @@ const __dirname = path.dirname(__filename);
 {NODE_SERIALIZATION}
 
 {IMPORT_EXTRACTION}
-
-{SYMBOL_EXTRACTION}
 
 {COUNT_NODES}
 
@@ -775,12 +667,11 @@ async function main() {{
         // Extract imports
         const imports = extractImports(sourceFile, ts);
 
-        // Extract symbols
+        // PHASE 4: Get type checker for inline type extraction in serializeNode
         const checker = program.getTypeChecker();
-        const symbols = extractSymbols(sourceFile, checker, ts);
 
-        // Serialize AST
-        const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts);
+        // Serialize AST with checker for inline type extraction and call resolution
+        const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
 
         // Build result
         const result = {{
@@ -790,9 +681,8 @@ async function main() {{
             ast: ast,
             diagnostics: diagnostics,
             imports: imports,  // CRITICAL: Import tracking for dependency analysis
-            symbols: symbols,
             nodeCount: countNodes(ast),
-            hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+            hasTypes: true,  // PHASE 4: Always true now - type info extracted inline in AST nodes
             jsxMode: jsxMode  // Include JSX mode in result
         }};
 
@@ -830,8 +720,6 @@ const fs = require('fs');
 {NODE_SERIALIZATION}
 
 {IMPORT_EXTRACTION}
-
-{SYMBOL_EXTRACTION}
 
 {COUNT_NODES}
 
@@ -911,12 +799,11 @@ try {{
     // Extract imports
     const imports = extractImports(sourceFile, ts);
 
-    // Extract symbols
+    // PHASE 4: Get type checker for inline type extraction in serializeNode
     const checker = program.getTypeChecker();
-    const symbols = extractSymbols(sourceFile, checker, ts);
 
-    // Serialize AST
-    const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts);
+    // Serialize AST with checker for inline type extraction and call resolution
+    const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
 
     // Build result
     const result = {{
@@ -926,9 +813,8 @@ try {{
         ast: ast,
         diagnostics: diagnostics,
         imports: imports,  // CRITICAL: Import tracking for dependency analysis
-        symbols: symbols,
         nodeCount: countNodes(ast),
-        hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+        hasTypes: true,  // PHASE 4: Always true now - type info extracted inline in AST nodes
         jsxMode: jsxMode  // Include JSX mode in result
     }};
 
@@ -964,8 +850,6 @@ const __dirname = path.dirname(__filename);
 {NODE_SERIALIZATION}
 
 {IMPORT_EXTRACTION}
-
-{SYMBOL_EXTRACTION}
 
 {COUNT_NODES}
 
@@ -1077,11 +961,9 @@ async function main() {{
                 // Extract imports
                 const imports = extractImports(sourceFile, ts);
 
-                // Extract symbols
-                const symbols = extractSymbols(sourceFile, checker, ts);
-
-                // Serialize AST
-                const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts);
+                // PHASE 4: Get type checker for inline type extraction in serializeNode
+                // Serialize AST with checker for inline type extraction and call resolution
+                const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
 
                 // Build result for this file
                 results[filePath] = {{
@@ -1091,9 +973,8 @@ async function main() {{
                     ast: ast,
                     diagnostics: diagnostics,
                     imports: imports,  // CRITICAL: Import tracking for dependency analysis
-                    symbols: symbols,
                     nodeCount: countNodes(ast),
-                    hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+                    hasTypes: true,  // PHASE 4: Always true now - type info extracted inline in AST nodes
                     jsxMode: jsxMode  // Include JSX mode in result
                 }};
 
@@ -1102,8 +983,7 @@ async function main() {{
                     success: false,
                     error: `Error processing file: ${{error.message}}`,
                     ast: null,
-                    diagnostics: [],
-                    symbols: []
+                    diagnostics: []
                 }};
             }}
         }}
@@ -1142,8 +1022,6 @@ const fs = require('fs');
 {NODE_SERIALIZATION}
 
 {IMPORT_EXTRACTION}
-
-{SYMBOL_EXTRACTION}
 
 {COUNT_NODES}
 
@@ -1252,11 +1130,9 @@ try {{
             // Extract imports
             const imports = extractImports(sourceFile, ts);
 
-            // Extract symbols
-            const symbols = extractSymbols(sourceFile, checker, ts);
-
-            // Serialize AST
-            const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts);
+            // PHASE 4: Get type checker for inline type extraction in serializeNode
+            // Serialize AST with checker for inline type extraction and call resolution
+            const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
 
             // Build result for this file
             results[filePath] = {{
@@ -1266,9 +1142,8 @@ try {{
                 ast: ast,
                 diagnostics: diagnostics,
                 imports: imports,  // CRITICAL: Import tracking for dependency analysis
-                symbols: symbols,
                 nodeCount: countNodes(ast),
-                hasTypes: symbols.some(s => s.type && s.type !== 'any'),
+                hasTypes: true,  // PHASE 4: Always true now - type info extracted inline in AST nodes
                 jsxMode: jsxMode  // Include JSX mode in result
             }};
 
@@ -1277,8 +1152,7 @@ try {{
                 success: false,
                 error: `Error processing file: ${{error.message}}`,
                 ast: null,
-                diagnostics: [],
-                symbols: []
+                diagnostics: []
             }};
         }}
     }}

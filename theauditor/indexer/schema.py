@@ -223,10 +223,10 @@ SYMBOLS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("col", "INTEGER", nullable=False),
         Column("end_line", "INTEGER"),
-        # Migrations (added via ALTER TABLE)
         Column("type_annotation", "TEXT"),
         Column("is_typed", "BOOLEAN", default="0"),
     ],
+    primary_key=["path", "name", "line", "type", "col"],
     indexes=[
         ("idx_symbols_path", ["path"]),
         ("idx_symbols_type", ["type"]),
@@ -404,12 +404,14 @@ FUNCTION_CALL_ARGS = TableSchema(
         Column("argument_index", "INTEGER", nullable=False),
         Column("argument_expr", "TEXT", nullable=False),
         Column("param_name", "TEXT", nullable=False),
+        Column("callee_file_path", "TEXT"),  # Resolved file path for callee function (enables unambiguous cross-file tracking)
     ],
     indexes=[
         ("idx_function_call_args_file", ["file"]),
         ("idx_function_call_args_caller", ["caller_function"]),
         ("idx_function_call_args_callee", ["callee_function"]),
         ("idx_function_call_args_file_line", ["file", "line"]),
+        ("idx_function_call_args_callee_file", ["callee_file_path"]),  # Index for cross-file queries
     ]
 )
 

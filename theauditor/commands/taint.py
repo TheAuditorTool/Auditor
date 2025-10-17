@@ -24,13 +24,11 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--rules/--no-rules", default=True, help="Enable/disable rule-based detection")
 @click.option("--use-cfg/--no-cfg", default=True,
               help="Use flow-sensitive CFG analysis (enabled by default)")
-@click.option("--no-interprocedural", is_flag=True, default=False,
-              help="Disable inter-procedural analysis (not recommended)")
 @click.option("--memory/--no-memory", default=True,
               help="Use in-memory caching for 5-10x performance (enabled by default)")
 @click.option("--memory-limit", default=None, type=int,
               help="Memory limit for cache in MB (auto-detected based on system RAM if not set)")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, no_interprocedural, memory, memory_limit):
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, memory, memory_limit):
     """
     Perform taint analysis to detect security vulnerabilities.
     
@@ -52,7 +50,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         aud taint-analyze
         aud taint-analyze --severity critical --verbose
         aud taint-analyze --json --output vulns.json
-        aud taint-analyze --no-interprocedural  # Not recommended - disables semantic layer
+        aud taint-analyze --no-cfg  # Disable CFG analysis (not recommended)
     """
     from theauditor.taint_analyzer import trace_taint, save_taint_analysis, normalize_taint_path, SECURITY_SINKS
     from theauditor.taint.insights import format_taint_report, calculate_severity, generate_summary, classify_vulnerability
@@ -150,12 +148,12 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         
         # STAGE 4: Run enriched taint analysis with registry
         click.echo("Performing data-flow taint analysis...")
+        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
             registry=registry,
-            use_cfg=use_cfg,
-            stage3=not no_interprocedural,  # Stage 3 is ON by default
+            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
             use_memory_cache=memory,
             memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
@@ -201,11 +199,11 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     else:
         # Original taint analysis without orchestrator
         click.echo("Performing taint analysis (rules disabled)...")
+        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
-            use_cfg=use_cfg,
-            stage3=not no_interprocedural,  # Stage 3 is ON by default
+            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
             use_memory_cache=memory,
             memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
@@ -272,18 +270,30 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             db_manager = DatabaseManager(str(db_path))
 
             # Convert taint_paths to findings format for database
+            # CRITICAL: Store complete taint path in details_json for FCE reconstruction
             findings_dicts = []
             for taint_path in result.get('taint_paths', []):
+                # Extract from nested structure (taint paths have source/sink objects, not flat fields)
+                sink = taint_path.get('sink', {})
+                source = taint_path.get('source', {})
+
+                # Construct descriptive message
+                vuln_type = taint_path.get('vulnerability_type', 'Unknown')
+                source_name = source.get('name', 'unknown')
+                sink_name = sink.get('name', 'unknown')
+                message = f"{vuln_type}: {source_name} → {sink_name}"
+
                 findings_dicts.append({
-                    'file': taint_path.get('file', ''),
-                    'line': int(taint_path.get('line', 0)),
-                    'column': taint_path.get('column'),
-                    'rule': f"taint-{taint_path.get('sink_type', 'unknown')}",
+                    'file': sink.get('file', ''),                        # Sink location (where vulnerability manifests)
+                    'line': int(sink.get('line', 0)),                    # Sink line number
+                    'column': sink.get('column'),                        # Sink column
+                    'rule': f"taint-{sink.get('category', 'unknown')}", # Sink category (xss, sql, etc.)
                     'tool': 'taint',
-                    'message': taint_path.get('message', ''),
-                    'severity': taint_path.get('severity', 'high'),
+                    'message': message,                                  # Constructed: "XSS: req.body → res.send"
+                    'severity': 'high',                                  # Default high (all taint flows are critical)
                     'category': 'injection',
-                    'code_snippet': taint_path.get('code_snippet')
+                    'code_snippet': None,                                # Not available in taint path structure
+                    'additional_info': taint_path                        # Store complete path (source, intermediate steps, sink)
                 })
 
             # Also add rule-based findings if available

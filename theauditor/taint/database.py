@@ -755,17 +755,21 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
     Schema Contract:
         Queries symbols table (guaranteed to exist)
     """
+    # CRITICAL FIX: Normalize path BEFORE querying database
+    # Database stores forward slashes, but location["file"] may have backslashes on Windows
+    normalized_file = location["file"].replace("\\", "/")
+
     query = build_query('symbols', ['name', 'line'],
         where="path = ? AND type = 'function' AND line <= ?",
         order_by="line DESC",
         limit=1
     )
-    cursor.execute(query, (location["file"], location["line"]))
-    
+    cursor.execute(query, (normalized_file, location["line"]))
+
     result = cursor.fetchone()
     if result:
         return {
-            "file": location["file"].replace("\\", "/"),  # Normalize path separators
+            "file": normalized_file,  # Already normalized
             "name": result[0],
             "line": result[1]
         }
@@ -792,6 +796,9 @@ def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,
         Queries symbols table with columns ['line', 'end_line']
         Both columns guaranteed to exist per schema.py:217-235
     """
+    # CRITICAL FIX: Normalize path BEFORE querying database
+    file_path = file_path.replace("\\", "/")
+
     # Query the end_line column that was extracted by the indexer
     query = build_query('symbols', ['line', 'end_line'],
         where="path = ? AND type = 'function' AND line = ?",
@@ -816,16 +823,20 @@ def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,
 def get_code_snippet(file_path: str, line_num: int) -> str:
     """
     Get actual code line from file for enhanced path details.
-    
+
     Args:
-        file_path: Path to the source file
+        file_path: Path to the source file (database format with forward slashes)
         line_num: Line number to extract (1-indexed)
-        
+
     Returns:
         Stripped code line or empty string if unavailable
     """
+    import os
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        # CRITICAL FIX: Convert database path (forward slashes) to OS-specific path
+        # Database stores "backend/src/file.js" but Windows open() needs "backend\src\file.js"
+        os_path = file_path.replace("/", os.sep)
+        with open(os_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
             if 0 <= line_num - 1 < len(lines):
                 return lines[line_num - 1].strip()[:100]  # Limit to 100 chars for readability

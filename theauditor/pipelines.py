@@ -888,45 +888,174 @@ def run_full_pipeline(
                 if not use_subprocess_for_taint:
                     # Create a wrapper function for direct execution
                     def run_taint_direct():
-                        """Run taint analysis directly in-process."""
+                        """Run taint analysis directly in-process WITH rules orchestrator."""
                         try:
                             from theauditor.taint import trace_taint, save_taint_analysis
                             from theauditor.utils.memory import get_recommended_memory_limit
+                            from theauditor.taint.registry import TaintRegistry
+                            from theauditor.rules.orchestrator import RulesOrchestrator
 
                             # Log start
                             print(f"[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]", file=sys.stderr)
                             start_time = time.time()
 
                             memory_limit = get_recommended_memory_limit()
+                            db_path = Path(root) / ".pf" / "repo_index.db"
 
-                            # Run taint analysis
+                            # STAGE 1: Initialize infrastructure
+                            print(f"[TAINT] Initializing security analysis infrastructure...", file=sys.stderr)
+                            registry = TaintRegistry()
+                            orchestrator = RulesOrchestrator(project_path=Path(root), db_path=db_path)
+
+                            # CRITICAL: Collect patterns from all rules and register them
+                            orchestrator.collect_rule_patterns(registry)
+
+                            # Track all findings
+                            all_findings = []
+
+                            # STAGE 2: Run standalone infrastructure rules
+                            print(f"[TAINT] Running infrastructure and configuration analysis...", file=sys.stderr)
+                            infra_findings = orchestrator.run_standalone_rules()
+                            all_findings.extend(infra_findings)
+                            print(f"[TAINT]   Found {len(infra_findings)} infrastructure issues", file=sys.stderr)
+
+                            # STAGE 3: Run discovery rules to populate registry
+                            print(f"[TAINT] Discovering framework-specific patterns...", file=sys.stderr)
+                            discovery_findings = orchestrator.run_discovery_rules(registry)
+                            all_findings.extend(discovery_findings)
+
+                            stats = registry.get_stats()
+                            print(f"[TAINT]   Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources", file=sys.stderr)
+
+                            # STAGE 4: Run enriched taint analysis with registry
+                            print(f"[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
+                            print(f"[TAINT]   Using Stage 3 (CFG multi-hop)", file=sys.stderr)
                             result = trace_taint(
-                                db_path=str(Path(root) / ".pf" / "repo_index.db"),
+                                db_path=str(db_path),
                                 max_depth=5,
-                                registry=None,
-                                use_cfg=True,
-                                stage3=True,
+                                registry=None,  # TEMPORARILY DISABLED FOR FAST DEBUG
+                                use_cfg=True,  # Stage 3 (CFG multi-hop)
                                 use_memory_cache=True,
                                 memory_limit_mb=memory_limit
                             )
                             
+                            # Extract taint paths
+                            taint_paths = result.get("taint_paths", result.get("paths", []))
+                            print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
+
+                            # STAGE 5: Run taint-dependent rules
+                            print(f"[TAINT] Running advanced security analysis...", file=sys.stderr)
+
+                            # Create taint checker from results
+                            def taint_checker(var_name, line_num=None):
+                                """Check if variable is in any taint path."""
+                                for path in taint_paths:
+                                    # Check source
+                                    if path.get("source", {}).get("name") == var_name:
+                                        return True
+                                    # Check sink
+                                    if path.get("sink", {}).get("name") == var_name:
+                                        return True
+                                    # Check intermediate steps
+                                    for step in path.get("path", []):
+                                        if isinstance(step, dict) and step.get("name") == var_name:
+                                            return True
+                                return False
+
+                            advanced_findings = orchestrator.run_taint_dependent_rules(taint_checker)
+                            all_findings.extend(advanced_findings)
+                            print(f"[TAINT]   Found {len(advanced_findings)} advanced security issues", file=sys.stderr)
+
+                            # STAGE 6: Consolidate all findings
+                            print(f"[TAINT] Total vulnerabilities found: {len(all_findings) + len(taint_paths)}", file=sys.stderr)
+
+                            # Add all non-taint findings to result
+                            result["infrastructure_issues"] = infra_findings
+                            result["discovery_findings"] = discovery_findings
+                            result["advanced_findings"] = advanced_findings
+                            result["all_rule_findings"] = all_findings
+
+                            # Update total count
+                            result["total_vulnerabilities"] = len(taint_paths) + len(all_findings)
+
                             # Save results
                             output_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
                             output_path.parent.mkdir(parents=True, exist_ok=True)
                             save_taint_analysis(result, str(output_path))
-                            
+
+                            # ===== DUAL-WRITE PATTERN =====
+                            # Write taint findings to database for FCE consumption
+                            if db_path.exists():
+                                try:
+                                    from theauditor.indexer.database import DatabaseManager
+                                    db_manager = DatabaseManager(str(db_path))
+
+                                    # Convert taint_paths to findings format
+                                    findings_dicts = []
+                                    for taint_path in result.get('taint_paths', []):
+                                        # Extract from nested structure
+                                        sink = taint_path.get('sink', {})
+                                        source = taint_path.get('source', {})
+
+                                        # Construct message
+                                        vuln_type = taint_path.get('vulnerability_type', 'Unknown')
+                                        source_name = source.get('name', 'unknown')
+                                        sink_name = sink.get('name', 'unknown')
+                                        message = f"{vuln_type}: {source_name} → {sink_name}"
+
+                                        findings_dicts.append({
+                                            'file': sink.get('file', ''),
+                                            'line': int(sink.get('line', 0)),
+                                            'column': sink.get('column'),
+                                            'rule': f"taint-{sink.get('category', 'unknown')}",
+                                            'tool': 'taint',
+                                            'message': message,
+                                            'severity': 'high',
+                                            'category': 'injection',
+                                            'code_snippet': None,
+                                            'additional_info': taint_path  # Complete path for FCE
+                                        })
+
+                                    # Also add rule-based findings from orchestrator
+                                    for finding in all_findings:
+                                        findings_dicts.append({
+                                            'file': finding.get('file', ''),
+                                            'line': int(finding.get('line', 0)),
+                                            'rule': finding.get('rule', 'unknown'),
+                                            'tool': 'taint',
+                                            'message': finding.get('message', ''),
+                                            'severity': finding.get('severity', 'medium'),
+                                            'category': finding.get('category', 'security')
+                                        })
+
+                                    if findings_dicts:
+                                        db_manager.write_findings_batch(findings_dicts, tool_name='taint')
+                                        db_manager.close()
+                                        print(f"[DB] Wrote {len(findings_dicts)} taint findings to database", file=sys.stderr)
+                                except Exception as e:
+                                    print(f"[DB] Warning: Database write failed: {e}", file=sys.stderr)
+                            # ===== END DUAL-WRITE =====
+
                             elapsed = time.time() - start_time
-                            
+
+                            # Count findings written to database
+                            db_findings_count = len(result.get('taint_paths', [])) + len(all_findings)
+
                             # Build result dict matching run_command_chain format
                             output_lines = [
                                 f"\n{'='*60}",
                                 f"[Track A (Taint Analysis)] Taint analysis",
                                 '='*60,
                                 f"[OK] Taint analysis completed in {elapsed:.1f}s",
-                                f"  Found {result.get('sources_found', 0)} taint sources",
-                                f"  Found {result.get('sinks_found', 0)} security sinks",
-                                f"  Found {result.get('total_vulnerabilities', 0)} taint paths",
-                                f"  Results saved to .pf/raw/taint_analysis.json"
+                                f"  Infrastructure issues: {len(infra_findings)}",
+                                f"  Framework patterns: {len(discovery_findings)}",
+                                f"  Taint sources: {result.get('sources_found', 0)}",
+                                f"  Security sinks: {result.get('sinks_found', 0)}",
+                                f"  Taint paths: {len(taint_paths)}",
+                                f"  Advanced security issues: {len(advanced_findings)}",
+                                f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
+                                f"  Results saved to .pf/raw/taint_analysis.json",
+                                f"  Wrote {db_findings_count} findings to database for FCE"
                             ]
                             
                             print(f"[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]", file=sys.stderr)

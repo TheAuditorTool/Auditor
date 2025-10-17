@@ -255,8 +255,8 @@ SECURITY_SINKS = {
         "db.raw",
         "cursor.execute",
         "connection.execute",
-        "query",
-        "execute",
+        # REMOVED "query" - too broad, matches inside "req.query" source
+        # REMOVED "execute" - too broad, use qualified patterns instead
         "executemany",
         "rawQuery",
         "knex.raw",

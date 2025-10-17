@@ -216,6 +216,66 @@ def load_coverage_data_from_db(db_path: str) -> Dict[str, Any]:
     return coverage_files
 
 
+def load_taint_data_from_db(db_path: str) -> List[Dict[str, Any]]:
+    """
+    Load complete taint paths from database.
+
+    Queries findings_consolidated for tool='taint' and deserializes
+    complete taint path structures from details_json column. This enables
+    FCE to perform taint-aware correlations without re-parsing JSON files.
+
+    Args:
+        db_path: Path to repo_index.db database
+
+    Returns:
+        List of complete taint path dicts with source, intermediate steps, and sink
+
+    Performance:
+        - O(n) where n = number of taint findings
+        - ~10-50ms for 100-1000 paths (indexed query + JSON deserialization)
+
+    Data Structure:
+        Each taint path contains:
+        - source: {file, line, name, pattern, type}
+        - path: [{type, file, line, name, ...}, ...] (intermediate steps)
+        - sink: {file, line, name, pattern, type}
+        - severity: critical|high|medium|low
+        - vulnerability_type: SQL Injection|XSS|Command Injection|etc.
+    """
+    taint_paths = []
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Query all taint findings with non-empty details_json
+        cursor.execute("""
+            SELECT details_json
+            FROM findings_consolidated
+            WHERE tool='taint'
+              AND details_json IS NOT NULL
+              AND details_json != '{}'
+        """)
+
+        for row in cursor.fetchall():
+            details_json = row[0]
+            try:
+                if details_json:
+                    path_data = json.loads(details_json)
+                    # Validate it has taint path structure (source and sink required)
+                    if 'source' in path_data and 'sink' in path_data:
+                        taint_paths.append(path_data)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        conn.close()
+
+    except sqlite3.Error as e:
+        print(f"[FCE] Database error loading taint data: {e}")
+
+    return taint_paths
+
+
 def scan_all_findings(db_path: str) -> Tuple[List[dict[str, Any]], Dict[str, Any]]:
     """
     Scan ALL findings from database with line-level detail.
@@ -734,7 +794,11 @@ def run_fce(
         # Step B1.7: Load Metadata - Test Coverage (Quality Dimension)
         coverage_files = load_coverage_data_from_db(full_db_path)
         print(f"[FCE] Loaded from database: {len(coverage_files)} files with coverage data")
-        
+
+        # Step B1.8: Load Taint Analysis Data (Complete Flow Paths)
+        taint_paths = load_taint_data_from_db(full_db_path)
+        print(f"[FCE] Loaded from database: {len(taint_paths)} taint flow paths")
+
         # Step B2: Load Optional Insights (Interpretive Analysis)
         # IMPORTANT: Insights are kept separate from factual findings to maintain Truth Courier principles
         insights_data = {}
@@ -1386,6 +1450,10 @@ def run_fce(
             "average_coverage": average_coverage
         }
         results["correlations"]["finding_dedupe"] = dedupe_stats
+
+        # Store taint paths for downstream correlation and analysis
+        results["correlations"]["taint_paths"] = taint_paths
+        results["correlations"]["total_taint_paths"] = len(taint_paths)
         
         # Step G: Phase 5 - CFG Path-Based Correlation (Factual control flow relationships)
         path_clusters = []

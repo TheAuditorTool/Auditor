@@ -248,24 +248,13 @@ class ASTPatternMixin:
         node_type = pattern.get("node_type", "")
         
         if node_type == "type_annotation" and "any" in pattern.get("contains", []):
-            # Search for 'any' types in symbols
-            for symbol in tree.get("symbols", []):
-                if symbol.get("type") == "any":
-                    match = ASTMatch(
-                        node_type="any_type",
-                        start_line=symbol.get("line", 0),
-                        end_line=symbol.get("line", 0),
-                        start_col=0,
-                        snippet=f"{symbol.get('name')}: any",
-                        metadata={"symbol": symbol.get("name"), "type": "any"}
-                    )
-                    matches.append(match)
-            
-            # Also recursively search the AST for AnyKeyword nodes
+            # PHASE 5: Search AST nodes for inline type information
+            # serializeNode now includes is_any flag directly in nodes
             def search_ast_for_any(node, depth=0):
                 if depth > 100 or not isinstance(node, dict):
                     return
-                
+
+                # Check for AnyKeyword node kind
                 if node.get("kind") == "AnyKeyword":
                     match = ASTMatch(
                         node_type="AnyKeyword",
@@ -276,10 +265,24 @@ class ASTPatternMixin:
                         metadata={"kind": "AnyKeyword"}
                     )
                     matches.append(match)
-                
+
+                # PHASE 5: Check for is_any flag (inline type extraction from serializeNode)
+                elif node.get("is_any"):
+                    node_name = node.get("name", "unknown")
+                    match = ASTMatch(
+                        node_type="any_type",
+                        start_line=node.get("line", 0),
+                        end_line=node.get("line", 0),
+                        start_col=node.get("column", 0),
+                        snippet=f"{node_name}: any",
+                        metadata={"symbol": node_name, "type": "any"}
+                    )
+                    matches.append(match)
+
+                # Recurse through children
                 for child in node.get("children", []):
                     search_ast_for_any(child, depth + 1)
-            
+
             search_ast_for_any(tree.get("ast", {}))
         
         return matches

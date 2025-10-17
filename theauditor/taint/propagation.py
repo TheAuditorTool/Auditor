@@ -95,20 +95,25 @@ def trace_from_source(
     call_graph: Dict[str, List[str]],
     max_depth: int,
     use_cfg: bool = False,
-    stage3: bool = False,
     cache: Optional[Any] = None
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     Trace taint propagation from a source to potential sinks using true data flow analysis.
-    
+
     This implements a worklist algorithm that:
     1. Identifies variables tainted by the source
     2. Propagates taint through assignments
     3. Tracks taint through function calls and returns
     4. Only reports vulnerabilities when tainted data reaches a sink
-    
+
     When use_cfg=True and CFG data is available, performs flow-sensitive analysis
     that distinguishes between different execution paths.
+
+    Stage Selection:
+    - use_cfg=True: Stage 3 (CFG-based multi-hop with worklist)
+    - use_cfg=False: Stage 2 (call-graph flow-insensitive)
+
+    Note: The stage3 parameter was removed in v1.2.1 - use_cfg now controls everything.
     """
     # Import TaintPath here to avoid circular dependency
     from .core import TaintPath
@@ -408,10 +413,75 @@ def trace_from_source(
         print(f"[TAINT] Propagation completed after {iterations} iterations", file=sys.stderr)
         print(f"[TAINT] Final tainted elements: {tainted_elements}", file=sys.stderr)
         print(f"[TAINT] Checking {len(sinks)} sinks for vulnerabilities", file=sys.stderr)
-    
-    # Step 3: Check if any tainted element reaches a sink
+
+    # ============================================================================
+    # CRITICAL FIX (v1.2.1): PRO-ACTIVE INTER-PROCEDURAL SEARCH
+    # ============================================================================
+    # Run inter-procedural analysis FIRST for ALL sinks, not just same-file sinks.
+    # This catches the common case: Controller → Service → Model flows.
+    #
+    # Previous bug: Only checked same-file sinks (line 420), missing cross-file flows.
+    # Fix: Pro-actively search for inter-procedural paths before intra-procedural loop.
+
+    if use_cfg:
+        # Stage 3: CFG-based multi-hop analysis for ALL sinks (including cross-file)
+        if debug_mode:
+            print(f"[TAINT] Running pro-active inter-procedural analysis for all {len(sinks)} sinks", file=sys.stderr)
+
+        from .interprocedural import trace_inter_procedural_flow_cfg
+        from .interprocedural_cfg import InterProceduralCFGAnalyzer
+
+        analyzer = InterProceduralCFGAnalyzer(cursor, cache)
+
+        # Try inter-procedural from the source pattern itself
+        # This handles cases where source is passed directly without intermediate variable
+        source_var = source.get('pattern', source.get('name', 'unknown'))
+
+        inter_paths = trace_inter_procedural_flow_cfg(
+            analyzer=analyzer,
+            cursor=cursor,
+            source_var=source_var,
+            source_file=source["file"],
+            source_line=source["line"],
+            source_function=source_function.get("name", "global"),
+            sinks=sinks,  # ALL sinks, including cross-file
+            max_depth=max_depth,
+            cache=cache
+        )
+
+        if inter_paths:
+            if debug_mode:
+                print(f"[TAINT] Pro-active inter-procedural found {len(inter_paths)} paths", file=sys.stderr)
+            paths.extend(inter_paths)
+    else:
+        # Stage 2: Flow-insensitive inter-procedural analysis for ALL sinks (including cross-file)
+        # BUG FIX: Previously skipped all cross-file sinks. Now calling the inter-procedural function.
+        if debug_mode:
+            print(f"[TAINT] Running flow-insensitive inter-procedural analysis for all {len(sinks)} sinks", file=sys.stderr)
+
+        source_var = source.get('pattern', source.get('name', 'unknown'))
+
+        inter_paths = trace_inter_procedural_flow_insensitive(
+            cursor=cursor,
+            source_var=source_var,
+            source_file=source["file"],
+            source_line=source["line"],
+            source_function=source_function.get("name", "global"),
+            sinks=sinks,  # ALL sinks, including cross-file
+            max_depth=max_depth,
+            cache=cache
+        )
+
+        if inter_paths:
+            if debug_mode:
+                print(f"[TAINT] Flow-insensitive inter-procedural found {len(inter_paths)} paths", file=sys.stderr)
+            paths.extend(inter_paths)
+
+    # Step 3: Check if any tainted element reaches a sink (INTRA-PROCEDURAL)
     for sink in sinks:
-        # Only check sinks in the same file for now (can be extended)
+        # MODIFIED: Allow cross-file sinks when inter-procedural is enabled
+        # For same-file sinks, do intra-procedural analysis
+        # For cross-file sinks, rely on inter-procedural analysis above
         if sink["file"] != source["file"]:
             continue
         
@@ -461,51 +531,11 @@ def trace_from_source(
                 func_name = "global"
                 var_name = element
             
-            # Skip if not in the same function as the sink - BUT try inter-procedural tracking
+            # SIMPLIFIED: Skip if not in same function (inter-procedural handled pro-actively)
+            # The pro-active inter-procedural search above handles cross-function flows
             if func_name != sink_function["name"]:
-                # CRITICAL: Attempt inter-procedural tracking
                 if debug_mode:
-                    print(f"[TAINT] Attempting inter-procedural tracking: {var_name} in {func_name} to sink in {sink_function['name']}", file=sys.stderr)
-
-                # CENTRALIZED DECISION LOGIC: Choose between CFG-sensitive and insensitive analysis
-                if use_cfg and stage3:
-                    # Use CFG-based flow-sensitive inter-procedural analysis
-                    from .interprocedural import trace_inter_procedural_flow_cfg
-                    from .interprocedural_cfg import InterProceduralCFGAnalyzer
-
-                    analyzer = InterProceduralCFGAnalyzer(cursor, cache)
-                    inter_paths = trace_inter_procedural_flow_cfg(
-                        analyzer=analyzer,
-                        cursor=cursor,
-                        source_var=var_name,
-                        source_file=source["file"],
-                        source_line=source["line"],
-                        source_function=func_name,
-                        sinks=[sink],
-                        max_depth=3,
-                        cache=cache
-                    )
-                else:
-                    # Use call-graph-based flow-insensitive analysis (faster, less precise)
-                    inter_paths = trace_inter_procedural_flow_insensitive(
-                        cursor=cursor,
-                        source_var=var_name,
-                        source_file=source["file"],
-                        source_line=source["line"],
-                        source_function=func_name,
-                        sinks=[sink],  # Check just this specific sink
-                        max_depth=3,  # Limited depth for performance
-                        cache=cache  # Pass cache through
-                    )
-                
-                if inter_paths:
-                    # Found inter-procedural vulnerability!
-                    if debug_mode:
-                        print(f"[TAINT] INTER-PROCEDURAL VULNERABILITY FOUND via toss-the-salad!", file=sys.stderr)
-                    paths.extend(inter_paths)
-                elif debug_mode:
-                    print(f"[TAINT] No inter-procedural path found from {var_name} to sink", file=sys.stderr)
-                
+                    print(f"[TAINT] Skipping {var_name} in {func_name} (different function than sink {sink_function['name']}) - inter-procedural handled earlier", file=sys.stderr)
                 continue
             
             # Check if the tainted variable appears in the sink's context
@@ -647,10 +677,10 @@ def trace_from_source_flow_sensitive(
 ) -> List[Any]:  # Returns List[TaintPath]
     """
     Flow-sensitive wrapper for trace_from_source.
-    
+
     This function explicitly enables CFG-based flow-sensitive analysis,
     which distinguishes between different execution paths to reduce false positives.
-    
+
     Example:
         # This would be a false positive in flow-insensitive analysis:
         user_input = req.body.data
@@ -659,7 +689,7 @@ def trace_from_source_flow_sensitive(
         } else {
             log_error("Invalid input")
         }
-    
+
     Args:
         cursor: Database cursor
         source: Taint source information
@@ -667,7 +697,7 @@ def trace_from_source_flow_sensitive(
         sinks: List of potential sinks
         call_graph: Function call graph
         max_depth: Maximum depth for interprocedural analysis
-        
+
     Returns:
         List of TaintPath objects representing flow-sensitive vulnerabilities
     """
@@ -678,7 +708,6 @@ def trace_from_source_flow_sensitive(
         sinks=sinks,
         call_graph=call_graph,
         max_depth=max_depth,
-        use_cfg=True,  # Enable flow-sensitive analysis
-        stage3=False,  # This wrapper is for Stage 2 only
+        use_cfg=True,  # Enable CFG-based flow-sensitive analysis (Stage 3)
         cache=cache  # Pass cache through
     )

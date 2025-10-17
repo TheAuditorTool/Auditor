@@ -131,16 +131,12 @@ class InterProceduralCFGAnalyzer:
         try:
             # Get CFG for callee function
             from theauditor.taint.cfg_integration import PathAnalyzer, BlockTaintState
-            
-            # Check if CFG data exists for the callee
-            analyzer = None
-            try:
-                analyzer = PathAnalyzer(self.cursor, callee_file, callee_func)
-            except Exception as e:
-                if self.debug:
-                    print(f"  No CFG data for {callee_func}: {e}", file=sys.stderr)
-                # Fall back to conservative analysis
-                return self._analyze_without_cfg(callee_func, args_mapping, taint_state)
+
+            # HARD FAIL PROTOCOL: NO FALLBACKS
+            # PathAnalyzer now normalizes function names internally
+            # If this fails, it means CFG data is truly missing (indexer bug)
+            # Let it crash loud so we can fix the root cause
+            analyzer = PathAnalyzer(self.cursor, callee_file, callee_func)
             
             # Map caller's taint state to callee's entry state
             entry_state = self._map_taint_to_params(args_mapping, taint_state)
@@ -461,29 +457,22 @@ class InterProceduralCFGAnalyzer:
                 return True
 
         return False
-    
-    def _analyze_without_cfg(
-        self,
-        callee_func: str,
-        args_mapping: Dict[str, str],
-        taint_state: Dict[str, bool]
-    ) -> InterProceduralEffect:
-        """Conservative analysis when CFG is not available."""
-        # Be conservative: assume all tainted inputs taint outputs
-        effect = InterProceduralEffect()
-        
-        # If any input is tainted, assume return is tainted
-        for caller_var, is_tainted in taint_state.items():
-            if is_tainted:
-                effect.return_tainted = True
-                break
-        
-        # Assume parameters are unmodified (conservative for pass-by-ref)
-        for param in args_mapping.values():
-            effect.param_effects[param] = 'unmodified'
-        
-        return effect
-    
+
+    # ============================================================================
+    # DELETED: _analyze_without_cfg() - 20 lines of fallback logic
+    # ============================================================================
+    # This function existed to provide "conservative analysis" when CFG lookup
+    # failed. It returned params={'arg': 'unmodified'} which KILLED taint tracking.
+    #
+    # HARD FAILURE PROTOCOL:
+    # - PathAnalyzer now normalizes function names (strips object prefix)
+    # - If CFG lookup still fails, it means indexer bug → FIX THE INDEXER
+    # - NO FALLBACKS. Let it crash loud so root cause is visible.
+    #
+    # The fallback pattern violated CLAUDE.md zero-fallback policy and hid the
+    # function name mismatch bug for months.
+    # ============================================================================
+
     def _make_cache_key(
         self,
         file: str,

@@ -191,7 +191,20 @@ def extract_semantic_ast_symbols(node, depth=0):
     # Recurse through children
     for child in node.get("children", []):
         symbols.extend(extract_semantic_ast_symbols(child, depth + 1))
-    
+
+    # DEDUPLICATION: With full AST traversal, same symbol may appear via multiple paths
+    # (e.g., req.body as PropertyAccessExpression + nested Identifier)
+    # Only deduplicate at top level (depth=0) to avoid redundant work in recursion
+    if depth == 0 and symbols:
+        seen = {}
+        deduped = []
+        for sym in symbols:
+            key = (sym.get("name"), sym.get("line"), sym.get("column", 0), sym.get("type"))
+            if key not in seen:
+                seen[key] = True
+                deduped.append(sym)
+        return deduped
+
     return symbols
 
 
@@ -348,55 +361,153 @@ def build_scope_map(ast_root: Dict) -> Dict[int, str]:
     """
     scope_map = {}
     function_ranges = []
-    
-    def collect_functions(node, depth=0, parent=None, grandparent=None, parent_name=None):
+
+    # Track class context for qualified names
+    class_stack = []
+
+    def collect_functions(node, depth=0):
         """Recursively collect all function declarations with their line ranges.
-        
-        The JavaScript helper now provides accurate names using TypeScript's parent context.
-        We simply trust those names here.
+
+        CRITICAL FIX: Now handles PropertyDeclaration with wrapped functions
+        (e.g., create = this.asyncHandler(async (req, res) => {}))
         """
         if depth > 100 or not isinstance(node, dict):
             return
-        
+
         kind = node.get("kind", "")
-        
-        # Check if this is a function node
-        if kind in ["FunctionDeclaration", "MethodDeclaration", "ArrowFunction", 
+
+        # Track class context for qualified names
+        if kind == "ClassDeclaration":
+            class_name = "UnknownClass"
+            for child in node.get("children", []):
+                if isinstance(child, dict) and child.get("kind") == "Identifier":
+                    class_name = child.get("text", "UnknownClass")
+                    break
+            class_stack.append(class_name)
+
+            # Recurse through class members
+            for child in node.get("children", []):
+                collect_functions(child, depth + 1)
+
+            # Pop class context
+            if class_stack:
+                class_stack.pop()
+            return  # Don't double-traverse
+
+        # CRITICAL FIX: Handle PropertyDeclaration with function initializers
+        # Patterns:
+        #   1. Direct: create = async (req, res) => {}
+        #   2. Wrapped: create = this.asyncHandler(async (req, res) => {})
+        if kind == "PropertyDeclaration":
+            initializer = node.get("initializer")
+            if not initializer:
+                children = node.get("children", [])
+                if len(children) > 1:
+                    initializer = children[1]
+
+            if isinstance(initializer, dict):
+                init_kind = initializer.get("kind", "")
+
+                # Pattern 1: Direct arrow function or function expression
+                is_arrow_func = init_kind in ["ArrowFunction", "FunctionExpression"]
+
+                # Pattern 2: Wrapped function (CallExpression wrapping a function)
+                is_wrapped_func = False
+                func_start_line = None
+                func_end_line = None
+
+                if init_kind == "CallExpression":
+                    call_args = initializer.get("arguments", initializer.get("children", [])[1:])
+                    for arg in call_args:
+                        if isinstance(arg, dict) and arg.get("kind") in ["ArrowFunction", "FunctionExpression"]:
+                            is_wrapped_func = True
+                            func_start_line = arg.get("line", node.get("line", 0))
+                            func_end_line = arg.get("endLine")
+                            break
+                elif is_arrow_func:
+                    # Direct arrow/function expression - use initializer's line range
+                    func_start_line = initializer.get("line", node.get("line", 0))
+                    func_end_line = initializer.get("endLine")
+
+                if is_arrow_func or is_wrapped_func:
+                    # Get property name
+                    prop_name = ""
+                    for child in node.get("children", []):
+                        if isinstance(child, dict) and child.get("kind") == "Identifier":
+                            prop_name = child.get("text", "")
+                            break
+
+                    # Build qualified name with class context
+                    func_name = f"{class_stack[-1]}.{prop_name}" if class_stack else prop_name
+
+                    # Use the function's line range (direct or wrapped)
+                    start_line = func_start_line or node.get("line", 0)
+                    end_line = func_end_line
+
+                    if not end_line:
+                        # Conservative estimate
+                        end_line = start_line + 50
+
+                    if start_line > 0:
+                        function_ranges.append({
+                            "name": func_name,
+                            "start": start_line,
+                            "end": end_line,
+                            "depth": depth,
+                            "is_property_function": True,  # Mark for debugging
+                            "is_wrapped": is_wrapped_func,
+                            "is_direct_arrow": is_arrow_func
+                        })
+
+                    # Don't recurse into children - we already handled the function
+                    return
+
+        # Standard function nodes
+        if kind in ["FunctionDeclaration", "MethodDeclaration", "ArrowFunction",
                     "FunctionExpression", "Constructor", "GetAccessor", "SetAccessor"]:
-            # CRITICAL: Trust the name from JavaScript helper - it has perfect parent context
+            # Get function name
             name = node.get("name", "anonymous")
-            
+
             # Convert dict names to strings if needed
             if isinstance(name, dict):
                 name = name.get("text", "anonymous")
-            
-            # Get line range - TypeScript provides this!
+
+            # For MethodDeclaration, add class context
+            if kind == "MethodDeclaration" and class_stack:
+                # Get method name from children
+                method_name = ""
+                for child in node.get("children", []):
+                    if isinstance(child, dict) and child.get("kind") == "Identifier":
+                        method_name = child.get("text", "")
+                        break
+                if method_name:
+                    name = f"{class_stack[-1]}.{method_name}"
+
+            # Get line range
             start_line = node.get("line", 0)
             end_line = node.get("endLine")
-            
-            # If no endLine, estimate based on next sibling or use heuristic
+
             if not end_line:
-                # Conservative estimate: 50 lines for anonymous functions
                 end_line = start_line + 50
-            
-            if start_line > 0:  # Valid line number
+
+            if start_line > 0:
                 function_ranges.append({
                     "name": name,
                     "start": start_line,
                     "end": end_line,
-                    "depth": depth  # Track nesting depth for precedence
+                    "depth": depth
                 })
-        
+
         # Recurse through children
         for child in node.get("children", []):
             collect_functions(child, depth + 1)
-    
+
     # Collect all functions
     collect_functions(ast_root)
-    
+
     # Sort by depth (deeper functions take precedence) then by start line
     function_ranges.sort(key=lambda x: (x["start"], -x["depth"]))
-    
+
     # Build the line-to-function map
     # Process in reverse order so deeper (more specific) functions override
     for func in reversed(function_ranges):
@@ -404,63 +515,178 @@ def build_scope_map(ast_root: Dict) -> Dict[int, str]:
             # Deeper/inner functions take precedence
             if line not in scope_map or func["depth"] > 0:
                 scope_map[line] = func["name"]
-    
+
     # Fill in any gaps with "global"
-    # This ensures every line has a scope, even outside functions
     if function_ranges:
         max_line = max(func["end"] for func in function_ranges)
         for line in range(1, max_line + 1):
             if line not in scope_map:
                 scope_map[line] = "global"
-    
+
     return scope_map
 
 
 def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Dict]:
     """Extract function metadata from TypeScript semantic AST for symbol table.
-    
-    This returns simplified metadata for the symbol table (name, line, type).
-    For CFG extraction, use extract_typescript_function_nodes instead.
+
+    COMPREHENSIVE FIX for TypeScript class property arrow functions.
+
+    This implementation uses HYBRID APPROACH:
+    1. AST TRAVERSAL - Detects ALL function patterns including PropertyDeclaration
+    2. SYMBOL ENRICHMENT - Merges rich type metadata from TypeScript compiler
+
+    Function patterns detected:
+    1. FunctionDeclaration - standard function declarations
+    2. MethodDeclaration - class methods (async method() {})
+    3. PropertyDeclaration - class property arrow functions (prop = async () => {})
+    4. Constructor - class constructors
+    5. GetAccessor/SetAccessor - property accessors
+
+    CRITICAL: PropertyDeclaration with ArrowFunction/FunctionExpression initializers
+    are now properly detected and extracted with full class context.
+
+    This unblocks multi-hop taint analysis by ensuring ALL functions are indexed.
     """
     functions = []
-    
-    # Use symbols for quick metadata extraction
-    for symbol in tree.get("symbols", []):
-        ts_kind = symbol.get("kind", 0)
-        symbol_name = symbol.get("name", "")
-        
-        if not symbol_name or symbol_name == "anonymous":
-            continue
-        
-        # Skip parameters
-        PARAMETER_NAMES = {"req", "res", "next", "err", "error", "ctx", "request", "response", "callback", "done", "cb"}
-        if symbol_name in PARAMETER_NAMES:
-            continue
-        
-        # Check if this is a function symbol
-        is_function = False
-        if isinstance(ts_kind, str):
-            if "Function" in ts_kind or "Method" in ts_kind:
-                is_function = True
-        elif isinstance(ts_kind, (int, float)):
-            if ts_kind == 8388608:  # Parameter
-                continue
-            elif ts_kind in [16, 8192, 16384]:  # Function, Method, Constructor
-                is_function = True
-        
-        if is_function:
-            func_entry = {
-                "name": symbol_name,
-                "line": symbol.get("line", 0),
-                "col": symbol.get("column", symbol.get("col", 0)),
-                "column": symbol.get("column", 0),
-                "end_line": symbol.get("endLine"),  # CRITICAL: Extract end_line from helper script
-                "type": "function",
-                "kind": ts_kind,
-            }
 
-            # Preserve rich type metadata from semantic parser
-            for key in (
+    # Get the full AST root for traversal
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+
+    if not actual_tree or not actual_tree.get("success"):
+        return functions
+
+    ast_root = actual_tree.get("ast", {})
+
+    if not ast_root:
+        return functions
+
+    # PHASE 2: Type metadata now comes directly from AST nodes (serializeNode inline extraction)
+    # No longer need symbol_metadata lookup - removed for single-pass architecture
+
+    # Skip parameters - these should NEVER be marked as functions
+    PARAMETER_NAMES = {"req", "res", "next", "err", "error", "ctx", "request", "response", "callback", "done", "cb"}
+
+    # Track class context as we traverse
+    class_stack = []  # Stack of class names for proper scoping
+
+    # PHASE 2: Removed enrich_with_metadata() - type info now read directly from AST nodes
+
+    def traverse(node, depth=0):
+        """Recursively traverse AST extracting ALL function patterns."""
+        if depth > 100 or not isinstance(node, dict):
+            return
+
+        kind = node.get("kind", "")
+
+        # Track class context for qualified names
+        if kind == "ClassDeclaration":
+            # CORRECT: Look for Identifier in children, not node.get("name")
+            class_name = "UnknownClass"
+            for child in node.get("children", []):
+                if isinstance(child, dict) and child.get("kind") == "Identifier":
+                    class_name = child.get("text", "UnknownClass")
+                    break
+            class_stack.append(class_name)
+
+            # Recurse through class members
+            for child in node.get("children", []):
+                traverse(child, depth + 1)
+
+            # Pop class context
+            if class_stack:
+                class_stack.pop()
+            return  # Don't double-traverse
+
+        is_function_like = False
+        func_name = ""
+        line = node.get("line", 0)
+        func_entry = {
+            "line": line,
+            "col": node.get("column", 0),
+            "column": node.get("column", 0),
+            "end_line": node.get("endLine"),
+            "type": "function",
+            "kind": kind,
+        }
+        base_name_for_enrichment = ""
+
+        # Pattern 1: Standard FunctionDeclaration
+        if kind == "FunctionDeclaration":
+            is_function_like = True
+            # CORRECT: Look for Identifier in children
+            func_name = ""
+            for child in node.get("children", []):
+                if isinstance(child, dict) and child.get("kind") == "Identifier":
+                    func_name = child.get("text", "")
+                    break
+            base_name_for_enrichment = func_name
+
+        # Pattern 2: MethodDeclaration (class methods)
+        elif kind == "MethodDeclaration":
+            is_function_like = True
+            # CORRECT: Look for Identifier in children
+            method_name = ""
+            for child in node.get("children", []):
+                if isinstance(child, dict) and child.get("kind") == "Identifier":
+                    method_name = child.get("text", "")
+                    break
+            base_name_for_enrichment = method_name
+            func_name = f"{class_stack[-1]}.{method_name}" if class_stack else method_name
+
+        # Pattern 3: PropertyDeclaration with ArrowFunction/FunctionExpression (CRITICAL FIX)
+        elif kind == "PropertyDeclaration":
+            initializer = node.get("initializer")
+            if not initializer:  # Fallback for different AST structures
+                children = node.get("children", [])
+                if len(children) > 1:
+                    initializer = children[1]
+
+            if isinstance(initializer, dict):
+                init_kind = initializer.get("kind", "")
+                is_arrow_func = init_kind in ["ArrowFunction", "FunctionExpression"]
+                is_wrapped_func = False
+                # Handle wrapped functions like this.asyncHandler(async () => {})
+                if init_kind == "CallExpression":
+                    call_args = initializer.get("arguments", initializer.get("children", [])[1:])
+                    for arg in call_args:
+                        if isinstance(arg, dict) and arg.get("kind") in ["ArrowFunction", "FunctionExpression"]:
+                            is_wrapped_func = True
+                            break
+
+                if is_arrow_func or is_wrapped_func:
+                    is_function_like = True
+                    # CORRECT: Look for Identifier in children
+                    prop_name = ""
+                    for child in node.get("children", []):
+                        if isinstance(child, dict) and child.get("kind") == "Identifier":
+                            prop_name = child.get("text", "")
+                            break
+                    base_name_for_enrichment = prop_name
+                    func_name = f"{class_stack[-1]}.{prop_name}" if class_stack else prop_name
+
+        # Pattern 4: Constructor, GetAccessor, SetAccessor
+        elif kind in ["Constructor", "GetAccessor", "SetAccessor"]:
+            is_function_like = True
+            if kind == "Constructor":
+                accessor_name = "constructor"
+            else:
+                # CORRECT: Look for Identifier in children
+                accessor_name = ""
+                for child in node.get("children", []):
+                    if isinstance(child, dict) and child.get("kind") == "Identifier":
+                        accessor_name = child.get("text", "")
+                        break
+            base_name_for_enrichment = accessor_name
+            prefix = ""
+            if kind == "GetAccessor": prefix = "get "
+            if kind == "SetAccessor": prefix = "set "
+            func_name = f"{class_stack[-1]}.{prefix}{accessor_name}" if class_stack else f"{prefix}{accessor_name}"
+
+        if is_function_like and func_name and func_name not in PARAMETER_NAMES:
+            func_entry["name"] = func_name
+
+            # PHASE 2: Read type metadata directly from AST node (inline extraction from serializeNode)
+            for metadata_key in (
                 "type_annotation",
                 "is_any",
                 "is_unknown",
@@ -470,12 +696,38 @@ def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Di
                 "return_type",
                 "extends_type",
             ):
-                if key in symbol:
-                    func_entry[key] = symbol.get(key)
+                if metadata_key in node:
+                    func_entry[metadata_key] = node.get(metadata_key)
 
             functions.append(func_entry)
-    
-    return functions
+
+        # Recurse through all children
+        for child in node.get("children", []):
+            traverse(child, depth + 1)
+
+    # Start traversal from AST root
+    traverse(ast_root)
+
+    import sys
+    import os
+
+    # DEDUPLICATION: With full AST traversal, functions may be extracted multiple times
+    # (e.g., from both AST nodes and symbol metadata)
+    # Use (name, line, column) as unique key
+    seen = {}
+    deduped_functions = []
+    for func in functions:
+        key = (func.get("name"), func.get("line"), func.get("col", func.get("column", 0)))
+        if key not in seen:
+            seen[key] = True
+            deduped_functions.append(func)
+
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        print(f"[DEBUG] extract_typescript_functions_for_symbols: Found {len(deduped_functions)} functions (deduped from {len(functions)})", file=sys.stderr)
+        for func in deduped_functions[:5]:
+            print(f"[DEBUG]   {func['name']} at line {func['line']}", file=sys.stderr)
+
+    return deduped_functions
 
 
 def extract_typescript_functions(tree: Dict, parser_self) -> List[Dict]:
@@ -535,149 +787,99 @@ def extract_typescript_function_nodes(tree: Dict, parser_self) -> List[Dict]:
 
 
 def extract_typescript_classes(tree: Dict, parser_self) -> List[Dict]:
-    """Extract class definitions from TypeScript semantic AST."""
+    """Extract class definitions from TypeScript semantic AST.
+
+    PHASE 2: Rewritten to use single-pass AST traversal instead of filtered symbols.
+    """
     classes = []
-    
-    # CRITICAL FIX: Symbols are at tree["symbols"], not tree["tree"]["symbols"]
-    for symbol in tree.get("symbols", []):
-        ts_kind = symbol.get("kind", 0)
-        symbol_name = symbol.get("name", "")
-        
-        if not symbol_name or symbol_name == "anonymous":
-            continue
-        
-        # Check if this is a class symbol
-        is_class = False
-        if isinstance(ts_kind, str):
-            if "Class" in ts_kind or "Interface" in ts_kind:
-                is_class = True
-        elif isinstance(ts_kind, (int, float)):
-            # TypeScript SymbolFlags: Class = 32, Interface = 64
-            if ts_kind in [32, 64]:
-                is_class = True
-        
-        if is_class:
-            class_entry = {
-                "name": symbol_name,
-                "line": symbol.get("line", 0),
-                "col": symbol.get("column", symbol.get("col", 0)),
-                "column": symbol.get("column", 0),
-                "type": "class",
-                "kind": ts_kind,
-            }
 
-            for key in (
-                "type_annotation",
-                "extends_type",
-                "type_params",
-                "has_type_params",
-            ):
-                if key in symbol:
-                    class_entry[key] = symbol.get(key)
+    # Get the actual AST tree
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
+        return classes
 
-            classes.append(class_entry)
-    
-    return classes
+    ast_root = actual_tree.get("ast", {})
+    if not ast_root:
+        return classes
+
+    def traverse(node, depth=0):
+        """Recursively traverse AST extracting class and interface declarations."""
+        if depth > 100 or not isinstance(node, dict):
+            return
+
+        kind = node.get("kind", "")
+
+        # Extract class and interface declarations
+        if kind in ["ClassDeclaration", "InterfaceDeclaration"]:
+            # Extract class/interface name
+            class_name = node.get("name", "")
+            if isinstance(class_name, dict):
+                class_name = class_name.get("text", class_name.get("name", ""))
+
+            # Try alternate name extraction from children
+            if not class_name or class_name == "anonymous":
+                for child in node.get("children", []):
+                    if isinstance(child, dict) and child.get("kind") == "Identifier":
+                        class_name = child.get("text", "")
+                        break
+
+            if class_name and class_name != "anonymous":
+                class_entry = {
+                    "name": class_name,
+                    "line": node.get("line", 0),
+                    "col": node.get("column", node.get("col", 0)),
+                    "column": node.get("column", 0),
+                    "type": "class",
+                }
+
+                # PHASE 2: Read type metadata directly from AST node
+                for key in (
+                    "type_annotation",
+                    "extends_type",
+                    "type_params",
+                    "has_type_params",
+                ):
+                    if key in node:
+                        class_entry[key] = node.get(key)
+
+                classes.append(class_entry)
+
+        # Recurse through all children
+        for child in node.get("children", []):
+            traverse(child, depth + 1)
+
+    # Start traversal from AST root
+    traverse(ast_root)
+
+    # DEDUPLICATION: With full AST traversal, classes may be extracted multiple times
+    # Use (name, line, column) as unique key
+    seen = {}
+    deduped_classes = []
+    for cls in classes:
+        key = (cls.get("name"), cls.get("line"), cls.get("col", cls.get("column", 0)))
+        if key not in seen:
+            seen[key] = True
+            deduped_classes.append(cls)
+
+    return deduped_classes
 
 
 def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
-    """Extract function calls from TypeScript semantic AST."""
-    calls = []
-    
-    # Common parameter names that should NEVER be marked as functions
-    PARAMETER_NAMES = {"req", "res", "next", "err", "error", "ctx", "request", "response", "callback", "done", "cb"}
-    
-    # Use the symbols already extracted by TypeScript compiler
-    # CRITICAL FIX: Symbols are at tree["symbols"], not tree["tree"]["symbols"]
-    for symbol in tree.get("symbols", []):
-        symbol_name = _strip_comment_prefix(symbol.get("name", ""))
-        ts_kind = symbol.get("kind", 0)
+    """Extract function calls from TypeScript semantic AST.
 
-        # Skip empty/anonymous symbols
-        if not symbol_name or symbol_name == "anonymous":
-            continue
-        
-        # CRITICAL FIX: Skip known parameter names that are incorrectly marked as functions
-        # These are function parameters, not function definitions
-        if symbol_name in PARAMETER_NAMES:
-            # These should be marked as properties/variables for taint analysis
-            if symbol_name in ["req", "request", "ctx"]:
-                calls.append({
-                    "name": symbol_name,
-                    "line": symbol.get("line", 0),
-                    "column": 0,
-                    "type": "property"  # Mark as property for taint source detection
-                })
-            continue  # Skip further processing for parameters
-        
-        # CRITICAL FIX: Properly categorize based on TypeScript SymbolFlags
-        # The 'kind' field from TypeScript can be:
-        # - A string like "Function", "Method", "Property" (when ts.SymbolFlags mapping works)
-        # - A number representing the flag value (when mapping fails)
-        # TypeScript SymbolFlags values:
-        # Function = 16, Method = 8192, Property = 98304, Variable = 3, etc.
-        
-        db_type = "call"  # Default for unknown types
-        
-        # Check if kind is a string (successful mapping in helper script)
-        if isinstance(ts_kind, str):
-            # Only mark as function if it's REALLY a function and not a parameter
-            if ("Function" in ts_kind or "Method" in ts_kind) and symbol_name not in PARAMETER_NAMES:
-                db_type = "function"
-            elif "Property" in ts_kind:
-                db_type = "property"
-            elif "Variable" in ts_kind or "Let" in ts_kind or "Const" in ts_kind:
-                # Variables could be sources if they match patterns
-                if any(pattern in symbol_name for pattern in ["req", "request", "ctx", "body", "params", "query", "headers"]):
-                    db_type = "property"
-                else:
-                    db_type = "call"
-        # Check numeric flags (when string mapping failed)
-        elif isinstance(ts_kind, (int, float)):
-            # TypeScript SymbolFlags from typescript.d.ts:
-            # Function = 16, Method = 8192, Constructor = 16384
-            # Property = 98304, Variable = 3, Let = 1, Const = 2
-            # Parameter = 8388608 (0x800000)
-            
-            # CRITICAL: Skip parameter flag (8388608)
-            if ts_kind == 8388608:
-                # This is a parameter, not a function
-                if symbol_name in ["req", "request", "ctx"]:
-                    db_type = "property"  # Mark as property for taint analysis
-                else:
-                    continue  # Skip other parameters
-            elif ts_kind in [16, 8192, 16384] and symbol_name not in PARAMETER_NAMES:  # Function, Method, Constructor
-                db_type = "function"
-            elif ts_kind in [98304, 4, 1048576]:  # Property, EnumMember, Accessor
-                db_type = "property"
-            elif ts_kind in [3, 1, 2]:  # Variable, Let, Const
-                # Check if it looks like a source
-                if any(pattern in symbol_name for pattern in ["req", "request", "ctx", "body", "params", "query", "headers"]):
-                    db_type = "property"
-        
-        # Override based on name patterns (for calls and property accesses)
-        if "." in symbol_name:
-            # Source patterns (user input)
-            if any(pattern in symbol_name for pattern in ["req.", "request.", "ctx.", "event.", "body", "params", "query", "headers", "cookies"]):
-                db_type = "property"
-            # Sink patterns (dangerous functions)
-            elif any(pattern in symbol_name for pattern in ["res.send", "res.render", "res.json", "response.write", "exec", "eval"]):
-                db_type = "call"
-        
-        calls.append({
-            "name": symbol_name,
-            "line": symbol.get("line", 0),
-            "column": 0,
-            "type": db_type
-        })
-    
-    # Also traverse AST for specific patterns
+    PHASE 3: Single-pass extraction using only AST traversal.
+    Removed filtered symbols loop and deduplication logic.
+    """
+    calls = []
+
+    # Get actual tree structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if actual_tree and actual_tree.get("success"):
         ast_root = actual_tree.get("ast")
         if ast_root:
-            calls.extend(extract_semantic_ast_symbols(ast_root))
-    
+            # Single-pass AST traversal extracts ALL calls/properties
+            calls = extract_semantic_ast_symbols(ast_root)
+
     return calls
 
 
@@ -1047,9 +1249,12 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                 
                 # Get function name from expression (canonicalised)
                 callee_name = _canonical_callee_from_call(node) or "unknown"
-                
+
+                # CRITICAL: Read resolved callee file path from AST (added by TypeScript checker)
+                callee_file_path = node.get("calleeFilePath")  # May be None if resolution failed
+
                 if os.environ.get("THEAUDITOR_DEBUG"):
-                    print(f"[DEBUG] CallExpression: caller={caller_function}, callee={callee_name}, args={len(arguments)}")
+                    print(f"[DEBUG] CallExpression: caller={caller_function}, callee={callee_name}, callee_file={callee_file_path}, args={len(arguments)}")
 
                 # Get parameters for this function if we know them
                 callee_params = function_params.get(callee_name.split(".")[-1], [])
@@ -1067,7 +1272,8 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                             "callee_function": callee_name,
                             "argument_index": i,
                             "argument_expr": arg_text,
-                            "param_name": param_name
+                            "param_name": param_name,
+                            "callee_file_path": callee_file_path  # Resolved by TypeScript checker
                         })
 
             # Recurse without tracking function context (scope map handles it)

@@ -736,7 +736,7 @@ class RulesOrchestrator:
         # Get cached taint results
         if not hasattr(self, '_taint_results'):
             from theauditor.taint import trace_taint
-            self._taint_results = trace_taint(str(self.db_path), max_depth=5)
+            self._taint_results = trace_taint(str(self.db_path), max_depth=5, use_cfg=True)
             if self._debug:
                 total = len(self._taint_results.get("taint_paths", []))
                 print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
@@ -833,7 +833,7 @@ class RulesOrchestrator:
             # Run FULL taint analysis ONCE and cache it
             from theauditor.taint import trace_taint
             if not hasattr(self, '_taint_results'):
-                self._taint_results = trace_taint(str(self.db_path), max_depth=5)
+                self._taint_results = trace_taint(str(self.db_path), max_depth=5, use_cfg=True)
                 if self._debug:
                     total = len(self._taint_results.get("taint_paths", []))
                     print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
