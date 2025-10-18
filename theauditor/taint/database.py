@@ -60,16 +60,18 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
         # Handle dot notation (e.g., req.body)
         if "." in source_pattern:
             base, attr = source_pattern.rsplit(".", 1)
-            # Look for attribute access patterns - property accesses AND calls
+            # Look for attribute access patterns
+            # CRITICAL: Must filter by type to exclude variable declarations
             query = build_query('symbols', ['path', 'name', 'line', 'col'],
-                where="(type = 'call' OR type = 'property' OR type = 'symbol') AND name LIKE ?",
+                where="name LIKE ? AND type IN ('call', 'property')",
                 order_by="path, line"
             )
             cursor.execute(query, (f"%{source_pattern}%",))
         else:
-            # Look for simple function calls and symbols
+            # Look for simple matches by name
+            # CRITICAL: Must filter by type to exclude variable declarations
             query = build_query('symbols', ['path', 'name', 'line', 'col'],
-                where="(type = 'call' OR type = 'symbol') AND name = ?",
+                where="name = ? AND type IN ('call', 'property')",
                 order_by="path, line"
             )
             cursor.execute(query, (source_pattern,))
@@ -755,28 +757,82 @@ def build_call_graph(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
 def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Find the function containing a given code location.
 
-    Schema Contract:
-        Queries symbols table (guaranteed to exist)
-    """
-    # CRITICAL FIX: Normalize path BEFORE querying database
-    # Database stores forward slashes, but location["file"] may have backslashes on Windows
-    normalized_file = location["file"].replace("\\", "/")
+    Strategy:
+    1. Try CFG blocks first (most accurate for boundary detection)
+    2. If CFG found, query symbols table to get CANONICAL (un-normalized) function name
+    3. If no CFG, fall back to symbols table with boundary checking
+    4. If no function found, return "global" scope (prevents skipping sources)
 
-    query = build_query('symbols', ['name', 'line'],
-        where="path = ? AND type = 'function' AND line <= ?",
-        order_by="line DESC",
+    This prevents two bugs:
+    - Bug 1: CFG blocks have normalized names (asyncHandler_arg0) but we need canonical names (AccountController.create)
+    - Bug 2: No CFG data causes None return, causing core.py to skip the source entirely
+
+    Schema Contract:
+        Queries cfg_blocks and symbols tables (guaranteed to exist)
+    """
+    normalized_file = location["file"].replace("\\", "/")
+    line = location["line"]
+
+    cfg_func_name = None
+    cfg_func_line = None
+
+    # Step 1: Try precise CFG block boundaries to find which function contains the line
+    query = build_query('cfg_blocks',
+        ['function_name', 'start_line'],
+        where="file = ? AND start_line <= ? AND end_line >= ?",
+        order_by="(end_line - start_line) ASC",  # Smallest (most nested) block first
         limit=1
     )
-    cursor.execute(query, (normalized_file, location["line"]))
+    cursor.execute(query, (normalized_file, line, line))
 
     result = cursor.fetchone()
     if result:
-        return {
-            "file": normalized_file,  # Already normalized
-            "name": result[0],
-            "line": result[1]
-        }
-    return None
+        cfg_func_name, cfg_func_line = result
+
+    # Step 2: If no CFG data, fall back to symbols table with boundary checking
+    if not cfg_func_name:
+        query = build_query('symbols', ['name', 'line'],
+            where="path = ? AND type = 'function' AND line <= ?",
+            order_by="line DESC",
+            limit=1
+        )
+        cursor.execute(query, (normalized_file, line))
+
+        result = cursor.fetchone()
+        if not result:
+            # No function found - return global scope (prevents skipping source)
+            return {"file": normalized_file, "name": "global", "line": 0}
+
+        func_name, func_line = result
+        # Verify line is within function boundaries
+        _, func_end = get_function_boundaries(cursor, normalized_file, func_line)
+
+        if line <= func_end:
+            # Line is within this function
+            return {"file": normalized_file, "name": func_name, "line": func_line}
+        else:
+            # Between functions - return global scope
+            return {"file": normalized_file, "name": "global", "line": 0}
+
+    # Step 3: CFG found a function. Now query symbols table to get CANONICAL (un-normalized) name
+    # CFG may have normalized name like "asyncHandler_arg0" but we need "AccountController.create"
+    if cfg_func_name:
+        query = build_query('symbols', ['name'],
+            where="path = ? AND type = 'function' AND line = ?",
+            limit=1
+        )
+        cursor.execute(query, (normalized_file, cfg_func_line))
+        result = cursor.fetchone()
+        if result:
+            # Return canonical name from symbols table
+            return {"file": normalized_file, "name": result[0], "line": cfg_func_line}
+        else:
+            # Symbols table doesn't have this function (shouldn't happen)
+            # Fall back to CFG's normalized name
+            return {"file": normalized_file, "name": cfg_func_name, "line": cfg_func_line}
+
+    # Default: global scope
+    return {"file": normalized_file, "name": "global", "line": 0}
 
 
 def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,

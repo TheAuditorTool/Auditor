@@ -39,11 +39,20 @@ from .sources import (
 from .propagation import (
     trace_from_source,
     # DELETED: trace_from_source_legacy - proximity-based algorithm removed (v1.2)
-    is_sanitizer,
+    # DELETED: is_sanitizer - moved to TaintRegistry.is_sanitizer() method
     has_sanitizer_between,
     # DELETED: is_external_source - string matching fallback removed
     deduplicate_paths,
 )
+
+# Import registry for backward compatibility
+from .registry import TaintRegistry
+
+# Create module-level function for backward compatibility
+_registry = TaintRegistry()
+def is_sanitizer(function_name: str) -> bool:
+    """Check if a function is a known sanitizer (backward compatibility wrapper)."""
+    return _registry.is_sanitizer(function_name)
 
 from .interprocedural import (
     trace_inter_procedural_flow_insensitive,
@@ -53,6 +62,11 @@ from .interprocedural import (
 from .interprocedural_cfg import (
     InterProceduralCFGAnalyzer,
     InterProceduralEffect,
+)
+
+from .cfg_integration import (
+    BlockTaintState,
+    PathAnalyzer,
 )
 
 # DELETED: taint/javascript.py (375 lines) - All string parsing fallbacks removed
@@ -138,6 +152,10 @@ __all__ = [
     "trace_inter_procedural_flow_cfg",
     "InterProceduralCFGAnalyzer",
     "InterProceduralEffect",
+
+    # CFG integration classes
+    "BlockTaintState",
+    "PathAnalyzer",
 
     # DELETED: JavaScript enhancements - taint/javascript.py removed (375 lines)
     # These functions were string parsing fallbacks:

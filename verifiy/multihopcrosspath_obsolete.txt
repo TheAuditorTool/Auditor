@@ -1,0 +1,1077 @@
+ultrathink read all files fully, no grep or partial idiocy, verification phase, read teamsop.md for prime directies and protocol and then audit this to make sure there wasn't regressions, string, regex, other cancers... follows schema, database, contracts, the full shebang...due diligence post implementation audit
+if you grep, search or partial read on this super critical fucking audit? I will legit kill us both...Report mode only, no more coding. I just want to know state of everything...
+I have also prepared a fresh "aud full", so query database at desktop/plant/.pf/repo_index.db use python c import, not SQLite directly or python 3, we are wsl/powershell…
+And then cross reference it against the source code, say account.controller.py in plant/src/backend/controllers and make sure we capture everything, we have several hops, data rich fidelity and everything we can dream about and that we set out for... Also make sure we haven't missed adding symbols/functions/args/variables extraction to further support and enhance all this, go down all rabbit holes, leave no stone unturned... also make sure to read ALL *.log files in /plant/.pf/ and investigate all 21 phases were ran correctly, no error.log etc.
+for due diligence I also ran an aud full on ourselfs, we wont have the node shit but we will see if python outright breaks and why...
+
+Pre-Implementation Plan v2.5 (FINAL): Enable Cross-File Taint Analysis
+
+  Status: APPROVED with Enhancements
+
+  Lead Auditor Feedback: Plan approved. Strategy to modify core engine is correct. Enhancements and corrections
+  incorporated below for robust implementation.
+
+  ---
+  Executive Summary
+
+  Objective: Complete the multi-hop taint analysis feature by making the worklist file-aware, enabling natural
+  cross-file vulnerability detection.
+
+  Scope: Two files modified (interprocedural.py and interprocedural_cfg.py), surgical changes to existing worklist
+  algorithms.
+
+  Impact: Unlocks the full potential of the accurate cross-file call graph we just built with the indexer fix.
+
+  ---
+  Implementation Plan with Enhancements
+
+  Change 1: Flow-Insensitive Tracking (Stage 2)
+
+  File: theauditor/taint/interprocedural.py
+
+  Function: trace_inter_procedural_flow_insensitive (line 43)
+
+  1.1: Remove Cross-File Guard
+
+  Location: Lines 139-142
+
+  Current code:
+  for sink in sinks:
+      if sink["file"] != current_file:
+          continue  # ← DELETE ENTIRELY
+
+      sink_function = get_containing_function(cursor, sink)
+
+  New code:
+  for sink in sinks:
+      # No cross-file guard - worklist is now file-aware
+      sink_function = get_containing_function(cursor, sink)
+
+  1.2: Make Worklist File-Aware
+
+  Location: Inside for callee_func, param_name, call_line in calls: loop (after line 121)
+
+  Current code:
+  for callee_func, param_name, call_line in calls:
+      if debug:
+          print(f"  -> {current_var} passed to {callee_func}({param_name}) at line {call_line}", file=sys.stderr)
+
+      # Track the parameter in the callee function
+      new_path = path + [{
+          "type": "argument_pass",
+          "from_func": current_func,
+          "to_func": callee_func,
+          "var": current_var,
+          "param": param_name,
+          "line": call_line
+      }]
+
+      # Add to worklist to continue tracking in callee
+      worklist.append((param_name, callee_func, current_file, depth + 1, new_path))
+      #                                         ^^^^^^^^^^^^ WRONG
+
+  New code (incorporating Enhancement 1):
+  for callee_func, param_name, call_line in calls:
+      if debug:
+          print(f"  -> {current_var} passed to {callee_func}({param_name}) at line {call_line}", file=sys.stderr)
+
+      # ENHANCEMENT 1: Normalize function name before querying symbols
+      normalized_callee = normalize_function_name(callee_func)
+
+      # Query symbols table for callee's file location
+      query = build_query('symbols', ['path'], where="name = ?", limit=1)
+      cursor.execute(query, (normalized_callee,))
+      callee_location = cursor.fetchone()
+
+      # Fallback to current file if not found (defensive)
+      callee_file = callee_location[0].replace("\\", "/") if callee_location else current_file
+
+      # Debug output for cross-file transitions
+      if debug and callee_file != current_file:
+          print(f"[INTER-PROCEDURAL] Following call across files:", file=sys.stderr)
+          print(f"  {current_file} → {callee_file}", file=sys.stderr)
+          print(f"  Function: {current_func} → {callee_func}", file=sys.stderr)
+
+      # Track the parameter in the callee function
+      new_path = path + [{
+          "type": "argument_pass",
+          "from_func": current_func,
+          "from_file": current_file,      # ← Added for better reporting
+          "to_func": callee_func,
+          "to_file": callee_file,          # ← Added for better reporting
+          "var": current_var,
+          "param": param_name,
+          "line": call_line
+      }]
+
+      # Add to worklist with CORRECT file context
+      worklist.append((param_name, callee_func, callee_file, depth + 1, new_path))
+      #                                         ^^^^^^^^^^^ CORRECT
+
+  1.3: Update Cycle Detection (Correction 2)
+
+  Location: Lines 100-104
+
+  Current code:
+  # Create unique key for this state
+  state_key = f"{current_file}:{current_func}:{current_var}:{depth}"
+  if state_key in visited:
+      continue
+  visited.add(state_key)
+
+  New code:
+  # CORRECTION 2: Remove depth from cycle detection key
+  # Cycle detection prevents revisiting same state regardless of depth
+  state_key = f"{current_file}:{current_func}:{current_var}"
+  if state_key in visited:
+      continue
+  visited.add(state_key)
+
+  ---
+  Change 2: Flow-Sensitive CFG Tracking (Stage 3)
+
+  File: theauditor/taint/interprocedural_cfg.py
+
+  Function: trace_inter_procedural_flow_cfg (line ~50)
+
+  2.1: Update Worklist State (Enhancement 2)
+
+  Location: Lines ~90-95 (worklist initialization)
+
+  Current state tuple:
+  # Worklist: (current_function, taint_state, depth, call_path)
+  worklist = [(source_function, {source_var: True}, 0, [])]
+
+  New state tuple (Enhancement 2):
+  # ENHANCEMENT 2: Worklist is now explicitly file-aware
+  # Worklist: (current_file, current_function, taint_state, depth, call_path)
+  worklist = [(source_file, source_function, {source_var: True}, 0, [])]
+
+  2.2: Update Loop Variables
+
+  Location: Inside while worklist: loop (~line 100)
+
+  Current unpacking:
+  while worklist:
+      current_func, taint_state, depth, call_path = worklist.pop(0)
+
+  New unpacking:
+  while worklist:
+      current_file, current_func, taint_state, depth, call_path = worklist.pop(0)
+      #   ^^^^^^^^^^^^ Added
+
+  2.3: Update Cycle Detection (Correction 2)
+
+  Location: After unpacking (~line 105)
+
+  Current code:
+  state_key = (current_func, frozenset(taint_state.keys()))
+  if state_key in visited:
+      continue
+  visited.add(state_key)
+
+  New code (Correction 2):
+  # CORRECTION 2: Cycle detection key includes file context
+  state_key = (current_file, current_func, frozenset(taint_state.keys()))
+  #            ^^^^^^^^^^^^ Added
+  if state_key in visited:
+      continue
+  visited.add(state_key)
+
+  2.4: Update Database Queries to Use Dynamic File Context
+
+  Location: Throughout the while loop
+
+  Current pattern:
+  # Queries use static source_file
+  cursor.execute(query, (source_file, current_func))
+
+  New pattern:
+  # Queries use dynamic current_file from worklist
+  cursor.execute(query, (current_file, current_func))
+  #                      ^^^^^^^^^^^^ Changed from source_file
+
+  Specific locations to update:
+  1. CFG block queries (~line 120)
+  2. Function call queries (~line 150)
+  3. Assignment queries (~line 180)
+  4. Return value queries (~line 210)
+
+  2.5: Remove Cross-File Guard
+
+  Location: Inside for sink in sinks: loop
+
+  Current code:
+  for sink in sinks:
+      if sink["file"] != source_file:  # ← Or current_file, either way DELETE
+          continue
+
+  New code:
+  for sink in sinks:
+      # No cross-file guard - worklist naturally handles file transitions
+
+  2.6: Find Callee's File Before Worklist Append
+
+  Location: Inside the loop where callees are processed
+
+  Current code (approximate):
+  # After finding propagated_taint for a callee
+  normalized_callee = normalize_function_name(callee_func)
+
+  # ... process propagation ...
+
+  # Add to worklist
+  worklist.append((normalized_callee, propagated_taint, depth + 1, new_call_path))
+
+  New code (Enhancement 1):
+  # After finding propagated_taint for a callee
+  normalized_callee = normalize_function_name(callee_func)
+
+  # ENHANCEMENT 1: Find callee's file location
+  query = build_query('symbols', ['path'], where="name = ?", limit=1)
+  cursor.execute(query, (normalized_callee,))
+  callee_location = cursor.fetchone()
+
+  # Fallback to current file if not found
+  callee_file = callee_location[0].replace("\\", "/") if callee_location else current_file
+
+  # Debug output for cross-file transitions
+  if debug and callee_file != current_file:
+      print(f"[CFG-INTER-PROCEDURAL] Cross-file call:", file=sys.stderr)
+      print(f"  {current_file}:{current_func} → {callee_file}:{normalized_callee}", file=sys.stderr)
+
+  # ... process propagation ...
+
+  # Add to worklist with FULL context
+  worklist.append((callee_file, normalized_callee, propagated_taint, depth + 1, new_call_path))
+  #                ^^^^^^^^^^^ Added
+
+  2.7: Update Cache Keys
+
+  Location: Wherever cache is used
+
+  Current pattern:
+  cache_key = (current_func, ...)
+
+  New pattern:
+  cache_key = (current_file, current_func, ...)
+  #            ^^^^^^^^^^^^ Added for correct scoping
+
+  ---
+  Detailed Code Changes Summary
+
+  theauditor/taint/interprocedural.py
+
+  Lines changed: ~60 lines modified across 3 sections
+
+  1. Line 101: Remove depth from cycle detection key
+  2. Lines 121-150: Add symbol query and file resolution in callee processing
+  3. Lines 139-142: Remove cross-file guard entirely
+
+  Key additions:
+  - normalize_function_name() call before symbol queries
+  - Symbol table query: build_query('symbols', ['path'], where="name = ?", limit=1)
+  - Cross-file debug output
+  - from_file/to_file in path metadata
+
+  theauditor/taint/interprocedural_cfg.py
+
+  Lines changed: ~80 lines modified across 6 sections
+
+  1. Line ~90: Add source_file to worklist initialization
+  2. Line ~100: Add current_file to unpacking
+  3. Line ~105: Add current_file to cycle detection key
+  4. Lines ~120, ~150, ~180, ~210: Change source_file to current_file in queries
+  5. Line ~140: Remove cross-file guard
+  6. Lines ~160: Add symbol query and file resolution before worklist append
+
+  Key additions:
+  - File-aware worklist state tuple
+  - Dynamic file context in all database queries
+  - Symbol resolution for callees
+  - Cache key updates to include file
+
+  ---
+  Testing Strategy
+
+  Unit Tests
+
+  File: tests/test_interprocedural_cross_file.py (NEW - ~150 lines)
+
+  import sqlite3
+  import pytest
+  from pathlib import Path
+  from theauditor.taint.interprocedural import trace_inter_procedural_flow_insensitive
+  from theauditor.taint.core import TaintPath
+
+  def create_cross_file_test_db(tmp_path):
+      """Create test database with cross-file call graph."""
+      db_path = tmp_path / "test.db"
+      conn = sqlite3.connect(str(db_path))
+      cursor = conn.cursor()
+
+      # Create tables (use schema.py for correctness)
+      from theauditor.indexer.schema import TABLES
+      for table_name, table_schema in TABLES.items():
+          cursor.execute(table_schema.to_sql())
+
+      # Insert symbols
+      cursor.execute("""
+          INSERT INTO symbols (path, name, type, line, col)
+          VALUES
+              ('controller.ts', 'Controller.create', 'function', 10, 0),
+              ('service.ts', 'createAccount', 'function', 50, 0)
+      """)
+
+      # Insert function call
+      cursor.execute("""
+          INSERT INTO function_call_args (file, line, caller_function, callee_function, argument_index,
+  argument_expr, param_name)
+          VALUES ('controller.ts', 12, 'Controller.create', 'service.createAccount', 0, 'req.body', 'data')
+      """)
+
+      # Insert ORM sink in service file
+      cursor.execute("""
+          INSERT INTO orm_queries (file, line, query_type, includes, has_limit, has_transaction)
+          VALUES ('service.ts', 60, 'Account.create', NULL, 0, 0)
+      """)
+
+      conn.commit()
+      conn.close()
+      return db_path
+
+  def test_cross_file_taint_flow(tmp_path):
+      """Test that taint flows across file boundaries."""
+      db_path = create_cross_file_test_db(tmp_path)
+      conn = sqlite3.connect(str(db_path))
+      cursor = conn.cursor()
+
+      # Define source
+      source_var = "req.body"
+      source_file = "controller.ts"
+      source_line = 12
+      source_function = "Controller.create"
+
+      # Define sinks (in different file)
+      sinks = [{
+          "file": "service.ts",
+          "line": 60,
+          "pattern": "Account.create",
+          "category": "orm"
+      }]
+
+      # Run inter-procedural tracking
+      paths = trace_inter_procedural_flow_insensitive(
+          cursor, source_var, source_file, source_line, source_function, sinks, max_depth=5
+      )
+
+      conn.close()
+
+      # Should find cross-file path
+      assert len(paths) >= 1, "Should detect cross-file taint path"
+
+      path = paths[0]
+      assert path.source["file"] == "controller.ts"
+      assert path.sink["file"] == "service.ts"
+      assert any("cross" in str(step).lower() or step.get("to_file") == "service.ts"
+                 for step in path.path), "Path should show cross-file transition"
+
+  def test_same_file_paths_still_work(tmp_path):
+      """Regression: Ensure same-file detection unchanged."""
+      # Create DB with same-file vulnerability
+      db_path = tmp_path / "test.db"
+      conn = sqlite3.connect(str(db_path))
+      cursor = conn.cursor()
+
+      from theauditor.indexer.schema import TABLES
+      for table_name, table_schema in TABLES.items():
+          cursor.execute(table_schema.to_sql())
+
+      # Same file: controller has source and sink
+      cursor.execute("""
+          INSERT INTO symbols (path, name, type, line, col)
+          VALUES ('controller.ts', 'handler', 'function', 10, 0)
+      """)
+
+      cursor.execute("""
+          INSERT INTO function_call_args (file, line, caller_function, callee_function, argument_index,
+  argument_expr, param_name)
+          VALUES ('controller.ts', 15, 'handler', 'res.send', 0, 'req.query', NULL)
+      """)
+
+      conn.commit()
+
+      sinks = [{
+          "file": "controller.ts",
+          "line": 15,
+          "pattern": "res.send",
+          "category": "xss"
+      }]
+
+      paths = trace_inter_procedural_flow_insensitive(
+          cursor, "req.query", "controller.ts", 10, "handler", sinks, max_depth=5
+      )
+
+      conn.close()
+
+      # Should still find same-file path
+      assert len(paths) >= 1, "Same-file detection should still work"
+
+  def test_cycle_detection_across_files(tmp_path):
+      """Test that cycle detection prevents infinite loops across files."""
+      db_path = tmp_path / "test.db"
+      conn = sqlite3.connect(str(db_path))
+      cursor = conn.cursor()
+
+      from theauditor.indexer.schema import TABLES
+      for table_name, table_schema in TABLES.items():
+          cursor.execute(table_schema.to_sql())
+
+      # Create cyclic call: A (file1) -> B (file2) -> A (file1)
+      cursor.execute("""
+          INSERT INTO symbols (path, name, type, line, col)
+          VALUES
+              ('file1.ts', 'funcA', 'function', 10, 0),
+              ('file2.ts', 'funcB', 'function', 20, 0)
+      """)
+
+      cursor.execute("""
+          INSERT INTO function_call_args (file, line, caller_function, callee_function, argument_index,
+  argument_expr, param_name)
+          VALUES
+              ('file1.ts', 12, 'funcA', 'funcB', 0, 'data', 'input'),
+              ('file2.ts', 22, 'funcB', 'funcA', 0, 'input', 'data')
+      """)
+
+      conn.commit()
+
+      sinks = [{"file": "file2.ts", "line": 25, "pattern": "sink", "category": "test"}]
+
+      # Should complete without infinite loop
+      paths = trace_inter_procedural_flow_insensitive(
+          cursor, "data", "file1.ts", 10, "funcA", sinks, max_depth=5
+      )
+
+      conn.close()
+      # Just verify it doesn't hang
+      assert True
+
+  Integration Test (Plant Project)
+
+  Script: tests/integration/test_plant_cross_file.sh
+
+  #!/bin/bash
+  set -e
+
+  echo "Running integration test on plant project..."
+
+  cd C:/Users/santa/Desktop/plant
+
+  # Run taint analysis
+  aud taint-analyze --verbose > taint_output.txt 2>&1
+
+  # Check for cross-file path
+  if grep -q "account.controller.ts.*account.service.ts" taint_output.txt; then
+      echo "✅ Cross-file path detected!"
+  else
+      echo "❌ Cross-file path NOT detected"
+      exit 1
+  fi
+
+  # Check that existing paths still detected
+  TOTAL_PATHS=$(grep -c "vulnerability" taint_output.txt || echo "0")
+  if [ "$TOTAL_PATHS" -ge 133 ]; then
+      echo "✅ Found $TOTAL_PATHS paths (>= 133 baseline)"
+  else
+      echo "❌ Only found $TOTAL_PATHS paths (expected >= 133)"
+      exit 1
+  fi
+
+  echo "✅ Integration test passed!"
+
+  Regression Test
+
+  Run existing test suite:
+  pytest tests/test_taint*.py -v
+  pytest tests/test_interprocedural.py -v
+
+  Expected:
+  - All existing tests pass
+  - No new failures introduced
+
+  ---
+  Performance Validation
+
+  Baseline (Current)
+
+  Plant project metrics:
+  - Indexing: 87.0s
+  - Taint analysis: 86.6s
+  - Sources: 1115
+  - Sinks: 754
+  - Paths: 133
+
+  Target (After Changes)
+
+  Expected metrics:
+  - Indexing: 87.0s (unchanged)
+  - Taint analysis: < 95s (< 10% increase)
+  - Sources: 1115 (unchanged)
+  - Sinks: 754 (unchanged)
+  - Paths: 136-150 (additional cross-file paths)
+
+  Measurement
+
+  # Before changes
+  time aud taint-analyze > before.txt
+
+  # After changes
+  time aud taint-analyze > after.txt
+
+  # Compare
+  diff <(grep "Found.*paths" before.txt) <(grep "Found.*paths" after.txt)
+
+  ---
+  Risk Mitigation
+
+  Risk 1: Symbol Resolution Failures
+
+  Scenario: Can't find callee in symbols table
+
+  Mitigation: Fallback to current_file
+  callee_file = callee_location[0].replace("\\", "/") if callee_location else current_file
+
+  Validation: Add debug logging when fallback occurs
+  if not callee_location and debug:
+      print(f"[WARNING] Could not resolve file for {callee_func}, assuming same file", file=sys.stderr)
+
+  Risk 2: Performance Degradation
+
+  Scenario: Cross-file tracking is slower
+
+  Mitigation: Symbol queries are indexed, should be O(1)
+
+  Validation: Profile with cProfile if > 10% slower
+  python -m cProfile -o taint.prof -m theauditor.cli taint-analyze
+
+  Risk 3: False Positives
+
+  Scenario: More paths = more potential FPs
+
+  Mitigation: Sanitization tracking still applies
+
+  Validation: Manually review first 20 cross-file paths in plant
+
+  Risk 4: Infinite Loops
+
+  Scenario: Cycle detection breaks with file awareness
+
+  Mitigation: visited set includes file in key
+
+  Validation: Unit test with cyclic cross-file calls
+
+  ---
+  Success Criteria (Final)
+
+  Must Have ✅
+
+  1. ✅ Canonical path detected: AccountController.create → accountService.createAccount → Account.create
+  2. ✅ No regressions: All 133 existing same-file paths still detected
+  3. ✅ No crashes: Handles projects with 0 cross-file flows
+  4. ✅ Performance acceptable: < 10% slower (86.6s → < 95s)
+  5. ✅ Tests pass: All existing + new cross-file tests
+
+  Implementation Checklist
+
+  - Change 1.1: Remove cross-file guard in interprocedural.py
+  - Change 1.2: Add symbol query and file resolution (with normalize_function_name)
+  - Change 1.3: Fix cycle detection key (remove depth)
+  - Change 2.1: Update CFG worklist state tuple
+  - Change 2.2: Update CFG loop unpacking
+  - Change 2.3: Fix CFG cycle detection key
+  - Change 2.4: Update all CFG queries to use current_file
+  - Change 2.5: Remove CFG cross-file guard
+  - Change 2.6: Add CFG symbol query and file resolution
+  - Change 2.7: Update CFG cache keys
+  - Write unit tests
+  - Write integration test
+  - Run regression tests
+  - Performance validation
+  - Manual review of plant project results
+
+  ---
+  File Changes Summary (Final)
+
+  MODIFIED (2 files):
+  - theauditor/taint/interprocedural.py:
+    - ~60 lines modified
+    - Sections: cycle detection (line 101), callee processing (lines 121-150), guard removal (lines 139-142)
+  - theauditor/taint/interprocedural_cfg.py:
+    - ~80 lines modified
+    - Sections: worklist init (line 90), unpacking (line 100), cycle detection (line 105), queries (multiple), guard
+   removal (line 140), callee processing (line 160), cache keys (multiple)
+
+  ADDED (1 file):
+  - tests/test_interprocedural_cross_file.py:
+    - ~150 lines
+    - 3 unit tests + integration test script
+
+  ZERO CHANGES:
+  - No CLI flags
+  - No schema changes
+  - No API changes
+  - No user-facing behavior changes (just finds more vulnerabilities)
+
+  ---
+  Estimated Time (Final)
+
+  - Change 1 (flow-insensitive): 30 minutes
+  - Change 2 (CFG flow-sensitive): 45 minutes
+  - Unit tests: 30 minutes
+  - Integration test: 15 minutes
+  - Regression validation: 15 minutes
+  - Performance profiling: 15 minutes
+  - Debug any issues: 30 minutes
+
+  Total: ~3 hours
+
+  ---
+  Why This Is The Final 5%
+
+  1. ✅ 95% complete: Indexer extracts perfect cross-file call graph
+  2. ✅ 5% remaining: Remove artificial same-file barrier
+  3. ✅ No workarounds: Enhances core, single source of truth
+  4. ✅ Surgical changes: ~140 lines across 2 files
+  5. ✅ Full sophistication: Sanitization, CFG, variable mapping all work across files
+  6. ✅ Natural behavior: Cross-file paths are just paths
+  7. ✅ Completes architecture: Stage 4 (cross-file) as originally intended
+
+  ---
+  Final Approval Required
+
+  - All enhancements incorporated (function normalization, explicit file-aware state)
+  - All corrections applied (cycle detection key, symbol query refinement)
+  - Implementation steps are clear and actionable
+  - Test plan covers unit, integration, and regression
+  - Performance validation strategy defined
+  - Risk mitigation for all identified risks
+
+  This completes the multi-hop taint analysis feature. 🎯
+
+  Ready to implement.
+
+
+RITICAL PRE-IMPLEMENTATION AUDIT - MULTI-HOP & ACTIVATION ISSUES
+
+  Document ID: AUDIT-SONNET-20251016-002Protocol: TeamSOP v4.20 - Truth Courier ModeStatus: CRITICAL DEFICIENCIES
+  IDENTIFIED
+
+  ---
+  SECTION 1: ARCHITECT'S CONCERNS - VERIFICATION
+
+  Concern 1: "Lackluster - doesn't deliver on half its promise"
+
+  VERIFICATION: ✅ ARCHITECT IS CORRECT
+
+  Evidence:
+  - Plant project (real production code): 0 Stage 3 detections
+  - TheAuditor project (simple test fixtures): 4 Stage 3 detections
+  - Root cause: Single-hop limitation
+
+  Example Real-World Flow MISSED:
+  1. Controller: req.body → accountService.createAccount(req.body)
+  2. createAccount: body → _createdBy(body)  ← MISSED HOP
+  3. _createdBy: body → Account.create(body)  ← SINK
+
+  Current Implementation: Stops at hop 1, never reaches sink at hop 3.
+
+  ---
+  Concern 2: "Weird convoluted activation if/else nightmare"
+
+  VERIFICATION: ✅ ARCHITECT IS CORRECT
+
+  Code Evidence (propagation.py:471-499):
+  if use_cfg and stage3:  # ← TWO FLAGS GATE STAGE 3
+      # Use CFG-based flow-sensitive inter-procedural analysis
+      from .interprocedural import trace_inter_procedural_flow_cfg
+      ...
+  else:
+      # Use call-graph-based flow-insensitive analysis (faster, less precise)
+      inter_paths = trace_inter_procedural_flow_insensitive(...)
+
+  ACTIVATION NIGHTMARE CONFIRMED:
+  - Stage 3 ONLY runs if: use_cfg=True AND stage3=True
+  - Stage 3 can be DISABLED via: aud taint-analyze --no-interprocedural
+  - Stage 3 can be DISABLED via: aud taint-analyze --no-cfg
+
+  This creates ambiguity: Users don't know which stage ran, results are unpredictable.
+
+  ---
+  Concern 3: "It's not fucking optional is it?"
+
+  CURRENT STATE: ❌ IT IS OPTIONAL (BAD)
+
+  Evidence:
+  # theauditor/commands/taint.py:158
+  result = trace_taint(
+      use_cfg=use_cfg,              # User can disable with --no-cfg
+      stage3=not no_interprocedural,  # User can disable with --no-interprocedural
+  )
+
+  Problem: Two separate flags control Stage 3 activation.
+
+  What Architect Expects: Stage 3 ALWAYS runs. If it finds 0 paths, that's a valid result. But it should ALWAYS try.
+
+  ---
+  SECTION 2: WHAT ELSE DID I MISS?
+
+  Missing Feature 1: Multi-Hop Inter-Procedural Tracking
+
+  Current Implementation (interprocedural.py:300):
+  # Match calls to the specific sink function at the correct line
+  if call['callee_function'] == sink_function["name"] and call['file'] == sink["file"]:
+
+  Assumption: Callee function DIRECTLY contains the sink.
+
+  Reality: Most real code has 2-5 hops between source and sink.
+
+  Example Missed Flow:
+  Source: controller (req.body)
+    ↓ arg pass
+  Hop 1: service.createAccount(data)
+    ↓ internal call
+  Hop 2: _createdBy(data)
+    ↓ internal call
+  Hop 3: Account.create(data) ← SINK
+
+  Current Code: Checks if service.createAccount == sink_function["name"] (FALSE) → gives up.
+
+  Needed: Recursive tracking through call chain until sink reached or max depth exceeded.
+
+  ---
+  Missing Feature 2: Worklist Algorithm for Call Chain
+
+  Current Implementation: Single query, single mapping, done.
+
+  Needed: Iterative worklist that:
+  1. Starts with source function
+  2. Queries ALL callees (not just sink function)
+  3. For each callee, builds args_mapping
+  4. Recursively analyzes callee for taint propagation
+  5. Continues until sink reached or max depth
+
+  Pseudo-code:
+  worklist = [(source_func, tainted_var, depth=0)]
+  visited = set()
+
+  while worklist:
+      func, var, depth = worklist.pop()
+
+      if depth > max_depth:
+          continue
+
+      # Query ALL callees of this function
+      callees = query_function_call_args(caller=func)
+
+      for callee_func, arg_expr, param_name in callees:
+          if var in arg_expr:  # Tainted var is passed
+              # Build args_mapping for this hop
+              args_mapping = {var: param_name}
+
+              # Check if callee contains sink
+              if has_sink(callee_func):
+                  # FOUND PATH!
+                  return path
+
+              # Continue tracking in callee
+              worklist.append((callee_func, param_name, depth+1))
+
+  ---
+  Missing Feature 3: Return Value Tracking
+
+  Example Missed Flow:
+  function getSanitized(userInput) {
+      return validator.clean(userInput);  // Returns sanitized
+  }
+
+  function handler(req, res) {
+      const clean = getSanitized(req.body);  // Should be safe
+      db.query(clean);  // Actually safe! But Stage 3 might flag
+  }
+
+  Current Code: Doesn't track return values through function boundaries.
+
+  Needed: Query function_returns table to see if callee returns tainted data.
+
+  ---
+  Missing Feature 4: Cycle Detection
+
+  Example Problematic Code:
+  function a(data) { b(data); }
+  function b(data) { a(data); }  // Infinite loop!
+
+  Current Code: Has max_depth=3 but no explicit cycle detection.
+
+  Needed: Track visited (function, variable) pairs to prevent infinite loops.
+
+  ---
+  SECTION 3: CRITICAL ARCHITECTURAL FLAW
+
+  FLAW: Stage 3 assumes "one query, one mapping, call analyzer".
+
+  Reality: Inter-procedural analysis requires ITERATIVE PROPAGATION, not single-shot query.
+
+  Compare to Stage 2 (flow-insensitive) (interprocedural.py:88-114):
+  # Stage 2 HAS a worklist!
+  worklist = [(current_var, current_func, current_file, 0, [])]
+
+  while worklist:
+      current_var, current_func, current_file, depth, path = worklist.pop()
+
+      # Query for calls passing this var
+      query = build_query('function_call_args', ...)
+      cursor.execute(query, (current_file, current_func, current_var, ...))
+
+      calls = cursor.fetchall()
+      for callee_func, param_name, call_line in calls:
+          # Add to worklist for further tracking
+          worklist.append((param_name, callee_func, current_file, depth + 1, new_path))
+
+  Stage 3 (current): NO WORKLIST. Single query, single call.
+
+  This is why Stage 3 fails on real code.
+
+  ---
+  SECTION 4: PRE-IMPLEMENTATION PLAN - MULTI-HOP SUPPORT
+
+  Phase 1: Add Worklist Algorithm to Stage 3
+
+  File: theauditor/taint/interprocedural.pyFunction: trace_inter_procedural_flow_cfgLines: 260-350 (complete
+  rewrite)
+
+  New Algorithm:
+  def trace_inter_procedural_flow_cfg(
+      analyzer, cursor, source_var, source_file, source_line,
+      source_function, sinks, max_depth=5, cache=None
+  ):
+      """Multi-hop inter-procedural CFG analysis with worklist."""
+
+      # Initialize worklist: (function, tainted_vars, depth, path)
+      worklist = [(source_function, {source_var: True}, 0, [])]
+      visited = set()  # Track (function, frozenset(tainted_vars))
+      paths = []
+
+      while worklist:
+          current_func, taint_state, depth, call_path = worklist.pop()
+
+          # Cycle detection
+          state_key = (current_func, frozenset(taint_state.keys()))
+          if state_key in visited:
+              continue
+          visited.add(state_key)
+
+          # Max depth check
+          if depth > max_depth:
+              continue
+
+          # Check if current function contains any sinks
+          for sink in sinks:
+              sink_func = get_containing_function(cursor, sink)
+              if sink_func and sink_func["name"] == current_func:
+                  # Sink in current function - check if reachable with taint
+                  # ... existing CFG analysis code ...
+                  paths.append(...)
+
+          # Query ALL callees (not just sink function)
+          if cache and hasattr(cache, 'calls_by_caller'):
+              cached_calls = cache.calls_by_caller.get((source_file, current_func), [])
+          else:
+              query = build_query('function_call_args',
+                  ['callee_function', 'param_name', 'argument_expr', 'file', 'line'],
+                  where="file = ? AND caller_function = ?"
+              )
+              cursor.execute(query, (source_file, current_func))
+              cached_calls = [...]
+
+          # For each callee, check if tainted vars are passed
+          for call in cached_calls:
+              callee_func = call['callee_function']
+              arg_expr = call.get('argument_expr', '')
+              param_name = call.get('param_name', '')
+
+              # Check if any tainted var is in argument
+              passed_taint = {}
+              for tainted_var in taint_state:
+                  if tainted_var in arg_expr:
+                      passed_taint[param_name] = True
+
+              # If taint propagates, add to worklist
+              if passed_taint:
+                  new_path = call_path + [{
+                      'type': 'call',
+                      'from': current_func,
+                      'to': callee_func,
+                      'line': call['line'],
+                      'taint_map': {list(taint_state.keys())[0]: param_name}
+                  }]
+                  worklist.append((callee_func, passed_taint, depth + 1, new_path))
+
+      return paths
+
+  Key Changes:
+  1. ✅ Worklist for iterative propagation
+  2. ✅ Cycle detection via visited set
+  3. ✅ Query ALL callees, not just sink function
+  4. ✅ Track taint through multiple hops
+  5. ✅ Build call_path for debugging
+
+  ---
+  Phase 2: Remove Activation Ambiguity
+
+  File: theauditor/taint/propagation.pyLines: 471-499
+
+  Current Code:
+  if use_cfg and stage3:
+      # Stage 3
+  else:
+      # Stage 2
+
+  Proposed Change:
+  # ALWAYS run Stage 3 if CFG available
+  if use_cfg:
+      # Try Stage 3 first (path-sensitive)
+      inter_paths = trace_inter_procedural_flow_cfg(...)
+
+      # If Stage 3 found nothing, optionally fall back to Stage 2 for coverage
+      if not inter_paths and fallback_to_stage2:
+          inter_paths = trace_inter_procedural_flow_insensitive(...)
+  else:
+      # CFG not available, use Stage 2
+      inter_paths = trace_inter_procedural_flow_insensitive(...)
+
+  Remove stage3 flag entirely - it's redundant with use_cfg.
+
+  ---
+  Phase 3: Add Return Value Tracking
+
+  File: theauditor/taint/interprocedural.pyNew Function: track_return_values
+
+  Logic:
+  def track_return_values(cursor, callee_func, callee_file, taint_state):
+      """Check if callee returns tainted data."""
+      query = build_query('function_returns',
+          ['return_expr', 'return_vars'],
+          where="file = ? AND function_name = ?"
+      )
+      cursor.execute(query, (callee_file, callee_func))
+
+      returns_tainted = False
+      for return_expr, return_vars in cursor.fetchall():
+          # Check if any tainted var is in return
+          for tainted_var in taint_state:
+              if tainted_var in return_expr or tainted_var in return_vars:
+                  returns_tainted = True
+                  break
+
+      return returns_tainted
+
+  Integration: Call this after analyzing callee to determine if caller receives tainted data back.
+
+  ---
+  SECTION 5: RISK ASSESSMENT
+
+  Regression Risk: 🟡 MEDIUM
+
+  Why: Replacing single-query logic with worklist changes execution flow significantly.
+
+  Mitigation:
+  1. Keep existing single-hop code as _stage3_single_hop fallback
+  2. Add THEAUDITOR_STAGE3_LEGACY=1 environment variable for rollback
+  3. Test both paths in validation
+
+  ---
+  Performance Risk: 🟡 MEDIUM
+
+  Why: Worklist algorithm queries database multiple times per source.
+
+  Current: 1 query per sourceProposed: N queries per source (N = call depth)
+
+  Typical Case: 3-5 hops → 3-5x queriesWorst Case: Max depth 5, dense call graph → 20-50x queries
+
+  Mitigation:
+  1. Memory cache reduces query cost to O(1) lookups
+  2. Visited set prevents redundant work
+  3. Max depth limit (default 5) caps cost
+
+  ---
+  Complexity Risk: 🟢 LOW
+
+  Why: Worklist pattern already proven in Stage 2 (interprocedural.py:88-114).
+
+  Confidence: HIGH - we're adapting existing working code, not inventing new algorithm.
+
+  ---
+  SECTION 6: WHAT MUST BE TESTED
+
+  Test Case 1: Multi-Hop Real Project
+
+  Input: Plant project (controller → service → internal → sink)Expected: Detect inter-procedural flowsCurrent
+  Result: 0 Stage 3 pathsTarget Result: >0 Stage 3 paths
+
+  ---
+  Test Case 2: Cycle Handling
+
+  Input: Mutual recursion (a calls b, b calls a)Expected: No infinite loop, graceful terminationValidation: Check
+  visited set prevents revisiting
+
+  ---
+  Test Case 3: Return Value Tracking
+
+  Input:
+  function clean(bad) { return sanitize(bad); }
+  function handler(req) { const ok = clean(req.body); db.query(ok); }
+
+  Expected: NOT flagged (sanitized return)Current: Might flag incorrectlyTarget: Correctly track sanitization
+
+  ---
+  Test Case 4: Deep Call Chains
+
+  Input: 10-hop call chain (depth > max)Expected: Stop at max_depth, don't crashValidation: Verify max_depth limit
+  enforced
+
+  ---
+  SECTION 7: ESTIMATED EFFORT
+
+  | Phase                     | Complexity | LOC        | Time Estimate |
+  |---------------------------|------------|------------|---------------|
+  | Phase 1: Worklist         | High       | ~150 lines | 3 hours       |
+  | Phase 2: Remove ambiguity | Medium     | ~20 lines  | 30 min        |
+  | Phase 3: Return tracking  | Low        | ~40 lines  | 1 hour        |
+  | Testing                   | High       | N/A        | 2 hours       |
+  | TOTAL                     |            | ~210 lines | 6.5 hours     |
+
+  ---
+  SECTION 8: RECOMMENDATION
+
+  Verdict: ❌ CURRENT IMPLEMENTATION INSUFFICIENT FOR PRODUCTION
+
+  Critical Issues:
+  1. ❌ Single-hop limitation makes it useless on real code
+  2. ❌ Activation ambiguity (two flags) creates unpredictable behavior
+  3. ❌ No worklist = can't handle multi-hop flows
+  4. ❌ Plant project: 0 detections (FAILURE, not "expected")
+
+  Recommendation:
+  1. Implement multi-hop support (Phase 1) - MANDATORY
+  2. Remove activation ambiguity (Phase 2) - MANDATORY
+  3. Add return tracking (Phase 3) - OPTIONAL (future)
+
+  Deployment Status: 🔴 DO NOT DEPLOY CURRENT IMPLEMENTATION
+
+  Timeline: 6.5 hours to fix properly.
+
+  ---
+  END OF AUDIT
+
+  Prepared By: AI Coder (Sonnet 4.5)Protocol: TeamSOP v4.20 - Truth CourierArchitect: Awaiting direction on
+  multi-hop implementation

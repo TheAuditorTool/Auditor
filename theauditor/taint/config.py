@@ -21,22 +21,22 @@ class TaintConfig:
     
     sources: Dict[str, List[str]] = field(default_factory=dict)
     sinks: Dict[str, List[str]] = field(default_factory=dict)
-    sanitizers: List[str] = field(default_factory=list)
+    sanitizers: Dict[str, List[str]] = field(default_factory=dict)  # FIXED: Must match sources/sinks structure
     registry: Optional[Any] = None  # TaintRegistry if provided
     
     @classmethod
     def from_defaults(cls) -> 'TaintConfig':
         """Create config with default sources and sinks.
-        
+
         Returns:
             TaintConfig with standard TAINT_SOURCES and SECURITY_SINKS
         """
         from .sources import TAINT_SOURCES, SECURITY_SINKS, SANITIZERS
-        
+
         return cls(
-            sources=dict(TAINT_SOURCES),
-            sinks=dict(SECURITY_SINKS),
-            sanitizers=list(SANITIZERS)
+            sources={k: list(v) for k, v in TAINT_SOURCES.items()},
+            sinks={k: list(v) for k, v in SECURITY_SINKS.items()},
+            sanitizers={k: list(v) for k, v in SANITIZERS.items()}  # FIXED: Preserve dict structure
         )
 
     def with_registry(self, registry: Any) -> 'TaintConfig':
@@ -60,119 +60,49 @@ class TaintConfig:
         for category, patterns in registry.sinks.items():
             registry_sinks[category] = [p.pattern for p in patterns]
 
-        # HARD FAILURE: If registry is empty, fail loudly
-        # This prevents silent success with 0 results when registry is malformed
-        if not registry_sources and not registry_sinks:
+        # CRITICAL FIX: MERGE registry patterns with defaults, don't replace
+        # This preserves the 106 hardcoded sources even when registry is used
+
+        # Merge sources
+        merged_sources = dict(self.sources)
+        for category, patterns in registry_sources.items():
+            if category not in merged_sources:
+                merged_sources[category] = []
+            # Add new patterns, avoid duplicates
+            existing_patterns = set(merged_sources[category])
+            for pattern in patterns:
+                if pattern not in existing_patterns:
+                    merged_sources[category].append(pattern)
+
+        # Merge sinks
+        merged_sinks = dict(self.sinks)
+        for category, patterns in registry_sinks.items():
+            if category not in merged_sinks:
+                merged_sinks[category] = []
+            existing_patterns = set(merged_sinks[category])
+            for pattern in patterns:
+                if pattern not in existing_patterns:
+                    merged_sinks[category].append(pattern)
+
+        # HARD FAILURE: If merged result is empty, fail loudly
+        if not merged_sources and not merged_sinks:
             raise ValueError(
                 "TaintRegistry contains no sources or sinks. "
                 "Cannot perform taint analysis with empty patterns. "
                 "This indicates a configuration error or failed rule loading."
             )
 
-        # Return NEW config with registry patterns
+        # Return NEW config with MERGED patterns
         return TaintConfig(
-            sources=registry_sources,
-            sinks=registry_sinks,
-            sanitizers=list(self.sanitizers),
+            sources=merged_sources,
+            sinks=merged_sinks,
+            sanitizers=dict(self.sanitizers),
             registry=registry
         )
 
-    def with_frameworks(self, frameworks: List[Dict[str, str]]) -> 'TaintConfig':
-        """Create new config enhanced with framework-specific patterns.
-
-        Args:
-            frameworks: List of detected frameworks with name, version, language, path
-
-        Returns:
-            New TaintConfig with framework-specific sources/sinks added
-        """
-        if not frameworks:
-            return self
-
-        # Convert frozensets to sets for merging
-        enhanced_sources = {}
-        for key, patterns in self.sources.items():
-            if isinstance(patterns, frozenset):
-                enhanced_sources[key] = set(patterns)
-            elif isinstance(patterns, (list, tuple)):
-                enhanced_sources[key] = set(patterns)
-            else:
-                enhanced_sources[key] = set()
-
-        enhanced_sinks = {}
-        for key, patterns in self.sinks.items():
-            if isinstance(patterns, frozenset):
-                enhanced_sinks[key] = set(patterns)
-            elif isinstance(patterns, (list, tuple)):
-                enhanced_sinks[key] = set(patterns)
-            else:
-                enhanced_sinks[key] = set()
-
-        # Framework-specific pattern enhancements
-        for fw in frameworks:
-            fw_name = fw.get('framework', '').lower()
-            fw_lang = fw.get('language', '').lower()
-
-            # Django patterns
-            if 'django' in fw_name:
-                if 'python' not in enhanced_sources:
-                    enhanced_sources['python'] = set()
-                enhanced_sources['python'].update([
-                    'request.GET',
-                    'request.POST',
-                    'request.FILES',
-                    'request.COOKIES',
-                ])
-                if 'sql_injection' not in enhanced_sinks:
-                    enhanced_sinks['sql_injection'] = set()
-                enhanced_sinks['sql_injection'].update([
-                    '.raw(',
-                    '.execute(',
-                    'cursor.execute(',
-                ])
-
-            # Flask patterns
-            elif 'flask' in fw_name:
-                if 'python' not in enhanced_sources:
-                    enhanced_sources['python'] = set()
-                enhanced_sources['python'].update([
-                    'request.args',
-                    'request.form',
-                    'request.files',
-                    'request.cookies',
-                    'request.json',
-                ])
-
-            # Express patterns
-            elif 'express' in fw_name:
-                if 'js' not in enhanced_sources:
-                    enhanced_sources['js'] = set()
-                enhanced_sources['js'].update([
-                    'req.query',
-                    'req.body',
-                    'req.params',
-                    'req.cookies',
-                ])
-
-            # React patterns
-            elif 'react' in fw_name:
-                if 'xss' not in enhanced_sinks:
-                    enhanced_sinks['xss'] = set()
-                enhanced_sinks['xss'].update([
-                    'dangerouslySetInnerHTML',
-                    'innerHTML',
-                ])
-
-        # Convert sets back to frozensets for O(1) lookup
-        final_sources = {k: frozenset(v) for k, v in enhanced_sources.items()}
-        final_sinks = {k: frozenset(v) for k, v in enhanced_sinks.items()}
-
-        return TaintConfig(
-            sources=final_sources,
-            sinks=final_sinks,
-            sanitizers=list(self.sanitizers),
-            registry=self.registry
-        )
+    # DELETED: with_frameworks() method (96 lines)
+    # Framework patterns are defined in sources.py and loaded via TaintRegistry
+    # No need for duplicate definition here
     
     @classmethod
     def load_from_file(cls, config_path: str) -> 'TaintConfig':
@@ -194,7 +124,7 @@ class TaintConfig:
         return cls(
             sources=data.get('sources', {}),
             sinks=data.get('sinks', {}),
-            sanitizers=data.get('sanitizers', [])
+            sanitizers=data.get('sanitizers', {})
         )
     
     def save_to_file(self, config_path: str):

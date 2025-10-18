@@ -229,8 +229,9 @@ SANITIZERS = {
         "quote",
         "escape_shell",
     ]),
-    # General validation functions
+    # General validation functions + modern framework patterns
     "validation": frozenset([
+        # Generic validation patterns (existing)
         "validate",
         "validator",
         "is_valid",
@@ -240,6 +241,38 @@ SANITIZERS = {
         "filter_var",
         "assert_valid",
         "verify",
+
+        # Zod (TypeScript schema validation - popular in Next.js, tRPC)
+        ".parse",           # schema.parse(data) - throws on invalid
+        ".parseAsync",      # schema.parseAsync(data) - async validation
+        ".safeParse",       # schema.safeParse(data) - returns result object
+        "z.parse",          # z.string().parse(data) - direct Zod call
+        "schema.parse",     # Explicit schema reference
+
+        # Joi (Node.js validation - Hapi ecosystem)
+        ".validateAsync",   # schema.validateAsync(data)
+        "Joi.validate",     # Joi.object().validate(data)
+        "schema.validate",  # Explicit schema reference
+
+        # Yup (React form validation - Formik integration)
+        "yup.validate",     # yup.string().validate(data)
+        "yup.validateSync", # yup.object().validateSync(data)
+        "schema.validateSync", # Explicit schema reference
+        ".isValid",         # schema.isValid(data)
+
+        # express-validator (Express middleware)
+        "validationResult", # validationResult(req) - extracts validation errors
+        "matchedData",      # matchedData(req) - extracts validated data only
+        "checkSchema",      # checkSchema(schema) - schema-based validation
+
+        # class-validator (NestJS/TypeORM ecosystems)
+        "validateSync",     # validateSync(object) - synchronous validation
+        "validateOrReject", # validateOrReject(object) - async, throws on error
+
+        # AJV (JSON Schema validator - high performance)
+        "ajv.validate",     # ajv.compile(schema); validate(data)
+        "ajv.compile",      # Compiles schema for validation
+        "validator.validate" # validator(data) - compiled validator function
     ])
 }
 

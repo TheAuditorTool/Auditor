@@ -16,7 +16,7 @@ from typing import Dict, List, Set, Any, Optional, Tuple
 from collections import deque
 
 from theauditor.indexer.schema import build_query
-from .sources import SANITIZERS, TAINT_SOURCES
+from .sources import TAINT_SOURCES
 from .database import (
     get_containing_function,
     get_function_boundaries,
@@ -24,23 +24,12 @@ from .database import (
     check_cfg_available,
 )
 from .interprocedural import trace_inter_procedural_flow_insensitive
+from .registry import TaintRegistry
 
 
-def is_sanitizer(function_name: str) -> bool:
-    """Check if a function is a known sanitizer."""
-    if not function_name:
-        return False
-    
-    # Normalize function name
-    func_lower = function_name.lower()
-    
-    # Check all sanitizer categories
-    for sanitizer_list in SANITIZERS.values():
-        for sanitizer in sanitizer_list:
-            if sanitizer.lower() in func_lower or func_lower in sanitizer.lower():
-                return True
-    
-    return False
+# DELETED: is_sanitizer() function (14 lines)
+# Use registry.is_sanitizer() instead (provides same functionality)
+# This eliminates duplicate code - registry.py has the canonical implementation
 
 
 def has_sanitizer_between(cursor: sqlite3.Cursor, source: Dict[str, Any], sink: Dict[str, Any]) -> bool:
@@ -52,20 +41,23 @@ def has_sanitizer_between(cursor: sqlite3.Cursor, source: Dict[str, Any], sink: 
     if source["file"] != sink["file"]:
         return False
 
+    # Initialize registry for sanitizer checking
+    registry = TaintRegistry()
+
     # Find all calls between source and sink lines
     query = build_query('symbols', ['name', 'line'],
         where="path = ? AND type = 'call' AND line > ? AND line < ?",
         order_by="line"
     )
     cursor.execute(query, (source["file"], source["line"], sink["line"]))
-    
+
     intermediate_calls = cursor.fetchall()
-    
-    # Check if any intermediate call is a sanitizer
+
+    # Check if any intermediate call is a sanitizer using registry
     for call_name, _ in intermediate_calls:
-        if is_sanitizer(call_name):
+        if registry.is_sanitizer(call_name):
             return True
-    
+
     return False
 
 
@@ -132,43 +124,12 @@ def trace_from_source(
 
     # Cache of per-sink CFG results so we reuse analysis when verifying flows
     flow_sensitive_cache: Dict[Tuple[str, int], Optional[List[TaintPath]]] = {}
-    cfg_verifier_enabled = False
 
-    # If CFG analysis is requested and available, use flow-sensitive analysis
-    if use_cfg:
-        from .cfg_integration import (
-            trace_flow_sensitive,
-            should_use_cfg,
-            verify_unsanitized_cfg_paths,
-        )
+    # Import CFG integration functions (needed for direct-use checks and intra-procedural verification)
+    # NOT used for old conflicting engine - that was deleted (Bug #12)
+    from .cfg_integration import verify_unsanitized_cfg_paths
 
-        cfg_verifier_enabled = check_cfg_available(cursor)
-
-        # Check if we should use CFG for these specific sources/sinks
-        cfg_paths: List[TaintPath] = []
-        for sink in sinks:
-            if should_use_cfg(cursor, source, sink):
-                # Perform flow-sensitive analysis for this source-sink pair
-                flow_paths = trace_flow_sensitive(
-                    cursor=cursor,
-                    source=source,
-                    sink=sink,
-                    source_function=source_function,
-                    max_paths=100,  # Reasonable limit for path explosion
-                )
-                flow_sensitive_cache[(sink["file"], sink["line"])] = flow_paths
-                cfg_paths.extend(flow_paths)
-
-        # If we found any flow-sensitive paths, prefer those
-        if cfg_paths:
-            # Also run flow-insensitive for comparison (can be removed in production)
-            if debug_mode:
-                print(f"[CFG] Found {len(cfg_paths)} flow-sensitive paths", file=sys.stderr)
-                print(f"[CFG] Running flow-insensitive analysis for comparison...", file=sys.stderr)
-            # Convert flow-sensitive paths to TaintPath objects
-            return cfg_paths
-    else:
-        cfg_verifier_enabled = False
+    cfg_verifier_enabled = check_cfg_available(cursor) if use_cfg else False
     
     paths = []
     
@@ -275,13 +236,61 @@ def trace_from_source(
         if debug_mode:
             print(f"[TAINT] Phase 1: Found assignment {target_var} in {in_function} at line {line}", file=sys.stderr)
 
-    # PHASE 2: If no assignments found, treat source pattern itself as tainted
-    # This ensures the worklist algorithm always has a starting point
-    if not tainted_elements:
-        func_name = source_function.get("name", "global")
-        tainted_elements.add(f"{func_name}:{source['pattern']}")
-        if debug_mode:
-            print(f"[TAINT] Phase 2: No assignments found, treating source pattern as tainted: {func_name}:{source['pattern']}", file=sys.stderr)
+    # PHASE 1.5: Track arguments that receive tainted data (NEW - CRITICAL FIX)
+    # This enables cross-file taint tracking by following function call arguments
+    #
+    # Bug context: Phase 1 captures LEFT side of assignments (return values)
+    # but taint flows through RIGHT side (arguments). This phase fixes that.
+    #
+    # Example:
+    #   const entity = await accountService.createAccount(req.body, 'system');
+    #   Phase 1 captures: "entity" (return value) ❌
+    #   Phase 1.5 captures: "accountService.createAccount:data" (parameter) ✅
+    #
+    query = build_query('function_call_args',
+        ['callee_function', 'param_name', 'argument_expr', 'callee_file_path'],
+        where="file = ? AND line BETWEEN ? AND ? AND argument_expr LIKE ?",
+        order_by="line"
+    )
+    cursor.execute(query, (
+        source["file"],
+        source["line"] - 2,
+        source["line"] + 2,
+        f"%{source['pattern']}%"
+    ))
+
+    call_args_found = cursor.fetchall()
+
+    for callee_func, param_name, arg_expr, callee_file in call_args_found:
+        # Verify source pattern actually appears in argument (not just substring match)
+        if source['pattern'] in arg_expr:
+            # Track the parameter in the callee function
+            tainted_elements.add(f"{callee_func}:{param_name}")
+
+            if debug_mode:
+                print(f"[TAINT] Phase 1.5: Found argument {param_name} in call to {callee_func} at {source['file']}:{source['line']}", file=sys.stderr)
+                if callee_file:
+                    print(f"[TAINT]   Target file: {callee_file}", file=sys.stderr)
+
+    # PHASE 2: ALWAYS add source pattern itself to tainted elements
+    # CRITICAL FIX: Phase 1 may find return value assignments (e.g., "entity"),
+    # but cross-file detection needs the SOURCE PATTERN (e.g., "req.body") to match arguments
+    #
+    # Example bug:
+    #   const entity = await service.create(req.body);
+    #   Phase 1 finds: "entity" ✓
+    #   Phase 1.5 finds: "service.create:data" ✓
+    #   Stage 3 traverses into service with tainted_vars={"entity"}
+    #   Checks if "entity" in "req.body" → FALSE → No traversal! ✗
+    #
+    # Fix: Also add "req.body" to tainted_vars so Stage 3 can match arguments
+    #
+    # Note: get_containing_function() now returns CANONICAL function names from symbols table
+    # (e.g., "AccountController.create" not "asyncHandler_arg0"), so this works correctly
+    func_name = source_function.get("name", "global")
+    tainted_elements.add(f"{func_name}:{source['pattern']}")
+    if debug_mode:
+        print(f"[TAINT] Phase 2: Added source pattern to tainted elements: {func_name}:{source['pattern']}", file=sys.stderr)
 
     # Final diagnostic
     if debug_mode:
@@ -298,121 +307,26 @@ def trace_from_source(
     # which did string parsing fallback because symbols table was empty.
     # Now that indexer populates call/property symbols, this is unnecessary.
 
-    # Step 2: Propagate taint through assignments (worklist algorithm)
-    processed = set()
-    iterations = 0
-    max_iterations = 100  # Prevent infinite loops
-    
-    while tainted_elements - processed and iterations < max_iterations:
-        iterations += 1
-        new_taints = set()
-        
-        # Create stable copy to iterate over
-        to_process = list(tainted_elements - processed)
-        for element in to_process:
-            processed.add(element)
-            
-            # Parse the element (format: "function:variable")
-            if ":" in element:
-                func_name, var_name = element.split(":", 1)
-            else:
-                func_name = "global"
-                var_name = element
-            
-            # Find assignments where this tainted variable is used as source
-            if cache and hasattr(cache, 'assignments_by_func'):
-                # FAST: O(1) lookup in pre-indexed data
-                assignments = cache.assignments_by_func.get((source["file"], func_name), [])
-                
-                # Python-side filtering (still faster than SQL)
-                results = []
-                for assignment in assignments:
-                    if (var_name in assignment.get("source_expr", "") or
-                        f'"{var_name}"' in assignment.get("source_vars", "")):
-                        results.append((
-                            assignment["target_var"],
-                            assignment["in_function"],
-                            assignment["line"]
-                        ))
-            else:
-                # FALLBACK: Original query implementation
-                query = build_query('assignments', ['target_var', 'in_function', 'line'],
-                    where="file = ? AND in_function = ? AND (source_expr LIKE ? OR source_vars LIKE ?)"
-                )
-                cursor.execute(query, (source["file"], func_name, f"%{var_name}%", f'%"{var_name}"%'))
-                results = cursor.fetchall()
-            
-            for target_var, in_function, line in results:
-                new_element = f"{in_function}:{target_var}"
-                if new_element not in processed:
-                    # CRITICAL DEBUG: Log taint propagation through assignments
-                    if os.environ.get("THEAUDITOR_TAINT_DEBUG"):
-                        print(f"[TAINT] Propagating through assignment: {var_name} -> {target_var} in {in_function} at line {line}")
-                    new_taints.add(new_element)
-            
-            # Track taint through function calls
-            # Check if tainted variable is passed as argument
-            if cache and hasattr(cache, 'calls_by_caller'):
-                # FAST: O(1) lookup in pre-indexed data
-                calls = cache.calls_by_caller.get((source["file"], func_name), [])
-                
-                # Python-side filtering
-                call_results = []
-                for call in calls:
-                    if var_name in call.get("argument_expr", ""):
-                        call_results.append((
-                            call["callee_function"],
-                            call["param_name"],
-                            call["line"]
-                        ))
-            else:
-                # FALLBACK: Original query implementation
-                query = build_query('function_call_args', ['callee_function', 'param_name', 'line'],
-                    where="file = ? AND caller_function = ? AND argument_expr LIKE ?"
-                )
-                cursor.execute(query, (source["file"], func_name, f"%{var_name}%"))
-                call_results = cursor.fetchall()
-            
-            for callee_function, param_name, line in call_results:
-                # The parameter in the callee function is now tainted
-                new_element = f"{callee_function}:{param_name}"
-                if new_element not in processed:
-                    # CRITICAL DEBUG: Log taint propagation through function calls
-                    if os.environ.get("THEAUDITOR_TAINT_DEBUG"):
-                        print(f"[TAINT] Propagating through function call: {var_name} in {func_name} -> {param_name} in {callee_function} at line {line}")
-                    new_taints.add(new_element)
-                
-                # Check if the callee function returns the tainted parameter
-                if cache and hasattr(cache, 'returns_by_function'):
-                    # FAST: O(1) lookup
-                    returns = cache.returns_by_function.get((source["file"], callee_function), [])
-                    found_return = False
-                    for ret in returns:
-                        if (param_name in ret.get("return_expr", "") or
-                            f'"{param_name}"' in ret.get("return_vars", "")):
-                            found_return = True
-                            break
-                else:
-                    # FALLBACK: Original query
-                    query = build_query('function_returns', ['return_expr'],
-                        where="file = ? AND function_name = ? AND (return_expr LIKE ? OR return_vars LIKE ?)"
-                    )
-                    cursor.execute(query, (source["file"], callee_function, f"%{param_name}%", f'%"{param_name}"%'))
-                    found_return = cursor.fetchone() is not None
-                
-                if found_return:
-                    # Function returns tainted data
-                    new_element = f"{callee_function}:__return__"
-                    if new_element not in processed:
-                        new_taints.add(new_element)
-        
-        tainted_elements.update(new_taints)
-    
-    # DEBUG: Log final tainted elements
-    if debug_mode:
-        print(f"[TAINT] Propagation completed after {iterations} iterations", file=sys.stderr)
-        print(f"[TAINT] Final tainted elements: {tainted_elements}", file=sys.stderr)
-        print(f"[TAINT] Checking {len(sinks)} sinks for vulnerabilities", file=sys.stderr)
+    # ============================================================================
+    # DELETED: Old worklist algorithm (lines 293-401) - THE MULTI-HOP BUG
+    # ============================================================================
+    # This loop tried to propagate taint inter-procedurally but FAILED because:
+    # 1. All queries were locked to source["file"] (lines 331-334, 362-365)
+    # 2. It polluted tainted_elements with cross-file variables like "service.save:user_data"
+    # 3. When processing those cross-file variables, queries returned ZERO ROWS
+    # 4. Taint propagation STOPPED at file boundaries
+    #
+    # Example of the bug:
+    #   Controller: req.body → "AccountController.create:data" ✅
+    #   Call found: accountService.createAccount(data) ✅
+    #   Worklist adds: "accountService.createAccount:accountData" ✅
+    #   Worklist tries: WHERE file='controller.ts' AND in_function='accountService.createAccount' ❌
+    #   Result: ZERO ROWS (service is in different file) ❌
+    #
+    # SOLUTION: The pro-active inter-procedural search (lines 418-516) handles
+    # ALL propagation correctly, including cross-file flows. This old worklist
+    # was fighting against it.
+    # ============================================================================
 
     # ============================================================================
     # CRITICAL FIX (v1.2.1): PRO-ACTIVE INTER-PROCEDURAL SEARCH
@@ -433,25 +347,85 @@ def trace_from_source(
 
         analyzer = InterProceduralCFGAnalyzer(cursor, cache)
 
-        # Try inter-procedural from the source pattern itself
-        # This handles cases where source is passed directly without intermediate variable
-        source_var = source.get('pattern', source.get('name', 'unknown'))
+        # CRITICAL FIX: Group tainted_elements by function to enable multi-hop cross-file
+        # Previous bug: Only traced vars from source function, discarded cross-file tainted elements
+        # like "accountService.createAccount:data" because func_name != start_func_name
+        start_func_name = source_function.get("name", "global")
+        tainted_by_function = {}  # func_name -> {var1, var2, ...}
 
-        inter_paths = trace_inter_procedural_flow_cfg(
-            analyzer=analyzer,
-            cursor=cursor,
-            source_var=source_var,
-            source_file=source["file"],
-            source_line=source["line"],
-            source_function=source_function.get("name", "global"),
-            sinks=sinks,  # ALL sinks, including cross-file
-            max_depth=max_depth,
-            cache=cache
-        )
+        for element in tainted_elements:
+            if ":" in element:
+                func_name, var_name = element.split(":", 1)
+                if func_name not in tainted_by_function:
+                    tainted_by_function[func_name] = set()
+                tainted_by_function[func_name].add(var_name)
+            else:
+                # No function qualifier - belongs to source function
+                if start_func_name not in tainted_by_function:
+                    tainted_by_function[start_func_name] = set()
+                tainted_by_function[start_func_name].add(element)
+
+        if debug_mode:
+            print(f"[TAINT] Grouped tainted elements by function: {dict((k, list(v)) for k, v in tainted_by_function.items())}", file=sys.stderr)
+
+        # Process EACH tainted function (not just source function!)
+        inter_paths = []
+        for func_name, vars_to_trace in tainted_by_function.items():
+            if not vars_to_trace:
+                continue
+
+            # Resolve function file path
+            if func_name == start_func_name:
+                func_file_path = source_function.get("file_path", source["file"])
+                func_line = source["line"]
+            else:
+                # Cross-file function - look up in symbols table
+                func_file_query = build_query(
+                    "symbols", ["path", "line"], where="name = ? AND type = 'function'"
+                )
+                cursor.execute(func_file_query, (func_name,))
+                result = cursor.fetchone()
+                if result:
+                    func_file_path, func_line = result[0], result[1]
+                else:
+                    # Try function_call_args table (callee_file_path)
+                    callee_query = build_query(
+                        "function_call_args", ["callee_file_path"],
+                        where="callee_function = ?", limit=1
+                    )
+                    cursor.execute(callee_query, (func_name,))
+                    result = cursor.fetchone()
+                    func_file_path = result[0] if result else None
+                    func_line = 1  # Default line if not found
+
+            if not func_file_path:
+                if debug_mode:
+                    print(f"[TAINT] WARNING: Could not resolve file path for {func_name}, skipping", file=sys.stderr)
+                continue
+
+            if debug_mode:
+                print(f"[TAINT] Tracing from {func_name} in {func_file_path} with vars: {vars_to_trace}", file=sys.stderr)
+
+            paths_from_func = trace_inter_procedural_flow_cfg(
+                analyzer=analyzer,
+                cursor=cursor,
+                source_vars=vars_to_trace,  # Pass entire set for this function
+                source_file=func_file_path,
+                source_line=func_line,
+                source_function=func_name,
+                sinks=sinks,  # ALL sinks, including cross-file
+                max_depth=max_depth,
+                cache=cache
+            )
+
+            if paths_from_func:
+                if debug_mode:
+                    print(f"[TAINT] Found {len(paths_from_func)} paths from {func_name}", file=sys.stderr)
+                inter_paths.extend(paths_from_func)
 
         if inter_paths:
             if debug_mode:
-                print(f"[TAINT] Pro-active inter-procedural found {len(inter_paths)} paths", file=sys.stderr)
+                print(f"[TAINT] Pro-active inter-procedural found {len(inter_paths)} paths total", file=sys.stderr)
             paths.extend(inter_paths)
     else:
         # Stage 2: Flow-insensitive inter-procedural analysis for ALL sinks (including cross-file)
@@ -459,22 +433,87 @@ def trace_from_source(
         if debug_mode:
             print(f"[TAINT] Running flow-insensitive inter-procedural analysis for all {len(sinks)} sinks", file=sys.stderr)
 
-        source_var = source.get('pattern', source.get('name', 'unknown'))
+        # CRITICAL FIX: Group tainted_elements by function to enable multi-hop cross-file
+        # Previous bug: Only traced vars from source function, discarded cross-file tainted elements
+        start_func_name = source_function.get("name", "global")
+        tainted_by_function = {}  # func_name -> {var1, var2, ...}
 
-        inter_paths = trace_inter_procedural_flow_insensitive(
-            cursor=cursor,
-            source_var=source_var,
-            source_file=source["file"],
-            source_line=source["line"],
-            source_function=source_function.get("name", "global"),
-            sinks=sinks,  # ALL sinks, including cross-file
-            max_depth=max_depth,
-            cache=cache
-        )
+        for element in tainted_elements:
+            if ":" in element:
+                func_name, var_name = element.split(":", 1)
+                if func_name not in tainted_by_function:
+                    tainted_by_function[func_name] = set()
+                tainted_by_function[func_name].add(var_name)
+            else:
+                # No function qualifier - belongs to source function
+                if start_func_name not in tainted_by_function:
+                    tainted_by_function[start_func_name] = set()
+                tainted_by_function[start_func_name].add(element)
+
+        if debug_mode:
+            print(f"[TAINT] Grouped tainted elements by function: {dict((k, list(v)) for k, v in tainted_by_function.items())}", file=sys.stderr)
+
+        # Process EACH tainted function (not just source function!)
+        inter_paths = []
+        for func_name, vars_to_trace in tainted_by_function.items():
+            if not vars_to_trace:
+                continue
+
+            # Resolve function file path
+            if func_name == start_func_name:
+                func_file_path = source_function.get("file_path", source["file"])
+                func_line = source["line"]
+            else:
+                # Cross-file function - look up in symbols table
+                func_file_query = build_query(
+                    "symbols", ["path", "line"], where="name = ? AND type = 'function'"
+                )
+                cursor.execute(func_file_query, (func_name,))
+                result = cursor.fetchone()
+                if result:
+                    func_file_path, func_line = result[0], result[1]
+                else:
+                    # Try function_call_args table (callee_file_path)
+                    callee_query = build_query(
+                        "function_call_args", ["callee_file_path"],
+                        where="callee_function = ?", limit=1
+                    )
+                    cursor.execute(callee_query, (func_name,))
+                    result = cursor.fetchone()
+                    func_file_path = result[0] if result else None
+                    func_line = 1  # Default line if not found
+
+            if not func_file_path:
+                if debug_mode:
+                    print(f"[TAINT] WARNING: Could not resolve file path for {func_name}, skipping", file=sys.stderr)
+                continue
+
+            if debug_mode:
+                print(f"[TAINT] Tracing from {func_name} in {func_file_path} with vars: {vars_to_trace}", file=sys.stderr)
+
+            # Trace EACH variable from this function
+            for source_var in vars_to_trace:
+                if not source_var:
+                    continue
+
+                if debug_mode:
+                    print(f"[TAINT] Tracing variable: '{source_var}' from {func_name}", file=sys.stderr)
+
+                paths_for_var = trace_inter_procedural_flow_insensitive(
+                    cursor=cursor,
+                    source_var=source_var,
+                    source_file=func_file_path,
+                    source_line=func_line,
+                    source_function=func_name,
+                    sinks=sinks,  # ALL sinks, including cross-file
+                    max_depth=max_depth,
+                    cache=cache
+                )
+                inter_paths.extend(paths_for_var)
 
         if inter_paths:
             if debug_mode:
-                print(f"[TAINT] Flow-insensitive inter-procedural found {len(inter_paths)} paths", file=sys.stderr)
+                print(f"[TAINT] Flow-insensitive inter-procedural found {len(inter_paths)} paths total", file=sys.stderr)
             paths.extend(inter_paths)
 
     # Step 3: Check if any tainted element reaches a sink (INTRA-PROCEDURAL)
@@ -530,10 +569,13 @@ def trace_from_source(
             else:
                 func_name = "global"
                 var_name = element
-            
+
+            # Normalize func_name to match cfg_blocks normalized names
+            func_name_normalized = func_name.split('.')[-1]
+
             # SIMPLIFIED: Skip if not in same function (inter-procedural handled pro-actively)
             # The pro-active inter-procedural search above handles cross-function flows
-            if func_name != sink_function["name"]:
+            if func_name_normalized != sink_function["name"]:
                 if debug_mode:
                     print(f"[TAINT] Skipping {var_name} in {func_name} (different function than sink {sink_function['name']}) - inter-procedural handled earlier", file=sys.stderr)
                 continue

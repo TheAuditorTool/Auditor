@@ -23,7 +23,8 @@ from .database import (
     get_cfg_for_function,
     check_cfg_available
 )
-from .propagation import is_sanitizer, has_sanitizer_between
+from .propagation import has_sanitizer_between
+from .registry import TaintRegistry
 from .core import TaintPath  # ARCHITECTURAL FIX: Use proper data structure
 
 
@@ -87,17 +88,22 @@ class PathAnalyzer:
         self.cursor = cursor
         self.file_path = file_path.replace("\\", "/")
 
-        # CRITICAL FIX: Normalize function name for CFG lookup
-        # function_call_args stores: "accountService.createAccount"
+        # CRITICAL FIX: Store BOTH original and normalized names
+        # assignments/function_call_args store: "accountService.createAccount"
         # cfg_blocks stores: "createAccount"
-        # Strip object/class prefix to match CFG naming convention
+        self.original_function_name = function_name  # Keep original for assignments/calls
+
+        # Normalize for CFG lookup only
         self.function_name = self._normalize_function_name(function_name)
         self.cfg = get_cfg_for_function(cursor, file_path, self.function_name)
         self.debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
-        
+
+        # Initialize registry for sanitizer checking
+        self.registry = TaintRegistry()
+
         # Build block lookup
         self.blocks = {b["id"]: b for b in self.cfg["blocks"]}
-        
+
         # Build adjacency lists
         self.successors = defaultdict(list)
         self.predecessors = defaultdict(list)
@@ -298,8 +304,8 @@ class PathAnalyzer:
                 self.cursor.execute(args_query, (self.file_path, line))
 
                 for callee, arg_expr in self.cursor.fetchall():
-                    # Check if callee is a sanitizer
-                    if is_sanitizer(callee):
+                    # Check if callee is a sanitizer using registry
+                    if self.registry.is_sanitizer(callee):
                         # Find which variable is being sanitized
                         for var in list(new_state.tainted_vars):
                             # Minimal string check on EXTRACTED argument expression
@@ -418,10 +424,29 @@ class PathAnalyzer:
                     if succ_block not in join_point_states:
                         join_point_states[succ_block] = []
                     join_point_states[succ_block].append(current_state.copy())
-        
-        # Check if taint reaches sink
-        is_vulnerable = current_state.is_tainted(tainted_var)
-        
+
+        # SURGICAL FIX: Check if ANY tainted var reaches sink, not just initial var
+        # Bug: Only checked if initial_tainted_var reached sink, missing propagated vars
+        # Example: data → newUser → Account.create(newUser) would fail if we only check "data"
+        is_vulnerable = False
+
+        # Get sink's actual arguments from database
+        sink_args_query = build_query('function_call_args', ['argument_expr'],
+                                      where="file = ? AND line = ?")
+        self.cursor.execute(sink_args_query, (self.file_path, sink_line))
+        sink_args_result = self.cursor.fetchone()
+
+        if sink_args_result:
+            argument_expr = sink_args_result[0]
+            # SURGICAL FIX: Check if ANY variable tainted at sink point is used in sink arguments
+            # This handles propagated vars: data → newUser, both checked
+            for var in current_state.tainted_vars:
+                if var in argument_expr and current_state.is_tainted(var):
+                    is_vulnerable = True
+                    if self.debug:
+                        print(f"[CFG]     VULNERABLE: Tainted var '{var}' reaches sink at line {sink_line} via args '{argument_expr[:80]}'", file=sys.stderr)
+                    break
+
         # Stage 2: Enhanced path info with detailed conditions
         path_info = {
             "blocks": path_blocks,
@@ -432,7 +457,7 @@ class PathAnalyzer:
             "is_vulnerable": is_vulnerable,
             "path_complexity": len(path_conditions)  # Metric for path complexity
         }
-        
+
         return is_vulnerable, path_info
     
     def _summarize_conditions(self, conditions: List[Dict[str, Any]]) -> str:
@@ -478,17 +503,24 @@ class PathAnalyzer:
         """
         new_state = state.copy()
 
-        # This is simplified - full implementation would query assignments table
-        # For now, we maintain the taint state as-is
-
         # Get assignments in this block from database
         if block["start_line"] and block["end_line"]:
+            # CRITICAL FIX: Must filter by in_function to avoid pollution from nested functions
+            # Example: createApp (lines 19-137) contains setHeaders (lines 92-104) and _callback (110-129)
+            # Without in_function filter, we'd get assignments from ALL three functions in overlapping ranges
             query = build_query('assignments',
                 ['target_var', 'source_expr'],
-                where="file = ? AND line BETWEEN ? AND ?"
+                where="file = ? AND in_function = ? AND line BETWEEN ? AND ?"
             )
-            self.cursor.execute(query, (self.file_path, block["start_line"], block["end_line"]))
-            
+            # CRITICAL FIX: Use original_function_name (FULL name like "AccountController.list")
+            # NOT normalized name, because assignments table stores FULL names
+            self.cursor.execute(query, (
+                self.file_path,
+                self.original_function_name,  # Use FULL name for assignments table
+                block["start_line"],
+                block["end_line"]
+            ))
+
             for target_var, source_expr in self.cursor.fetchall():
                 # Check if source expression contains tainted variables
                 # CRITICAL FIX: Create a list copy to avoid "Set changed size during iteration" error
@@ -500,60 +532,12 @@ class PathAnalyzer:
                         new_state.add_taint(target_var)
                         if self.debug:
                             print(f"[CFG]     Taint propagated: {tainted_var} -> {target_var}", file=sys.stderr)
-        
+
         return new_state
     
-    def analyze_loop_with_fixed_point(
-        self,
-        loop_block_id: int,
-        entry_state: BlockTaintState,
-        loop_condition: str
-    ) -> BlockTaintState:
-        """
-        Analyze loop using fixed-point iteration with widening.
-        
-        This catches patterns like:
-        header = tainted_input
-        for row in data:
-            query += build_query(header, row)  # Loop carries taint
-        """
-        iteration = 0
-        max_iterations = 3  # Widen after 3 iterations
-        
-        current_state = entry_state.copy()
-        loop_body_blocks = self._get_loop_body_blocks(loop_block_id)
-        
-        while iteration < max_iterations:
-            prev_state = current_state.copy()
-            
-            # Analyze one iteration through loop body
-            for block_id in loop_body_blocks:
-                block = self.blocks.get(block_id)
-                if not block:
-                    continue
-                
-                # Process assignments in this block
-                current_state = self._process_block_for_assignments(current_state, block)
-                
-                # Check for taint propagation
-                statements = self._get_block_statements(block_id)
-                for stmt in statements:
-                    if self._is_taint_propagating_operation(stmt):
-                        # Track how taint spreads in loops
-                        current_state = self._propagate_loop_taint(current_state, stmt)
-            
-            # Check for fixed point (no changes)
-            if current_state.tainted_vars == prev_state.tainted_vars:
-                break  # Converged!
-            
-            iteration += 1
-        
-        # Apply widening if didn't converge
-        if iteration == max_iterations:
-            # Conservative: assume all vars touched in loop become tainted
-            current_state = self._apply_widening(current_state, loop_body_blocks)
-        
-        return current_state
+    # DELETED: analyze_loop_with_fixed_point() - 52 lines of string parsing dead code
+    # Calls _is_taint_propagating_operation() and _propagate_loop_taint() which parse statement text
+    # Loop analysis rarely used and broken - delete to enforce database-query approach
     
     def _get_loop_body_blocks(self, loop_block_id: int) -> List[int]:
         """Get all blocks that are part of the loop body."""
@@ -598,41 +582,13 @@ class PathAnalyzer:
             for row in self.cursor.fetchall()
         ]
     
-    def _is_taint_propagating_operation(self, stmt: Dict[str, Any]) -> bool:
-        """Check if a statement propagates taint."""
-        text = stmt.get("text", "")
-        
-        # String concatenation operations
-        if "+=" in text or ".push(" in text or ".append(" in text:
-            return True
-        
-        # Array/object modifications
-        if "[" in text and "]" in text and "=" in text:
-            return True
-        
-        return False
+    # DELETED: _is_taint_propagating_operation() - 13 lines of string parsing cancer
+    # Parsed statement text instead of querying database
+    # Example: "if '+=' in text" - STRING PARSING, not database query
     
-    def _propagate_loop_taint(
-        self, 
-        state: BlockTaintState, 
-        stmt: Dict[str, Any]
-    ) -> BlockTaintState:
-        """Propagate taint through loop operations."""
-        new_state = state.copy()
-        text = stmt.get("text", "")
-        
-        # Check if any tainted variable is used in the statement
-        for tainted_var in state.tainted_vars:
-            if tainted_var in text:
-                # Find target variable (simplified)
-                if "+=" in text:
-                    target = text.split("+=")[0].strip()
-                    new_state.add_taint(target)
-                elif ".push(" in text:
-                    target = text.split(".push(")[0].strip()
-                    new_state.add_taint(target)
-        
-        return new_state
+    # DELETED: _propagate_loop_taint() - 22 lines of string parsing cancer
+    # Parsed statement text with string operations: text.split("+=")[0].strip()
+    # Should query assignments table instead
     
     def _apply_widening(self, state: BlockTaintState, loop_blocks: List[int]) -> BlockTaintState:
         """

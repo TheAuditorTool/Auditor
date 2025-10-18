@@ -113,7 +113,7 @@ class TaintPath:
 
 
 def trace_taint(db_path: str, max_depth: int = 5, registry=None,
-                use_cfg: bool = False,
+                use_cfg: bool = True,
                 use_memory_cache: bool = True, memory_limit_mb: int = 12000,
                 cache: Optional['MemoryCache'] = None) -> Dict[str, Any]:
     """
@@ -182,12 +182,13 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     # Framework patterns are handled upstream and registered via TaintRegistry
     # The taint analyzer operates ONLY on patterns provided by the registry
     if registry:
-        # Use registry configuration (populated upstream with framework patterns)
-        config = TaintConfig().with_registry(registry)
+        # CRITICAL FIX: Load defaults FIRST, then merge registry on top
+        # TaintConfig() creates empty config - we need from_defaults() first!
+        config = TaintConfig.from_defaults().with_registry(registry)
     else:
         # Fallback to defaults if no registry provided
         # This maintains backward compatibility but won't include framework-specific patterns
-        config = TaintConfig().from_defaults()
+        config = TaintConfig.from_defaults()
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()

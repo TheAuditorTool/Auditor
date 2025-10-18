@@ -1790,15 +1790,20 @@ def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
     elif isinstance(name_node, str):
         func_name = name_node
 
+    # CRITICAL FIX: Get full function line range for proper block spanning
+    # Entry and exit blocks MUST span the entire function body so get_containing_function
+    # can correctly identify ANY line within the function as belonging to it
+    func_start_line = func_node.get('line', 1)
+    func_end_line = func_node.get('endLine', func_start_line)
+
     # Entry block
     entry_id = get_next_block_id()
-    start_line = func_node.get('line', 1)
 
     blocks.append({
         'id': entry_id,
         'type': 'entry',
-        'start_line': start_line,
-        'end_line': start_line,
+        'start_line': func_start_line,
+        'end_line': func_end_line,  # FIXED: Use function's end line, not start line
         'statements': []
     })
 
@@ -1823,7 +1828,7 @@ def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
             return current_id
 
         kind = node.get('kind', '')
-        line = node.get('line', start_line)
+        line = node.get('line', func_start_line)
 
         if kind == 'IfStatement':
             # Create condition block
@@ -2107,8 +2112,8 @@ def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
     blocks.append({
         'id': exit_id,
         'type': 'exit',
-        'start_line': func_node.get('endLine', start_line),
-        'end_line': func_node.get('endLine', start_line),
+        'start_line': func_start_line,  # FIXED: Use function's start line
+        'end_line': func_end_line,      # FIXED: Use function's end line
         'statements': []
     })
 
