@@ -629,27 +629,28 @@ class MemoryCache:
             for pattern in patterns:
                 matching_symbols = []
 
-                # CRITICAL FIX: Pre-compute all possible matches
+                # Pre-compute all possible matches
+                # CRITICAL: Must filter by type to exclude variable declarations
                 if "." in pattern:
                     # Property access pattern - exact match first
                     if pattern in self.symbols_by_name:
                         for sym in self.symbols_by_name[pattern]:
-                            if sym["type"] in ['call', 'property', 'symbol']:
+                            if sym['type'] in ('call', 'property'):
                                 matching_symbols.append(sym)
-                    
+
                     # Also check substring matches for property patterns
                     for name, symbols in self.symbols_by_name.items():
                         if pattern in name and name != pattern:  # Avoid duplicates
                             for sym in symbols:
-                                if sym["type"] in ['call', 'property', 'symbol']:
+                                if sym['type'] in ('call', 'property'):
                                     matching_symbols.append(sym)
                 else:
                     # Direct name match - simple O(1) lookup
                     if pattern in self.symbols_by_name:
                         for sym in self.symbols_by_name[pattern]:
-                            if sym["type"] in ['call', 'symbol']:
+                            if sym['type'] in ('call', 'property'):
                                 matching_symbols.append(sym)
-                
+
                 # Store pre-computed results even if empty (to avoid re-searching)
                 self.precomputed_sources[pattern] = matching_symbols
 
@@ -879,8 +880,9 @@ class MemoryCache:
                     # Property access pattern - check exact match first for O(1)
                     if source_pattern in self.symbols_by_name:
                         # FAST: O(1) exact match
+                        # CRITICAL: Must filter by type to exclude variable declarations
                         for sym in self.symbols_by_name[source_pattern]:
-                            if sym["type"] in ['call', 'property', 'symbol']:
+                            if sym['type'] in ('call', 'property'):
                                 sources.append({
                                     "file": sym["file"],
                                     "name": sym["name"],
@@ -897,7 +899,7 @@ class MemoryCache:
                             # Only check names starting with base object
                             if name.startswith(base_obj) and source_pattern in name:
                                 for sym in symbols:
-                                    if sym["type"] in ['call', 'property', 'symbol']:
+                                    if sym['type'] in ('call', 'property'):
                                         sources.append({
                                             "file": sym["file"],
                                             "name": sym["name"],
@@ -910,7 +912,7 @@ class MemoryCache:
                     # Direct name match - TRUE O(1) lookup
                     if source_pattern in self.symbols_by_name:
                         for sym in self.symbols_by_name[source_pattern]:
-                            if sym["type"] in ['call', 'symbol']:
+                            if sym['type'] in ('call', 'property'):
                                 sources.append({
                                     "file": sym["file"],
                                     "name": sym["name"],

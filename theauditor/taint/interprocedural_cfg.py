@@ -22,6 +22,7 @@ from theauditor.indexer.schema import build_query
 
 if TYPE_CHECKING:
     from .memory_cache import MemoryCache
+    from .cfg_integration import BlockTaintState, PathAnalyzer
 
 @dataclass
 class InterProceduralEffect:
@@ -342,53 +343,203 @@ class InterProceduralCFGAnalyzer:
         return entry_state
     
     def _analyze_all_paths(
-        self, 
-        analyzer: 'PathAnalyzer', 
+        self,
+        analyzer: 'PathAnalyzer',
         entry_state: 'BlockTaintState'
     ) -> List['BlockTaintState']:
-        """Analyze all execution paths through the function."""
+        """Analyze all execution paths by QUERYING database for path enumeration."""
+        from .database import get_paths_between_blocks
+
         exit_states = []
-        
-        # Find all exit blocks (return statements)
-        exit_blocks = []
-        for block_id, block in analyzer.blocks.items():
-            if block["type"] == "exit" or block.get("has_return", False):
-                exit_blocks.append(block_id)
-        
+
+        # CRITICAL FIX: Query for actual entry block ID (not hardcoded 0)
+        # Block ID 0 doesn't exist - entry blocks start at 1+
+        query = build_query('cfg_blocks',
+            ['id'],
+            where="file = ? AND function_name = ? AND block_type = 'entry'",
+            limit=1
+        )
+        self.cursor.execute(query, (analyzer.file_path, analyzer.function_name))
+        entry_result = self.cursor.fetchone()
+
+        # Use 1 as fallback (first block), but should always find entry
+        entry_block_id = entry_result[0] if entry_result else 1
+
+        if self.debug and entry_result:
+            print(f"[INTER-CFG] Found entry block ID: {entry_block_id} for {analyzer.function_name}", file=sys.stderr)
+        elif self.debug:
+            print(f"[INTER-CFG] WARNING: No entry block found for {analyzer.function_name}, using fallback ID 1", file=sys.stderr)
+
+        # Query database for exit blocks - CORRECT: use 'id' not 'block_id'
+        query = build_query('cfg_blocks',
+            ['id'],
+            where="file = ? AND function_name = ? AND block_type = 'exit'"
+        )
+        self.cursor.execute(query, (analyzer.file_path, analyzer.function_name))
+
+        exit_blocks = [row[0] for row in self.cursor.fetchall()]
+
         if not exit_blocks:
-            # No explicit returns - use last block
-            if analyzer.blocks:
-                exit_blocks = [max(analyzer.blocks.keys())]
-        
-        # For each exit block, analyze paths from entry
+            # Use last block if no explicit returns
+            # NOTE: Cannot use build_query with aggregate functions, use raw SQL
+            self.cursor.execute(
+                "SELECT MAX(id) FROM cfg_blocks WHERE file = ? AND function_name = ?",
+                (analyzer.file_path, analyzer.function_name)
+            )
+            result = self.cursor.fetchone()
+            if result and result[0] is not None:
+                exit_blocks = [result[0]]
+
+        # For each exit, get paths using DATABASE API
+        # CORRECT: get_paths_between_blocks(cursor, file_path, source_block_id, sink_block_id)
         for exit_block in exit_blocks:
-            # This is simplified - real implementation would use PathAnalyzer's methods
-            # to properly trace through all paths
-            exit_state = self._trace_to_exit(analyzer, entry_state, exit_block)
-            if exit_state:
-                exit_states.append(exit_state)
-        
+            paths = get_paths_between_blocks(
+                self.cursor,
+                analyzer.file_path,
+                entry_block_id,  # FIXED: Use actual entry block ID, not 0
+                exit_block  # end_block (exit)
+            )
+
+            if not paths:
+                if self.debug:
+                    print(f"[INTER-CFG] Exit block {exit_block} is unreachable", file=sys.stderr)
+                continue
+
+            # Analyze each path separately using DATABASE QUERIES (NOT simulation)
+            for path in paths:
+                exit_state = self._query_path_taint_status(
+                    analyzer.file_path,
+                    analyzer.original_function_name,  # CRITICAL FIX: Use original name for assignments/calls
+                    entry_state,
+                    path  # List of block IDs
+                )
+                if exit_state:
+                    exit_states.append(exit_state)
+
         return exit_states
     
-    def _trace_to_exit(
-        self, 
-        analyzer: 'PathAnalyzer', 
+    def _query_path_taint_status(
+        self,
+        file_path: str,
+        function_name: str,
         entry_state: 'BlockTaintState',
-        exit_block_id: int
+        path: List[int]  # List of block IDs from database
     ) -> Optional['BlockTaintState']:
-        """Trace taint from entry to a specific exit block."""
-        # Simplified - would use proper dataflow analysis
-        current_state = entry_state.copy()
-        
-        # Process assignments and sanitizers along the path
-        # This is a simplified version - real implementation would
-        # follow actual CFG paths
-        for block_id, block in analyzer.blocks.items():
-            if block_id <= exit_block_id:  # Simplified path check
-                current_state = analyzer._process_block_for_assignments(current_state, block)
-                current_state = analyzer._process_block_for_sanitizers(current_state, block)
-        
-        return current_state
+        """Query database for taint status along a specific path (NO in-memory simulation)."""
+        from theauditor.taint.cfg_integration import BlockTaintState
+
+        current_tainted = set(entry_state.tainted_vars)
+        # NEW: Track sanitized vars to prevent re-tainting within the same path
+        current_sanitized = set()
+
+        # CRITICAL FIX: Normalize name ONLY for cfg_blocks query
+        # function_name is now ORIGINAL full name (e.g., "accountService.createAccount")
+        # cfg_blocks needs normalized name (e.g., "createAccount")
+        normalized_name = function_name.split('.')[-1]
+
+        if self.debug:
+            print(f"\n[INTER-CFG] Querying taint for path: {path}", file=sys.stderr)
+            print(f"[INTER-CFG]   Original name: {function_name}, Normalized: {normalized_name}", file=sys.stderr)
+            print(f"[INTER-CFG]   Entry Taint: {current_tainted}", file=sys.stderr)
+
+        # Get block line ranges for path - CORRECT: query cfg_blocks.id
+        block_ranges = {}
+        if path:
+            block_ids_str = ','.join('?' * len(path))
+            query = build_query('cfg_blocks',
+                ['id', 'start_line', 'end_line'],
+                where=f"file = ? AND function_name = ? AND id IN ({block_ids_str})",
+                order_by="start_line"
+            )
+            # CRITICAL FIX: Use normalized_name for cfg_blocks
+            self.cursor.execute(query, (file_path, normalized_name, *path))
+            for blk_id, start_line, end_line in self.cursor.fetchall():
+                block_ranges[blk_id] = (start_line, end_line)
+
+        # Get registry for sanitizer checking
+        from .registry import TaintRegistry
+        if not hasattr(self, 'registry') or self.registry is None:
+            self.registry = TaintRegistry()
+
+        # Process each block in path order
+        for block_id in path:
+            if block_id not in block_ranges:
+                continue
+
+            start_line, end_line = block_ranges[block_id]
+
+            # Query assignments in this block's line range - CORRECT: assignments has NO block_id
+            query = build_query('assignments',
+                ['target_var', 'source_expr', 'line'],
+                where="file = ? AND in_function = ? AND line >= ? AND line <= ?",
+                order_by="line"
+            )
+            # CRITICAL FIX: Use ORIGINAL function_name for assignments (not normalized)
+            self.cursor.execute(query, (file_path, function_name, start_line, end_line))
+            assignments = self.cursor.fetchall()
+
+            # Query function calls in this block's line range - CORRECT: function_call_args has NO block_id
+            query = build_query('function_call_args',
+                ['callee_function', 'argument_expr', 'line'],
+                where="file = ? AND caller_function = ? AND line >= ? AND line <= ?",
+                order_by="line"
+            )
+            # CRITICAL FIX: Use ORIGINAL function_name for function_call_args (not normalized)
+            self.cursor.execute(query, (file_path, function_name, start_line, end_line))
+
+            # Map calls by line for efficient lookup
+            calls_by_line = defaultdict(list)
+            for callee, arg_expr, line in self.cursor.fetchall():
+                calls_by_line[line].append((callee, arg_expr))
+
+            # --- CORRECTED LOGIC: Check sanitization FIRST, propagation SECOND ---
+            for target_var, source_expr, line in assignments:
+                is_sanitized_assignment = False
+
+                # 1. CHECK FOR SANITIZATION FIRST (regardless of target taint status)
+                # Check if this assignment's line corresponds to a sanitizer call
+                if line in calls_by_line:
+                    for callee, arg_expr in calls_by_line[line]:
+                        if self.registry.is_sanitizer(callee):
+                            # This is a sanitizer. Does it clean a tainted var?
+                            for tainted_var in list(current_tainted):
+                                if tainted_var in arg_expr:
+                                    # YES. This assignment is a sanitization.
+                                    is_sanitized_assignment = True
+                                    current_sanitized.add(target_var)
+
+                                    # If the sanitizer re-assigns the *same* var (e.g., x = sanitize(x)),
+                                    # remove its taint.
+                                    if target_var in current_tainted:
+                                        current_tainted.discard(target_var)
+
+                                    if self.debug:
+                                        print(f"[INTER-CFG]   Sanitized: {tainted_var} -> {target_var} at line {line}", file=sys.stderr)
+                                    break # Stop checking tainted_vars
+                        if is_sanitized_assignment:
+                            break # Stop checking calls_by_line
+
+                if is_sanitized_assignment:
+                    continue # This variable is clean, do not propagate taint. Move to next assignment.
+
+                # 2. IF NOT SANITIZED, CHECK FOR PROPAGATION
+                for tainted_var in list(current_tainted):
+                    if tainted_var in source_expr:
+                        # Propagate taint, *unless* the target was somehow sanitized before
+                        if target_var not in current_sanitized:
+                            current_tainted.add(target_var)
+                            if self.debug:
+                                print(f"[INTER-CFG]   Propagated: {tainted_var} -> {target_var} at line {line}", file=sys.stderr)
+                            break # One propagation is enough
+
+        final_state = BlockTaintState(block_id=path[-1])
+        final_state.tainted_vars = current_tainted
+        final_state.sanitized_vars = current_sanitized # Pass sanitization state up
+
+        if self.debug:
+            print(f"[INTER-CFG]   Exit Taint: {final_state.tainted_vars}", file=sys.stderr)
+
+        return final_state
     
     def _extract_effects(
         self,
@@ -397,31 +548,43 @@ class InterProceduralCFGAnalyzer:
     ) -> InterProceduralEffect:
         """Extract the function's effects from exit states."""
         effect = InterProceduralEffect()
-        
+
         # Check if return value is tainted in any exit state
         for state in exit_states:
             if "__return__" in state.tainted_vars:
                 effect.return_tainted = True
                 break
-        
+
         # Check parameter modifications
         for caller_var, callee_param in args_mapping.items():
-            param_tainted = False
-            param_sanitized = False
-            
+            param_tainted_in_any_path = False
+            # NEW LOGIC: Parameter is only considered sanitized if it's
+            # sanitized in ALL possible exit paths.
+            param_sanitized_in_all_paths = True
+
+            if not exit_states:
+                param_sanitized_in_all_paths = False # No paths? Not sanitized.
+
             for state in exit_states:
                 if callee_param in state.tainted_vars:
-                    param_tainted = True
-                if callee_param in state.sanitized_vars:
-                    param_sanitized = True
-            
-            if param_sanitized and not param_tainted:
-                effect.param_effects[callee_param] = 'sanitized'
-            elif param_tainted:
+                    param_tainted_in_any_path = True
+
+                # CRITICAL FIX: Use the new sanitized_vars from BlockTaintState
+                # If it's NOT in sanitized_vars in even ONE path, it's not guaranteed sanitized.
+                if callee_param not in state.sanitized_vars:
+                    param_sanitized_in_all_paths = False
+
+            # CONSERVATIVE MERGE:
+            # Tainted if tainted in ANY path. (Taint wins)
+            # Sanitized only if sanitized in ALL paths AND never re-tainted.
+
+            if param_tainted_in_any_path:
                 effect.param_effects[callee_param] = 'tainted'
+            elif param_sanitized_in_all_paths:
+                effect.param_effects[callee_param] = 'sanitized'
             else:
                 effect.param_effects[callee_param] = 'unmodified'
-        
+
         return effect
     
     def _analyze_passthrough(
@@ -429,34 +592,144 @@ class InterProceduralCFGAnalyzer:
         analyzer: 'PathAnalyzer',
         entry_state: 'BlockTaintState'
     ) -> Dict[str, bool]:
-        """Analyze which parameters directly taint the return value."""
-        passthrough = {}
-        
-        # For each tainted parameter, check if it flows to return
-        for param in entry_state.tainted_vars:
-            # Trace if this parameter reaches a return statement
-            # Simplified - real implementation would trace through CFG
-            passthrough[param] = self._param_reaches_return(analyzer, param)
-        
-        return passthrough
-    
-    def _param_reaches_return(self, analyzer: 'PathAnalyzer', param: str) -> bool:
-        """Check if a parameter flows to a return statement.
+        """Query database to check if parameters reach return (NO in-memory flow tracking)."""
+        from .database import get_paths_between_blocks
 
-        Schema Contract:
-            Queries function_returns table (guaranteed to exist)
-        """
-        # Query return statements in the function
-        query = build_query('function_returns', ['return_expr'],
-            where="file = ? AND function_name = ?"
+        passthrough = {}
+
+        # CRITICAL FIX: Query for actual entry block ID (not hardcoded 0)
+        # Block ID 0 doesn't exist - entry blocks start at 1+
+        query = build_query('cfg_blocks',
+            ['id'],
+            where="file = ? AND function_name = ? AND block_type = 'entry'",
+            limit=1
+        )
+        self.cursor.execute(query, (analyzer.file_path, analyzer.function_name))
+        entry_result = self.cursor.fetchone()
+
+        # Use 1 as fallback (first block), but should always find entry
+        entry_block_id = entry_result[0] if entry_result else 1
+
+        # Query for return blocks - CORRECT: use 'id' not 'block_id'
+        query = build_query('cfg_blocks',
+            ['id', 'start_line', 'end_line'],
+            where="file = ? AND function_name = ? AND block_type = 'exit'"
         )
         self.cursor.execute(query, (analyzer.file_path, analyzer.function_name))
 
-        for return_expr, in self.cursor.fetchall():
-            if param in return_expr:
+        return_blocks = self.cursor.fetchall()
+
+        if not return_blocks:
+            # Use last block if no explicit returns
+            query = build_query('cfg_blocks',
+                ['id', 'start_line', 'end_line'],
+                where="file = ? AND function_name = ?",
+                order_by="id DESC",
+                limit=1
+            )
+            self.cursor.execute(query, (analyzer.file_path, analyzer.function_name))
+            result = self.cursor.fetchone()
+            if result:
+                return_blocks = [result]
+
+        # For each parameter, query if it reaches return
+        for param in entry_state.tainted_vars:
+            param_reaches = False
+
+            for return_block_id, start_line, end_line in return_blocks:
+                # Query variable_usage to check if param is used in return block
+                # CORRECT: variable_usage has NO block_id or function_name - use line range
+                query = build_query('variable_usage',
+                    ['usage_type'],
+                    where="file = ? AND variable_name = ? AND line >= ? AND line <= ?",
+                    limit=1
+                )
+                self.cursor.execute(query, (analyzer.file_path, param, start_line, end_line))
+
+                if self.cursor.fetchone():
+                    # Param is used in return - check if sanitized along any path
+                    # CORRECT: get_paths_between_blocks(cursor, file_path, source_id, sink_id)
+                    paths = get_paths_between_blocks(
+                        self.cursor,
+                        analyzer.file_path,
+                        entry_block_id,  # FIXED: Use actual entry block ID, not 0
+                        return_block_id  # end_block
+                    )
+
+                    # Check if param is sanitized along ALL paths (conservative)
+                    sanitized_all_paths = True
+                    for path in paths:
+                        if not self._is_sanitized_along_path(
+                            analyzer.file_path,
+                            analyzer.original_function_name,  # CRITICAL FIX: Use original name
+                            param,
+                            path
+                        ):
+                            sanitized_all_paths = False
+                            break
+
+                    if not sanitized_all_paths:
+                        param_reaches = True
+                        break
+
+            passthrough[param] = param_reaches
+
+        return passthrough
+
+    def _is_sanitized_along_path(
+        self,
+        file_path: str,
+        function_name: str,
+        var_name: str,
+        path: List[int]
+    ) -> bool:
+        """Query database to check if variable is sanitized along path."""
+        # CRITICAL FIX: Normalize name ONLY for cfg_blocks query
+        normalized_name = function_name.split('.')[-1]
+
+        # Get block line ranges for path - CORRECT: cfg_blocks.id
+        if not path:
+            return False
+
+        block_ids_str = ','.join('?' * len(path))
+        query = build_query('cfg_blocks',
+            ['start_line', 'end_line'],
+            where=f"file = ? AND function_name = ? AND id IN ({block_ids_str})"
+        )
+        # CRITICAL FIX: Use normalized_name for cfg_blocks
+        self.cursor.execute(query, (file_path, normalized_name, *path))
+
+        line_ranges = self.cursor.fetchall()
+        if not line_ranges:
+            return False
+
+        # Get min and max lines for query range
+        min_line = min(start for start, _ in line_ranges)
+        max_line = max(end for _, end in line_ranges)
+
+        # Query for sanitizer calls on this variable along path
+        # CORRECT: function_call_args has NO block_id - use line range
+        query = build_query('function_call_args',
+            ['callee_function', 'argument_expr'],
+            where="file = ? AND caller_function = ? AND line >= ? AND line <= ?"
+        )
+        # CRITICAL FIX: Use ORIGINAL function_name for function_call_args (not normalized)
+        self.cursor.execute(query, (file_path, function_name, min_line, max_line))
+
+        # Get registry for sanitizer checking
+        from .registry import TaintRegistry
+        if not hasattr(self, 'registry') or self.registry is None:
+            self.registry = TaintRegistry()
+
+        for callee, arg_expr in self.cursor.fetchall():
+            if var_name in arg_expr and self.registry.is_sanitizer(callee):
                 return True
 
         return False
+    
+    # DELETED: _param_reaches_return() - replaced by querying variable_usage table
+    # The database already has structured variable references - NO STRING PARSING NEEDED
+    # Functionality now in _analyze_passthrough() which queries variable_usage table
 
     # ============================================================================
     # DELETED: _analyze_without_cfg() - 20 lines of fallback logic

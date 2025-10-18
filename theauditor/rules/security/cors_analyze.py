@@ -226,7 +226,7 @@ class CORSAnalyzer:
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND (source_expr LIKE '%*.%' OR source_expr LIKE '%/.*\.%')
+              AND (source_expr LIKE '%*.%' OR source_expr LIKE '%/.%')
             ORDER BY file, line
         """)
 
