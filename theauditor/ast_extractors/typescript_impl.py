@@ -4,6 +4,7 @@ This module contains all TypeScript compiler API extraction logic for semantic a
 """
 
 import os
+import sys
 from typing import Any, List, Dict, Optional
 
 
@@ -1131,19 +1132,34 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
 
 def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, List[str]]:
     """Extract function parameters from TypeScript semantic AST."""
+    import sys, os
+    debug = os.environ.get("THEAUDITOR_DEBUG")
+
+    if debug:
+        print(f"[DEBUG typescript_impl.py:1132] extract_typescript_function_params called", file=sys.stderr)
+
     func_params = {}
-    
+
     # Check if parsing was successful - handle nested structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
+        if debug:
+            print(f"[DEBUG typescript_impl.py:1132] WARNING: actual_tree invalid or not successful", file=sys.stderr)
         return func_params
-    
+
+    if debug:
+        print(f"[DEBUG typescript_impl.py:1132] Starting traverse of AST", file=sys.stderr)
+
     def traverse(node, depth=0):
+        import sys  # Import at function level for all debug statements
         if depth > 100 or not isinstance(node, dict):
             return
-        
+
         kind = node.get("kind")
-        
+
+        if debug and depth <= 2:  # Only log top-level nodes to avoid spam
+            print(f"[DEBUG typescript_impl.py:traverse] depth={depth}, kind={kind}", file=sys.stderr)
+
         if kind in ["FunctionDeclaration", "MethodDeclaration", "ArrowFunction", "FunctionExpression"]:
             # Get function name
             name_node = node.get("name")
@@ -1158,41 +1174,154 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
                     if isinstance(child, dict) and child.get("kind") == "Identifier":
                         func_name = child.get("text", "anonymous")
                         break
-            
-            # Extract parameter names
-            # FIX: In TypeScript AST, parameters are direct children with kind="Parameter"
+
+            if debug:
+                print(f"[DEBUG typescript_impl.py:1147] Found {kind} named '{func_name}' at line {node.get('line', '?')}", file=sys.stderr)
+
+            # Extract parameter names from explicitly serialized parameters field
+            # ZERO FALLBACK POLICY: The JavaScript helper MUST serialize parameters field
+            # If parameters are missing, it's a serialization bug that must be fixed
             params = []
-            
-            # Look in children for Parameter nodes
-            for child in node.get("children", []):
-                if isinstance(child, dict) and child.get("kind") == "Parameter":
-                    # Found a parameter - get its text directly
-                    param_text = child.get("text", "")
-                    if param_text:
-                        params.append(param_text)
-            
-            # Fallback to old structure if no parameters found
-            if not params:
-                param_nodes = node.get("parameters", [])
-                for param in param_nodes:
-                    if isinstance(param, dict) and param.get("name"):
-                        param_name_node = param.get("name")
-                        if isinstance(param_name_node, dict):
-                            params.append(param_name_node.get("text", ""))
-                        elif isinstance(param_name_node, str):
-                            params.append(param_name_node)
-            
+            param_nodes = node.get("parameters", [])
+
+            if debug:
+                print(f"[DEBUG typescript_impl.py:1166] param_nodes type: {type(param_nodes)}, length: {len(param_nodes) if isinstance(param_nodes, list) else 'N/A'}", file=sys.stderr)
+
+            for param in param_nodes:
+                if isinstance(param, dict):
+                    # Extract parameter name (identifier before type annotation)
+                    param_name = param.get("name")
+                    if isinstance(param_name, dict):
+                        # name is a node (e.g., Identifier node)
+                        param_text = param_name.get("text", "")
+                        if param_text:
+                            params.append(param_text)
+                    elif isinstance(param_name, str):
+                        # name is a string
+                        params.append(param_name)
+
+            if debug:
+                print(f"[DEBUG typescript_impl.py:1198] Extracted params for '{func_name}': {params}", file=sys.stderr)
+
             if func_name != "anonymous" and params:
                 func_params[func_name] = params
+            elif debug and func_name == "anonymous":
+                print(f"[DEBUG typescript_impl.py:1198] Skipping anonymous function", file=sys.stderr)
+            elif debug and not params:
+                print(f"[DEBUG typescript_impl.py:1198] WARNING: No params extracted for '{func_name}'", file=sys.stderr)
+
+        # CRITICAL FIX: Extract parameters from PropertyDeclaration with ArrowFunction/FunctionExpression
+        # This handles modern TypeScript pattern: create = async (req, res) => {}
+        # ZERO FALLBACK POLICY: Use explicit parameters field, not children array
+        elif kind == "PropertyDeclaration":
+            # Get the initializer (the arrow function or function expression)
+            initializer = node.get("initializer")
+
+            if isinstance(initializer, dict):
+                init_kind = initializer.get("kind", "")
+
+                # Pattern 1: Direct arrow function - create = async (req, res) => {}
+                if init_kind in ["ArrowFunction", "FunctionExpression"]:
+                    # Extract property name (function name)
+                    prop_name = None
+                    for child in node.get("children", []):
+                        if isinstance(child, dict) and child.get("kind") == "Identifier":
+                            prop_name = child.get("text", "")
+                            break
+
+                    # Extract parameters from the initializer using explicit parameters field
+                    # MATCH THE PATTERN AT LINE 1166: Use parameters field, not children
+                    params = []
+                    param_nodes = initializer.get("parameters", [])
+
+                    for param in param_nodes:
+                        if isinstance(param, dict):
+                            # Extract parameter name (identifier before type annotation)
+                            param_name = param.get("name")
+                            if isinstance(param_name, dict):
+                                # name is a node (e.g., Identifier node)
+                                param_text = param_name.get("text", "")
+                                if param_text:
+                                    params.append(param_text)
+                            elif isinstance(param_name, str):
+                                # name is a string
+                                params.append(param_name)
+
+                    # Store parameter mapping
+                    if prop_name and params:
+                        func_params[prop_name] = params
+                        if os.environ.get("THEAUDITOR_DEBUG"):
+                            import sys
+                            print(f"[DEBUG] Extracted PropertyDeclaration params: {prop_name}({', '.join(params)})", file=sys.stderr)
+
+                # Pattern 2: Wrapped arrow function - create = this.asyncHandler(async (req, res) => {})
+                elif init_kind == "CallExpression":
+                    # Extract property name (function name) from PropertyDeclaration
+                    prop_name = None
+                    for child in node.get("children", []):
+                        if isinstance(child, dict) and child.get("kind") == "Identifier":
+                            prop_name = child.get("text", "")
+                            break
+
+                    # Get the wrapped function from CallExpression children
+                    # children[0] = PropertyAccessExpression (this.asyncHandler)
+                    # children[1] = ArrowFunction (the actual function)
+                    call_children = initializer.get("children", [])
+                    if len(call_children) >= 2:
+                        wrapped_func = call_children[1]
+                        wrapped_kind = wrapped_func.get("kind", "")
+
+                        # Check if the wrapped function is an arrow function
+                        if wrapped_kind in ["ArrowFunction", "FunctionExpression"]:
+                            # Extract parameters from the wrapped arrow function
+                            params = []
+                            param_nodes = wrapped_func.get("parameters", [])
+
+                            for param in param_nodes:
+                                if isinstance(param, dict):
+                                    # Extract parameter name (identifier before type annotation)
+                                    param_name = param.get("name")
+                                    if isinstance(param_name, dict):
+                                        # name is a node (e.g., Identifier node)
+                                        param_text = param_name.get("text", "")
+                                        if param_text:
+                                            params.append(param_text)
+                                    elif isinstance(param_name, str):
+                                        # name is a string
+                                        params.append(param_name)
+
+                            # Store parameter mapping using PropertyDeclaration name
+                            if prop_name and params:
+                                func_params[prop_name] = params
+                                if os.environ.get("THEAUDITOR_DEBUG"):
+                                    import sys
+                                    print(f"[DEBUG] Extracted wrapped PropertyDeclaration params: {prop_name}({', '.join(params)})", file=sys.stderr)
         
         # Recurse through children
         for child in node.get("children", []):
             traverse(child, depth + 1)
-    
+
     # Get AST from the correct location after unwrapping
     ast_root = actual_tree.get("ast", {})
+
+    if debug:
+        print(f"[DEBUG typescript_impl.py:1257] ast_root type: {type(ast_root)}, is_dict: {isinstance(ast_root, dict)}", file=sys.stderr)
+        if isinstance(ast_root, dict):
+            print(f"[DEBUG typescript_impl.py:1257] ast_root keys: {list(ast_root.keys())[:10]}", file=sys.stderr)
+            print(f"[DEBUG typescript_impl.py:1257] ast_root.get('kind'): {ast_root.get('kind')}", file=sys.stderr)
+        else:
+            print(f"[DEBUG typescript_impl.py:1257] WARNING: ast_root is NOT a dict!", file=sys.stderr)
+
     traverse(ast_root)
-    
+
+    if debug:
+        print(f"[DEBUG typescript_impl.py:1260] FINAL RESULT: Extracted {len(func_params)} total functions with params", file=sys.stderr)
+        if func_params:
+            sample = list(func_params.items())[:5]
+            print(f"[DEBUG typescript_impl.py:1260] Sample functions: {sample}", file=sys.stderr)
+        else:
+            print(f"[DEBUG typescript_impl.py:1260] WARNING: func_params is EMPTY - no functions with params found!", file=sys.stderr)
+
     return func_params
 
 
@@ -1226,10 +1355,20 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
         for line in sample_lines:
             print(f"[DEBUG]   Line {line} -> {scope_map[line]}")
 
+    # CRITICAL FIX: Idempotent traversal to prevent duplicate entries
+    # Track visited nodes by (line, column, kind) to avoid processing same node multiple times
+    visited_nodes = set()
+
     def traverse(node, depth=0):  # No more current_function parameter!
         """Traverse AST extracting calls. Scope is determined by line number lookup."""
         if depth > 100 or not isinstance(node, dict):
             return
+
+        # CRITICAL FIX: Idempotency check - prevent processing same node twice
+        node_id = (node.get("line"), node.get("column", 0), node.get("kind"))
+        if node_id in visited_nodes:
+            return  # This node has already been processed
+        visited_nodes.add(node_id)
 
         try:
             kind = node.get("kind", "")
@@ -1541,9 +1680,19 @@ def extract_typescript_object_literals(tree: Dict, parser_self) -> List[Dict[str
                     "in_function": in_function
                 })
 
+    # CRITICAL FIX: Idempotent traversal to prevent duplicate entries
+    # Track visited nodes by (line, column, kind) to avoid processing same node multiple times
+    visited_nodes = set()
+
     def traverse(node, depth=0):
         if depth > 100 or not isinstance(node, dict):
             return
+
+        # CRITICAL FIX: Idempotency check - prevent processing same node twice
+        node_id = (node.get("line"), node.get("column", 0), node.get("kind"))
+        if node_id in visited_nodes:
+            return  # This node has already been processed
+        visited_nodes.add(node_id)
 
         kind = node.get("kind")
         line = node.get("line", 0)

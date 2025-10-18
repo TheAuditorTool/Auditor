@@ -216,24 +216,43 @@ class ASTExtractorMixin:
 
     def extract_function_calls_with_args(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
         """Extract function calls with argument mapping for data flow analysis.
-        
+
         This is a two-pass analysis:
         1. First pass: Find all function definitions and their parameters
         2. Second pass: Find all function calls and map arguments to parameters
         """
         if not tree:
             return []
-        
+
+        # DEBUG: Check tree structure
+        import sys, os
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            tree_type_debug = tree.get('type') if isinstance(tree, dict) else type(tree).__name__
+            print(f"[DEBUG __init__.py:225] extract_function_calls_with_args: tree type = {tree_type_debug}", file=sys.stderr)
+            if isinstance(tree, dict) and tree.get('type') == 'semantic_ast':
+                if 'tree' in tree:
+                    nested_keys = list(tree['tree'].keys())[:10] if isinstance(tree.get('tree'), dict) else 'not a dict'
+                    print(f"[DEBUG __init__.py:225] Nested tree keys: {nested_keys}", file=sys.stderr)
+
         # First pass: Get all function definitions with their parameters
         function_params = self._extract_function_parameters(tree, language)
-        
+
+        # DEBUG: Log extracted function params
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:229] function_params extracted: {len(function_params)} functions", file=sys.stderr)
+            if function_params:
+                sample = list(function_params.items())[:3]
+                print(f"[DEBUG __init__.py:229] Sample function_params: {sample}", file=sys.stderr)
+            else:
+                print(f"[DEBUG __init__.py:229] WARNING: function_params is EMPTY", file=sys.stderr)
+
         # Second pass: Extract calls with argument mapping
         calls_with_args = []
-        
+
         if isinstance(tree, dict):
             tree_type = tree.get("type")
             language = tree.get("language", language)
-            
+
             if tree_type == "python_ast":
                 calls_with_args = python_impl.extract_python_calls_with_args(tree, function_params, self)
             elif tree_type == "semantic_ast":
@@ -242,29 +261,70 @@ class ASTExtractorMixin:
                 calls_with_args = treesitter_impl.extract_treesitter_calls_with_args(
                     tree, function_params, self, language
                 )
-        
+
+        # DEBUG: Log result
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:246] calls_with_args returned: {len(calls_with_args)} calls", file=sys.stderr)
+            if calls_with_args:
+                sample_call = calls_with_args[0]
+                print(f"[DEBUG __init__.py:246] Sample call: {sample_call}", file=sys.stderr)
+
         return calls_with_args
 
     def _extract_function_parameters(self, tree: Any, language: str = None) -> Dict[str, List[str]]:
         """Extract function definitions and their parameter names.
-        
+
         Returns:
             Dict mapping function_name -> list of parameter names
         """
+        import sys, os
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:274] _extract_function_parameters called", file=sys.stderr)
+
+        # CRITICAL FIX (Bug #3): Use global cache if available
+        # The global cache is populated during batch processing (indexer/__init__.py:268-291)
+        # and contains ALL function parameters from ALL JS/TS files in the project.
+        # This enables cross-file parameter name resolution for taint analysis.
+        if hasattr(self, 'global_function_params') and self.global_function_params:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG __init__.py:274] Using global function params cache ({len(self.global_function_params)} entries)", file=sys.stderr)
+            return self.global_function_params
+
+        # Fallback: extract from current tree only (backward compatibility for Python, non-batch files)
         if not tree:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG __init__.py:274] WARNING: tree is None/empty, returning empty dict", file=sys.stderr)
             return {}
-        
+
         if isinstance(tree, dict):
             tree_type = tree.get("type")
             language = tree.get("language", language)
-            
+
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG __init__.py:274] tree_type = {tree_type}, language = {language}", file=sys.stderr)
+
             if tree_type == "python_ast":
-                return python_impl.extract_python_function_params(tree, self)
+                result = python_impl.extract_python_function_params(tree, self)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG __init__.py:274] Python extraction returned {len(result)} functions", file=sys.stderr)
+                return result
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_function_params(tree, self)
+                result = typescript_impl.extract_typescript_function_params(tree, self)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG __init__.py:274] TypeScript extraction returned {len(result)} functions", file=sys.stderr)
+                    if result:
+                        sample = list(result.items())[:2]
+                        print(f"[DEBUG __init__.py:274] Sample TS params: {sample}", file=sys.stderr)
+                return result
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
-                return treesitter_impl.extract_treesitter_function_params(tree, self, language)
-        
+                result = treesitter_impl.extract_treesitter_function_params(tree, self, language)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG __init__.py:274] Tree-sitter extraction returned {len(result)} functions", file=sys.stderr)
+                return result
+
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:274] WARNING: No matching tree type, returning empty dict", file=sys.stderr)
+
         return {}
 
     def extract_returns(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
