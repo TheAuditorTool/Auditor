@@ -99,10 +99,6 @@ def trace_inter_procedural_flow_insensitive(
 
         # 1. Check for sinks in the current context.
         for sink in sinks:
-            # The worklist is file-aware, so we only check sinks in the current file context.
-            if sink["file"] != current_file:
-                continue
-
             sink_function = get_containing_function(cursor, sink)
             if sink_function and sink_function["name"] == current_func:
                 # The sink is in the current function. Check if our tainted var reaches it.
@@ -216,9 +212,6 @@ def trace_inter_procedural_flow_cfg(
 
         # 1. Check for sinks in the current context.
         for sink in sinks:
-            if sink["file"] != current_file:
-                continue
-
             sink_function = get_containing_function(cursor, sink)
             if sink_function and sink_function["name"] == current_func:
                 for tainted_var in tainted_vars:

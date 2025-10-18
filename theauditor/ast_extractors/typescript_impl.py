@@ -359,6 +359,7 @@ def build_scope_map(ast_root: Dict) -> Dict[int, str]:
     Returns:
         Dict mapping line number to function name for fast lookups
     """
+
     scope_map = {}
     function_ranges = []
 
@@ -401,12 +402,21 @@ def build_scope_map(ast_root: Dict) -> Dict[int, str]:
         if kind == "PropertyDeclaration":
             initializer = node.get("initializer")
             if not initializer:
+                # Search for actual initializer in children (may be after modifiers like static/readonly)
                 children = node.get("children", [])
-                if len(children) > 1:
-                    initializer = children[1]
+                for child in children:
+                    if isinstance(child, dict):
+                        child_kind = child.get("kind", "")
+                        # Skip modifiers and identifiers, find the actual initializer
+                        if child_kind not in ["Identifier", "StaticKeyword", "ReadonlyKeyword",
+                                              "PrivateKeyword", "PublicKeyword", "ProtectedKeyword",
+                                              "AsyncKeyword", "AbstractKeyword", "DeclareKeyword"]:
+                            initializer = child
+                            break
 
             if isinstance(initializer, dict):
                 init_kind = initializer.get("kind", "")
+
 
                 # Pattern 1: Direct arrow function or function expression
                 is_arrow_func = init_kind in ["ArrowFunction", "FunctionExpression"]

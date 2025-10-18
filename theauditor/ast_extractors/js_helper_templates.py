@@ -319,6 +319,12 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
         result.type = serializeNode(node.type, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
     }
 
+    // CRITICAL FIX: Extract initializer field for VariableDeclaration and PropertyDeclaration
+    // This enables direct access to arrow function initializers without searching children array
+    if (node.initializer) {
+        result.initializer = serializeNode(node.initializer, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
+    }
+
     // CRITICAL FIX: Extract expression field for PropertyAccessExpression
     // This enables taint analysis to build dotted names (req.body, res.send, etc.)
     // Without this, only leaf identifiers are captured (body, send)
