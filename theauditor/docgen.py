@@ -43,7 +43,7 @@ def is_source_file(file_path: str) -> bool:
         return False
     
     # Skip build artifacts and caches
-    skip_dirs = {'docs', 'documentation', 'examples', 'samples', 'schemas', 'agent_templates'}
+    skip_dirs = {'docs', 'documentation', 'examples', 'samples', 'schemas'}
     if any(part.lower() in skip_dirs for part in path.parts):
         return False
     

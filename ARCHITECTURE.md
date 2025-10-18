@@ -65,19 +65,149 @@ The indexer has been refactored from a monolithic 2000+ line file into a modular
 
 ```
 theauditor/indexer/
-├── __init__.py           # Package initialization and backward compatibility
+├── __init__.py           # IndexOrchestrator + backward compatibility
 ├── config.py             # Constants, patterns, and configuration
 ├── database.py           # DatabaseManager class for all DB operations
 ├── core.py               # FileWalker and ASTCache classes
-├── orchestrator.py       # IndexOrchestrator - main coordination logic
+├── metadata_collector.py # Git churn and test coverage analysis
 └── extractors/
     ├── __init__.py       # BaseExtractor abstract class and registry
     ├── python.py         # Python-specific extraction logic
     ├── javascript.py     # JavaScript/TypeScript extraction
     ├── docker.py         # Docker/docker-compose extraction
     ├── sql.py            # SQL extraction
-    └── nginx.py          # Nginx configuration extraction
+    └── generic.py        # Generic extractor (webpack, nginx, compose)
 ```
+
+#### File Path Responsibility Architecture
+
+**CRITICAL DESIGN PATTERN**: TheAuditor enforces strict separation of concerns for file path management across three architectural layers.
+
+**The Problem This Solves:**
+In early iterations, implementations tried to track file paths directly, leading to:
+- Architectural violations (implementations tracking file context)
+- Database corruption (NULL file paths when keys didn't match)
+- Code duplication (file path handling in multiple layers)
+- Maintenance nightmares (changing file paths required touching 10+ files)
+
+**The Solution: 3-Layer Architecture**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ LAYER 1: INDEXER (indexer/__init__.py)                      │
+│ ─────────────────────────────────────────────────────────── │
+│ PROVIDES: file_path (source of truth)                       │
+│ CALLS:    extractor.extract(file_info, content, tree)       │
+│ RECEIVES: Data WITHOUT file_path keys                       │
+│ STORES:   db_manager.add_X(file_path, data['line'], ...)    │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│ LAYER 2: EXTRACTOR (indexer/extractors/*.py)                │
+│ ─────────────────────────────────────────────────────────── │
+│ RECEIVES: file_info dict (contains 'path' key)              │
+│ DELEGATES: ast_parser.extract_X(tree)                       │
+│ RETURNS:  {'line': 42, 'name': 'foo', ...}                  │
+│           NO 'file' or 'file_path' keys                     │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│ LAYER 3: IMPLEMENTATION (ast_extractors/*_impl.py)          │
+│ ─────────────────────────────────────────────────────────── │
+│ RECEIVES: AST tree only (NO file context)                   │
+│ EXTRACTS: Data with line numbers and content                │
+│ RETURNS:  [{'line': 42, 'name': 'foo', ...}]                │
+│ MUST NOT: Include 'file' or 'file_path' in returned dicts   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Real-World Example: Object Literal Extraction**
+
+```python
+# LAYER 1: INDEXER provides file_path (indexer/__init__.py:952)
+for obj_lit in extracted['object_literals']:
+    self.db_manager.add_object_literal(
+        file_path,                      # ← From orchestrator (line 564)
+        obj_lit['line'],                # ← From implementation
+        obj_lit['variable_name'],       # ← From implementation
+        obj_lit['property_name'],       # ← From implementation
+        obj_lit['property_value'],      # ← From implementation
+        obj_lit['property_type'],       # ← From implementation
+        obj_lit.get('nested_level', 0), # ← From implementation
+        obj_lit.get('in_function', '')  # ← From implementation
+    )
+
+# LAYER 2: EXTRACTOR delegates (indexer/extractors/javascript.py:290)
+result['object_literals'] = self.ast_parser.extract_object_literals(tree)
+
+# LAYER 3: IMPLEMENTATION returns (ast_extractors/typescript_impl.py:1293)
+object_literals.append({
+    "line": prop_line,              # ✅ Line number only
+    "variable_name": var_name,      # ✅ Data
+    "property_name": prop_name,     # ✅ Data
+    "property_value": prop_value,   # ✅ Data
+    "property_type": prop_type,     # ✅ Data
+    "nested_level": 0,              # ✅ Data
+    "in_function": in_function      # ✅ Data
+    # NO 'file' or 'file_path' key   ✅ Correct architecture
+})
+```
+
+**Why This Matters:**
+
+1. **Single Source of Truth**: File paths exist in ONE place (indexer orchestrator)
+2. **Clear Boundaries**: Each layer has specific responsibilities
+3. **Easy Testing**: Implementations can be tested without file system
+4. **Maintainability**: Changing file path handling touches ONE file
+5. **Type Safety**: Database operations validate complete records
+
+**Violation Detection:**
+
+❌ **WRONG - Implementation tracking files:**
+```python
+# ast_extractors/typescript_impl.py
+return [{
+    "file": file_path,    # ❌ ARCHITECTURAL VIOLATION
+    "line": 42,
+    "name": "foo"
+}]
+```
+
+❌ **WRONG - Indexer expecting file from implementation:**
+```python
+# indexer/__init__.py
+db_manager.add_object_literal(
+    obj_lit['file'],      # ❌ KeyError when 'file' not in dict
+    obj_lit['line'],
+    ...
+)
+```
+
+✅ **CORRECT - Implementation returns line only:**
+```python
+# ast_extractors/typescript_impl.py
+return [{
+    "line": 42,           # ✅ Line number
+    "name": "foo"         # ✅ Data
+}]
+```
+
+✅ **CORRECT - Indexer provides file_path:**
+```python
+# indexer/__init__.py (line 952)
+db_manager.add_object_literal(
+    file_path,            # ✅ From orchestrator context
+    obj_lit['line'],      # ✅ From implementation
+    ...
+)
+```
+
+**Enforcement:**
+
+- All `*_impl.py` files have docstring contracts prohibiting file path keys
+- Code reviews check for architectural violations
+- Database NULL constraints catch missing file paths immediately
+- Unit tests verify implementations return correct key structures
 
 Key features:
 - **Dynamic extractor registry** for automatic language detection
@@ -85,52 +215,76 @@ Key features:
 - **AST caching** for performance optimization
 - **Monorepo detection** and intelligent path filtering
 - **Parallel JavaScript processing** when semantic parser available
+- **Dual-pass JSX extraction**: Transformed mode for taint analysis, preserved mode for structural analysis
+- **Metadata collection** (`metadata_collector.py`): Git churn analysis (commits, authors, volatility) and test coverage parsing (Python coverage.py, Node.js Istanbul/nyc) for temporal dimension in FCE
 
 ### Pipeline System (`theauditor/pipelines.py`)
-Orchestrates comprehensive analysis pipeline in **parallel stages**:
+Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** (v1.1+):
 
 **Stage 1 - Foundation (Sequential):**
 1. Repository indexing - Build manifest and symbol database
 2. Framework detection - Identify technologies in use
 
-**Stage 2 - Concurrent Analysis (3 Parallel Tracks):**
-- **Track A (Network I/O):**
+**Stage 2 - Data Preparation (Sequential) [NEW in v1.1]:**
+3. Workset creation - Define analysis scope
+4. Graph building - Construct dependency graph
+5. CFG analysis - Build control flow graphs
+
+**Stage 3 - Heavy Parallel Analysis (Rebalanced in v1.1, Optimized in v1.2):**
+- **Track A (Taint Analysis - Isolated):**
+  - Taint flow analysis (~30 seconds with v1.2 memory cache, was 2-4 hours)
+- **Track B (Static & Graph Analysis):**
+  - Linting
+  - Pattern detection (355x faster with AST)
+  - Graph analysis
+  - Graph visualization
+- **Track C (Network I/O):**
   - Dependency checking
   - Documentation fetching
   - Documentation summarization
-- **Track B (Code Analysis):**
-  - Workset creation
-  - Linting
-  - Pattern detection
-- **Track C (Graph Build):**
-  - Graph building
 
-**Stage 3 - Final Aggregation (Sequential):**
-- Graph analysis
-- Taint analysis
+**Stage 4 - Final Aggregation (Sequential):**
 - Factual correlation engine
 - Report generation
+- Summary creation
+
+**Performance Impact:** 480x faster overall on second run (v1.2), 25-40% faster pipeline structure (v1.1)
 
 ### Pattern Detection Engine
-- 100+ YAML-defined security patterns in `theauditor/patterns/`
-- AST-based matching for Python and JavaScript
-- Supports semantic analysis via TypeScript compiler
+- **AST-based rules**: 20+ categories in `theauditor/rules/` (auth, SQL injection, XSS, secrets, frameworks, performance, etc.)
+- **YAML patterns**: Configuration security in `theauditor/rules/YAML/config_patterns.yml`
+- **Dynamic discovery**: Rules orchestrator (`theauditor/rules/orchestrator.py`) auto-discovers all detection rules
+- **Coverage**: 100+ security rules across Python, JavaScript, Docker, Nginx, PostgreSQL, and framework-specific patterns
+- Supports semantic analysis via TypeScript compiler for type-aware detection
 
 ### Factual Correlation Engine (FCE) (`theauditor/fce.py`)
-- **29 advanced correlation rules** in `theauditor/correlations/rules/`
+- **30 advanced correlation rules** in `theauditor/correlations/rules/`
 - Detects complex vulnerability patterns across multiple tools
 - Categories: Authentication, Injection, Data Exposure, Infrastructure, Code Quality, Framework-Specific
+- **5 architectural meta-findings**: Correlates security issues with graph hotspots, complexity, churn, and test coverage
 
-### Taint Analysis Package (`theauditor/taint_analyzer.py`)
-A comprehensive taint analysis module that tracks data flow from sources to sinks:
+### Taint Analysis Package (`theauditor/taint/`)
+Previously a monolithic file, the taint analysis system has been refactored into a modular package with 11 specialized modules. A backward compatibility shim remains at `theauditor/taint_analyzer.py` for legacy imports.
 
+**Core capabilities:**
 - Tracks data flow from user inputs to dangerous outputs
-- Detects SQL injection, XSS, command injection vulnerabilities
+- Detects SQL injection, XSS, command injection, path traversal vulnerabilities
 - Database-aware analysis using `repo_index.db`
-- Supports both assignment-based and direct-use patterns
-- Merges findings from multiple detection methods
+- Supports both assignment-based and direct-use taint patterns
+- Flow-sensitive CFG analysis for path-aware detection
+- Inter-procedural tracking across function boundaries
+- Language-specific handlers for JavaScript and Python constructs
+- v1.2 memory cache: 8,461x speedup (4 hours → 30 seconds)
 
-**Note**: The optional severity scoring for taint analysis is provided by `theauditor/insights/taint.py` (Insights module)
+**Package structure:**
+- `core.py`: Main TaintAnalyzer orchestration
+- `sources.py`, `config.py`: 650+ source/sink/sanitizer patterns
+- `propagation.py`: Worklist-based taint flow algorithm
+- `cfg_integration.py`: Flow-sensitive path analysis
+- `interprocedural.py`: Cross-function tracking
+- `memory_cache.py`: In-memory O(1) lookup cache
+- `javascript.py`, `python.py`: Language-specific construct handling
+- `insights.py`: Shim to `theauditor/insights/taint.py` for optional severity scoring
 
 ### Graph Analysis (`theauditor/graph/`)
 - **builder.py**: Constructs dependency graph from codebase
@@ -153,6 +307,55 @@ Specialized parsers for configuration file analysis:
 - **prisma_schema_parser.py**: Prisma ORM schema parsing
 
 These parsers are used by extractors during indexing to extract security-relevant configuration data.
+
+### Vulnerability Scanner (`theauditor/vulnerability_scanner.py`)
+
+**OSV-Scanner: Offline-First Vulnerability Detection**
+
+TheAuditor uses a 3-source cross-validation approach for vulnerability detection:
+- **npm audit**: Checks npm registry for JavaScript/TypeScript vulnerabilities
+- **pip-audit**: Checks PyPI for Python vulnerabilities
+- **OSV-Scanner**: Google's official offline vulnerability database scanner
+
+**OSV-Scanner Architecture**:
+- **Binary Location**: `.auditor_venv/.theauditor_tools/osv-scanner/osv-scanner.exe` (Windows) or `osv-scanner` (Linux/Mac)
+- **Database Location**: `.auditor_venv/.theauditor_tools/osv-scanner/db/{ecosystem}/all.zip`
+- **Execution Mode**: 100% offline operation (ALWAYS uses `--offline-vulnerabilities` flag)
+- **Database Updates**: Via `aud setup-ai --target .` command (one-time download)
+
+**Why Offline-Only Design**:
+1. **Feature-Rich Database**: Complete vulnerability data without API limitations
+2. **Privacy**: No dependency information sent to external services
+3. **Performance**: Local database queries are instant, no rate limits or network delays
+4. **Reliability**: Works in air-gapped environments, no network dependencies
+5. **Project-Agnostic**: Single database serves all projects (stored in sandbox)
+
+**Database Contents**:
+- npm ecosystem vulnerabilities (JavaScript/TypeScript)
+- PyPI ecosystem vulnerabilities (Python)
+- Cross-referenced with CVE, GHSA, OSV, and other advisory sources
+- CWE classifications and severity ratings
+- Detailed descriptions, references, and affected version ranges
+
+**Cross-Validation Process**:
+```python
+# All 3 scanners run independently
+npm_findings = _run_npm_audit()      # May hit npm registry (unless --offline)
+pip_findings = _run_pip_audit()      # May hit PyPI (unless --offline)
+osv_findings = _run_osv_scanner()    # ALWAYS uses local database
+
+# Cross-reference findings by vulnerability ID
+validated = _cross_reference(npm_findings, pip_findings, osv_findings)
+# Confidence = number of sources that found the same vulnerability
+```
+
+**Key Implementation Detail** (`vulnerability_scanner.py:478-479`):
+```python
+# ALWAYS use offline database (never hit API)
+cmd.append("--offline-vulnerabilities")
+```
+
+This ensures OSV-Scanner operates without network access regardless of the `--offline` flag to `aud full`. The offline flag only affects npm-audit and pip-audit registry checks.
 
 ### Refactoring Detection (`theauditor/commands/refactor.py`)
 Detects incomplete refactorings and cross-stack inconsistencies:
@@ -204,46 +407,52 @@ graph TB
     Raw --> Chunks
 ```
 
-### Parallel Pipeline Execution
+### Parallel Pipeline Execution (v1.1 4-Stage Architecture)
 
 ```mermaid
 graph LR
-    subgraph "Stage 1 - Sequential"
+    subgraph "Stage 1 - Foundation"
         S1[Index] --> S2[Framework Detection]
     end
     
-    subgraph "Stage 2 - Parallel"
+    subgraph "Stage 2 - Data Prep"
+        D1[Workset] --> D2[Graph Build] --> D3[CFG Analyze]
+    end
+    
+    subgraph "Stage 3 - Parallel Heavy Analysis"
         direction TB
-        subgraph "Track A - Network I/O"
-            A1[Deps Check]
-            A2[Doc Fetch]
-            A3[Doc Summary]
-            A1 --> A2 --> A3
+        subgraph "Track A - Taint"
+            A1[Taint Analysis<br/>~30 seconds]
         end
         
-        subgraph "Track B - Code Analysis"
-            B1[Workset]
-            B2[Linting]
-            B3[Patterns]
-            B1 --> B2 --> B3
+        subgraph "Track B - Static & Graph"
+            B1[Linting]
+            B2[Patterns<br/>355x faster]
+            B3[Graph Analyze]
+            B4[Graph Viz]
+            B1 --> B2 --> B3 --> B4
         end
         
-        subgraph "Track C - Graph"
-            C1[Graph Build]
+        subgraph "Track C - Network I/O"
+            C1[Deps Check]
+            C2[Doc Fetch]
+            C3[Doc Summary]
+            C1 --> C2 --> C3
         end
     end
     
-    subgraph "Stage 3 - Sequential"
-        E1[Graph Analysis] --> E2[Taint] --> E3[FCE] --> E4[Report]
+    subgraph "Stage 4 - Final"
+        E1[FCE] --> E2[Report] --> E3[Summary]
     end
     
-    S2 --> A1
-    S2 --> B1
-    S2 --> C1
+    S2 --> D1
+    D3 --> A1
+    D3 --> B1
+    D3 --> C1
     
-    A3 --> E1
-    B3 --> E1
-    C1 --> E1
+    A1 --> E1
+    B4 --> E1
+    C3 --> E1
 ```
 
 ### Data Chunking System
@@ -382,6 +591,113 @@ erDiagram
     }
 ```
 
+## Schema Contract System (v1.1+)
+
+TheAuditor enforces a strict "single source of truth" pattern for database schema management through the schema contract system located in `theauditor/indexer/schema.py`.
+
+### Architecture Overview
+
+The schema contract system provides:
+- **Type-safe query building** - Validates column names at runtime before query execution
+- **Schema validation** - Ensures database matches schema definitions
+- **Code generation** - Generates CREATE TABLE statements from schema definitions
+- **Centralized definitions** - All 40+ table schemas in one authoritative location
+
+### TableSchema Class
+
+The `TableSchema` dataclass represents a complete table definition:
+
+```python
+@dataclass
+class TableSchema:
+    name: str
+    columns: List[Column]
+    indexes: List[Tuple[str, List[str]]] = field(default_factory=list)
+    primary_key: Optional[List[str]] = None  # Composite primary keys
+    unique_constraints: List[List[str]] = field(default_factory=list)  # UNIQUE constraints
+```
+
+**Supported Constraint Types:**
+- **Column-level constraints**: NOT NULL, DEFAULT, CHECK, PRIMARY KEY
+- **Table-level constraints**: Composite PRIMARY KEY, UNIQUE(col1, col2, ...)
+- **Indexes**: Performance optimization via CREATE INDEX statements
+
+**FOREIGN KEY Design Pattern:**
+FOREIGN KEY constraints are **intentionally omitted** from TableSchema definitions. This design choice:
+- Keeps schema focused on table-level structure (columns, types, indexes)
+- Decouples schema from relational integrity
+- Avoids circular dependencies between table definitions
+- Simplifies schema validation and code generation
+
+Foreign keys are defined exclusively in `database.py` CREATE TABLE statements and are not validated by the schema contract system.
+
+### Usage Examples
+
+**Building Type-Safe Queries:**
+```python
+from theauditor.indexer.schema import build_query
+
+# Build validated query
+query = build_query('variable_usage', ['file', 'line', 'variable_name'])
+cursor.execute(query)
+
+# With WHERE clause
+query = build_query('sql_queries', where="command != 'UNKNOWN'")
+cursor.execute(query)
+```
+
+**Schema Validation:**
+```python
+from theauditor.indexer.schema import validate_all_tables
+
+mismatches = validate_all_tables(cursor)
+if mismatches:
+    for table, errors in mismatches.items():
+        logger.warning(f"Schema mismatch in {table}: {errors}")
+```
+
+### Recent Enhancements (v1.1+)
+
+**JWT Patterns Table Synchronization:**
+- Added missing `jwt_patterns` table to schema.py TABLES registry
+- Complete TableSchema with 6 columns and 3 indexes
+- Resolved P0 schema contract violation
+
+**UNIQUE Constraint Support:**
+- Extended TableSchema with `unique_constraints` field
+- Enables full constraint representation and validation
+- Example: `frameworks` table uses `UNIQUE(name, language, path)`
+- Supports multiple UNIQUE constraints per table
+
+**Design Pattern Documentation:**
+- Codified FOREIGN KEY omission pattern in TableSchema docstring
+- Explicit architectural rationale prevents future confusion
+- Maintains separation of concerns: structure vs. relationships
+
+### Key Tables
+
+**Core Structure:**
+- `files` - File metadata and hashes
+- `symbols` - Code symbols (functions, classes, variables)
+- `function_call_args` - Function call argument tracking
+
+**Security Analysis:**
+- `api_endpoints` - REST endpoint detection with auth flags
+- `sql_queries` - SQL query extraction with command classification
+- `jwt_patterns` - JWT usage pattern detection
+- `variable_usage` - Variable usage tracking for taint analysis
+
+**Data Flow (Taint Critical):**
+- `assignments` - Variable assignments
+- `function_returns` - Function return statements
+- `taint_paths` - Computed taint flow paths
+
+**Framework Detection:**
+- `frameworks` - Detected frameworks with UNIQUE constraint
+- `framework_safe_sinks` - Framework-specific safe output methods
+
+See `theauditor/indexer/schema.py` for complete table definitions.
+
 ## Command Flow Sequence
 
 ```mermaid
@@ -474,12 +790,78 @@ Each command module follows a standardized structure with:
 
 ## Performance Optimizations
 
+### v1.2 Cache Architecture
+TheAuditor v1.2 introduces a comprehensive caching system that transforms performance:
+
+**In-Memory Caches:**
+- **Taint Analysis Memory Cache** (`theauditor/taint/memory_cache.py`):
+  - Pre-computed pattern matching with O(1) lookups
+  - Multi-index architecture: by file, by pattern, by type
+  - 4GB memory limit with graceful degradation
+  - Result: 8,461x speedup (4 hours → 30 seconds)
+
+- **AST Parser LRU Cache** (`theauditor/ast_parser.py`):
+  - Increased from 500 to 10,000 entries
+  - Content-hash based caching
+  - Prevents re-parsing of unchanged files
+  - Result: 20x speedup on re-analysis
+
+- **CFG Analysis Cache** (`theauditor/cache/cfg_cache.py`):
+  - SQLite-based persistent cache
+  - Expanded from 10,000 to 25,000 function entries
+  - LRU eviction when limit reached
+  - Result: 10x speedup for flow analysis
+
+**Managed Disk Caches:**
+- **Graph Cache** (`theauditor/cache/graph_cache.py`):
+  - SQLite with 100,000 edge limit
+  - 50,000 file state limit
+  - Incremental updates for changed files
+  - Smart eviction based on file age
+
+- **AST Disk Cache** (`theauditor/cache/ast_cache.py`):
+  - JSON file storage with 1GB limit
+  - Maximum 20,000 cached files
+  - LRU eviction when limits exceeded
+  - Prevents disk exhaustion
+
+**Cache Preservation Strategy (v1.2+):**
+TheAuditor preserves caches between runs by default to maximize performance:
+
+- **Preserved Caches**:
+  - `.pf/.cache/` - AST parsing cache
+  - `.pf/context/` - Documentation cache (~1.6MB typical) and summaries
+
+- **Archive Behavior**:
+  - By default, `aud full` preserves caches when archiving previous runs
+  - Caches are NOT moved to `.pf/history/` directories
+  - Result: ~40-90s faster on subsequent runs (docs cache reuse)
+
+- **Force Cache Rebuild**:
+  ```bash
+  aud full --wipecache  # Delete all caches before analysis
+  ```
+  - Use this flag for cache corruption recovery
+  - Useful when dependency versions change significantly
+  - Documentation cache will be rebuilt from npm/PyPI (rate-limited)
+
+- **Implementation**:
+  - Archive logic: `theauditor/commands/_archive.py`
+  - Cache directory detection via `CACHE_DIRS` constant
+  - Metadata tracking in `_metadata.json` files
+
+**Performance Impact**:
+- First run: Full analysis (~120s medium project)
+- Subsequent runs: ~40-90s faster (cache hits)
+- With `--wipecache`: Equivalent to first run
+
+### Core Optimizations
 - **Batched database operations**: 200 records per batch (configurable)
 - **Parallel rule execution**: ThreadPoolExecutor with 4 workers
-- **AST caching**: Persistent cache for parsed AST trees
 - **Incremental analysis**: Workset-based analysis for changed files only
 - **Lazy loading**: Patterns and rules loaded on-demand
 - **Memory-efficient chunking**: Stream large files instead of loading entirely
+- **Pre-computation**: Taint patterns compiled at load time, not search time
 
 ## Configuration System
 

@@ -2,12 +2,14 @@
 
 import os
 import platform
-import re
+import sqlite3
 import subprocess
 import tempfile
-from dataclasses import asdict, dataclass
+import hashlib
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+from collections import defaultdict
 
 # Windows compatibility
 IS_WINDOWS = platform.system() == "Windows"
@@ -29,6 +31,7 @@ class GraphNode:
     loc: int = 0
     churn: int | None = None  # Git commit count if available
     type: str = "module"  # module, function, class
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -40,6 +43,7 @@ class GraphEdge:
     type: str = "import"  # import, call, extends, implements
     file: str | None = None
     line: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -76,125 +80,13 @@ class ImpactAnalysis:
 
 
 class XGraphBuilder:
-    """Build cross-project dependency and call graphs."""
+    """Build cross-project dependency and call graphs.
 
-    # Import regex patterns for different languages
-    IMPORT_PATTERNS = {
-        "python": [
-            r"^import\s+(\S+)",
-            r"^from\s+(\S+)\s+import",
-        ],
-        "javascript": [
-            # Standard ES6 imports with 'from'
-            r"import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-            
-            # Side-effect imports (no 'from')
-            r"import\s+['\"]([^'\"]+)['\"]",
-            
-            # CommonJS require
-            r"require\(['\"]([^'\"]+)['\"]\)",
-            
-            # Dynamic imports
-            r"import\(['\"]([^'\"]+)['\"]\)",
-            
-            # Re-exports
-            r"export\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-        ],
-        "typescript": [
-            # Standard ES6 imports with 'from'
-            r"import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-            
-            # Side-effect imports (no 'from')
-            r"import\s+['\"]([^'\"]+)['\"]",
-            
-            # Type-only imports
-            r"import\s+type\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-            
-            # CommonJS require
-            r"require\(['\"]([^'\"]+)['\"]\)",
-            
-            # Dynamic imports
-            r"import\(['\"]([^'\"]+)['\"]\)",
-            
-            # Re-exports
-            r"export\s+.*?\s+from\s+['\"]([^'\"]+)['\"]",
-        ],
-        "java": [
-            r"^import\s+(\S+);",
-            r"^import\s+static\s+(\S+);",
-        ],
-        "go": [
-            r'^import\s+"([^"]+)"',
-            r'^import\s+\(\s*"([^"]+)"',
-        ],
-        "c#": [
-            r"^using\s+(\S+);",
-            r"^using\s+static\s+(\S+);",
-        ],
-        "php": [
-            r"^use\s+(\S+);",
-            r"require_once\s*\(['\"]([^'\"]+)['\"]\)",
-            r"include_once\s*\(['\"]([^'\"]+)['\"]\)",
-        ],
-        "ruby": [
-            r"^require\s+['\"]([^'\"]+)['\"]",
-            r"^require_relative\s+['\"]([^'\"]+)['\"]",
-        ],
-    }
-
-    # Export patterns for different languages
-    EXPORT_PATTERNS = {
-        "python": [
-            r"^def\s+(\w+)\s*\(",
-            r"^class\s+(\w+)",
-            r"^(\w+)\s*=",  # Module-level variables
-        ],
-        "javascript": [
-            r"export\s+(?:default\s+)?(?:function|class|const|let|var)\s+(\w+)",
-            r"exports\.(\w+)\s*=",
-            r"module\.exports\.(\w+)\s*=",
-        ],
-        "typescript": [
-            r"export\s+(?:default\s+)?(?:function|class|const|let|var|interface|type)\s+(\w+)",
-            r"exports\.(\w+)\s*=",
-        ],
-        "java": [
-            r"public\s+(?:static\s+)?(?:class|interface|enum)\s+(\w+)",
-            r"public\s+(?:static\s+)?(?:\w+\s+)?(\w+)\s*\(",  # Public methods
-        ],
-        "go": [
-            r"^func\s+(\w+)\s*\(",  # Exported if capitalized
-            r"^type\s+(\w+)\s+",
-            r"^var\s+(\w+)\s+",
-        ],
-    }
-
-    # Call patterns for different languages
-    CALL_PATTERNS = {
-        "python": [
-            r"(\w+)\s*\(",  # Function calls
-            r"(\w+)\.(\w+)\s*\(",  # Method calls
-        ],
-        "javascript": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-            r"new\s+(\w+)\s*\(",
-        ],
-        "typescript": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-            r"new\s+(\w+)\s*\(",
-        ],
-        "java": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-            r"new\s+(\w+)\s*\(",
-        ],
-        "go": [
-            r"(\w+)\s*\(",
-            r"(\w+)\.(\w+)\s*\(",
-        ],
-    }
+    This builder operates in database-first mode, reading all extraction data
+    (imports, exports, calls) from the repo_index.db populated by the indexer.
+    No regex-based extraction fallbacks exist - if data is not in the database,
+    the extraction will return empty results, allowing us to identify edge cases.
+    """
 
     def __init__(self, batch_size: int = 200, exclude_patterns: list[str] = None, project_root: str = "."):
         """Initialize builder with configuration."""
@@ -202,7 +94,8 @@ class XGraphBuilder:
         self.exclude_patterns = exclude_patterns or []
         self.checkpoint_file = Path(".pf/xgraph_checkpoint.json")
         self.project_root = Path(project_root).resolve()
-        self.module_resolver = ModuleResolver()  # No project_root - uses database!
+        self.db_path = self.project_root / ".pf" / "repo_index.db"
+        self.module_resolver = ModuleResolver(db_path=str(self.db_path))
         self.ast_parser = ASTParser()  # Initialize AST parser for structural analysis
 
     def detect_language(self, file_path: Path) -> str | None:
@@ -247,256 +140,116 @@ class XGraphBuilder:
                 return True
         return False
 
-    def extract_imports_from_db(self, rel_path: str) -> list[str]:
-        """Extract import statements from the database where indexer already stored them.
-        
-        Args:
-            rel_path: Relative path as stored in the database (e.g., "backend/src/app.ts")
-            
-        Returns:
-            List of import targets
-        """
-        import sqlite3
-        
-        # Query the refs table for imports
-        db_file = self.project_root / ".pf" / "repo_index.db"
-        if not db_file.exists():
-            print(f"Warning: Database not found at {db_file}")
-            return []
-        
-        try:
-            conn = sqlite3.connect(db_file)
-            cursor = conn.cursor()
-            
-            # Get all imports for this file from refs table
-            # The indexer stores imports with kind like 'import', 'require', etc.
-            cursor.execute(
-                "SELECT value FROM refs WHERE src = ? AND kind IN ('import', 'require', 'from', 'import_type', 'export')",
-                (rel_path,)
-            )
-            
-            imports = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
-            return imports
-            
-        except sqlite3.Error as e:
-            print(f"Warning: Failed to read imports from database: {e}")
+    def extract_imports_from_db(self, rel_path: str) -> list[dict[str, Any]]:
+        """Return structured import metadata for the given file."""
+        if not self.db_path.exists():
+            print(f"Warning: Database not found at {self.db_path}")
             return []
 
-    def extract_imports(self, file_path: Path, lang: str) -> list[str]:
-        """Extract import statements from the database where indexer already stored them.
-        
-        The indexer has already extracted all imports and stored them in the refs table.
-        We should read from there instead of re-parsing files.
-        """
-        import sqlite3
-        
-        # Get relative path for database lookup
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT kind, value, line
+                  FROM refs
+                 WHERE src = ?
+                   AND kind IN ('import', 'require', 'from', 'import_type', 'export', 'import_dynamic')
+                """,
+                (rel_path,)
+            )
+            imports = [
+                {
+                    "kind": row[0],
+                    "value": row[1],
+                    "line": row[2],
+                }
+                for row in cursor.fetchall()
+            ]
+            conn.close()
+            return imports
+        except sqlite3.Error as exc:
+            print(f"Warning: Failed to read imports for {rel_path}: {exc}")
+            return []
+
+    def extract_imports(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
+        """Normalize file paths and fetch import metadata."""
         try:
             rel_path = file_path.relative_to(self.project_root)
         except ValueError:
-            # If file_path is already relative or from a different root
             rel_path = file_path
-        
-        # Normalize path separators for database lookup
+
         db_path = str(rel_path).replace("\\", "/")
-        
-        # Query the refs table for imports
-        db_file = self.project_root / ".pf" / "repo_index.db"
-        if not db_file.exists():
-            print(f"Warning: Database not found at {db_file}")
-            return []
-        
-        try:
-            conn = sqlite3.connect(db_file)
-            cursor = conn.cursor()
-            
-            # Get all imports for this file from refs table
-            # The indexer stores imports with kind like 'import', 'require', etc.
-            cursor.execute(
-                "SELECT value FROM refs WHERE src = ? AND kind IN ('import', 'require', 'from', 'import_type', 'export')",
-                (db_path,)
-            )
-            
-            imports = [row[0] for row in cursor.fetchall()]
-            conn.close()
-            
-            return imports
-            
-        except sqlite3.Error as e:
-            print(f"Warning: Failed to read imports from database: {e}")
+        return self.extract_imports_from_db(db_path)
+
+    def extract_exports_from_db(self, rel_path: str) -> list[dict[str, Any]]:
+        """Return exported symbol metadata for the given file."""
+        if not self.db_path.exists():
             return []
 
-    def extract_exports_from_db(self, rel_path: str) -> list[str]:
-        """Extract exported symbols from the database where indexer already stored them.
-        
-        Args:
-            rel_path: Relative path as stored in the database
-            
-        Returns:
-            List of exported symbol names
-        """
-        import sqlite3
-        
-        db_file = self.project_root / ".pf" / "repo_index.db"
-        if not db_file.exists():
-            return []
-        
         try:
-            conn = sqlite3.connect(db_file)
+            conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            # Get exported functions/classes from symbols table
-            # The indexer stores these as 'function' and 'class' types
             cursor.execute(
-                "SELECT name FROM symbols WHERE path = ? AND type IN ('function', 'class')",
+                "SELECT name, type, line FROM symbols WHERE path = ? AND type IN ('function', 'class')",
                 (rel_path,)
             )
-            
-            exports = [row[0] for row in cursor.fetchall()]
+            exports = [
+                {
+                    "name": row[0],
+                    "symbol_type": row[1],
+                    "line": row[2],
+                }
+                for row in cursor.fetchall()
+            ]
             conn.close()
-            
             return exports
-            
         except sqlite3.Error:
             return []
 
-    def extract_exports(self, file_path: Path, lang: str) -> list[str]:
-        """Extract exported symbols from a file using AST parser with regex fallback."""
-        # Try AST parser first for supported languages
-        if self.ast_parser.supports_language(lang):
-            try:
-                # Check persistent cache first for JS/TS files
-                tree = None
-                if lang in ["javascript", "typescript"]:
-                    # Compute file hash for cache lookup
-                    import hashlib
-                    with open(file_path, 'rb') as f:
-                        file_hash = hashlib.sha256(f.read()).hexdigest()
-                    
-                    # Check cache
-                    cache_dir = self.project_root / ".pf" / "ast_cache"
-                    cache_file = cache_dir / f"{file_hash}.json"
-                    if cache_file.exists():
-                        try:
-                            import json
-                            with open(cache_file, 'r', encoding='utf-8') as f:
-                                tree = json.load(f)
-                        except (json.JSONDecodeError, OSError):
-                            pass  # Cache read failed, parse fresh
-                
-                # Parse file if not in cache
-                if not tree:
-                    tree = self.ast_parser.parse_file(file_path, lang)
-                    # REMOVED: Cache write logic - only indexer.py should write to cache
-                
-                if tree and tree.get("type") != "regex_fallback":
-                    # Extract exports using AST
-                    export_dicts = self.ast_parser.extract_exports(tree, lang)
-                    # Convert to list of export names
-                    exports = []
-                    for exp in export_dicts:
-                        name = exp.get('name')
-                        if name and name != 'unknown':
-                            exports.append(name)
-                    if exports:  # If we got results, return them
-                        return exports
-            except Exception as e:
-                # Fall through to regex fallback
-                pass
-        
-        # Fallback to regex-based extraction
-        return self._extract_exports_regex(file_path, lang)
-
-    def extract_calls_from_db(self, rel_path: str) -> list[tuple[str, str | None]]:
-        """Extract function calls from the database where indexer already stored them.
-        
-        Args:
-            rel_path: Relative path as stored in the database
-            
-        Returns:
-            List of (function_name, None) tuples for calls
-        """
-        import sqlite3
-        
-        db_file = self.project_root / ".pf" / "repo_index.db"
-        if not db_file.exists():
-            return []
-        
+    def extract_exports(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
+        """Wrapper that normalizes paths before querying exports."""
         try:
-            conn = sqlite3.connect(db_file)
+            rel_path = file_path.relative_to(self.project_root)
+        except ValueError:
+            rel_path = file_path
+
+        db_path = str(rel_path).replace("\\", "/")
+        return self.extract_exports_from_db(db_path)
+
+    def extract_call_args_from_db(self, rel_path: str) -> list[dict[str, Any]]:
+        """Return call argument metadata for the given file."""
+        if not self.db_path.exists():
+            return []
+
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
-            # Get function calls from symbols table
-            # The indexer stores these as 'call' type
             cursor.execute(
-                "SELECT name FROM symbols WHERE path = ? AND type = 'call'",
+                """
+                SELECT file, line, caller_function, callee_function,
+                       argument_index, argument_expr, param_name
+                  FROM function_call_args
+                 WHERE file = ?
+                """,
                 (rel_path,)
             )
-            
-            # Return as tuples with None for second element (no parent info)
-            calls = [(row[0], None) for row in cursor.fetchall()]
+            calls = [dict(row) for row in cursor.fetchall()]
             conn.close()
-            
             return calls
-            
         except sqlite3.Error:
             return []
 
-    def extract_calls(self, file_path: Path, lang: str) -> list[tuple[str, str | None]]:
-        """Extract function/method calls from a file using AST parser with regex fallback."""
-        # Try AST parser first for supported languages
-        if self.ast_parser.supports_language(lang):
-            try:
-                # Check persistent cache first for JS/TS files
-                tree = None
-                if lang in ["javascript", "typescript"]:
-                    # Compute file hash for cache lookup
-                    import hashlib
-                    with open(file_path, 'rb') as f:
-                        file_hash = hashlib.sha256(f.read()).hexdigest()
-                    
-                    # Check cache
-                    cache_dir = self.project_root / ".pf" / "ast_cache"
-                    cache_file = cache_dir / f"{file_hash}.json"
-                    if cache_file.exists():
-                        try:
-                            import json
-                            with open(cache_file, 'r', encoding='utf-8') as f:
-                                tree = json.load(f)
-                        except (json.JSONDecodeError, OSError):
-                            pass  # Cache read failed, parse fresh
-                
-                # Parse file if not in cache
-                if not tree:
-                    tree = self.ast_parser.parse_file(file_path, lang)
-                    # REMOVED: Cache write logic - only indexer.py should write to cache
-                
-                if tree and tree.get("type") != "regex_fallback":
-                    # Extract calls using AST
-                    call_dicts = self.ast_parser.extract_calls(tree, lang)
-                    # Convert to list of (function, method) tuples
-                    calls = []
-                    for call in call_dicts:
-                        name = call.get('name', '')
-                        # Check if it's a method call (contains dot)
-                        if '.' in name:
-                            parts = name.rsplit('.', 1)
-                            if len(parts) == 2:
-                                calls.append((parts[0], parts[1]))
-                            else:
-                                calls.append((name, None))
-                        else:
-                            calls.append((name, None))
-                    if calls:  # If we got results, return them
-                        return calls
-            except Exception as e:
-                # Fall through to regex fallback
-                pass
-        
-        # Fallback to regex-based extraction
-        return self._extract_calls_regex(file_path, lang)
+    def extract_call_args(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
+        """Wrapper to normalize file paths before querying call arguments."""
+        try:
+            rel_path = file_path.relative_to(self.project_root)
+        except ValueError:
+            rel_path = file_path
+
+        db_path = str(rel_path).replace("\\", "/")
+        return self.extract_call_args_from_db(db_path)
 
     def resolve_import_path(self, import_str: str, source_file: Path, lang: str) -> str:
         """Resolve import string to a normalized module path that matches actual files in the graph."""
@@ -545,10 +298,9 @@ class XGraphBuilder:
                 # Check if resolution succeeded
                 if resolved != import_str:
                     # Resolution worked, now verify file exists in database
-                    db_file = self.project_root / ".pf" / "repo_index.db"
-                    if db_file.exists():
+                    if self.db_path.exists():
                         try:
-                            conn = sqlite3.connect(db_file)
+                            conn = sqlite3.connect(self.db_path)
                             cursor = conn.cursor()
                             
                             # Try with common extensions if no extension
@@ -593,10 +345,9 @@ class XGraphBuilder:
                     rel_target = str(target_path.relative_to(self.project_root)).replace("\\", "/")
                     
                     # Check if this file exists (try with extensions)
-                    db_file = self.project_root / ".pf" / "repo_index.db"
-                    if db_file.exists():
+                    if self.db_path.exists():
                         try:
-                            conn = sqlite3.connect(db_file)
+                            conn = sqlite3.connect(self.db_path)
                             cursor = conn.cursor()
                             
                             # Try with common extensions
@@ -680,6 +431,44 @@ class XGraphBuilder:
 
         return metrics
 
+    def _get_metrics_for(self, rel_path: str, manifest_lookup: dict[str, dict[str, Any]], root_path: Path) -> tuple[int, Any]:
+        """Return (loc, churn) for a module using manifest or filesystem data."""
+        manifest_entry = manifest_lookup.get(rel_path)
+        if manifest_entry:
+            return manifest_entry.get("loc", 0), manifest_entry.get("churn")
+
+        file_on_disk = root_path / Path(rel_path)
+        metrics = self.get_file_metrics(file_on_disk)
+        return metrics["loc"], metrics["churn"]
+
+    def _ensure_module_node(
+        self,
+        nodes: dict[str, GraphNode],
+        rel_path: str,
+        lang: str | None,
+        manifest_lookup: dict[str, dict[str, Any]],
+        root_path: Path,
+        status: str,
+    ) -> GraphNode:
+        """Ensure a module node exists and return it."""
+        if rel_path in nodes:
+            node = nodes[rel_path]
+            node.metadata.setdefault("status", status)
+            return node
+
+        loc, churn = self._get_metrics_for(rel_path, manifest_lookup, root_path)
+        node = GraphNode(
+            id=rel_path,
+            file=rel_path,
+            lang=lang,
+            loc=loc,
+            churn=churn,
+            type="module",
+            metadata={"status": status},
+        )
+        nodes[rel_path] = node
+        return node
+
     def build_import_graph(
         self,
         root: str = ".",
@@ -689,43 +478,27 @@ class XGraphBuilder:
     ) -> dict[str, Any]:
         """Build import/dependency graph for the project."""
         root_path = Path(root).resolve()
-        nodes = {}
-        edges = []
+        nodes: dict[str, GraphNode] = {}
+        edges: list[GraphEdge] = []
 
-        # Collect all source files
-        files = []
-        manifest_lookup = {}  # Map file paths to manifest items for metrics
-        
+        # Track manifest metrics for quick lookup (keyed by relative path)
+        manifest_lookup_rel: dict[str, dict[str, Any]] = {}
+        files: list[tuple[Path, str]] = []
+
         if file_list is not None:
-            # Use provided file list from manifest
-            # The manifest already contains all the file info we need
             for item in file_list:
                 manifest_path = Path(item['path'])
-                
-                # Use the path from manifest directly - we don't need actual files
-                # The manifest has all the data (path, ext, content, etc.)
-                file = root_path / manifest_path  # Just for consistent path handling
-                
-                # Store manifest item for later metric lookup
-                manifest_lookup[str(file)] = item
-                
-                # Detect language from extension in manifest
-                lang = self.detect_language(manifest_path)  # Use manifest path
+                rel_path_str = str(manifest_path).replace('\\', '/')
+                manifest_lookup_rel[rel_path_str] = item
+                file = root_path / manifest_path
+                lang = self.detect_language(manifest_path)
                 if lang and (not langs or lang in langs):
                     files.append((file, lang))
         else:
-            # Fall back to original os.walk logic for backward compatibility
             for dirpath, dirnames, filenames in os.walk(root_path):
-                # CRITICAL: Prune excluded directories before os.walk descends into them
-                # This prevents traversal into .venv and other SKIP_DIRS
                 dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-                
-                # Also prune based on exclude_patterns
                 if self.exclude_patterns:
-                    dirnames[:] = [d for d in dirnames 
-                                  if not any(pattern in d for pattern in self.exclude_patterns)]
-                
-                # Process files in this directory
+                    dirnames[:] = [d for d in dirnames if not any(pattern in d for pattern in self.exclude_patterns)]
                 for filename in filenames:
                     file = Path(dirpath) / filename
                     if not self.should_skip(file):
@@ -733,7 +506,22 @@ class XGraphBuilder:
                         if lang and (not langs or lang in langs):
                             files.append((file, lang))
 
-        # Process files with progress bar
+        # Compute file hashes for incremental cache lookup
+        current_files = {}
+        for file_path, lang in files:
+            try:
+                with open(file_path, 'rb') as f:
+                    file_hash = hashlib.sha256(f.read()).hexdigest()
+                rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+                current_files[rel_path] = {
+                    'hash': file_hash,
+                    'language': lang,
+                    'size': file_path.stat().st_size if file_path.exists() else 0,
+                }
+            except (OSError, PermissionError):
+                pass
+
+        # Build import graph from database (no caching)
         with click.progressbar(
             files,
             label="Building import graph",
@@ -743,51 +531,85 @@ class XGraphBuilder:
             item_show_func=lambda x: str(x[0].name) if x else None,
         ) as bar:
             for file_path, lang in bar:
-                # Create node for this file
-                rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")  # Normalize separators
-                node_id = rel_path  # Already normalized
-
-                # Get metrics from manifest if available, otherwise from file
-                if str(file_path) in manifest_lookup:
-                    # Use manifest data which already has metrics
-                    manifest_item = manifest_lookup[str(file_path)]
-                    loc = manifest_item.get('loc', 0)
-                    churn = None  # Manifest doesn't have churn data
-                else:
-                    # Fall back to reading file metrics
-                    metrics = self.get_file_metrics(file_path)
-                    loc = metrics["loc"]
-                    churn = metrics["churn"]
-                
-                node = GraphNode(
-                    id=node_id,
-                    file=rel_path,  # Already normalized
-                    lang=lang,
-                    loc=loc,
-                    churn=churn,
-                    type="module",
+                rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+                module_node = self._ensure_module_node(
+                    nodes,
+                    rel_path,
+                    lang,
+                    manifest_lookup_rel,
+                    root_path,
+                    status="updated",
                 )
-                nodes[node_id] = asdict(node)
+                module_node.metadata["language"] = lang
 
-                # Extract imports and create edges
-                # Pass the relative path that matches what's in the database
                 imports = self.extract_imports_from_db(rel_path)
+                module_node.metadata["import_count"] = len(imports)
+
                 for imp in imports:
-                    target = self.resolve_import_path(imp, file_path, lang)
+                    raw_value = imp.get("value")
+                    resolved = self.resolve_import_path(raw_value, file_path, lang) if raw_value else raw_value
+                    resolved_norm = resolved.replace('\\', '/') if resolved else None
+                    resolved_exists = resolved_norm in current_files
+
+                    if resolved_exists:
+                        target_id = resolved_norm
+                        target_lang = current_files[resolved_norm].get('language')
+                        target_node = self._ensure_module_node(
+                            nodes,
+                            target_id,
+                            target_lang,
+                            manifest_lookup_rel,
+                            root_path,
+                            status="referenced",
+                        )
+                        target_node.metadata.setdefault("language", target_lang)
+                    else:
+                        external_id = resolved_norm or raw_value or "unknown"
+                        target_id = f"external::{external_id}"
+                        if target_id not in nodes:
+                            nodes[target_id] = GraphNode(
+                                id=target_id,
+                                file=raw_value or external_id,
+                                lang=None,
+                                type="external_module",
+                                metadata={"status": "external"},
+                            )
+
+                    edge_metadata = {
+                        "kind": imp.get("kind"),
+                        "raw": raw_value,
+                        "resolved": resolved_norm or raw_value,
+                        "resolved_exists": resolved_exists,
+                    }
                     edge = GraphEdge(
-                        source=node_id,
-                        target=target,
+                        source=module_node.id,
+                        target=target_id,
                         type="import",
-                        file=rel_path,  # Already normalized
+                        file=rel_path,
+                        line=imp.get("line"),
+                        metadata=edge_metadata,
                     )
-                    edges.append(asdict(edge))
+                    edges.append(edge)
+
+        for file_path, lang in files:
+            rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+            module_node = self._ensure_module_node(
+                nodes,
+                rel_path,
+                lang,
+                manifest_lookup_rel,
+                root_path,
+                status="cached",
+            )
+            module_node.metadata.setdefault("language", lang)
+            module_node.metadata.setdefault("import_count", module_node.metadata.get("import_count", 0))
 
         return {
-            "nodes": list(nodes.values()),
-            "edges": edges,
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
             "metadata": {
                 "root": str(root_path),
-                "languages": list(set(n["lang"] for n in nodes.values())),
+                "languages": sorted({node.lang for node in nodes.values() if node.lang}),
                 "total_files": len(nodes),
                 "total_imports": len(edges),
             },
@@ -802,39 +624,25 @@ class XGraphBuilder:
     ) -> dict[str, Any]:
         """Build call graph for the project."""
         root_path = Path(root).resolve()
-        nodes = {}
-        edges = []
+        nodes: dict[str, GraphNode] = {}
+        edges: list[GraphEdge] = []
+        manifest_lookup_rel: dict[str, dict[str, Any]] = {}
+        files: list[tuple[Path, str]] = []
 
-        # Collect all source files
-        files = []
-        
         if file_list is not None:
-            # Use provided file list from manifest
-            # The manifest already contains all the file info we need
             for item in file_list:
                 manifest_path = Path(item['path'])
-                
-                # Use the path from manifest directly - we don't need actual files
-                # The manifest has all the data (path, ext, content, etc.)
-                file = root_path / manifest_path  # Just for consistent path handling
-                
-                # Detect language from extension in manifest
-                lang = self.detect_language(manifest_path)  # Use manifest path
+                rel_path_str = str(manifest_path).replace('\\', '/')
+                manifest_lookup_rel[rel_path_str] = item
+                file = root_path / manifest_path
+                lang = self.detect_language(manifest_path)
                 if lang and (not langs or lang in langs):
                     files.append((file, lang))
         else:
-            # Fall back to original os.walk logic for backward compatibility
             for dirpath, dirnames, filenames in os.walk(root_path):
-                # CRITICAL: Prune excluded directories before os.walk descends into them
-                # This prevents traversal into .venv and other SKIP_DIRS
                 dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-                
-                # Also prune based on exclude_patterns
                 if self.exclude_patterns:
-                    dirnames[:] = [d for d in dirnames 
-                                  if not any(pattern in d for pattern in self.exclude_patterns)]
-                
-                # Process files in this directory
+                    dirnames[:] = [d for d in dirnames if not any(pattern in d for pattern in self.exclude_patterns)]
                 for filename in filenames:
                     file = Path(dirpath) / filename
                     if not self.should_skip(file):
@@ -842,7 +650,66 @@ class XGraphBuilder:
                         if lang and (not langs or lang in langs):
                             files.append((file, lang))
 
-        # Process files with progress bar to extract functions and calls
+        current_files: dict[str, dict[str, Any]] = {}
+        for file_path, lang in files:
+            try:
+                rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+            except ValueError:
+                rel_path = str(file_path).replace('\\', '/')
+            current_files[rel_path] = {"language": lang}
+
+        # Prepare auxiliary metadata from database
+        function_defs: dict[str, set[str]] = defaultdict(set)
+        function_lines: dict[tuple[str, str], int | None] = {}
+        returns_map: dict[tuple[str, str], dict[str, Any]] = {}
+        if self.db_path.exists():
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT path, name, line FROM symbols WHERE type = 'function'")
+            for row in cursor.fetchall():
+                rel = row['path'].replace('\\', '/')
+                function_defs[row['name']].add(rel)
+                function_lines[(rel, row['name'])] = row['line']
+            cursor.execute("SELECT file, function_name, return_expr, return_vars FROM function_returns")
+            for row in cursor.fetchall():
+                rel = row['file'].replace('\\', '/')
+                returns_map[(rel, row['function_name'])] = {
+                    "return_expr": row['return_expr'],
+                    "return_vars": row['return_vars'],
+                }
+        else:
+            conn = None
+
+        def ensure_function_node(module_path: str, function_name: str, lang: str | None, status: str) -> GraphNode:
+            node_id = f"{module_path}::{function_name}"
+            if node_id in nodes:
+                node = nodes[node_id]
+                node.metadata.setdefault("status", status)
+                return node
+
+            metadata = {
+                "status": status,
+                "module": module_path,
+                "line": function_lines.get((module_path, function_name)),
+            }
+            returns = returns_map.get((module_path, function_name))
+            if returns:
+                metadata.update({k: v for k, v in returns.items() if v})
+
+            node = GraphNode(
+                id=node_id,
+                file=module_path,
+                lang=lang,
+                loc=0,
+                churn=None,
+                type="function",
+                metadata=metadata,
+            )
+            nodes[node_id] = node
+            return node
+
+        # Process files to build call edges
         with click.progressbar(
             files,
             label="Building call graph",
@@ -852,49 +719,244 @@ class XGraphBuilder:
             item_show_func=lambda x: str(x[0].name) if x else None,
         ) as bar:
             for file_path, lang in bar:
-                rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")  # Normalize separators
-                module_id = rel_path  # Already normalized
+                rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+                module_node = self._ensure_module_node(
+                    nodes,
+                    rel_path,
+                    lang,
+                    manifest_lookup_rel,
+                    root_path,
+                    status="active",
+                )
+                module_node.metadata["language"] = lang
 
-                # Extract exported functions/classes from database
                 exports = self.extract_exports_from_db(rel_path)
                 for export in exports:
-                    func_id = f"{module_id}::{export}"
-                    node = GraphNode(
-                        id=func_id,
-                        file=rel_path,  # Already normalized
-                        lang=lang,
-                        type="function",
-                    )
-                    nodes[func_id] = asdict(node)
+                    func_node = ensure_function_node(rel_path, export.get("name", ""), lang, "exported")
+                    func_node.metadata.setdefault("symbol_type", export.get("symbol_type"))
+                    func_node.metadata.setdefault("line", export.get("line"))
 
-                # Extract calls from database
-                calls = self.extract_calls_from_db(rel_path)
-                for call, method in calls:
-                    # Try to resolve the call target
-                    if method:
-                        # Method call
-                        target_id = f"{call}.{method}"
+                call_records = self.extract_call_args(file_path, lang)
+                for record in call_records:
+                    caller = record.get("caller_function")
+                    callee = record.get("callee_function")
+                    line = record.get("line")
+                    caller_node = ensure_function_node(rel_path, caller, lang, "caller")
+
+                    target_candidates = function_defs.get(callee, set())
+                    if target_candidates:
+                        if rel_path in target_candidates:
+                            target_module = rel_path
+                        else:
+                            target_module = next(iter(target_candidates))
+                        target_lang = current_files.get(target_module, {}).get('language') if target_module in current_files else None
+                        callee_node = ensure_function_node(target_module, callee, target_lang, "callee")
+                        resolved = True
                     else:
-                        # Function call
-                        target_id = call
+                        target_module = None
+                        external_id = f"external::{callee}"
+                        if external_id not in nodes:
+                            nodes[external_id] = GraphNode(
+                                id=external_id,
+                                file=callee or "unknown",
+                                lang=None,
+                                loc=0,
+                                churn=None,
+                                type="external_function",
+                                metadata={"status": "external"},
+                            )
+                        callee_node = nodes[external_id]
+                        resolved = False
 
-                    # Create edge from module to called function
-                    edge = GraphEdge(
-                        source=module_id,
-                        target=target_id,
-                        type="call",
-                        file=rel_path,  # Already normalized
+                    edge_metadata = {
+                        "argument_index": record.get("argument_index"),
+                        "argument_expr": record.get("argument_expr"),
+                        "param_name": record.get("param_name"),
+                        "resolved": resolved,
+                    }
+                    if target_module:
+                        edge_metadata["callee_module"] = target_module
+
+                    edges.append(
+                        GraphEdge(
+                            source=caller_node.id,
+                            target=callee_node.id,
+                            type="call",
+                            file=rel_path,
+                            line=line,
+                            metadata=edge_metadata,
+                        )
                     )
-                    edges.append(asdict(edge))
+
+        # Supplement graph with database-centric nodes (SQL/ORM/hooks)
+        if self.db_path.exists():
+            if conn is None:
+                conn = sqlite3.connect(self.db_path)
+                conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT file_path, line_number, command, tables, extraction_source, query_text FROM sql_queries"
+            )
+            for row in cursor.fetchall():
+                rel_file = row["file_path"].replace('\\', '/')
+                module_node = self._ensure_module_node(
+                    nodes,
+                    rel_file,
+                    current_files.get(rel_file, {}).get('language'),
+                    manifest_lookup_rel,
+                    root_path,
+                    status="referenced",
+                )
+                sql_node_id = f"{rel_file}::sql:{row['line_number']}"
+                if sql_node_id not in nodes:
+                    metadata = {
+                        "status": "sql_query",
+                        "command": row["command"],
+                        "tables": row["tables"],
+                        "source": row["extraction_source"],
+                        "snippet": (row["query_text"] or '')[:200],
+                    }
+                    nodes[sql_node_id] = GraphNode(
+                        id=sql_node_id,
+                        file=rel_file,
+                        lang=None,
+                        loc=0,
+                        churn=None,
+                        type="sql_query",
+                        metadata=metadata,
+                    )
+                edge_metadata = {
+                    "command": row["command"],
+                    "tables": row["tables"],
+                    "source": row["extraction_source"],
+                }
+                edges.append(
+                    GraphEdge(
+                        source=module_node.id,
+                        target=sql_node_id,
+                        type="sql",
+                        file=rel_file,
+                        line=row["line_number"],
+                        metadata=edge_metadata,
+                    )
+                )
+
+            cursor.execute(
+                "SELECT file, line, query_type, includes, has_limit, has_transaction FROM orm_queries"
+            )
+            for row in cursor.fetchall():
+                rel_file = row["file"].replace('\\', '/')
+                module_node = self._ensure_module_node(
+                    nodes,
+                    rel_file,
+                    current_files.get(rel_file, {}).get('language'),
+                    manifest_lookup_rel,
+                    root_path,
+                    status="referenced",
+                )
+                orm_node_id = f"{rel_file}::orm:{row['line']}"
+                if orm_node_id not in nodes:
+                    metadata = {
+                        "status": "orm_query",
+                        "query_type": row["query_type"],
+                        "includes": row["includes"],
+                        "has_limit": row["has_limit"],
+                        "has_transaction": row["has_transaction"],
+                    }
+                    nodes[orm_node_id] = GraphNode(
+                        id=orm_node_id,
+                        file=rel_file,
+                        lang=None,
+                        loc=0,
+                        churn=None,
+                        type="orm_query",
+                        metadata=metadata,
+                    )
+                edge_metadata = {
+                    "query_type": row["query_type"],
+                    "includes": row["includes"],
+                }
+                edges.append(
+                    GraphEdge(
+                        source=module_node.id,
+                        target=orm_node_id,
+                        type="orm",
+                        file=rel_file,
+                        line=row["line"],
+                        metadata=edge_metadata,
+                    )
+                )
+
+            cursor.execute(
+                "SELECT file, line, hook_name, dependency_vars FROM react_hooks"
+            )
+            for row in cursor.fetchall():
+                rel_file = row["file"].replace('\\', '/')
+                module_node = self._ensure_module_node(
+                    nodes,
+                    rel_file,
+                    current_files.get(rel_file, {}).get('language'),
+                    manifest_lookup_rel,
+                    root_path,
+                    status="referenced",
+                )
+                hook_node_id = f"{rel_file}::hook:{row['line']}"
+                if hook_node_id not in nodes:
+                    metadata = {
+                        "status": "react_hook",
+                        "hook_name": row["hook_name"],
+                        "dependency_vars": row["dependency_vars"],
+                    }
+                    nodes[hook_node_id] = GraphNode(
+                        id=hook_node_id,
+                        file=rel_file,
+                        lang=None,
+                        loc=0,
+                        churn=None,
+                        type="react_hook",
+                        metadata=metadata,
+                    )
+                edges.append(
+                    GraphEdge(
+                        source=module_node.id,
+                        target=hook_node_id,
+                        type="react_hook",
+                        file=rel_file,
+                        line=row["line"],
+                        metadata={"hook_name": row["hook_name"]},
+                    )
+                )
+
+        if conn is not None:
+            conn.close()
+
+        for file_path, lang in files:
+            rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+            module_node = self._ensure_module_node(
+                nodes,
+                rel_path,
+                lang,
+                manifest_lookup_rel,
+                root_path,
+                status="cached",
+            )
+            module_node.metadata.setdefault("language", lang)
+
+        function_count = sum(1 for node in nodes.values() if node.type == 'function')
+        sql_count = sum(1 for node in nodes.values() if node.type == 'sql_query')
+        orm_count = sum(1 for node in nodes.values() if node.type == 'orm_query')
 
         return {
-            "nodes": list(nodes.values()),
-            "edges": edges,
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
             "metadata": {
                 "root": str(root_path),
-                "languages": langs or [],
-                "total_functions": len(nodes),
-                "total_calls": len(edges),
+                "languages": sorted({node.lang for node in nodes.values() if node.lang}),
+                "function_nodes": function_count,
+                "total_edges": len(edges),
+                "sql_nodes": sql_count,
+                "orm_nodes": orm_count,
             },
         }
 
@@ -925,93 +987,3 @@ class XGraphBuilder:
                 "total_edges": len(edges),
             },
         }
-
-    def _extract_imports_regex(self, file_path: Path, lang: str) -> list[str]:
-        """Regex-based fallback for extracting imports.
-        
-        This method is used when AST parsing fails or is unavailable.
-        """
-        if lang not in self.IMPORT_PATTERNS:
-            return []
-
-        imports = []
-        patterns = [re.compile(p, re.MULTILINE) for p in self.IMPORT_PATTERNS[lang]]
-
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-
-            for pattern in patterns:
-                matches = pattern.findall(content)
-                imports.extend(matches)
-
-        except (IOError, UnicodeDecodeError, OSError) as e:
-            print(f"Warning: Failed to extract imports from {file_path}: {e}")
-            # Return empty list but LOG the failure
-
-        return imports
-
-    def _extract_exports_regex(self, file_path: Path, lang: str) -> list[str]:
-        """Regex-based fallback for extracting exports.
-        
-        This method is used when AST parsing fails or is unavailable.
-        """
-        if lang not in self.EXPORT_PATTERNS:
-            return []
-
-        exports = []
-        patterns = [re.compile(p, re.MULTILINE) for p in self.EXPORT_PATTERNS[lang]]
-
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-
-            for pattern in patterns:
-                matches = pattern.findall(content)
-                # Flatten tuples if regex has groups
-                for match in matches:
-                    if isinstance(match, tuple):
-                        exports.extend([m for m in match if m])
-                    else:
-                        exports.append(match)
-
-        except (IOError, UnicodeDecodeError, OSError) as e:
-            print(f"Warning: Failed to extract exports from {file_path}: {e}")
-            # Return empty list but LOG the failure
-
-        # Filter exports for Go (only capitalized are public)
-        if lang == "go":
-            exports = [e for e in exports if e and e[0].isupper()]
-
-        return exports
-
-    def _extract_calls_regex(self, file_path: Path, lang: str) -> list[tuple[str, str | None]]:
-        """Regex-based fallback for extracting function calls.
-        
-        This method is used when AST parsing fails or is unavailable.
-        """
-        if lang not in self.CALL_PATTERNS:
-            return []
-
-        calls = []
-        patterns = [re.compile(p) for p in self.CALL_PATTERNS[lang]]
-
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-
-            for pattern in patterns:
-                matches = pattern.findall(content)
-                for match in matches:
-                    if isinstance(match, tuple):
-                        # Method call: (object, method)
-                        calls.append(match)
-                    else:
-                        # Function call
-                        calls.append((match, None))
-
-        except (IOError, UnicodeDecodeError, OSError) as e:
-            print(f"Warning: Failed to extract calls from {file_path}: {e}")
-            # Return empty list but LOG the failure
-
-        return calls

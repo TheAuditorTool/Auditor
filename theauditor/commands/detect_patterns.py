@@ -16,7 +16,84 @@ from theauditor.utils.helpers import get_self_exclusion_patterns
 @click.option("--with-frameworks/--no-frameworks", default=True, help="Enable framework detection and framework-specific patterns")
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
 def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, print_stats, with_ast, with_frameworks, exclude_self):
-    """Detect universal runtime, DB, and logic patterns in code."""
+    """Detect security vulnerabilities and code quality issues.
+
+    Runs 100+ security pattern rules across your codebase using both
+    regex and AST-based detection. Covers OWASP Top 10, CWE Top 25,
+    and framework-specific vulnerabilities.
+
+    Pattern Categories:
+      Authentication:
+        - Hardcoded credentials and API keys
+        - Weak password validation
+        - Missing authentication checks
+        - Insecure session management
+
+      Injection Attacks:
+        - SQL injection vulnerabilities
+        - Command injection risks
+        - XSS (Cross-Site Scripting)
+        - Template injection
+        - LDAP/NoSQL injection
+
+      Data Security:
+        - Exposed sensitive data
+        - Insecure cryptography
+        - Weak random number generation
+        - Missing encryption
+
+      Infrastructure:
+        - Debug mode in production
+        - Insecure CORS configuration
+        - Missing security headers
+        - Exposed admin interfaces
+
+      Code Quality:
+        - Race conditions
+        - Resource leaks
+        - Infinite loops
+        - Dead code blocks
+
+    Detection Methods:
+      1. Pattern Matching: Fast regex-based detection
+      2. AST Analysis: Semantic understanding of code structure
+      3. Framework Detection: Django, Flask, React-specific rules
+
+    Examples:
+      aud detect-patterns                           # Run all patterns
+      aud detect-patterns --patterns auth_issues    # Specific category
+      aud detect-patterns --file-filter "*.py"      # Python files only
+      aud detect-patterns --no-ast                  # Regex only (faster)
+      aud detect-patterns --exclude-self            # Skip TheAuditor files
+
+    Output:
+      .pf/raw/patterns.json       # All findings in JSON
+      .pf/readthis/patterns_*.json # AI-optimized chunks
+
+    Finding Format:
+      {
+        "file": "src/auth.py",
+        "line": 42,
+        "pattern": "hardcoded_secret",
+        "severity": "critical",
+        "message": "Hardcoded API key detected",
+        "code_snippet": "api_key = 'sk_live_...'",
+        "cwe": "CWE-798"
+      }
+
+    Severity Levels:
+      critical - Immediate security risk
+      high     - Serious vulnerability
+      medium   - Potential issue
+      low      - Code quality concern
+
+    Performance:
+      Small project:  < 30 seconds
+      Large project:  2-5 minutes
+      With AST:       2-3x slower but more accurate
+
+    Note: Use --with-ast for comprehensive analysis (default).
+    Disable with --no-ast for quick scans."""
     from theauditor.pattern_loader import PatternLoader
     from theauditor.universal_detector import UniversalPatternDetector
     
@@ -39,8 +116,40 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
         # Run detection
         categories = list(patterns) if patterns else None
         findings = detector.detect_patterns(categories=categories, file_filter=file_filter)
-        
-        # Always save results to default location
+
+        # ===== DUAL-WRITE PATTERN =====
+        # Write to DATABASE first (for FCE performance), then JSON (for AI consumption)
+        # This eliminates FCE file I/O while preserving extraction.py pipeline
+        db_path = project_path / ".pf" / "repo_index.db"
+        if db_path.exists():
+            try:
+                from theauditor.indexer.database import DatabaseManager
+                db_manager = DatabaseManager(str(db_path))
+
+                # Convert findings to dict if needed (handles both dict and object formats)
+                findings_dicts = []
+                for f in findings:
+                    if hasattr(f, 'to_dict'):
+                        findings_dicts.append(f.to_dict())
+                    elif isinstance(f, dict):
+                        findings_dicts.append(f)
+                    else:
+                        # Fallback: try to convert to dict
+                        findings_dicts.append(dict(f))
+
+                db_manager.write_findings_batch(findings_dicts, tool_name='patterns')
+                db_manager.close()
+
+                click.echo(f"[DB] Wrote {len(findings)} findings to database for FCE correlation")
+            except Exception as e:
+                # Non-fatal: if DB write fails, JSON write still succeeds
+                click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
+                click.echo("[DB] JSON output will still be generated for AI consumption")
+        else:
+            click.echo(f"[DB] Database not found - run 'aud index' first for optimal FCE performance")
+        # ===== END DUAL-WRITE =====
+
+        # Always save results to default location (AI CONSUMPTION - REQUIRED)
         patterns_output = project_path / ".pf" / "raw" / "patterns.json"
         patterns_output.parent.mkdir(parents=True, exist_ok=True)
         

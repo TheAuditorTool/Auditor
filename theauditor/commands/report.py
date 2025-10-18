@@ -37,7 +37,54 @@ def report(
     max_snippet_chars,
     print_stats,
 ):
-    """Generate unified audit report from all artifacts."""
+    """Generate consolidated audit report from analysis artifacts.
+
+    Aggregates findings from all analysis phases into AI-optimized chunks
+    in the .pf/readthis/ directory. The report command is typically the
+    final step after running various analysis commands.
+
+    Input Sources (Auto-Detected):
+      - Pattern detection results (.pf/raw/patterns*.json)
+      - Taint analysis findings (.pf/raw/taint*.json)
+      - Lint results (.pf/raw/lint.json)
+      - Dependency analysis (.pf/raw/deps*.json)
+      - Graph analysis (.pf/raw/graph*.json)
+      - FCE correlations (.pf/raw/fce.json)
+      - Control flow analysis (.pf/raw/cfg*.json)
+
+    Output Structure:
+      .pf/readthis/
+      ├── summary.json           # Executive summary with counts
+      ├── patterns_chunk01.json  # Security pattern findings
+      ├── taint_chunk01.json     # Taint flow vulnerabilities
+      ├── lint_chunk01.json      # Code quality issues
+      └── *_chunk*.json          # Other findings (<65KB each)
+
+    Chunking Strategy:
+      - Each file is split into chunks under 65KB
+      - Maximum 3 chunks per analysis type
+      - Designed for LLM context windows
+      - Preserves finding completeness
+
+    Examples:
+      aud report                  # Generate report from all artifacts
+      aud report --print-stats    # Show detailed statistics
+
+    Typical Workflow:
+      1. aud full                 # Run all analysis
+      2. aud report               # Generate consolidated report
+      3. Review .pf/readthis/     # Check AI-optimized output
+
+    Report Contents:
+      - Security vulnerabilities with severity
+      - Code quality issues with locations
+      - Dependency problems
+      - Architectural issues
+      - Cross-referenced findings from FCE
+
+    Note: Most commands auto-generate their chunks, so this command
+    mainly verifies and summarizes existing output. Run after 'aud full'
+    or individual analysis commands."""
     # Report generation has been simplified
     # Data is already chunked in .pf/readthis/ by extraction phase
     

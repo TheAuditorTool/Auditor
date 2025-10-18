@@ -1,15 +1,24 @@
 """Core taint analysis engine.
 
 This module contains the main taint analysis function and TaintPath class.
+
+Schema Contract:
+    All queries use build_query() for schema compliance.
+    Table existence is guaranteed by schema contract - no checks needed.
 """
 
 import sys
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, TYPE_CHECKING
 from collections import defaultdict
 
+if TYPE_CHECKING:
+    from .memory_cache import MemoryCache
+
+from theauditor.indexer.schema import build_query
 from .sources import TAINT_SOURCES, SECURITY_SINKS, SANITIZERS
+from .config import TaintConfig
 from .database import (
     find_taint_sources,
     find_security_sinks,
@@ -27,6 +36,14 @@ class TaintPath:
         self.sink = sink
         self.path = path
         self.vulnerability_type = self._classify_vulnerability()
+        
+        # CFG-specific attributes (optional, added by cfg_integration)
+        self.flow_sensitive = False
+        self.conditions = []
+        self.condition_summary = ""
+        self.path_complexity = 0
+        self.tainted_vars = []
+        self.sanitized_vars = []
     
     def _classify_vulnerability(self) -> str:
         """Classify the vulnerability based on sink type - factual categorization."""
@@ -75,24 +92,48 @@ class TaintPath:
         sink_dict.setdefault("line", 0)
         sink_dict.setdefault("pattern", "unknown_pattern")
         
-        return {
+        result = {
             "source": source_dict,
             "sink": sink_dict,
             "path": self.path or [],
             "path_length": len(self.path) if self.path else 0,
             "vulnerability_type": self.vulnerability_type
         }
+        
+        # Include CFG metadata if present (from cfg_integration)
+        if self.flow_sensitive:
+            result["flow_sensitive"] = self.flow_sensitive
+            result["conditions"] = self.conditions
+            result["condition_summary"] = self.condition_summary
+            result["path_complexity"] = self.path_complexity
+            result["tainted_vars"] = self.tainted_vars
+            result["sanitized_vars"] = self.sanitized_vars
+        
+        return result
 
 
-def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, Any]:
+def trace_taint(db_path: str, max_depth: int = 5, registry=None,
+                use_cfg: bool = True,
+                use_memory_cache: bool = True, memory_limit_mb: int = 12000,
+                cache: Optional['MemoryCache'] = None) -> Dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
-    
+
     Args:
         db_path: Path to the SQLite database
         max_depth: Maximum depth to trace taint propagation
         registry: Optional TaintRegistry with enriched patterns from rules
-        
+        use_cfg: Enable CFG-based analysis (Stage 3 multi-hop when True, Stage 2 when False)
+        use_memory_cache: Enable in-memory caching for performance (default: True)
+        memory_limit_mb: Memory limit for cache in MB (default: 12000)
+        cache: Optional pre-loaded MemoryCache to use (avoids reload)
+
+    Stage Selection (v1.2.1):
+        - use_cfg=True: Stage 3 (CFG-based multi-hop with worklist)
+        - use_cfg=False: Stage 2 (call-graph flow-insensitive)
+
+    Note: The stage3 parameter was removed in v1.2.1 - use_cfg now controls everything.
+
     Returns:
         Dictionary containing:
         - taint_paths: List of source-to-sink vulnerability paths
@@ -101,234 +142,92 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, An
         - vulnerabilities: Count by vulnerability type
     """
     import sqlite3
+    import os
     
-    # We'll temporarily modify the global TAINT_SOURCES and SECURITY_SINKS
-    global TAINT_SOURCES, SECURITY_SINKS
-    original_sources = TAINT_SOURCES
-    original_sinks = SECURITY_SINKS
+    # Create configuration instead of modifying globals
+    # This ensures thread safety and reentrancy
     
-    # Load framework data to enhance analysis
+    # Load framework data from database (not output files)
     frameworks = []
-    frameworks_path = Path(".pf/frameworks.json")
-    if frameworks_path.exists():
+    # CRITICAL FIX: Use parameter, don't shadow it
+    db_path_obj = Path(db_path)
+    if db_path_obj.exists():
         try:
-            with open(frameworks_path, 'r') as f:
-                frameworks = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            # Gracefully continue without framework data
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            # Get all frameworks for enhancement
+            # Schema Contract: frameworks table guaranteed to exist
+            query = build_query('frameworks',
+                ['name', 'version', 'language', 'path'],
+                order_by="is_primary DESC"
+            )
+            cursor.execute(query)
+
+            for name, version, language, path in cursor.fetchall():
+                frameworks.append({
+                    "framework": name,
+                    "version": version or "unknown",
+                    "language": language or "unknown",
+                    "path": path or "."
+                })
+
+            conn.close()
+        except (sqlite3.Error, ImportError):
+            # Gracefully continue without framework enhancement
             pass
     
-    # CRITICAL: Use registry if provided, otherwise use framework enhancement
+    # ARCHITECTURAL FIX: Database-first architecture
+    # Framework patterns are handled upstream and registered via TaintRegistry
+    # The taint analyzer operates ONLY on patterns provided by the registry
     if registry:
-        # Use registry's enriched patterns (from rules)
-        dynamic_sources = {}
-        for category, patterns in registry.sources.items():
-            dynamic_sources[category] = [p.pattern for p in patterns]
-        
-        dynamic_sinks = {}
-        for category, patterns in registry.sinks.items():
-            dynamic_sinks[category] = [p.pattern for p in patterns]
-        
-        # Registry already has all framework patterns from rules
-        # Skip the framework enhancement below
+        # CRITICAL FIX: Load defaults FIRST, then merge registry on top
+        # TaintConfig() creates empty config - we need from_defaults() first!
+        config = TaintConfig.from_defaults().with_registry(registry)
     else:
-        # Original framework enhancement logic
-        # Dynamically extend taint sources based on detected frameworks
-        # Create local copies to avoid modifying global constants
-        dynamic_sources = dict(TAINT_SOURCES)
-        dynamic_sinks = dict(SECURITY_SINKS)
-        
-        # Add framework-specific patterns
-        for fw_info in frameworks:
-            framework = fw_info.get("framework", "").lower()
-            language = fw_info.get("language", "").lower()
-            
-            # Django-specific sources (uppercase patterns)
-            if framework == "django" and language == "python":
-                if "python" not in dynamic_sources:
-                    dynamic_sources["python"] = []
-                    django_sources = [
-                    "request.GET",
-                    "request.POST",
-                    "request.FILES",
-                    "request.META",
-                    "request.session",
-                    "request.COOKIES",
-                    "request.user",
-                    "request.path",
-                    "request.path_info",
-                    "request.method",
-                ]
-                # Add Django sources if not already present
-                for source in django_sources:
-                    if source not in dynamic_sources["python"]:
-                        dynamic_sources["python"].append(source)
-            
-            # Flask-specific sources (already mostly covered but ensure completeness)
-            elif framework == "flask" and language == "python":
-                if "python" not in dynamic_sources:
-                    dynamic_sources["python"] = []
-                flask_sources = [
-                "request.args",
-                "request.form",
-                "request.json",
-                "request.data",
-                "request.values",
-                "request.files",
-                "request.cookies",
-                "request.headers",
-                "request.get_json",
-                "request.get_data",
-                "request.environ",
-                "request.view_args",
-                ]
-                for source in flask_sources:
-                    if source not in dynamic_sources["python"]:
-                        dynamic_sources["python"].append(source)
-            
-            # FastAPI-specific sources 
-            elif framework == "fastapi" and language == "python":
-                if "python" not in dynamic_sources:
-                    dynamic_sources["python"] = []
-                fastapi_sources = [
-                # Starlette Request object (used in FastAPI)
-                "Request",
-                "request.url",
-                "request.headers",
-                "request.cookies",
-                "request.query_params",
-                "request.path_params",
-                "request.client",
-                "request.session",
-                "request.auth",
-                "request.user",
-                "request.state",
-                # FastAPI dependency injection parameters
-                "Query(",
-                "Path(",
-                "Body(",
-                "Header(",
-                "Cookie(",
-                "Form(",
-                "File(",
-                "UploadFile(",
-                "Depends(",
-                # FastAPI security
-                "HTTPBearer",
-                "HTTPBasic",
-                "OAuth2PasswordBearer",
-                "APIKeyHeader",
-                "APIKeyCookie",
-                "APIKeyQuery",
-                ]
-                for source in fastapi_sources:
-                    if source not in dynamic_sources["python"]:
-                        dynamic_sources["python"].append(source)
-            
-            # Express/Node.js sources
-            elif framework in ["express", "fastify", "koa"] and language == "javascript":
-                if "js" not in dynamic_sources:
-                    dynamic_sources["js"] = []
-                node_sources = [
-                "req.body",
-                "req.query",
-                "req.params",
-                "req.headers",
-                "req.cookies",
-                "req.ip",
-                "req.hostname",
-                "req.path",
-                "req.url",
-                ]
-                for source in node_sources:
-                    if source not in dynamic_sources["js"]:
-                        dynamic_sources["js"].append(source)
-                
-                # CRITICAL FIX: Add Express.js specific sinks
-                if "xss" not in dynamic_sinks:
-                    dynamic_sinks["xss"] = []
-                # Ensure it's a list (not a reference to the original)
-                if not isinstance(dynamic_sinks["xss"], list):
-                    dynamic_sinks["xss"] = list(dynamic_sinks["xss"])
-                express_xss_sinks = [
-                # Express response methods with chained status
-                "res.status().json",
-                "res.status().send", 
-                "res.status().jsonp",
-                "res.status().end",
-                # Other Express response methods
-                "res.redirect",
-                "res.cookie",
-                "res.header",
-                "res.set",
-                "res.jsonp",
-                "res.sendFile",  # Path traversal risk
-                "res.download",  # Path traversal risk
-                "res.sendStatus",
-                "res.format",
-                "res.attachment",
-                "res.append",
-                "res.location",
-                ]
-                for sink in express_xss_sinks:
-                    if sink not in dynamic_sinks["xss"]:
-                        dynamic_sinks["xss"].append(sink)
-                
-                # Add Express SQL sinks for ORMs commonly used with Express
-                if "sql" not in dynamic_sinks:
-                    dynamic_sinks["sql"] = []
-                # Ensure it's a list (not a reference to the original)
-                if not isinstance(dynamic_sinks["sql"], list):
-                    dynamic_sinks["sql"] = list(dynamic_sinks["sql"])
-                express_sql_sinks = [
-                "models.sequelize.query",  # Sequelize raw queries
-                "sequelize.query",
-                "knex.raw",  # Knex.js raw queries
-                "db.raw",
-                "db.query",
-                "pool.query",  # Direct pg pool queries
-                "client.query",  # Direct database client queries
-                ]
-                for sink in express_sql_sinks:
-                    if sink not in dynamic_sinks["sql"]:
-                        dynamic_sinks["sql"].append(sink)
-                
-                # Add path traversal sinks specific to Express/Node.js
-                if "path" not in dynamic_sinks:
-                    dynamic_sinks["path"] = []
-                # Ensure it's a list (not a reference to the original)
-                if not isinstance(dynamic_sinks["path"], list):
-                    dynamic_sinks["path"] = list(dynamic_sinks["path"])
-                express_path_sinks = [
-                "res.sendFile",
-                "res.download", 
-                "fs.promises.readFile",
-                "fs.promises.writeFile",
-                "fs.promises.unlink",
-                "fs.promises.rmdir",
-                "fs.promises.mkdir",
-                "require",  # Dynamic require with user input
-                ]
-                for sink in express_path_sinks:
-                    if sink not in dynamic_sinks["path"]:
-                        dynamic_sinks["path"].append(sink)
-    
-    # Replace global TAINT_SOURCES and SECURITY_SINKS with dynamic versions
-    TAINT_SOURCES = dynamic_sources
-    SECURITY_SINKS = dynamic_sinks
+        # Fallback to defaults if no registry provided
+        # This maintains backward compatibility but won't include framework-specific patterns
+        config = TaintConfig.from_defaults()
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
+    # Attempt to preload database into memory cache for performance
+    # CRITICAL FIX: Use provided cache if available (avoids reload in pipeline)
+    if use_memory_cache:
+        if cache is None:  # Only create if not provided
+            from .memory_cache import attempt_cache_preload
+            cache = attempt_cache_preload(
+                cursor,
+                memory_limit_mb,
+                sources_dict=config.sources,
+                sinks_dict=config.sinks,
+            )
+            if cache:
+                print(f"[TAINT] Memory cache enabled: {cache.get_memory_usage_mb():.1f}MB used", file=sys.stderr)
+            else:
+                print("[TAINT] Memory cache disabled: falling back to disk queries", file=sys.stderr)
+        else:
+            # Using pre-loaded cache from pipeline
+            print(f"[TAINT] Using pre-loaded cache: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
+    else:
+        cache = None  # Explicitly disable cache if not requested
+    
     try:
         # Step 1: Find all taint sources in the codebase
-        # CRITICAL FIX: Pass dynamic sources to database function
-        sources = find_taint_sources(cursor, TAINT_SOURCES)
-        
+        # Pass config sources instead of global TAINT_SOURCES
+        sources = find_taint_sources(cursor, config.sources, cache=cache)
+
         # Step 2: Find all security sinks in the codebase
-        # CRITICAL FIX: Pass dynamic sinks to database function
-        sinks = find_security_sinks(cursor, SECURITY_SINKS)
-        
+        # Pass config sinks instead of global SECURITY_SINKS
+        sinks = find_security_sinks(cursor, config.sinks, cache=cache)
+
+        # Step 2.1: Filter framework-safe sinks (P1 Enhancement)
+        # Remove sinks that are automatically sanitized by frameworks (e.g., res.json in Express)
+        from .database import filter_framework_safe_sinks
+        sinks = filter_framework_safe_sinks(cursor, sinks)
+
         # Step 3: Build a call graph for efficient traversal
         call_graph = build_call_graph(cursor)
         
@@ -343,7 +242,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, An
             
             # Trace taint propagation from this source
             paths = trace_from_source(
-                cursor, source, source_function, sinks, call_graph, max_depth
+                cursor, source, source_function, sinks, call_graph, max_depth, use_cfg, cache=cache
             )
             taint_paths.extend(paths)
         
@@ -352,12 +251,13 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, An
         
         # Step 6: Build factual summary with vulnerability counts
         # Count vulnerabilities by type (factual categorization, not interpretation)
+        # Clean implementation - only TaintPath objects now
         vulnerabilities_by_type = defaultdict(int)
         for path in unique_paths:
-            vuln_type = path.vulnerability_type
-            vulnerabilities_by_type[vuln_type] += 1
+            vulnerabilities_by_type[path.vulnerability_type] += 1
         
         # Convert paths to dictionaries
+        # Clean implementation - all paths are TaintPath objects
         path_dicts = [p.to_dict() for p in unique_paths]
         
         # Create summary for pipeline integration
@@ -429,9 +329,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None) -> Dict[str, An
         }
     finally:
         conn.close()
-        # Restore original TAINT_SOURCES and SECURITY_SINKS
-        TAINT_SOURCES = original_sources
-        SECURITY_SINKS = original_sinks
+        # No need to restore globals - we never modified them!
 
 
 def save_taint_analysis(analysis_result: Dict[str, Any], output_path: str = "./.pf/taint_analysis.json"):

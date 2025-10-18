@@ -20,7 +20,54 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--print-stats", is_flag=True, help="Print dependency statistics")
 @click.option("--vuln-scan", is_flag=True, help="Scan dependencies for known vulnerabilities")
 def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
-    """Parse and analyze project dependencies."""
+    """Analyze dependencies for vulnerabilities and updates.
+
+    Comprehensive dependency analysis supporting Python (pip/poetry) and
+    JavaScript/TypeScript (npm/yarn). Can check for outdated packages,
+    known vulnerabilities, and even auto-upgrade everything (YOLO mode).
+
+    Supported Files:
+      - package.json / package-lock.json (npm/yarn)
+      - pyproject.toml (Poetry/setuptools)
+      - requirements.txt / requirements-*.txt (pip)
+      - setup.py / setup.cfg (setuptools)
+
+    Operation Modes:
+      Default:        Parse and inventory all dependencies
+      --check-latest: Check for available updates
+      --vuln-scan:    Run security scanners (npm audit, pip-audit)
+      --upgrade-all:  YOLO mode - upgrade everything to latest
+
+    Examples:
+      aud deps                        # Basic dependency inventory
+      aud deps --check-latest         # Check for outdated packages
+      aud deps --vuln-scan            # Security vulnerability scan
+      aud deps --upgrade-all          # DANGEROUS: Upgrade everything
+      aud deps --offline              # Skip all network operations
+
+    Vulnerability Scanning (--vuln-scan):
+      - Runs 3 native tools: npm audit, pip-audit, OSV-Scanner
+      - Cross-references findings for validation (confidence scoring)
+      - Reports CVEs with severity levels
+      - Exit code 2 for critical vulnerabilities
+      - Requires: Run 'aud setup-ai --target .' first
+      - Offline mode: Uses local OSV databases (faster, no rate limits)
+
+    YOLO Mode (--upgrade-all):
+      - Updates ALL packages to latest versions
+      - Creates .bak files of originals
+      - May break your project (that's the point!)
+
+    Output Files:
+      .pf/raw/deps.json               # Dependency inventory
+      .pf/raw/deps_latest.json        # Latest version info
+      .pf/raw/vulnerabilities.json    # Security findings
+
+    Exit Codes:
+      0 = Success
+      2 = Critical vulnerabilities found (--vuln-scan)
+
+    Note: Respects proxy settings and npm/pip configurations."""
     from theauditor.deps import parse_dependencies, write_deps_json, check_latest_versions, write_deps_latest_json, upgrade_all_deps
     from theauditor.vulnerability_scanner import scan_dependencies, write_vulnerabilities_json, format_vulnerability_report
     import sys
@@ -38,15 +85,20 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
     # Vulnerability scanning
     if vuln_scan:
         click.echo(f"\n[SCAN] Running native vulnerability scanners...")
-        click.echo(f"  Using: npm audit, pip-audit (if available)")
-        
+        click.echo(f"  Using: npm audit, pip-audit, OSV-Scanner")
+        if offline:
+            click.echo(f"  Mode: Offline (all tools use local data)")
+        else:
+            click.echo(f"  Mode: Online registry checks (npm/pip) + offline OSV database")
+            click.echo(f"        OSV-Scanner always uses local database (never hits API)")
+        click.echo(f"  Cross-referencing findings across 3 sources...")
+
         vulnerabilities = scan_dependencies(deps_list, offline=offline)
-        
+
         if vulnerabilities:
-            # Write JSON report
+            # JSON report already written by scanner (with tool_status)
             vuln_output = out.replace("deps.json", "vulnerabilities.json")
-            write_vulnerabilities_json(vulnerabilities, output_path=vuln_output)
-            
+
             # Display human-readable report
             report = format_vulnerability_report(vulnerabilities)
             click.echo("\n" + report)

@@ -68,6 +68,7 @@ venv.bak/
 .DS_Store
 
 # Project specific
+docs/
 .pf/
 .claude/
 audit/
@@ -77,6 +78,8 @@ repo_index.db
 *.db-journal
 /test_scaffold/
 /tmp/
+teamsop.md
+node_modules/
 
 # Test and temporary files
 test_output/
@@ -124,3 +127,4 @@ ehthumbs_vista.db
 # Linux
 .directory
 .Trash-*
+

@@ -33,10 +33,11 @@ class XGraphStore:
                     churn INTEGER,
                     type TEXT DEFAULT 'module',
                     graph_type TEXT NOT NULL,
+                    metadata TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            
+
             # Edges table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS edges (
@@ -47,6 +48,7 @@ class XGraphStore:
                     file TEXT,
                     line INTEGER,
                     graph_type TEXT NOT NULL,
+                    metadata TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(source, target, type, graph_type)
                 )
@@ -67,7 +69,7 @@ class XGraphStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type)")
-            
+
             conn.commit()
     
     def save_import_graph(self, graph: dict[str, Any]) -> None:
@@ -84,11 +86,12 @@ class XGraphStore:
             
             # Insert nodes
             for node in graph.get("nodes", []):
+                metadata_json = json.dumps(node.get("metadata", {})) if node.get("metadata") else None
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO nodes 
-                    (id, file, lang, loc, churn, type, graph_type)
-                    VALUES (?, ?, ?, ?, ?, ?, 'import')
+                    (id, file, lang, loc, churn, type, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, 'import', ?)
                     """,
                     (
                         node["id"],
@@ -97,16 +100,18 @@ class XGraphStore:
                         node.get("loc", 0),
                         node.get("churn"),
                         node.get("type", "module"),
+                        metadata_json,
                     ),
                 )
-            
+
             # Insert edges
             for edge in graph.get("edges", []):
+                metadata_json = json.dumps(edge.get("metadata", {})) if edge.get("metadata") else None
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO edges 
-                    (source, target, type, file, line, graph_type)
-                    VALUES (?, ?, ?, ?, ?, 'import')
+                    (source, target, type, file, line, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, 'import', ?)
                     """,
                     (
                         edge["source"],
@@ -114,6 +119,7 @@ class XGraphStore:
                         edge.get("type", "import"),
                         edge.get("file"),
                         edge.get("line"),
+                        metadata_json,
                     ),
                 )
             
@@ -133,11 +139,12 @@ class XGraphStore:
             
             # Insert nodes
             for node in graph.get("nodes", []):
+                metadata_json = json.dumps(node.get("metadata", {})) if node.get("metadata") else None
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO nodes 
-                    (id, file, lang, loc, churn, type, graph_type)
-                    VALUES (?, ?, ?, ?, ?, ?, 'call')
+                    (id, file, lang, loc, churn, type, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, 'call', ?)
                     """,
                     (
                         node["id"],
@@ -146,16 +153,18 @@ class XGraphStore:
                         node.get("loc", 0),
                         node.get("churn"),
                         node.get("type", "function"),
+                        metadata_json,
                     ),
                 )
-            
+
             # Insert edges
             for edge in graph.get("edges", []):
+                metadata_json = json.dumps(edge.get("metadata", {})) if edge.get("metadata") else None
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO edges 
-                    (source, target, type, file, line, graph_type)
-                    VALUES (?, ?, ?, ?, ?, 'call')
+                    (source, target, type, file, line, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, 'call', ?)
                     """,
                     (
                         edge["source"],
@@ -163,6 +172,7 @@ class XGraphStore:
                         edge.get("type", "call"),
                         edge.get("file"),
                         edge.get("line"),
+                        metadata_json,
                     ),
                 )
             
@@ -190,6 +200,7 @@ class XGraphStore:
                     "loc": row["loc"],
                     "churn": row["churn"],
                     "type": row["type"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
                 })
             
             # Load edges
@@ -203,6 +214,7 @@ class XGraphStore:
                     "type": row["type"],
                     "file": row["file"],
                     "line": row["line"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
                 })
             
             return {"nodes": nodes, "edges": edges}
@@ -229,6 +241,7 @@ class XGraphStore:
                     "loc": row["loc"],
                     "churn": row["churn"],
                     "type": row["type"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
                 })
             
             # Load edges
@@ -242,6 +255,7 @@ class XGraphStore:
                     "type": row["type"],
                     "file": row["file"],
                     "line": row["line"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
                 })
             
             return {"nodes": nodes, "edges": edges}

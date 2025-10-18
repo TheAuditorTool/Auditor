@@ -63,7 +63,7 @@ aud --version
 cd ~/my-project-to-audit
 
 # Create the sandboxed environment for THIS project
-aud setup-claude --target .
+aud setup-ai --target .
 ```
 
 This command:
@@ -117,7 +117,8 @@ Setting up JavaScript/TypeScript tools in sandboxed environment...
 
 ### Complete Audit Pipeline
 
-On a medium 20k LOC node/react/vite stack, expect the analysis to take around 30 minutes.
+**v1.2 Performance:** On a medium 20k LOC node/react/vite stack, analysis now takes ~2-5 minutes (was 10 minutes in v1.1, 30 minutes pre-v1.1).
+Second run with warm caches: Near-instant for most analysis phases.
 Progress bars for tracks B/C may display inconsistently on PowerShell.
 
 Run a comprehensive audit with multiple analysis phases organized in parallel stages:
@@ -129,30 +130,37 @@ aud full
 aud full --offline
 ```
 
-This executes in **parallel stages** for optimal performance:
+This executes in **4-stage optimized pipeline** for maximum performance (v1.1+):
 
 **Stage 1 - Foundation (Sequential):**
 1. **Repository indexing** - Build manifest and symbol database
 2. **Framework detection** - Identify technologies in use
 
-**Stage 2 - Concurrent Analysis (3 Parallel Tracks):**
-- **Track A (Network I/O):** *(skipped with --offline)*
-  3. **Dependency checking** - Scan for vulnerabilities
-  4. **Documentation fetching** - Gather project docs
-  5. **Documentation summarization** - Create AI-friendly summaries
-- **Track B (Code Analysis):**
-  6. **Workset creation** - Define analysis scope
-  7. **Linting** - Run code quality checks
-  8. **Pattern detection** - Apply security rules
-- **Track C (Graph Build):**
-  9. **Graph building** - Construct dependency graph
+**Stage 2 - Data Preparation (Sequential) [NEW in v1.1]:**
+3. **Workset creation** - Define analysis scope
+4. **Graph building** - Construct dependency graph
+5. **CFG analysis** - Build control flow graphs
 
-**Stage 3 - Final Aggregation (Sequential):**
-10. **Graph analysis** - Find architectural issues
-11. **Taint analysis** - Track data flow
-12. **Factual correlation engine** - Correlate findings across tools with 29 advanced rules
-13. **Report generation** - Produce final output
-14. **Summary generation** - Create executive summary
+**Stage 3 - Heavy Parallel Analysis (3 Rebalanced Tracks):**
+- **Track A (Taint Analysis - Isolated):**
+  6. **Taint analysis** - Track data flow (~30 seconds with v1.2 memory cache, was 2-4 hours)
+- **Track B (Static & Graph Analysis):**
+  7. **Linting** - Run code quality checks
+  8. **Pattern detection** - Apply security rules (355x faster with AST)
+  9. **Graph analysis** - Find architectural issues
+  10. **Graph visualization** - Generate multiple views
+- **Track C (Network I/O):** *(skipped with --offline)*
+  11. **Dependency checking** - Scan for vulnerabilities
+  12. **Documentation fetching** - Gather project docs
+  13. **Documentation summarization** - Create AI-friendly summaries
+
+**Stage 4 - Final Aggregation (Sequential):**
+14. **Factual correlation engine** - Correlate findings across tools with 30 advanced rules
+15. **[AUTOMATIC]** Chunk extraction to readthis/ - Create AI-consumable output (<65KB chunks)
+16. **Report generation** - Produce final consolidated output
+17. **Summary generation** - Create executive summary
+
+**Performance Impact:** 25-40% faster overall execution by isolating heavy taint analysis
 
 **Output**: Complete results in **`.pf/readthis/`** directory
 
@@ -245,19 +253,21 @@ Detects:
 
 #### Pattern Detection
 
+**v1.2 Performance:** 355x faster using AST-based rules (10 hours → 101 seconds in v1.1). With optimized AST caching, near-instant on second run.
+
 Run pattern-based vulnerability scanning:
 
 ```bash
 aud detect-patterns
 ```
 
-Uses **100+ YAML-defined patterns** across multiple categories:
+Uses **100+ security rules** (AST-based analysis + YAML patterns) across multiple categories:
 
-**Security Patterns:**
+**Security Patterns** (AST-based rules in `theauditor/rules/`):
 - Hardcoded secrets and API keys
 - Insecure randomness (**Math.random** for security)
 - Weak cryptographic algorithms
-- Authentication bypasses
+- Authentication bypasses (JWT issues, session fixation)
 - Missing authentication decorators
 
 **Resource Management:**
@@ -499,6 +509,51 @@ The graph viz command:
 - Supports filtered views for focusing on specific concerns
 - Includes analysis data for cycle and hotspot highlighting
 - Produces AI-readable SVG output for LLM analysis
+
+### Control Flow Graph Analysis
+
+**v1.2 Update:** CFG analysis cache expanded to 25,000 functions (was 10,000 in v1.1). JavaScript/TypeScript CFG extraction fully working since v1.1.
+
+Analyze function-level control flow complexity and find code quality issues:
+
+```bash
+# Analyze all functions for high complexity
+aud cfg analyze --complexity-threshold 10
+
+# Find complex functions in specific file
+aud cfg analyze --file src/payment.py --complexity-threshold 15
+
+# Find dead code (unreachable blocks)
+aud cfg analyze --find-dead-code
+
+# Analyze workset files only
+aud cfg analyze --workset --find-dead-code
+
+# Save analysis results
+aud cfg analyze --output cfg_analysis.json
+
+# Visualize a specific function's control flow
+aud cfg viz --file src/auth.py --function validate_token
+
+# Generate SVG with statements shown
+aud cfg viz --file src/api.py --function handle_request --format svg --show-statements
+
+# Highlight execution paths
+aud cfg viz --file src/payment.py --function process_payment --highlight-paths
+```
+
+Metrics Provided:
+- **Cyclomatic Complexity**: Number of independent paths through code (McCabe complexity)
+- **Decision Points**: Count of if/else, loops, try/catch blocks
+- **Maximum Nesting**: Deepest level of nested control structures
+- **Unreachable Code**: Dead code blocks that can never execute
+- **Execution Paths**: All possible paths through a function
+
+The CFG commands help identify:
+- Functions that are too complex and need refactoring
+- Dead code that can be removed
+- High-risk functions with many execution paths
+- Code quality issues before they become bugs
 
 ### Dependency Management
 
@@ -814,7 +869,7 @@ jobs:
       - name: Install TheAuditor
         run: |
           pip install -e ".[all]"
-          aud setup-claude --target .
+          aud setup-ai --target .
       
       - name: Run Audit
         run: aud full
@@ -850,7 +905,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
 
 # 2. CRITICAL: Create the sandboxed analysis environment
-aud setup-claude --target .
+aud setup-ai --target .
 
 # 3. Verify setup
 aud full --quick-test
@@ -1032,7 +1087,7 @@ This detects when you moved price fields from Product to ProductVariant model bu
 
 #### "TypeScript compiler not available in TheAuditor sandbox"
 
-**Solution**: Run **`aud setup-claude --target .`** to set up the sandbox.
+**Solution**: Run **`aud setup-ai --target .`** to set up the sandbox.
 
 #### "Coverage < 90% - run `aud capsules` first"
 
@@ -1050,7 +1105,7 @@ aud workset --all
 pip install -e ".[linters]"
 
 # For JavaScript/TypeScript
-aud setup-claude --target .
+aud setup-ai --target .
 ```
 
 #### Pipeline fails at specific phase
@@ -1061,6 +1116,34 @@ cat .pf/error.log
 # Or check phase-specific error log
 cat .pf/error_phase_08.log
 ```
+
+#### Cache corruption or stale documentation
+
+**Problem**: Analysis producing unexpected results or failing due to corrupted cache data.
+
+**Symptoms**:
+- Dependency documentation showing outdated versions
+- AST parsing errors for unchanged files
+- Unexpected analysis failures on previously successful runs
+
+**Solution**: Force a complete cache rebuild:
+```bash
+aud full --wipecache  # Delete all caches before analysis
+```
+
+**What this does**:
+- Deletes `.pf/.cache/` (AST parsing cache)
+- Deletes `.pf/context/` (documentation cache and summaries)
+- Forces fresh rebuild of all cached data
+- Adds ~40-90 seconds to analysis time (one-time cost)
+
+**When to use**:
+- After major dependency version updates
+- When seeing stale dependency documentation
+- Cache corruption suspected
+- First-time debugging of analysis issues
+
+**Normal behavior**: Caches are PRESERVED between runs for performance (~40s savings). Only use `--wipecache` when troubleshooting.
 
 ### Performance Optimization
 
@@ -1096,16 +1179,41 @@ export THEAUDITOR_TIMEOUTS_FCE_TIMEOUT=1200        # Default: 600 (seconds)
 
 # Batch processing
 export THEAUDITOR_LIMITS_DEFAULT_BATCH_SIZE=500    # Default: 200
+
+# Cache configuration (v1.2+)
+export THEAUDITOR_TAINT_MEMORY_LIMIT=8589934592    # Default: 4GB (4294967296)
+export THEAUDITOR_AST_CACHE_SIZE=10000             # Default: 10000 entries
+export THEAUDITOR_CFG_CACHE_SIZE=25000             # Default: 25000 entries
+export THEAUDITOR_GRAPH_CACHE_MAX_EDGES=100000     # Default: 100000 edges
+export THEAUDITOR_AST_DISK_CACHE_SIZE=1073741824   # Default: 1GB
 ```
 
 Configuration can also be set via `.pf/config.json` for project-specific overrides.
+
+### Cache Architecture (v1.2+)
+
+TheAuditor v1.2 introduces sophisticated caching for massive performance improvements:
+
+**Memory Caches:**
+- **Taint Analysis Cache**: In-memory multi-index structure with O(1) lookups
+- **AST Parser Cache**: LRU cache for 10,000 parsed files (was 500 in v1.1)
+- **CFG Analysis Cache**: SQLite cache for 25,000 functions (was 10,000 in v1.1)
+
+**Disk Caches:**
+- **Graph Cache**: SQLite with 100,000 edge limit and LRU eviction
+- **AST Disk Cache**: JSON files with 1GB/20,000 file limits
+
+These caches enable:
+- **8,461x faster** taint analysis on warm runs
+- **Near-instant** re-analysis of unchanged code
+- **Memory safety** through smart eviction policies
 
 ---
 
 ## Best Practices
 
 1. **Always run `aud init` first** in a new project
-2. **Set up the sandbox** for JavaScript/TypeScript projects using **`aud setup-claude --target .`**
+2. **Set up the sandbox** for JavaScript/TypeScript projects using **`aud setup-ai --target .`**
 3. **Use worksets** for incremental analysis during development
 4. **Run `aud full`** before releases for comprehensive analysis
 5. **Review `.pf/readthis/`** for AI-friendly issue summaries

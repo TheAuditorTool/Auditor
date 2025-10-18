@@ -1,25 +1,54 @@
 """Tree-sitter generic AST extraction implementations.
 
 This module contains Tree-sitter extraction logic that works across multiple languages.
+
+CRITICAL: Tree-sitter is FORBIDDEN for JavaScript/TypeScript files.
+It produces corrupted data (e.g., "anonymous" function names).
+JS/TS MUST use TypeScript Compiler API (semantic parser) - NO EXCEPTIONS.
 """
 
 from typing import Any, List, Dict, Optional
 
 from .base import (
     find_containing_function_tree_sitter,
-    extract_vars_from_tree_sitter_expr
+    extract_vars_from_tree_sitter_expr,  # DEPRECATED: Returns [] to enforce AST purity
+    sanitize_call_name,
 )
+
+
+def _check_js_ts_forbidden(language: str) -> None:
+    """Enforce that Tree-sitter is NEVER used for JavaScript/TypeScript.
+
+    Tree-sitter produces corrupted data for JS/TS (e.g., "anonymous" function names).
+    These languages MUST use the TypeScript Compiler API semantic parser.
+
+    Args:
+        language: The programming language being parsed
+
+    Raises:
+        RuntimeError: If language is JavaScript or TypeScript
+    """
+    if language in ["javascript", "typescript"]:
+        raise RuntimeError(
+            f"FATAL: Tree-sitter is FORBIDDEN for {language} files.\n"
+            f"Tree-sitter produces corrupted data (anonymous function names, broken call graphs).\n"
+            f"JavaScript/TypeScript MUST use TypeScript Compiler API semantic parser.\n"
+            f"This is a bug in the parser selection logic - tree-sitter should never be called for JS/TS.\n"
+            f"Ensure ast_parser.py fails loudly if semantic parser is unavailable."
+        )
 
 
 def extract_treesitter_functions(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract function definitions from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_functions(actual_tree.root_node, language)
 
 
@@ -50,6 +79,7 @@ def _extract_tree_sitter_functions(node: Any, language: str) -> List[Dict]:
         functions.append({
             "name": name,
             "line": node.start_point[0] + 1,
+            "end_line": node.end_point[0] + 1,  # Extract end line from tree-sitter node
             "type": node.type,
         })
 
@@ -62,13 +92,15 @@ def _extract_tree_sitter_functions(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_classes(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract class definitions from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_classes(actual_tree.root_node, language)
 
 
@@ -112,13 +144,15 @@ def _extract_tree_sitter_classes(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_calls(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract function calls from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_calls(actual_tree.root_node, language)
 
 
@@ -166,13 +200,15 @@ def _extract_tree_sitter_calls(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_imports(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract import statements from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_imports(actual_tree.root_node, language)
 
 
@@ -196,25 +232,40 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any
         # Parse based on node type
         if node.type == "import_statement":
             # Handle: import foo from 'bar'
-            source_node = None
-            specifiers = []
-            
+            module_name = None
+            default_import = None
+            namespace_import = None
+            named_imports = []
+
             for child in node.children:
                 if child.type == "string":
-                    source_node = child.text.decode("utf-8", errors="ignore").strip("\"'")
+                    module_name = child.text.decode("utf-8", errors="ignore").strip("\"'")
                 elif child.type == "import_clause":
-                    # Extract imported names
                     for spec_child in child.children:
-                        if spec_child.type == "identifier":
-                            specifiers.append(spec_child.text.decode("utf-8", errors="ignore"))
-            
-            if source_node:
+                        if spec_child.type == "identifier" and default_import is None:
+                            default_import = spec_child.text.decode("utf-8", errors="ignore")
+                        elif spec_child.type == "namespace_import":
+                            name_node = spec_child.child_by_field_name('name')
+                            if name_node and name_node.text:
+                                namespace_import = name_node.text.decode("utf-8", errors="ignore")
+                        elif spec_child.type == "named_imports":
+                            for element in spec_child.children:
+                                if element.type == "import_specifier":
+                                    name_node = element.child_by_field_name('name')
+                                    if name_node and name_node.text:
+                                        named_imports.append(name_node.text.decode("utf-8", errors="ignore"))
+
+            if module_name:
                 imports.append({
                     "source": "import",
-                    "target": source_node,
+                    "target": module_name,
                     "type": "import",
                     "line": node.start_point[0] + 1,
-                    "specifiers": specifiers
+                    "specifiers": named_imports,
+                    "namespace": namespace_import,
+                    "default": default_import,
+                    "names": named_imports,
+                    "text": None,
                 })
         
         elif node.type == "require_call":
@@ -227,7 +278,11 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any
                         "target": target,
                         "type": "require",
                         "line": node.start_point[0] + 1,
-                        "specifiers": []
+                        "specifiers": [],
+                        "names": [],
+                        "namespace": None,
+                        "default": None,
+                        "text": None,
                     })
     
     # Recursively search children
@@ -239,13 +294,15 @@ def _extract_tree_sitter_imports(node: Any, language: str) -> List[Dict[str, Any
 
 def extract_treesitter_exports(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract export statements from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_exports(actual_tree.root_node, language)
 
 
@@ -303,13 +360,15 @@ def _extract_tree_sitter_exports(node: Any, language: str) -> List[Dict[str, Any
 
 def extract_treesitter_properties(tree: Dict, parser_self, language: str) -> List[Dict]:
     """Extract property accesses from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_properties(actual_tree.root_node, language)
 
 
@@ -351,15 +410,17 @@ def _extract_tree_sitter_properties(node: Any, language: str) -> List[Dict]:
 
 def extract_treesitter_assignments(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract variable assignments from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     content = tree.get("content", "")
-    
+
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_assignments(actual_tree.root_node, language, content)
 
 
@@ -406,6 +467,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                             "source_expr": value_node.text.decode("utf-8", errors="ignore"),
                             "line": child.start_point[0] + 1,
                             "in_function": in_function,
+                            # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                            # Should traverse value_node AST instead of parsing its text
                             "source_vars": extract_vars_from_tree_sitter_expr(
                                 value_node.text.decode("utf-8", errors="ignore")
                             )
@@ -420,6 +483,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 target_var = left_node.text.decode("utf-8", errors="ignore")
             if right_node:
                 source_expr = right_node.text.decode("utf-8", errors="ignore")
+                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                # Should traverse right_node AST instead of parsing its text
                 source_vars = extract_vars_from_tree_sitter_expr(source_expr)
         
         elif node.type == "assignment":
@@ -449,6 +514,8 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
                 "source_expr": source_expr,
                 "line": node.start_point[0] + 1,
                 "in_function": in_function or "global",
+                # EDGE CASE DISCOVERY: source_vars now [] due to regex removal
+                # This fallback now returns [] - traverse AST node instead
                 "source_vars": source_vars if source_vars else extract_vars_from_tree_sitter_expr(source_expr)
             })
     
@@ -461,13 +528,15 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
 
 def extract_treesitter_function_params(tree: Dict, parser_self, language: str) -> Dict[str, List[str]]:
     """Extract function parameters from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     if not actual_tree:
         return {}
-    
+
     if not parser_self.has_tree_sitter:
         return {}
-    
+
     return _extract_tree_sitter_function_params(actual_tree.root_node, language)
 
 
@@ -540,15 +609,17 @@ def extract_treesitter_calls_with_args(
     tree: Dict, function_params: Dict[str, List[str]], parser_self, language: str
 ) -> List[Dict[str, Any]]:
     """Extract function calls with arguments from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     content = tree.get("content", "")
-    
+
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_calls_with_args(
         actual_tree.root_node, language, content, function_params
     )
@@ -577,7 +648,9 @@ def _extract_tree_sitter_calls_with_args(
                 if child.type in ["identifier", "member_expression"]:
                     func_name = child.text.decode("utf-8", errors="ignore") if child.text else "unknown"
                     break
-        
+
+        func_name = sanitize_call_name(func_name)
+
         # Find caller function
         caller_function = find_containing_function_tree_sitter(node, content, language) or "global"
         
@@ -611,6 +684,8 @@ def _extract_tree_sitter_calls_with_args(
             if child.type in ["identifier", "attribute"]:
                 func_name = child.text.decode("utf-8", errors="ignore") if child.text else "unknown"
                 break
+
+        func_name = sanitize_call_name(func_name)
         
         caller_function = find_containing_function_tree_sitter(node, content, language) or "global"
         callee_params = function_params.get(func_name.split(".")[-1], [])
@@ -642,15 +717,17 @@ def _extract_tree_sitter_calls_with_args(
 
 def extract_treesitter_returns(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
     """Extract return statements from Tree-sitter AST."""
+    _check_js_ts_forbidden(language)
+
     actual_tree = tree.get("tree")
     content = tree.get("content", "")
-    
+
     if not actual_tree:
         return []
-    
+
     if not parser_self.has_tree_sitter:
         return []
-    
+
     return _extract_tree_sitter_returns(actual_tree.root_node, language, content)
 
 
@@ -675,14 +752,16 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
         
         if not return_expr:
             return_expr = "undefined"
-        
+
         returns.append({
             "function_name": function_name,
             "line": node.start_point[0] + 1,
             "return_expr": return_expr,
+            # EDGE CASE DISCOVERY: return_vars now [] due to regex removal (JS)
+            # Should traverse the return expression AST node instead
             "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
         })
-    
+
     elif language == "python" and node.type == "return_statement":
         # Find containing function
         function_name = find_containing_function_tree_sitter(node, content, language) or "global"
@@ -696,16 +775,41 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
         
         if not return_expr:
             return_expr = "None"
-        
+
         returns.append({
             "function_name": function_name,
             "line": node.start_point[0] + 1,
             "return_expr": return_expr,
+            # EDGE CASE DISCOVERY: return_vars now [] due to regex removal (Python)
+            # Should traverse the return expression AST node instead
             "return_vars": extract_vars_from_tree_sitter_expr(return_expr)
         })
-    
+
     # Recursively search children
     for child in node.children:
         returns.extend(_extract_tree_sitter_returns(child, language, content))
-    
+
     return returns
+
+
+def extract_treesitter_cfg(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:
+    """Extract control flow graph from tree-sitter AST.
+
+    NOTE: CFG extraction not implemented for generic tree-sitter.
+    Python projects should use Python's ast module (type="python_ast").
+    TypeScript projects should use semantic parser (type="semantic_ast").
+    Both have language-specific CFG implementations.
+
+    This stub prevents extraction failures when tree-sitter is used as fallback.
+
+    Args:
+        tree: Parsed AST tree dictionary
+        parser_self: ASTParser instance (for compatibility)
+        language: Source language (for compatibility)
+
+    Returns:
+        Empty list (no CFG data from generic tree-sitter)
+    """
+    _check_js_ts_forbidden(language)
+
+    return []

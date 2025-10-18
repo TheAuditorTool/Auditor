@@ -28,7 +28,11 @@ RATE_LIMIT_BACKOFF = 15   # Backoff on 429/disconnect (15s gives APIs time to re
 def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
     """
     Parse dependencies from various package managers.
-    
+
+    Architecture:
+    - Primary: Read from package_configs table (populated by indexer)
+    - Fallback: Parse files directly (for standalone 'aud deps' without 'aud index')
+
     Returns list of dependency objects with structure:
     {
         "name": str,
@@ -39,58 +43,83 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
     }
     """
     import os
+    import sqlite3
     root = Path(root_path)
     deps = []
-    
+
     # Debug mode
     debug = os.environ.get("THEAUDITOR_DEBUG")
-    
-    # Parse Node dependencies
-    try:
-        package_json = sanitize_path("package.json", root_path)
-        if package_json.exists():
-            if debug:
-                print(f"Debug: Found {package_json}")
-            deps.extend(_parse_package_json(package_json))
-    except SecurityError as e:
+
+    # =========================================================================
+    # DATABASE-FIRST: Try to read npm dependencies from package_configs table
+    # =========================================================================
+    db_path = root / ".pf" / "repo_index.db"
+    npm_deps_from_db = []
+
+    if db_path.exists():
         if debug:
-            print(f"Debug: Security error checking package.json: {e}")
-    
-    # Check for package.json in common monorepo patterns (even without workspaces field)
-    # This handles cases where monorepos don't use npm/yarn/pnpm workspaces
-    npm_patterns = [
-        "*/package.json",           # backend/package.json, frontend/package.json
-        "packages/*/package.json",   # packages/core/package.json
-        "apps/*/package.json",       # apps/web/package.json
-        "services/*/package.json",   # services/api/package.json
-    ]
-    
-    package_files = []
-    for pattern in npm_patterns:
-        package_files.extend(root.glob(pattern))
-    
-    # Process all discovered package.json files
-    for pkg_file in package_files:
-        try:
-            safe_pkg = sanitize_path(str(pkg_file), root_path)
+            print(f"Debug: Reading npm dependencies from database: {db_path}")
+
+        npm_deps_from_db = _read_npm_deps_from_database(db_path, root, debug)
+
+        if npm_deps_from_db:
             if debug:
-                print(f"Debug: Found {safe_pkg}")
-            # Parse this package.json directly without workspace detection
-            pkg_deps = _parse_standalone_package_json(safe_pkg)
-            # Set the workspace_package field to reflect the actual path
-            try:
-                rel_path = safe_pkg.relative_to(Path(root_path).resolve())
-                workspace_path = str(rel_path).replace("\\", "/")
-            except ValueError:
-                workspace_path = str(safe_pkg)
-            
-            for dep in pkg_deps:
-                dep["workspace_package"] = workspace_path
-            
-            deps.extend(pkg_deps)
+                print(f"Debug: Loaded {len(npm_deps_from_db)} npm dependencies from database")
+            deps.extend(npm_deps_from_db)
+        elif debug:
+            print("Debug: package_configs table empty, falling back to file parsing for npm")
+    elif debug:
+        print("Debug: Database not found, parsing npm dependencies from files")
+
+    # =========================================================================
+    # FALLBACK: Parse npm dependencies from files if database didn't have them
+    # =========================================================================
+    if not npm_deps_from_db:
+        # Parse Node dependencies from files
+        try:
+            package_json = sanitize_path("package.json", root_path)
+            if package_json.exists():
+                if debug:
+                    print(f"Debug: Found {package_json}")
+                deps.extend(_parse_package_json(package_json))
         except SecurityError as e:
             if debug:
-                print(f"Debug: Security error with {pkg_file}: {e}")
+                print(f"Debug: Security error checking package.json: {e}")
+
+        # Check for package.json in common monorepo patterns
+        npm_patterns = [
+            "*/package.json",           # backend/package.json, frontend/package.json
+            "packages/*/package.json",   # packages/core/package.json
+            "apps/*/package.json",       # apps/web/package.json
+            "services/*/package.json",   # services/api/package.json
+        ]
+
+        package_files = []
+        for pattern in npm_patterns:
+            package_files.extend(root.glob(pattern))
+
+        # Process all discovered package.json files
+        for pkg_file in package_files:
+            try:
+                safe_pkg = sanitize_path(str(pkg_file), root_path)
+                if debug:
+                    print(f"Debug: Found {safe_pkg}")
+                # Parse this package.json directly without workspace detection
+                pkg_deps = _parse_standalone_package_json(safe_pkg)
+                # Set the workspace_package field to reflect the actual path
+                try:
+                    rel_path = safe_pkg.relative_to(Path(root_path).resolve())
+                    workspace_path = str(rel_path).replace("\\", "/")
+                except ValueError:
+                    workspace_path = str(safe_pkg)
+
+                for dep in pkg_deps:
+                    dep["workspace_package"] = workspace_path
+
+                deps.extend(pkg_deps)
+            except SecurityError as e:
+                if debug:
+                    print(f"Debug: Security error with {pkg_file}: {e}")
     
     # Parse Python dependencies
     try:
@@ -166,6 +195,93 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
         print(f"Debug: Total dependencies found: {len(deps)}")
     
     return deps
+
+
+def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> List[Dict[str, Any]]:
+    """Read npm dependencies from package_configs table.
+
+    Args:
+        db_path: Path to repo_index.db
+        root: Project root path
+        debug: Debug mode flag
+
+    Returns:
+        List of dependency dictionaries in deps.py format
+    """
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check if package_configs table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='package_configs'
+        """)
+
+        if not cursor.fetchone():
+            conn.close()
+            return []
+
+        # Read all package.json files from database
+        cursor.execute("""
+            SELECT file_path, package_name, version, dependencies, dev_dependencies
+            FROM package_configs
+        """)
+
+        deps = []
+
+        for file_path, pkg_name, pkg_version, deps_json, dev_deps_json in cursor.fetchall():
+            if not deps_json:
+                continue
+
+            try:
+                dependencies = json.loads(deps_json)
+                dev_dependencies = json.loads(dev_deps_json) if dev_deps_json else {}
+
+                # Determine workspace_package path (for monorepo support)
+                workspace_package = file_path if file_path != "package.json" else None
+
+                # Convert to deps.py format (maintains compatibility with downstream code)
+                for name, version in dependencies.items():
+                    dep_obj = {
+                        "name": name,
+                        "version": version,
+                        "manager": "npm",
+                        "files": [],  # TODO: Could join with refs table for actual usage
+                        "source": file_path
+                    }
+                    if workspace_package:
+                        dep_obj["workspace_package"] = workspace_package
+                    deps.append(dep_obj)
+
+                # Include devDependencies (marked separately)
+                for name, version in dev_dependencies.items():
+                    dep_obj = {
+                        "name": name,
+                        "version": version,
+                        "manager": "npm",
+                        "files": [],
+                        "source": file_path,
+                        "dev": True
+                    }
+                    if workspace_package:
+                        dep_obj["workspace_package"] = workspace_package
+                    deps.append(dep_obj)
+
+            except json.JSONDecodeError:
+                if debug:
+                    print(f"Debug: Failed to parse dependencies JSON from {file_path}")
+                continue
+
+        conn.close()
+        return deps
+
+    except (sqlite3.Error, Exception) as e:
+        if debug:
+            print(f"Debug: Database read error: {e}")
+        return []
 
 
 def _parse_standalone_package_json(path: Path) -> List[Dict[str, Any]]:

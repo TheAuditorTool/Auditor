@@ -5,6 +5,13 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
+# Try to import json5 for better tsconfig parsing
+try:
+    import json5
+    HAS_JSON5 = True
+except ImportError:
+    HAS_JSON5 = False
+
 
 class ModuleResolver:
     """Resolves module imports for TypeScript/JavaScript projects.
@@ -64,12 +71,11 @@ class ModuleResolver:
             
             for path, content, context_dir in configs:
                 try:
-                    # Use the json5 library if available, otherwise strip comments manually
-                    try:
-                        import json5
+                    # Use json5 if available for proper tsconfig parsing
+                    if HAS_JSON5:
                         config = json5.loads(content)
-                    except ImportError:
-                        # Strip comments carefully (tsconfig allows comments)
+                    else:
+                        # Fallback: Strip comments manually (tsconfig allows comments)
                         # First remove single-line comments (but not inside strings)
                         lines = content.split('\n')
                         cleaned_lines = []
@@ -85,15 +91,16 @@ class ModuleResolver:
                                     line = before_comment
                             cleaned_lines.append(line)
                         content = '\n'.join(cleaned_lines)
-                        
-                        # Remove multi-line comments (/* ... */) more carefully
-                        # This is tricky with @/* patterns, so skip if risky
-                        if '/*' in content and '*/' in content and '@/*' not in content:
-                            content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-                        
+
+                        # Remove multi-line comments (/* ... */)
+                        # Use negative lookbehind to preserve @/* path patterns
+                        if '/*' in content and '*/' in content:
+                            # This regex avoids removing @/* patterns while removing /* */ comments
+                            content = re.sub(r'(?<!@)/\*.*?\*/', '', content, flags=re.DOTALL)
+
                         # Remove trailing commas before closing brackets/braces
                         content = re.sub(r',(\s*[}\]])', r'\1', content)
-                        
+
                         config = json.loads(content)
                     
                     # Handle root config with references

@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .logger import setup_logger
+
+logger = setup_logger(__name__)
+
 
 def compute_file_hash(file_path: Path) -> str:
     """
@@ -32,9 +36,24 @@ def load_json_file(file_path: str) -> dict[str, Any]:
 
     Returns:
         Parsed JSON as dictionary
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        json.JSONDecodeError: If file contains invalid JSON
+        PermissionError: If file cannot be read
     """
-    with open(file_path) as f:
-        return json.load(f)
+    try:
+        with open(file_path, encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        logger.error(f"JSON file not found: {file_path}")
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in file {file_path}: {e}")
+        raise
+    except PermissionError:
+        logger.error(f"Permission denied reading file: {file_path}")
+        raise
 
 
 def save_json_file(data: dict[str, Any], file_path: str) -> None:
@@ -94,7 +113,7 @@ def extract_data_array(data: Any, key: str, path: str) -> list:
         return data
     else:
         # Invalid format - log warning and return empty list
-        print(f"[WARNING] Invalid format in {path} - expected dict with '{key}' key or flat list")
+        logger.warning(f"Invalid format in {path} - expected dict with '{key}' key or flat list")
         return []
 
 
@@ -118,8 +137,6 @@ def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:
     patterns = [
         "theauditor/**",
         "tests/**",
-        "agent_templates/**",
-        ".claude/**",
         ".make/**",
         ".venv/**",
         ".venv_wsl/**",

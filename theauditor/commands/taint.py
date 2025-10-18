@@ -22,13 +22,21 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]), 
               default="all", help="Filter results by severity level")
 @click.option("--rules/--no-rules", default=True, help="Enable/disable rule-based detection")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
+@click.option("--use-cfg/--no-cfg", default=True,
+              help="Use flow-sensitive CFG analysis (enabled by default)")
+@click.option("--memory/--no-memory", default=True,
+              help="Use in-memory caching for 5-10x performance (enabled by default)")
+@click.option("--memory-limit", default=None, type=int,
+              help="Memory limit for cache in MB (auto-detected based on system RAM if not set)")
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, memory, memory_limit):
     """
     Perform taint analysis to detect security vulnerabilities.
     
     This command traces the flow of untrusted data from taint sources
-    (user inputs) to security sinks (dangerous functions) to identify
-    potential injection vulnerabilities and data exposure risks.
+    (user inputs) to security sinks (dangerous functions) using:
+    - Control Flow Graph (CFG) for path-sensitive analysis
+    - Inter-procedural analysis to track data across function calls
+    - Unified caching for performance optimization
     
     The analysis detects:
     - SQL Injection
@@ -42,13 +50,20 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
         aud taint-analyze
         aud taint-analyze --severity critical --verbose
         aud taint-analyze --json --output vulns.json
+        aud taint-analyze --no-cfg  # Disable CFG analysis (not recommended)
     """
     from theauditor.taint_analyzer import trace_taint, save_taint_analysis, normalize_taint_path, SECURITY_SINKS
     from theauditor.taint.insights import format_taint_report, calculate_severity, generate_summary, classify_vulnerability
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
     from theauditor.taint.registry import TaintRegistry
+    from theauditor.utils.memory import get_recommended_memory_limit
     import json as json_lib
+    
+    # Auto-detect memory limit if not specified
+    if memory_limit is None:
+        memory_limit = get_recommended_memory_limit()
+        click.echo(f"[MEMORY] Using auto-detected memory limit: {memory_limit}MB")
     
     # Load configuration for default paths
     config = load_runtime_config(".")
@@ -63,13 +78,56 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
         click.echo(f"Error: Database not found at {db}", err=True)
         click.echo("Run 'aud index' first to build the repository index", err=True)
         raise click.ClickException(f"Database not found: {db}")
-    
+
+    # SCHEMA CONTRACT: Pre-flight validation before expensive analysis
+    click.echo("Validating database schema...", err=True)
+    try:
+        import sqlite3
+        from theauditor.indexer.schema import validate_all_tables
+
+        conn = sqlite3.connect(str(db_path))
+        cursor = conn.cursor()
+        mismatches = validate_all_tables(cursor)
+        conn.close()
+
+        if mismatches:
+            click.echo("", err=True)
+            click.echo("=" * 60, err=True)
+            click.echo(" SCHEMA VALIDATION FAILED ", err=True)
+            click.echo("=" * 60, err=True)
+            click.echo("Database schema does not match expected definitions.", err=True)
+            click.echo("This will cause incorrect results or failures.\n", err=True)
+
+            for table_name, errors in list(mismatches.items())[:5]:  # Show first 5 tables
+                click.echo(f"Table: {table_name}", err=True)
+                for error in errors[:2]:  # Show first 2 errors per table
+                    click.echo(f"  - {error}", err=True)
+
+            click.echo("\nFix: Run 'aud index' to rebuild database with correct schema.", err=True)
+            click.echo("=" * 60, err=True)
+
+            if not click.confirm("\nContinue anyway? (results may be incorrect)", default=False):
+                raise click.ClickException("Aborted due to schema mismatch")
+
+            click.echo("WARNING: Continuing with schema mismatch - results may be unreliable", err=True)
+        else:
+            click.echo("Schema validation passed.", err=True)
+    except ImportError:
+        click.echo("Schema validation skipped (schema module not available)", err=True)
+    except Exception as e:
+        click.echo(f"Schema validation error: {e}", err=True)
+        click.echo("Continuing anyway...", err=True)
+
     # Check if rules are enabled
     if rules:
         # STAGE 1: Initialize infrastructure
         click.echo("Initializing security analysis infrastructure...")
         registry = TaintRegistry()
         orchestrator = RulesOrchestrator(project_path=Path("."), db_path=db_path)
+        
+        # CRITICAL: Collect patterns from all rules and register them with the taint registry
+        # This allows rules to contribute their patterns (ws.broadcast, Math.random, etc.)
+        orchestrator.collect_rule_patterns(registry)
         
         # Track all findings
         all_findings = []
@@ -90,10 +148,14 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
         
         # STAGE 4: Run enriched taint analysis with registry
         click.echo("Performing data-flow taint analysis...")
+        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
-            registry=registry
+            registry=registry,
+            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
+            use_memory_cache=memory,
+            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
         
         # Extract taint paths
@@ -137,9 +199,13 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
     else:
         # Original taint analysis without orchestrator
         click.echo("Performing taint analysis (rules disabled)...")
+        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
         result = trace_taint(
             db_path=str(db_path),
-            max_depth=max_depth
+            max_depth=max_depth,
+            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
+            use_memory_cache=memory,
+            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
     
     # Enrich raw paths with interpretive insights
@@ -194,8 +260,65 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules):
         # CRITICAL FIX: Recalculate summary with filtered paths
         from theauditor.taint.insights import generate_summary
         result["summary"] = generate_summary(filtered_paths)
-    
-    # Save COMPLETE taint analysis results to raw (including all data)
+
+    # ===== DUAL-WRITE PATTERN =====
+    # Write to DATABASE first (for FCE performance), then JSON (for AI consumption)
+    # Extract findings from taint_paths for database storage
+    if db_path.exists():
+        try:
+            from theauditor.indexer.database import DatabaseManager
+            db_manager = DatabaseManager(str(db_path))
+
+            # Convert taint_paths to findings format for database
+            # CRITICAL: Store complete taint path in details_json for FCE reconstruction
+            findings_dicts = []
+            for taint_path in result.get('taint_paths', []):
+                # Extract from nested structure (taint paths have source/sink objects, not flat fields)
+                sink = taint_path.get('sink', {})
+                source = taint_path.get('source', {})
+
+                # Construct descriptive message
+                vuln_type = taint_path.get('vulnerability_type', 'Unknown')
+                source_name = source.get('name', 'unknown')
+                sink_name = sink.get('name', 'unknown')
+                message = f"{vuln_type}: {source_name} → {sink_name}"
+
+                findings_dicts.append({
+                    'file': sink.get('file', ''),                        # Sink location (where vulnerability manifests)
+                    'line': int(sink.get('line', 0)),                    # Sink line number
+                    'column': sink.get('column'),                        # Sink column
+                    'rule': f"taint-{sink.get('category', 'unknown')}", # Sink category (xss, sql, etc.)
+                    'tool': 'taint',
+                    'message': message,                                  # Constructed: "XSS: req.body → res.send"
+                    'severity': 'high',                                  # Default high (all taint flows are critical)
+                    'category': 'injection',
+                    'code_snippet': None,                                # Not available in taint path structure
+                    'additional_info': taint_path                        # Store complete path (source, intermediate steps, sink)
+                })
+
+            # Also add rule-based findings if available
+            for finding in result.get('all_rule_findings', []):
+                findings_dicts.append({
+                    'file': finding.get('file', ''),
+                    'line': int(finding.get('line', 0)),
+                    'rule': finding.get('rule', 'unknown'),
+                    'tool': 'taint',
+                    'message': finding.get('message', ''),
+                    'severity': finding.get('severity', 'medium'),
+                    'category': finding.get('category', 'security')
+                })
+
+            if findings_dicts:
+                db_manager.write_findings_batch(findings_dicts, tool_name='taint')
+                db_manager.close()
+                click.echo(f"[DB] Wrote {len(findings_dicts)} taint findings to database for FCE correlation")
+        except Exception as e:
+            # Non-fatal: if DB write fails, JSON write still succeeds
+            click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
+            click.echo("[DB] JSON output will still be generated for AI consumption")
+    # ===== END DUAL-WRITE =====
+
+    # Save COMPLETE taint analysis results to raw (including all data) - AI CONSUMPTION REQUIRED
     save_taint_analysis(result, output)
     click.echo(f"Raw analysis results saved to: {output}")
     

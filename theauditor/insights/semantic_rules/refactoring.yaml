@@ -1,0 +1,139 @@
+# Product to ProductVariant Pricing Refactoring
+# This semantic context tracks a database refactoring where pricing fields
+# were moved from the Product model to the ProductVariant model.
+
+context_name: "product_pricing_refactor"
+description: "Tracks migration from Product-based pricing to ProductVariant-based pricing"
+version: "2024-01-15"
+
+patterns:
+  # OBSOLETE PATTERNS - These should no longer be used
+  obsolete:
+    - id: "old_product_price"
+      pattern: "product\\.(unit_price|retail_price|wholesale_price)"
+      reason: "Pricing fields moved to ProductVariant model"
+      replacement: "product_variant.retail_price"
+      severity: "high"
+      scope:
+        include: ["frontend/", "api/", "services/"]
+        exclude: ["migrations/", "tests/", "__tests__/"]
+
+    - id: "old_product_sku"
+      pattern: "product\\.sku"
+      reason: "SKU is now unique per variant, not per product"
+      replacement: "product_variant.sku"
+      severity: "high"
+      scope:
+        include: ["frontend/", "backend/", "api/"]
+        exclude: ["migrations/"]
+
+    - id: "old_product_inventory_type"
+      pattern: "product\\.inventory_type"
+      reason: "Inventory type moved to ProductVariant"
+      replacement: "product_variant.inventory_type"
+      severity: "medium"
+      scope:
+        include: ["backend/", "api/"]
+
+    - id: "old_product_id_fk"
+      pattern: "(?:order_items|cart_items|transfer_items)\\.product_id(?!_variant)"
+      reason: "Foreign keys should reference product_variant_id"
+      replacement: "product_variant_id"
+      severity: "critical"
+      scope:
+        include: ["backend/models/", "backend/api/", "migrations/"]
+
+    - id: "old_product_price_api"
+      pattern: "/api/products/[^/]+/(price|sku)"
+      reason: "Price and SKU endpoints moved to /api/variants/"
+      replacement: "/api/variants/{id}/price"
+      severity: "high"
+      scope:
+        include: ["frontend/", "api/"]
+
+    - id: "product_init_with_price"
+      pattern: "Product\\.init\\([^)]*(?:unit_price|retail_price|wholesale_price)"
+      reason: "Product model no longer has price fields"
+      replacement: "Use ProductVariant.init() instead"
+      severity: "critical"
+      scope:
+        include: ["backend/models/"]
+
+  # CURRENT PATTERNS - These are correct and should be used
+  current:
+    - id: "new_variant_price"
+      pattern: "product_variant\\.(retail_price|wholesale_price|unit_price)"
+      reason: "Correct pricing structure using ProductVariant"
+      scope:
+        include: ["frontend/", "api/", "backend/", "services/"]
+
+    - id: "new_variant_sku"
+      pattern: "product_variant\\.sku"
+      reason: "Correct SKU reference per variant"
+      scope:
+        include: ["frontend/", "backend/", "api/"]
+
+    - id: "new_variant_fk"
+      pattern: "product_variant_id"
+      reason: "Correct foreign key reference"
+      scope:
+        include: ["backend/"]
+
+    - id: "new_variant_api"
+      pattern: "/api/(?:variants|product-variants)/[^/]+/(?:price|sku)"
+      reason: "Correct API endpoints for variant pricing"
+      scope:
+        include: ["frontend/", "api/"]
+
+    - id: "productvariant_init"
+      pattern: "ProductVariant\\.init\\([^)]*(?:retail_price|wholesale_price)"
+      reason: "Correct model initialization"
+      scope:
+        include: ["backend/models/"]
+
+  # TRANSITIONAL PATTERNS - OK for now, but should be migrated by expiration date
+  transitional:
+    - id: "dual_price_fallback"
+      pattern: "(?:product\\.unit_price|product\\.retail_price)\\s*\\|\\|\\s*product_variant"
+      reason: "Fallback pattern during migration period"
+      expires: "2024-03-01"
+      scope:
+        include: ["frontend/", "api/"]
+
+    - id: "migration_helper_function"
+      pattern: "getProductPrice\\(product, variant\\)"
+      reason: "Helper function for gradual migration"
+      expires: "2024-03-15"
+      scope:
+        include: ["frontend/utils/", "services/"]
+
+# RELATIONSHIPS - Define semantic relationships between patterns
+relationships:
+  - type: "replaces"
+    from: "old_product_price"
+    to: "new_variant_price"
+    note: "Pricing moved from Product to ProductVariant"
+
+  - type: "replaces"
+    from: "old_product_sku"
+    to: "new_variant_sku"
+    note: "SKU is now per-variant instead of per-product"
+
+  - type: "replaces"
+    from: "old_product_id_fk"
+    to: "new_variant_fk"
+    note: "Foreign key references updated"
+
+  - type: "equivalent"
+    patterns: ["product.unit_price", "product_variant.retail_price"]
+    note: "Same business concept, different data model location"
+
+# METADATA - Additional context
+metadata:
+  author: "dev_team"
+  created: "2024-01-15"
+  last_updated: "2024-01-15"
+  tags: ["refactoring", "pricing", "database", "product-variant"]
+  jira_ticket: "PROJ-1234"
+  related_migration: "backend/migrations/20240115_move_pricing_to_variants.js"
+  documentation: "https://wiki.company.com/product-variant-refactor"

@@ -27,6 +27,10 @@ else:
 class ASTPatternMixin:
     """Mixin class providing pattern matching capabilities for AST analysis."""
     
+    def __init__(self):
+        """Initialize pattern mixin."""
+        super().__init__()
+
     def query_ast(self, tree: Any, query_string: str) -> List[ASTMatch]:
         """Execute a Tree-sitter query on the AST.
 
@@ -113,12 +117,13 @@ class ASTPatternMixin:
             return {"node_type": "class_def", "contains": []}
         return None
 
-    def find_ast_matches(self, tree: Any, ast_pattern: dict) -> List[ASTMatch]:
+    def find_ast_matches(self, tree: Any, ast_pattern: dict, file_hash: str = None) -> List[ASTMatch]:
         """Find matches in AST based on pattern.
 
         Args:
             tree: AST tree object.
             ast_pattern: Pattern dictionary with node_type and optional contains.
+            file_hash: Optional file content hash for caching.
 
         Returns:
             List of ASTMatch objects.
@@ -127,6 +132,14 @@ class ASTPatternMixin:
 
         if not tree:
             return matches
+        
+        # Try to get cached results if file hash is provided
+        if file_hash:
+            cache = self._get_pattern_cache()
+            cached_results = cache.get(file_hash, {})
+            if cached_results is not None:
+                # Convert cached dicts back to ASTMatch objects
+                return [ASTMatch(**match_dict) for match_dict in cached_results]
 
         # Handle wrapped tree objects
         if isinstance(tree, dict):
@@ -148,6 +161,24 @@ class ASTPatternMixin:
         # Handle direct AST objects (legacy support)
         elif isinstance(tree, ast.AST):
             matches.extend(self._find_python_ast_matches(tree, ast_pattern))
+
+        # Cache the results if file hash is provided
+        if file_hash and matches:
+            cache = self._get_pattern_cache()
+            # Convert ASTMatch objects to dicts for caching
+            match_dicts = []
+            for match in matches:
+                match_dict = {
+                    'node_type': match.node_type,
+                    'start_line': match.start_line,
+                    'end_line': match.end_line,
+                    'start_col': match.start_col,
+                    'snippet': match.snippet
+                }
+                if match.metadata:
+                    match_dict['metadata'] = match.metadata
+                match_dicts.append(match_dict)
+            cache.set(file_hash, match_dicts, {})
 
         return matches
 
@@ -217,24 +248,13 @@ class ASTPatternMixin:
         node_type = pattern.get("node_type", "")
         
         if node_type == "type_annotation" and "any" in pattern.get("contains", []):
-            # Search for 'any' types in symbols
-            for symbol in tree.get("symbols", []):
-                if symbol.get("type") == "any":
-                    match = ASTMatch(
-                        node_type="any_type",
-                        start_line=symbol.get("line", 0),
-                        end_line=symbol.get("line", 0),
-                        start_col=0,
-                        snippet=f"{symbol.get('name')}: any",
-                        metadata={"symbol": symbol.get("name"), "type": "any"}
-                    )
-                    matches.append(match)
-            
-            # Also recursively search the AST for AnyKeyword nodes
+            # PHASE 5: Search AST nodes for inline type information
+            # serializeNode now includes is_any flag directly in nodes
             def search_ast_for_any(node, depth=0):
                 if depth > 100 or not isinstance(node, dict):
                     return
-                
+
+                # Check for AnyKeyword node kind
                 if node.get("kind") == "AnyKeyword":
                     match = ASTMatch(
                         node_type="AnyKeyword",
@@ -245,10 +265,24 @@ class ASTPatternMixin:
                         metadata={"kind": "AnyKeyword"}
                     )
                     matches.append(match)
-                
+
+                # PHASE 5: Check for is_any flag (inline type extraction from serializeNode)
+                elif node.get("is_any"):
+                    node_name = node.get("name", "unknown")
+                    match = ASTMatch(
+                        node_type="any_type",
+                        start_line=node.get("line", 0),
+                        end_line=node.get("line", 0),
+                        start_col=node.get("column", 0),
+                        snippet=f"{node_name}: any",
+                        metadata={"symbol": node_name, "type": "any"}
+                    )
+                    matches.append(match)
+
+                # Recurse through children
                 for child in node.get("children", []):
                     search_ast_for_any(child, depth + 1)
-            
+
             search_ast_for_any(tree.get("ast", {}))
         
         return matches

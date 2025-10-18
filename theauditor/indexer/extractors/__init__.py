@@ -2,6 +2,22 @@
 
 This module defines the BaseExtractor abstract class and the ExtractorRegistry
 for dynamic discovery and registration of language-specific extractors.
+
+CRITICAL ARCHITECTURE PRINCIPLE:
+BaseExtractor provides MINIMAL string-based fallback methods for configuration
+files (JSON, YAML, Nginx) that lack AST parsers.
+
+Language extractors (Python, JavaScript) MUST use AST-based extraction.
+String/regex extraction is ONLY for:
+1. Route definitions (inherently string literals in all frameworks)
+2. SQL DDL (CREATE TABLE etc in .sql files)
+
+CRITICAL ARCHITECTURAL MANDATE: NO REGEX FOR ANYTHING ELSE. USE AST.
+
+FORBIDDEN:
+- Regex-based import extraction (use AST)
+- Regex-based SQL query extraction in code files (use AST to find db.execute() calls)
+- Regex-based JWT extraction (use AST via function_calls data)
 """
 
 import os
@@ -12,86 +28,79 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
 from ..config import (
-    IMPORT_PATTERNS, ROUTE_PATTERNS, SQL_PATTERNS, SQL_QUERY_PATTERNS
+    ROUTE_PATTERNS,
+    SQL_PATTERNS
+    # CRITICAL ARCHITECTURAL MANDATE: JWT extraction now uses AST-based
+    # approach via function_calls data. DO NOT add JWT regex imports here.
 )
-
-# Optional SQL parsing support
-try:
-    import sqlparse
-    HAS_SQLPARSE = True
-except ImportError:
-    HAS_SQLPARSE = False
 
 
 class BaseExtractor(ABC):
-    """Abstract base class for all language extractors."""
-    
+    """Abstract base class for all language extractors.
+
+    Provides minimal string-based fallback methods for files without AST parsers
+    (configuration files, etc.). Language-specific extractors should use AST-based
+    extraction instead of these methods.
+
+    Design Philosophy:
+    - AST-first: Language extractors (Python, JS) should use AST parsers
+    - String fallback: Only for config files (webpack, nginx, docker-compose)
+    - Pattern quality: Only include patterns with low false positive rates
+    """
+
     def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
         """Initialize the extractor.
-        
+
         Args:
             root_path: Project root path
-            ast_parser: Optional AST parser instance
+            ast_parser: Optional AST parser instance (for language extractors)
         """
         self.root_path = root_path
         self.ast_parser = ast_parser
-    
+
     @abstractmethod
     def supported_extensions(self) -> List[str]:
         """Return list of file extensions this extractor supports.
-        
+
         Returns:
             List of file extensions (e.g., ['.py', '.pyx'])
         """
         pass
-    
+
     @abstractmethod
-    def extract(self, file_info: Dict[str, Any], content: str, 
+    def extract(self, file_info: Dict[str, Any], content: str,
                 tree: Optional[Any] = None) -> Dict[str, Any]:
         """Extract all relevant information from a file.
-        
+
         Args:
             file_info: File metadata dictionary
             content: File content
             tree: Optional pre-parsed AST tree
-            
+
         Returns:
             Dictionary containing all extracted data
         """
         pass
-    
-    def extract_imports(self, content: str, file_ext: str) -> List[Tuple[str, str]]:
-        """Extract import statements from file content.
-        
-        Args:
-            content: File content
-            file_ext: File extension
-            
-        Returns:
-            List of (kind, value) tuples for imports
-        """
-        imports = []
-        for pattern in IMPORT_PATTERNS:
-            for match in pattern.finditer(content):
-                value = match.group(1) if match.lastindex else match.group(0)
-                # Determine kind based on pattern
-                if "require" in pattern.pattern:
-                    kind = "require"
-                elif "from" in pattern.pattern and "import" in pattern.pattern:
-                    kind = "from"
-                elif "package" in pattern.pattern:
-                    kind = "package"
-                else:
-                    kind = "import"
-                imports.append((kind, value))
-        return imports
-    
+
+    # =========================================================================
+    # STRING-BASED EXTRACTION METHODS
+    # These are for config files without AST parsers. Language extractors
+    # (Python, JavaScript) should use AST instead of calling these methods.
+    # =========================================================================
+
     def extract_routes(self, content: str) -> List[Tuple[str, str]]:
         """Extract route definitions from file content.
-        
+
+        Routes are inherently string-based in all frameworks:
+        - Express: app.get('/path', ...)
+        - Flask: @app.route('/path')
+        - Django: path('/path', ...)
+
+        This is a legitimate use of regex as routes are string literals.
+
         Args:
             content: File content
-            
+
         Returns:
             List of (method, path) tuples
         """
@@ -106,13 +115,19 @@ class BaseExtractor(ABC):
                     path = match.group(1) if match.lastindex else match.group(0)
                 routes.append((method, path))
         return routes
-    
+
     def extract_sql_objects(self, content: str) -> List[Tuple[str, str]]:
-        """Extract SQL object definitions from file content.
-        
+        """Extract SQL object definitions from .sql files.
+
+        This method detects DDL statements (CREATE TABLE, CREATE INDEX, etc.)
+        in actual SQL files, not code files.
+
+        For SQL queries embedded in code (Python, JavaScript), language extractors
+        should use AST-based extraction to find db.execute() calls.
+
         Args:
-            content: File content
-            
+            content: SQL file content
+
         Returns:
             List of (kind, name) tuples
         """
@@ -138,89 +153,34 @@ class BaseExtractor(ABC):
                     kind = "unknown"
                 objects.append((kind, name))
         return objects
-    
-    def extract_sql_queries(self, content: str) -> List[Dict]:
-        """Extract and parse SQL queries from code.
-        
-        Args:
-            content: File content
-            
-        Returns:
-            List of query dictionaries
-        """
-        if not HAS_SQLPARSE:
-            return []
-        
-        queries = []
-        
-        # Find all potential SQL query strings
-        for pattern in SQL_QUERY_PATTERNS:
-            for match in pattern.finditer(content):
-                query_text = match.group(1) if match.lastindex else match.group(0)
-                
-                # Calculate line number
-                line = content[:match.start()].count('\n') + 1
-                
-                # Clean up the query text
-                query_text = query_text.strip()
-                if not query_text:
-                    continue
-                
-                try:
-                    # Parse the SQL query
-                    parsed = sqlparse.parse(query_text)
-                    if not parsed:
-                        continue
-                    
-                    for statement in parsed:
-                        # Extract command type
-                        command = statement.get_type()
-                        if not command:
-                            # Try to extract manually from first token
-                            tokens = statement.tokens
-                            for token in tokens:
-                                if not token.is_whitespace:
-                                    command = str(token).upper()
-                                    break
-                        
-                        # Extract table names
-                        tables = []
-                        tokens = list(statement.flatten())
-                        for i, token in enumerate(tokens):
-                            if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
-                                # Look for the next non-whitespace token
-                                for j in range(i + 1, len(tokens)):
-                                    next_token = tokens[j]
-                                    if not next_token.is_whitespace:
-                                        if next_token.ttype in [None, sqlparse.tokens.Name]:
-                                            table_name = next_token.value
-                                            # Clean up table name
-                                            table_name = table_name.strip('"\'`')
-                                            if '.' in table_name:
-                                                table_name = table_name.split('.')[-1]
-                                            if table_name and not table_name.upper() in ['SELECT', 'WHERE', 'SET', 'VALUES']:
-                                                tables.append(table_name)
-                                        break
-                        
-                        queries.append({
-                            'line': line,
-                            'query_text': query_text[:1000],  # Limit length
-                            'command': command or 'UNKNOWN',
-                            'tables': tables
-                        })
-                except Exception:
-                    # Skip queries that can't be parsed
-                    continue
-        
-        return queries
+
+    # =================================================================
+    # CRITICAL ARCHITECTURAL MANDATE: NO REGEX FOR JWT
+    # =================================================================
+    # The extract_jwt_patterns() regex method was permanently deleted.
+    # JWT extraction MUST use AST-based analysis via function_calls data
+    # in language-specific extractors (e.g., JavaScriptExtractor).
+    #
+    # DO NOT RE-IMPLEMENT REGEX METHODS HERE.
+    # IF YOU BELIEVE REGEX IS REQUIRED, YOU ARE INCORRECT. USE THE AST.
+    # =================================================================
 
 
 class ExtractorRegistry:
-    """Registry for dynamic discovery and management of extractors."""
-    
+    """Registry for dynamic discovery and management of extractors.
+
+    Automatically discovers all extractor modules in the extractors/ directory
+    and registers them by their supported file extensions.
+
+    Design:
+    - One extractor class per file (python.py → PythonExtractor)
+    - Extractors register themselves via supported_extensions()
+    - No hardcoded mapping - pure discovery pattern
+    """
+
     def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
         """Initialize the registry and discover extractors.
-        
+
         Args:
             root_path: Project root path
             ast_parser: Optional AST parser instance
@@ -229,58 +189,74 @@ class ExtractorRegistry:
         self.ast_parser = ast_parser
         self.extractors = {}
         self._discover()
-    
+
     def _discover(self):
-        """Auto-discover and register all extractor modules."""
+        """Auto-discover and register all extractor modules.
+
+        Scans the extractors/ directory for Python files, imports them,
+        and registers any BaseExtractor subclasses found.
+        """
         extractor_dir = Path(__file__).parent
-        
+
         # Find all Python files in the extractors directory
         for file_path in extractor_dir.glob("*.py"):
             if file_path.name.startswith('_'):
                 continue  # Skip __init__.py and private modules
-            
+
             module_name = file_path.stem
-            
+
             try:
                 # Import the module
                 module = importlib.import_module(f'.{module_name}', package='theauditor.indexer.extractors')
-                
+
                 # Find extractor class (looking for subclasses of BaseExtractor)
                 for attr_name in dir(module):
                     attr = getattr(module, attr_name)
-                    if (isinstance(attr, type) and 
-                        issubclass(attr, BaseExtractor) and 
+                    if (isinstance(attr, type) and
+                        issubclass(attr, BaseExtractor) and
                         attr != BaseExtractor):
-                        
+
                         # Instantiate the extractor
                         extractor = attr(self.root_path, self.ast_parser)
-                        
+
                         # Register for all supported extensions
                         for ext in extractor.supported_extensions():
                             self.extractors[ext] = extractor
-                        
+
                         break  # One extractor per module
-                        
+
             except (ImportError, AttributeError) as e:
                 # Skip modules that can't be imported or don't have extractors
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"Debug: Failed to load extractor {module_name}: {e}")
                 continue
-    
-    def get_extractor(self, file_extension: str) -> Optional[BaseExtractor]:
-        """Get the appropriate extractor for a file extension.
-        
+
+    def get_extractor(self, file_path: str, file_extension: str) -> Optional[BaseExtractor]:
+        """Get the appropriate extractor for a file.
+
         Args:
+            file_path: Full file path
             file_extension: File extension (e.g., '.py')
-            
+
         Returns:
             Extractor instance or None if not supported
         """
-        return self.extractors.get(file_extension)
-    
+        extractor = self.extractors.get(file_extension)
+        if not extractor:
+            return None
+
+        # Enforce should_extract() filter if extractor provides it
+        # This allows extractors like JsonConfigExtractor to handle specific files
+        # (e.g., package.json) without processing all files of that extension (.json)
+        if hasattr(extractor, 'should_extract'):
+            if not extractor.should_extract(file_path):
+                return None
+
+        return extractor
+
     def supported_extensions(self) -> List[str]:
         """Get list of all supported file extensions.
-        
+
         Returns:
             List of supported extensions
         """

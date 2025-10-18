@@ -30,7 +30,7 @@ IS_WINDOWS = platform.system() == "Windows"
 COMMAND_TIMEOUTS = {
     "index": 600,               # 10 minutes - AST parsing can be slow on large codebases
     "detect-frameworks": 300,   # 5 minutes - Quick scan of config files
-    "deps": 300,                # 5 minutes - Network I/O but usually fast
+    "deps": 600,                # 10 minutes - Network I/O + vulnerability scanning (npm audit, pip-audit, osv-scanner)
     "docs": 300,                # 5 minutes - Network I/O for fetching docs
     "workset": 300,             # 5 minutes - File system traversal
     "lint": 900,                # 15 minutes - ESLint/ruff on large codebases
@@ -312,6 +312,8 @@ def run_full_pipeline(
     quiet: bool = False,
     exclude_self: bool = False,
     offline: bool = False,
+    use_subprocess_for_taint: bool = False,  # NEW: default to in-process for performance
+    wipe_cache: bool = False,  # NEW: force cache rebuild (for corruption recovery)
     log_callback: Callable[[str, bool], None] = None
 ) -> dict[str, Any]:
     """
@@ -320,6 +322,10 @@ def run_full_pipeline(
     Args:
         root: Root directory to analyze
         quiet: Whether to run in quiet mode (minimal output)
+        exclude_self: Whether to exclude TheAuditor's own files from analysis
+        offline: Whether to skip network operations (deps, docs)
+        use_subprocess_for_taint: Whether to run taint analysis as subprocess (slower)
+        wipe_cache: Whether to delete caches before run (for corruption recovery)
         log_callback: Optional callback function for logging messages (message, is_error)
         
     Returns:
@@ -337,7 +343,7 @@ def run_full_pipeline(
         from theauditor.commands._archive import _archive
         # Call the function directly with appropriate parameters
         # Note: Click commands can be invoked as regular functions
-        _archive.callback(run_type="full", diff_spec=None)
+        _archive.callback(run_type="full", diff_spec=None, wipe_cache=wipe_cache)
         print("[INFO] Previous run archived successfully", file=sys.stderr)
     except ImportError as e:
         print(f"[WARNING] Could not import archive command: {e}", file=sys.stderr)
@@ -410,7 +416,8 @@ def run_full_pipeline(
     command_order = [
         ("index", []),
         ("detect-frameworks", []),
-        ("deps", ["--check-latest"]),
+        ("deps", ["--vuln-scan"]),  # Phase 1: Offline vulnerability scanning (Track B)
+        ("deps", ["--check-latest"]),  # Phase 2: Network version checks (Track C)
         ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
         ("docs", ["summarize"]),
         ("workset", ["--all"]),
@@ -422,6 +429,8 @@ def run_full_pipeline(
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
         ("graph", ["viz", "--view", "hotspots", "--include-analysis"]),
         ("graph", ["viz", "--view", "layers", "--include-analysis"]),
+        ("cfg", ["analyze", "--complexity-threshold", "10"]),
+        ("metadata", ["churn"]),  # Collect git history (temporal dimension)
         ("taint-analyze", []),
         ("fce", []),
         ("report", []),
@@ -434,7 +443,7 @@ def run_full_pipeline(
     
     for cmd_name, extra_args in command_order:
         # Check if command exists (dynamic discovery)
-        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands):
+        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands):
             phase_num += 1
             # Generate human-readable description from command name
             if cmd_name == "index":
@@ -444,8 +453,13 @@ def run_full_pipeline(
                     extra_args = extra_args + ["--exclude-self"]
             elif cmd_name == "detect-frameworks":
                 description = f"{phase_num}. Detect frameworks"
+            elif cmd_name == "deps" and "--vuln-scan" in extra_args and "--check-latest" not in extra_args:
+                description = f"{phase_num}. Scan dependencies for vulnerabilities (offline)"
+                # Add --offline flag when pipeline is in offline mode (fixes misleading message)
+                if offline and "--offline" not in extra_args:
+                    extra_args = extra_args + ["--offline"]
             elif cmd_name == "deps" and "--check-latest" in extra_args:
-                description = f"{phase_num}. Check dependencies"
+                description = f"{phase_num}. Check dependency versions (network)"
             elif cmd_name == "docs" and "fetch" in extra_args:
                 description = f"{phase_num}. Fetch documentation"
             elif cmd_name == "docs" and "summarize" in extra_args:
@@ -474,6 +488,13 @@ def run_full_pipeline(
                         description = f"{phase_num}. Visualize graph"
                 else:
                     description = f"{phase_num}. Visualize graph"
+            elif cmd_name == "cfg":
+                description = f"{phase_num}. Control flow analysis"
+            elif cmd_name == "metadata":
+                if "churn" in extra_args:
+                    description = f"{phase_num}. Analyze code churn (git history)"
+                else:
+                    description = f"{phase_num}. Collect metadata"
             elif cmd_name == "taint-analyze":
                 description = f"{phase_num}. Taint analysis"
             elif cmd_name == "fce":
@@ -486,8 +507,24 @@ def run_full_pipeline(
                 # Generic description for any new commands
                 description = f"{phase_num}. Run {cmd_name.replace('-', ' ')}"
             
-            # Build command array - use python module directly
-            command_array = [sys.executable, "-m", "theauditor.cli", cmd_name] + extra_args
+            # Build command array - use project's sandboxed aud if available
+            # CRITICAL: Use project's sandbox to ensure complete isolation
+            venv_dir = Path(root) / ".auditor_venv"
+            if platform.system() == "Windows":
+                venv_aud = venv_dir / "Scripts" / "aud.exe"
+            else:
+                venv_aud = venv_dir / "bin" / "aud"
+
+            if venv_aud.exists():
+                # Use sandboxed aud executable for complete isolation
+                command_array = [str(venv_aud), cmd_name] + extra_args
+            else:
+                # No sandbox found - this is a setup error
+                log_output(f"[ERROR] Sandbox not found at {venv_aud}")
+                log_output(f"[ERROR] Run 'aud setup-claude --target .' to create sandbox")
+                # Still try with system Python as emergency fallback (will likely fail)
+                command_array = [sys.executable, "-m", "theauditor.cli", cmd_name] + extra_args
+
             commands.append((description, command_array))
         else:
             # Command not available, log warning but continue (resilient)
@@ -525,15 +562,16 @@ def run_full_pipeline(
         
         return sorted(set(files))
     
-    # PARALLEL PIPELINE IMPLEMENTATION
-    # Reorganize commands into stages for parallel execution
+    # PARALLEL PIPELINE IMPLEMENTATION - REBALANCED 4-STAGE STRUCTURE
+    # Reorganize commands into stages for optimal parallel execution
     
     # Stage categorization
-    foundation_commands = []  # Must run first sequentially
-    track_a_commands = []     # Network I/O track (deps, docs)
-    track_b_commands = []     # Code analysis track (workset, lint, patterns)
-    track_c_commands = []     # Graph & taint analysis track
-    final_commands = []       # Must run last sequentially
+    foundation_commands = []     # Stage 1: Must run first sequentially
+    data_prep_commands = []      # Stage 2: Data preparation (sequential)
+    track_a_commands = []        # Stage 3A: Taint analysis (isolated heavy task)
+    track_b_commands = []        # Stage 3B: Static & graph analysis
+    track_c_commands = []        # Stage 3C: Network I/O (deps, docs)
+    final_commands = []          # Stage 4: Must run last sequentially
     
     # Categorize each command into appropriate stage/track
     for phase_name, cmd in commands:
@@ -545,27 +583,42 @@ def run_full_pipeline(
         elif "detect-frameworks" in cmd_str:
             foundation_commands.append((phase_name, cmd))
         
-        # Stage 2: Parallel tracks
-        elif "deps" in cmd_str:
-            if not offline:  # Skip deps if offline mode
-                track_a_commands.append((phase_name, cmd))
-        elif "docs" in cmd_str:
-            if not offline:  # Skip docs if offline mode
-                track_a_commands.append((phase_name, cmd))
+        # Stage 2: Data Preparation (sequential, enables parallel work)
         elif "workset" in cmd_str:
-            track_b_commands.append((phase_name, cmd))
+            data_prep_commands.append((phase_name, cmd))
+        elif "graph build" in cmd_str:
+            data_prep_commands.append((phase_name, cmd))
+        elif "cfg" in cmd_str:
+            data_prep_commands.append((phase_name, cmd))
+        elif "metadata" in cmd_str:
+            data_prep_commands.append((phase_name, cmd))
+        
+        # Stage 3: Heavy Parallel Analysis
+        # Track A: Taint analysis (isolated heavy task)
+        elif "taint" in cmd_str:
+            track_a_commands.append((phase_name, cmd))
+        
+        # Track B: Static & graph analysis
         elif "lint" in cmd_str:
             track_b_commands.append((phase_name, cmd))
         elif "detect-patterns" in cmd_str:
             track_b_commands.append((phase_name, cmd))
-        elif "graph build" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
         elif "graph analyze" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
+            track_b_commands.append((phase_name, cmd))
         elif "graph viz" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
-        elif "taint" in cmd_str:
-            track_c_commands.append((phase_name, cmd))
+            track_b_commands.append((phase_name, cmd))
+        # NEW: Offline vulnerability scanning goes to Track B
+        elif "deps" in cmd_str and "--vuln-scan" in cmd_str and "--check-latest" not in cmd_str:
+            track_b_commands.append((phase_name, cmd))
+
+        # Track C: Network I/O
+        # NEW: Network version checks go to Track C
+        elif "deps" in cmd_str and "--check-latest" in cmd_str:
+            if not offline:  # Skip deps if offline mode
+                track_c_commands.append((phase_name, cmd))
+        elif "docs" in cmd_str:
+            if not offline:  # Skip docs if offline mode
+                track_c_commands.append((phase_name, cmd))
         
         # Stage 4: Final aggregation (must run last)
         elif "fce" in cmd_str:
@@ -706,42 +759,343 @@ def run_full_pipeline(
             failed_phases += 1
             log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
             break
-    
-    # Only proceed to parallel stage if foundation succeeded
-    if failed_phases == 0 and (track_a_commands or track_b_commands or track_c_commands):
-        # STAGE 2: Concurrent Analysis (Parallel Execution)
+
+    # STAGE 2: Data Preparation (Sequential) - Only if foundation succeeded
+    if failed_phases == 0 and data_prep_commands:
         log_output("\n" + "="*60)
-        log_output("[STAGE 2] CONCURRENT ANALYSIS - Parallel Execution")
+        log_output("[STAGE 2] DATA PREPARATION - Sequential Execution")
         log_output("="*60)
-        if offline:
-            log_output("[OFFLINE MODE] Skipping network operations")
-            log_output("Launching 2 parallel tracks:")
-        else:
-            log_output("Launching 3 parallel tracks:")
-            log_output("  Track A: Network I/O (deps, docs)")
-        log_output("  Track B: Code Analysis (workset, lint, patterns)")
-        log_output("  Track C: Graph & Taint Analysis")
+        log_output("Preparing data structures for parallel analysis...")
+        
+        for phase_name, cmd in data_prep_commands:
+            current_phase += 1
+            log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
+            start_time = time.time()
+            
+            try:
+                # Execute data preparation command
+                if TempManager:
+                    stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
+                        root, f"dataprep_{phase_name.replace(' ', '_')}"
+                    )
+                else:
+                    # Fallback to regular tempfile
+                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
+                         tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
+                        stdout_file = out_tmp.name
+                        stderr_file = err_tmp.name
+                
+                with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
+                     open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+                    
+                    # Determine appropriate timeout for this command
+                    cmd_timeout = get_command_timeout(cmd)
+                    
+                    result = run_subprocess_with_interrupt(
+                        cmd,
+                        stdout_fp=out_fp,
+                        stderr_fp=err_fp,
+                        cwd=root,
+                        shell=IS_WINDOWS,  # Windows compatibility fix
+                        timeout=cmd_timeout  # Adaptive timeout based on command type
+                    )
+                
+                # Read outputs
+                with open(stdout_file, 'r', encoding='utf-8') as f:
+                    result.stdout = f.read()
+                with open(stderr_file, 'r', encoding='utf-8') as f:
+                    result.stderr = f.read()
+                
+                # Clean up temp files
+                try:
+                    os.unlink(stdout_file)
+                    os.unlink(stderr_file)
+                except (OSError, PermissionError):
+                    pass
+                
+                elapsed = time.time() - start_time
+                
+                if result.returncode == 0:
+                    log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
+                    if result.stdout:
+                        lines = result.stdout.strip().split('\n')
+                        # Write FULL output to log file
+                        if log_file and len(lines) > 3:
+                            log_file.write("  [Full output below, truncated in terminal]\n")
+                            for line in lines:
+                                log_file.write(f"  {line}\n")
+                            log_file.flush()
+                        
+                        # Show first few lines in terminal
+                        for line in lines[:3]:
+                            if log_callback and not quiet:
+                                log_callback(f"  {line}", False)
+                            log_lines.append(f"  {line}")
+                        if len(lines) > 3:
+                            truncate_msg = f"  ... ({len(lines) - 3} more lines)"
+                            if log_callback and not quiet:
+                                log_callback(truncate_msg, False)
+                            log_lines.append(truncate_msg)
+                else:
+                    failed_phases += 1
+                    log_output(f"[FAILED] {phase_name} failed (exit code {result.returncode})", is_error=True)
+                    if result.stderr:
+                        # Write FULL error to log file
+                        if log_file:
+                            log_file.write(f"  [Full error output]:\n")
+                            log_file.write(f"  {result.stderr}\n")
+                            log_file.flush()
+                        # Show truncated in terminal
+                        error_msg = f"  Error: {result.stderr[:200]}"
+                        if len(result.stderr) > 200:
+                            error_msg += "... [see pipeline.log for full error]"
+                        if log_callback and not quiet:
+                            log_callback(error_msg, True)
+                        log_lines.append(error_msg)
+                    # Data prep failure stops pipeline
+                    log_output("[CRITICAL] Data preparation stage failed - stopping pipeline", is_error=True)
+                    break
+                    
+            except Exception as e:
+                failed_phases += 1
+                log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)
+                break
+    
+    # Only proceed to parallel stage if foundation and data prep succeeded
+    if failed_phases == 0 and (track_a_commands or track_b_commands or track_c_commands):
+        # STAGE 3: Heavy Parallel Analysis (Rebalanced)
+        log_output("\n" + "="*60)
+        log_output("[STAGE 3] HEAVY PARALLEL ANALYSIS - Optimized Execution")
+        log_output("="*60)
+        log_output("Launching rebalanced parallel tracks:")
+        if track_a_commands:
+            log_output("  Track A: Taint Analysis (isolated heavy task)")
+        if track_b_commands:
+            log_output("  Track B: Static Analysis & Offline Security (lint, patterns, graph, vuln-scan)")
+        if track_c_commands and not offline:
+            log_output("  Track C: Network I/O (version checks, docs)")
+        elif offline:
+            log_output("  [OFFLINE MODE] Track C skipped")
         
         # Execute parallel tracks using ThreadPoolExecutor (Windows-safe)
         parallel_results = []
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = []
             
-            # Submit Track A if it has commands
+            # Submit Track A if it has commands (Taint Analysis)
             if track_a_commands:
-                future_a = executor.submit(run_command_chain, track_a_commands, root, "Track A (Network I/O)")
+                # Check if we should run taint analysis directly (in-process)
+                if not use_subprocess_for_taint:
+                    # Create a wrapper function for direct execution
+                    def run_taint_direct():
+                        """Run taint analysis directly in-process WITH rules orchestrator."""
+                        try:
+                            from theauditor.taint import trace_taint, save_taint_analysis
+                            from theauditor.utils.memory import get_recommended_memory_limit
+                            from theauditor.taint.registry import TaintRegistry
+                            from theauditor.rules.orchestrator import RulesOrchestrator
+
+                            # Log start
+                            print(f"[STATUS] Track A (Taint Analysis): Running: Taint analysis [0/1]", file=sys.stderr)
+                            start_time = time.time()
+
+                            memory_limit = get_recommended_memory_limit()
+                            db_path = Path(root) / ".pf" / "repo_index.db"
+
+                            # STAGE 1: Initialize infrastructure
+                            print(f"[TAINT] Initializing security analysis infrastructure...", file=sys.stderr)
+                            registry = TaintRegistry()
+                            orchestrator = RulesOrchestrator(project_path=Path(root), db_path=db_path)
+
+                            # CRITICAL: Collect patterns from all rules and register them
+                            orchestrator.collect_rule_patterns(registry)
+
+                            # Track all findings
+                            all_findings = []
+
+                            # STAGE 2: Run standalone infrastructure rules
+                            print(f"[TAINT] Running infrastructure and configuration analysis...", file=sys.stderr)
+                            infra_findings = orchestrator.run_standalone_rules()
+                            all_findings.extend(infra_findings)
+                            print(f"[TAINT]   Found {len(infra_findings)} infrastructure issues", file=sys.stderr)
+
+                            # STAGE 3: Run discovery rules to populate registry
+                            print(f"[TAINT] Discovering framework-specific patterns...", file=sys.stderr)
+                            discovery_findings = orchestrator.run_discovery_rules(registry)
+                            all_findings.extend(discovery_findings)
+
+                            stats = registry.get_stats()
+                            print(f"[TAINT]   Registry now has {stats['total_sinks']} sinks, {stats['total_sources']} sources", file=sys.stderr)
+
+                            # STAGE 4: Run enriched taint analysis with registry
+                            print(f"[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
+                            print(f"[TAINT]   Using Stage 3 (CFG multi-hop)", file=sys.stderr)
+                            result = trace_taint(
+                                db_path=str(db_path),
+                                max_depth=5,
+                                registry=None,  # TEMPORARILY DISABLED FOR FAST DEBUG
+                                use_cfg=True,  # Stage 3 (CFG multi-hop)
+                                use_memory_cache=True,
+                                memory_limit_mb=memory_limit
+                            )
+                            
+                            # Extract taint paths
+                            taint_paths = result.get("taint_paths", result.get("paths", []))
+                            print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
+
+                            # STAGE 5: Run taint-dependent rules
+                            print(f"[TAINT] Running advanced security analysis...", file=sys.stderr)
+
+                            # Create taint checker from results
+                            def taint_checker(var_name, line_num=None):
+                                """Check if variable is in any taint path."""
+                                for path in taint_paths:
+                                    # Check source
+                                    if path.get("source", {}).get("name") == var_name:
+                                        return True
+                                    # Check sink
+                                    if path.get("sink", {}).get("name") == var_name:
+                                        return True
+                                    # Check intermediate steps
+                                    for step in path.get("path", []):
+                                        if isinstance(step, dict) and step.get("name") == var_name:
+                                            return True
+                                return False
+
+                            advanced_findings = orchestrator.run_taint_dependent_rules(taint_checker)
+                            all_findings.extend(advanced_findings)
+                            print(f"[TAINT]   Found {len(advanced_findings)} advanced security issues", file=sys.stderr)
+
+                            # STAGE 6: Consolidate all findings
+                            print(f"[TAINT] Total vulnerabilities found: {len(all_findings) + len(taint_paths)}", file=sys.stderr)
+
+                            # Add all non-taint findings to result
+                            result["infrastructure_issues"] = infra_findings
+                            result["discovery_findings"] = discovery_findings
+                            result["advanced_findings"] = advanced_findings
+                            result["all_rule_findings"] = all_findings
+
+                            # Update total count
+                            result["total_vulnerabilities"] = len(taint_paths) + len(all_findings)
+
+                            # Save results
+                            output_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
+                            output_path.parent.mkdir(parents=True, exist_ok=True)
+                            save_taint_analysis(result, str(output_path))
+
+                            # ===== DUAL-WRITE PATTERN =====
+                            # Write taint findings to database for FCE consumption
+                            if db_path.exists():
+                                try:
+                                    from theauditor.indexer.database import DatabaseManager
+                                    db_manager = DatabaseManager(str(db_path))
+
+                                    # Convert taint_paths to findings format
+                                    findings_dicts = []
+                                    for taint_path in result.get('taint_paths', []):
+                                        # Extract from nested structure
+                                        sink = taint_path.get('sink', {})
+                                        source = taint_path.get('source', {})
+
+                                        # Construct message
+                                        vuln_type = taint_path.get('vulnerability_type', 'Unknown')
+                                        source_name = source.get('name', 'unknown')
+                                        sink_name = sink.get('name', 'unknown')
+                                        message = f"{vuln_type}: {source_name} → {sink_name}"
+
+                                        findings_dicts.append({
+                                            'file': sink.get('file', ''),
+                                            'line': int(sink.get('line', 0)),
+                                            'column': sink.get('column'),
+                                            'rule': f"taint-{sink.get('category', 'unknown')}",
+                                            'tool': 'taint',
+                                            'message': message,
+                                            'severity': 'high',
+                                            'category': 'injection',
+                                            'code_snippet': None,
+                                            'additional_info': taint_path  # Complete path for FCE
+                                        })
+
+                                    # Also add rule-based findings from orchestrator
+                                    for finding in all_findings:
+                                        findings_dicts.append({
+                                            'file': finding.get('file', ''),
+                                            'line': int(finding.get('line', 0)),
+                                            'rule': finding.get('rule', 'unknown'),
+                                            'tool': 'taint',
+                                            'message': finding.get('message', ''),
+                                            'severity': finding.get('severity', 'medium'),
+                                            'category': finding.get('category', 'security')
+                                        })
+
+                                    if findings_dicts:
+                                        db_manager.write_findings_batch(findings_dicts, tool_name='taint')
+                                        db_manager.close()
+                                        print(f"[DB] Wrote {len(findings_dicts)} taint findings to database", file=sys.stderr)
+                                except Exception as e:
+                                    print(f"[DB] Warning: Database write failed: {e}", file=sys.stderr)
+                            # ===== END DUAL-WRITE =====
+
+                            elapsed = time.time() - start_time
+
+                            # Count findings written to database
+                            db_findings_count = len(result.get('taint_paths', [])) + len(all_findings)
+
+                            # Build result dict matching run_command_chain format
+                            output_lines = [
+                                f"\n{'='*60}",
+                                f"[Track A (Taint Analysis)] Taint analysis",
+                                '='*60,
+                                f"[OK] Taint analysis completed in {elapsed:.1f}s",
+                                f"  Infrastructure issues: {len(infra_findings)}",
+                                f"  Framework patterns: {len(discovery_findings)}",
+                                f"  Taint sources: {result.get('sources_found', 0)}",
+                                f"  Security sinks: {result.get('sinks_found', 0)}",
+                                f"  Taint paths: {len(taint_paths)}",
+                                f"  Advanced security issues: {len(advanced_findings)}",
+                                f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
+                                f"  Results saved to .pf/raw/taint_analysis.json",
+                                f"  Wrote {db_findings_count} findings to database for FCE"
+                            ]
+                            
+                            print(f"[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]", file=sys.stderr)
+                            
+                            return {
+                                "success": True,
+                                "output": "\n".join(output_lines),
+                                "errors": "",
+                                "elapsed": elapsed,
+                                "name": "Track A (Taint Analysis)"
+                            }
+                        except Exception as e:
+                            error_msg = f"Direct taint analysis failed: {str(e)}"
+                            print(f"[ERROR] {error_msg}", file=sys.stderr)
+                            return {
+                                "success": False,
+                                "output": f"[FAILED] Taint analysis failed",
+                                "errors": error_msg,
+                                "elapsed": time.time() - start_time if 'start_time' in locals() else 0,
+                                "name": "Track A (Taint Analysis)"
+                            }
+                    
+                    # Submit direct execution function
+                    future_a = executor.submit(run_taint_direct)
+                else:
+                    # Fall back to subprocess execution
+                    future_a = executor.submit(run_command_chain, track_a_commands, root, "Track A (Taint Analysis)")
+                
                 futures.append(future_a)
                 current_phase += len(track_a_commands)
             
-            # Submit Track B if it has commands
+            # Submit Track B if it has commands (Static & Graph)
             if track_b_commands:
-                future_b = executor.submit(run_command_chain, track_b_commands, root, "Track B (Code Analysis)")
+                future_b = executor.submit(run_command_chain, track_b_commands, root, "Track B (Static & Graph)")
                 futures.append(future_b)
                 current_phase += len(track_b_commands)
             
-            # Submit Track C if it has commands
+            # Submit Track C if it has commands (Network I/O)
             if track_c_commands:
-                future_c = executor.submit(run_command_chain, track_c_commands, root, "Track C (Graph & Taint)")
+                future_c = executor.submit(run_command_chain, track_c_commands, root, "Track C (Network I/O)")
                 futures.append(future_c)
                 current_phase += len(track_c_commands)
             
@@ -846,7 +1200,7 @@ def run_full_pipeline(
         
         # Print outputs from parallel tracks sequentially for clean logging
         log_output("\n" + "="*60)
-        log_output("[STAGE 2 RESULTS] Parallel Track Outputs")
+        log_output("[STAGE 3 RESULTS] Parallel Track Outputs")
         log_output("="*60)
         
         for result in parallel_results:
@@ -867,45 +1221,77 @@ def run_full_pipeline(
             start_time = time.time()
             
             try:
-                # Execute final aggregation command
-                if TempManager:
-                    stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
-                        root, f"final_{phase_name.replace(' ', '_')}"
-                    )
+                # Check if this is the FCE command
+                is_fce = "factual correlation" in phase_name.lower() or "fce" in " ".join(cmd)
+                
+                if is_fce:
+                    # FCE gets special treatment - redirect to dedicated log file
+                    fce_log_path = Path(root) / ".pf" / "fce.log"
+                    log_output(f"[INFO] Redirecting FCE output to: {fce_log_path}")
+                    
+                    # Open dedicated log file for FCE
+                    with open(fce_log_path, 'w', encoding='utf-8') as fce_log:
+                        # Write header
+                        fce_log.write(f"FCE Execution Log - {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        fce_log.write("="*80 + "\n")
+                        fce_log.flush()
+                        
+                        # Determine appropriate timeout for this command
+                        cmd_timeout = get_command_timeout(cmd)
+                        
+                        # Run FCE with output directly to file
+                        result = run_subprocess_with_interrupt(
+                            cmd,
+                            stdout_fp=fce_log,
+                            stderr_fp=fce_log,
+                            cwd=root,
+                            shell=IS_WINDOWS,
+                            timeout=cmd_timeout
+                        )
+                        
+                        # Create minimal stdout/stderr for main log
+                        result.stdout = "[FCE output redirected to .pf/fce.log]"
+                        result.stderr = ""
                 else:
-                    # Fallback to regular tempfile
-                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
-                         tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
-                        stdout_file = out_tmp.name
-                        stderr_file = err_tmp.name
-                
-                with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
-                     open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+                    # Regular command - use temp files as before
+                    if TempManager:
+                        stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
+                            root, f"final_{phase_name.replace(' ', '_')}"
+                        )
+                    else:
+                        # Fallback to regular tempfile
+                        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
+                             tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
+                            stdout_file = out_tmp.name
+                            stderr_file = err_tmp.name
                     
-                    # Determine appropriate timeout for this command
-                    cmd_timeout = get_command_timeout(cmd)
+                    with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
+                         open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+                        
+                        # Determine appropriate timeout for this command
+                        cmd_timeout = get_command_timeout(cmd)
+                        
+                        result = run_subprocess_with_interrupt(
+                            cmd,
+                            stdout_fp=out_fp,
+                            stderr_fp=err_fp,
+                            cwd=root,
+                            shell=IS_WINDOWS,  # Windows compatibility fix
+                            timeout=cmd_timeout  # Adaptive timeout based on command type
+                        )
                     
-                    result = run_subprocess_with_interrupt(
-                        cmd,
-                        stdout_fp=out_fp,
-                        stderr_fp=err_fp,
-                        cwd=root,
-                        shell=IS_WINDOWS,  # Windows compatibility fix
-                        timeout=cmd_timeout  # Adaptive timeout based on command type
-                    )
-                
-                # Read outputs
-                with open(stdout_file, 'r', encoding='utf-8') as f:
-                    result.stdout = f.read()
-                with open(stderr_file, 'r', encoding='utf-8') as f:
-                    result.stderr = f.read()
-                
-                # Clean up temp files
-                try:
-                    os.unlink(stdout_file)
-                    os.unlink(stderr_file)
-                except (OSError, PermissionError):
-                    pass
+                    # Read outputs
+                    with open(stdout_file, 'r', encoding='utf-8') as f:
+                        result.stdout = f.read()
+                    with open(stderr_file, 'r', encoding='utf-8') as f:
+                        result.stderr = f.read()
+                    
+                    # Clean up temp files
+                    try:
+                        os.unlink(stdout_file)
+                        os.unlink(stderr_file)
+                    except (OSError, PermissionError):
+                        pass
                 
                 elapsed = time.time() - start_time
                 
@@ -1089,6 +1475,7 @@ def run_full_pipeline(
     log_output(f"  * .pf/readthis/ - All AI-consumable chunks")
     log_output(f"  * .pf/allfiles.md - Complete file list")
     log_output(f"  * .pf/pipeline.log - Full execution log")
+    log_output(f"  * .pf/fce.log - FCE detailed output (if FCE was run)")
     log_output(f"  * .pf/findings.json - Pattern detection results")
     log_output(f"  * .pf/risk_scores.json - Risk analysis")
     

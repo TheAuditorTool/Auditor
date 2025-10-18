@@ -1,10 +1,23 @@
 """Base utilities and shared helpers for AST extraction.
 
 This module contains utility functions shared across all language implementations.
+
+ARCHITECTURAL PRINCIPLE: NO REGEX FOR EXTRACTION
+================================================
+This module must remain regex-free for code extraction. We have ASTs - use them.
+The only regex that ever existed here was extract_vars_from_tree_sitter_expr(),
+which has been deprecated and gutted to enforce proper AST traversal.
+
+If you're tempted to add regex:
+1. STOP
+2. You already have an AST node
+3. Traverse the AST structure instead
+4. Text parsing is a lazy escape hatch that defeats the entire purpose
+
+This is a deliberate architectural decision to maintain extraction purity.
 """
 
 import ast
-import re
 from typing import Any, List, Optional
 from pathlib import Path
 
@@ -28,7 +41,7 @@ def get_node_name(node: Any) -> str:
 
 def extract_vars_from_expr(node: ast.AST) -> List[str]:
     """Extract all variable names from a Python expression.
-    
+
     Walks the AST to find all Name and Attribute nodes.
     """
     vars_list = []
@@ -48,14 +61,123 @@ def extract_vars_from_expr(node: ast.AST) -> List[str]:
     return vars_list
 
 
-def extract_vars_from_tree_sitter_expr(expr: str) -> List[str]:
-    """Extract variable names from a JavaScript/TypeScript expression string.
-    
-    Uses regex to find identifiers that aren't keywords.
+def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> List[str]:
+    """Extract all variable names from a TypeScript/JavaScript AST node.
+
+    This is the AST-pure replacement for the gutted extract_vars_from_tree_sitter_expr().
+    Recursively traverses the TypeScript compiler API AST to find all identifiers.
+
+    Args:
+        node: TypeScript AST node (Dict from semantic parser)
+        depth: Recursion depth to prevent infinite loops
+
+    Returns:
+        List of variable names found in the expression
+
+    Example:
+        node = {"kind": "BinaryExpression", "text": "req.body.name", ...}
+        returns ["req.body.name", "req.body", "req"]
     """
-    # Match identifiers that are not keywords
-    pattern = r'\b(?!(?:const|let|var|function|return|if|else|for|while|true|false|null|undefined|new|this)\b)[a-zA-Z_$][a-zA-Z0-9_$]*\b'
-    return re.findall(pattern, expr)
+    if depth > 50 or not isinstance(node, dict):
+        return []
+
+    vars_list = []
+    kind = node.get("kind", "")
+
+    # PropertyAccessExpression: req.body, user.name, etc.
+    if kind == "PropertyAccessExpression":
+        # Use the authoritative text from TypeScript compiler
+        full_text = node.get("text", "").strip()
+        if full_text:
+            vars_list.append(full_text)
+            # Also add prefixes: req.body.name → ["req.body.name", "req.body", "req"]
+            parts = full_text.split(".")
+            for i in range(len(parts) - 1, 0, -1):
+                prefix = ".".join(parts[:i])
+                if prefix:
+                    vars_list.append(prefix)
+
+    # Identifier: single variable name
+    elif kind == "Identifier":
+        text = node.get("text", "").strip()
+        if text:
+            vars_list.append(text)
+
+    # CallExpression: function calls - extract the callee
+    elif kind == "CallExpression":
+        # Don't include the call itself, but do include arguments
+        pass
+
+    # Recurse through children
+    for child in node.get("children", []):
+        if isinstance(child, dict):
+            vars_list.extend(extract_vars_from_typescript_node(child, depth + 1))
+
+    # Remove duplicates while preserving order
+    seen = set()
+    result = []
+    for var in vars_list:
+        if var not in seen:
+            seen.add(var)
+            result.append(var)
+
+    return result
+
+
+def extract_vars_from_tree_sitter_expr(expr: str) -> List[str]:
+    """DEPRECATED: DO NOT USE - This is a legacy regex fallback that violates AST purity.
+
+    ARCHITECTURAL DECISION: We have the AST - extract variables from AST nodes, NOT text.
+
+    This function was removed to enforce proper AST traversal. If you're calling this,
+    you're doing text parsing when you should be traversing the AST structure.
+
+    Why this is wrong:
+    - We already parsed the code into an AST
+    - Text parsing is fragile and misses context
+    - Regex cannot understand scope, destructuring, or complex expressions
+    - This creates a "lazy escape hatch" that prevents proper structural analysis
+
+    What to do instead:
+    - For assignments: The AST node already has source node - traverse it
+    - For returns: The AST node already has expression node - traverse it
+    - Use proper visitor patterns, not text matching
+
+    If source_vars are critical for your use case, extract them from the AST node
+    that you already have. Don't convert to text and re-parse with regex.
+
+    CRITICAL: DO NOT add regex back. If this breaks something, fix the caller
+    to use proper AST traversal, not text parsing.
+    """
+    # Return empty list to force callers to handle the absence of this data
+    # This will surface edge cases where source_vars are actually needed
+    return []
+
+
+def sanitize_call_name(name: Any) -> str:
+    """Normalize call expression names for downstream analysis.
+
+    Removes argument lists, trailing dots, and extra whitespace so that
+    `app.get('/users', handler)` and `router.post(`/foo`)` both normalize to
+    `app.get` / `router.post`.
+    """
+    if not isinstance(name, str):
+        return ""
+
+    cleaned = name.strip()
+    if not cleaned:
+        return ""
+
+    # Remove everything after the first parenthesis (argument list)
+    paren_idx = cleaned.find('(')
+    if paren_idx != -1:
+        cleaned = cleaned[:paren_idx]
+
+    # Collapse internal whitespace and trim trailing property separators
+    cleaned = " ".join(cleaned.split())
+    cleaned = cleaned.rstrip('.')
+
+    return cleaned
 
 
 def find_containing_function_python(tree: ast.AST, line: int) -> Optional[str]:
