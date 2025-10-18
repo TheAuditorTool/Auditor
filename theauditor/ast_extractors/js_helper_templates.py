@@ -325,6 +325,14 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
         result.initializer = serializeNode(node.initializer, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
     }
 
+    // CRITICAL FIX: Extract parameters field for function signatures
+    // Without this, parameter extraction falls back to broken heuristics (ZERO FALLBACK POLICY)
+    if (node.parameters && Array.isArray(node.parameters)) {
+        result.parameters = node.parameters.map(param =>
+            serializeNode(param, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot)
+        );
+    }
+
     // CRITICAL FIX: Extract expression field for PropertyAccessExpression
     // This enables taint analysis to build dotted names (req.body, res.send, etc.)
     // Without this, only leaf identifiers are captured (body, send)
