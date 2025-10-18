@@ -91,12 +91,14 @@ class LinterOrchestrator:
         # Query database for files by type
         js_files = self._get_source_files(['.js', '.jsx', '.ts', '.tsx', '.mjs'])
         py_files = self._get_source_files(['.py'])
+        rs_files = self._get_source_files(['.rs'])
 
         # Filter to workset if provided
         if workset_files:
             workset_set = set(workset_files)
             js_files = [f for f in js_files if f in workset_set]
             py_files = [f for f in py_files if f in workset_set]
+            rs_files = [f for f in rs_files if f in workset_set]
 
         # Run JavaScript linters
         if js_files:
@@ -110,6 +112,11 @@ class LinterOrchestrator:
 
             logger.info(f"Running Mypy on {len(py_files)} Python files")
             findings.extend(self._run_mypy(py_files))
+
+        # Run Rust linters
+        if rs_files:
+            logger.info(f"Running Clippy on {len(rs_files)} Rust files")
+            findings.extend(self._run_clippy())
 
         # Write to database (dual-write pattern)
         if findings:
@@ -584,3 +591,113 @@ class LinterOrchestrator:
         except Exception as e:
             logger.error(f"Unexpected error writing lint.json: {e}")
             raise IOError(f"Failed to write {output_file}: {e}") from e
+
+    def _run_clippy(self) -> List[Dict[str, Any]]:
+        """Run Cargo Clippy on Rust project and parse output.
+
+        Clippy runs at the workspace level, not per-file. It analyzes the entire
+        Rust project and reports issues across all .rs files.
+
+        Returns:
+            List of finding dictionaries
+        """
+        # Check if this is a Rust project (has Cargo.toml in root)
+        cargo_toml = self.root / "Cargo.toml"
+        if not cargo_toml.exists():
+            logger.debug("No Cargo.toml found - skipping Clippy")
+            return []
+
+        # Check if cargo is available
+        try:
+            subprocess.run(
+                ["cargo", "--version"],
+                check=True,
+                capture_output=True,
+                timeout=5
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            logger.warning("Cargo not found - skipping Clippy. Install Rust toolchain to enable.")
+            return []
+
+        logger.info("Running Clippy on Rust project...")
+
+        # Run clippy with JSON output
+        cmd = ["cargo", "clippy", "--message-format=json", "--", "-W", "clippy::all"]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=str(self.root),
+                timeout=LINTER_TIMEOUT,
+                check=False,  # Clippy returns non-zero if it finds issues
+                capture_output=True,
+                text=True
+            )
+        except subprocess.TimeoutExpired:
+            logger.error(f"Clippy timed out after {LINTER_TIMEOUT} seconds")
+            return []
+        except Exception as e:
+            logger.error(f"Clippy execution failed: {e}")
+            return []
+
+        # Parse JSON output (one JSON object per line)
+        findings = []
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+
+            try:
+                msg = json.loads(line)
+
+                # Only process compiler messages (not artifacts, build-scripts, etc.)
+                if msg.get("reason") != "compiler-message":
+                    continue
+
+                message = msg.get("message", {})
+
+                # Skip if no spans (no location info)
+                spans = message.get("spans", [])
+                if not spans:
+                    continue
+
+                # Get primary span (where the issue is)
+                primary_span = next((s for s in spans if s.get("is_primary")), spans[0])
+
+                file_name = primary_span.get("file_name", "")
+                line = primary_span.get("line_start", 0)
+                column = primary_span.get("column_start", 0)
+
+                # Get lint code (e.g., "clippy::needless_borrow")
+                code = message.get("code", {})
+                rule = code.get("code", "") if code else "clippy"
+
+                # Map Clippy severity to our standard levels
+                level = message.get("level", "warning")
+                severity_map = {
+                    "error": "error",
+                    "warning": "warning",
+                    "note": "info",
+                    "help": "info"
+                }
+                severity = severity_map.get(level, "warning")
+
+                findings.append({
+                    "tool": "clippy",
+                    "file": self._normalize_path(file_name),
+                    "line": line,
+                    "column": column,
+                    "rule": rule,
+                    "message": message.get("message", ""),
+                    "severity": severity,
+                    "category": "lint"
+                })
+
+            except json.JSONDecodeError:
+                # Skip malformed lines
+                continue
+            except Exception as e:
+                logger.debug(f"Skipping malformed Clippy output line: {e}")
+                continue
+
+        logger.info(f"Clippy found {len(findings)} issues")
+        return findings
