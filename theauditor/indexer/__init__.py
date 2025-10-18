@@ -557,6 +557,9 @@ class IndexerOrchestrator:
                   f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
                   f"{jsx_counts['returns']} returns stored to _jsx tables")
 
+        # Cleanup extractor resources (LSP sessions, temp directories, etc.)
+        self._cleanup_extractors()
+
         return self.counts, stats
     
     def _process_file(self, file_info: Dict[str, Any], js_ts_cache: Dict[str, Any]):
@@ -1066,6 +1069,32 @@ class IndexerOrchestrator:
                 if 'import_styles' not in self.counts:
                     self.counts['import_styles'] = 0
                 self.counts['import_styles'] += 1
+
+    def _cleanup_extractors(self):
+        """Call cleanup() on all registered extractors.
+
+        This allows extractors to release persistent resources like:
+        - LSP sessions (Rust, TypeScript)
+        - Database connections
+        - Temporary directories
+        """
+        # Clean up registry extractors
+        for extractor in self.extractor_registry.extractors.values():
+            try:
+                extractor.cleanup()
+            except Exception as e:
+                logger.debug(f"Extractor cleanup failed: {e}")
+
+        # Clean up special extractors
+        try:
+            self.docker_extractor.cleanup()
+        except Exception as e:
+            logger.debug(f"Docker extractor cleanup failed: {e}")
+
+        try:
+            self.generic_extractor.cleanup()
+        except Exception as e:
+            logger.debug(f"Generic extractor cleanup failed: {e}")
 
 
 # Import backward compatibility functions from the compat module
