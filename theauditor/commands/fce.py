@@ -13,7 +13,85 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--timeout", default=600, type=int, help="Timeout in seconds")
 @click.option("--print-plan", is_flag=True, help="Print detected tools without running")
 def fce(root, capsules, manifest, workset, timeout, print_plan):
-    """Run Factual Correlation Engine to aggregate and correlate findings."""
+    """Cross-reference findings to identify compound vulnerabilities.
+
+    The Factual Correlation Engine (FCE) is TheAuditor's advanced analysis
+    system that correlates findings from multiple tools to detect complex
+    vulnerability patterns that single tools miss. It identifies when
+    multiple "low severity" issues combine to create critical risks.
+
+    Correlation Rules (30 Advanced Patterns):
+      Authentication & Authorization:
+        - Missing auth + exposed endpoints = Critical
+        - Weak passwords + no rate limiting = High risk
+        - Session fixation + XSS = Session hijacking
+
+      Injection Combinations:
+        - User input + SQL queries + no validation = SQL injection
+        - File upload + path traversal = Remote code execution
+        - Template injection + user data = XSS
+
+      Data Exposure:
+        - Debug mode + error messages = Information disclosure
+        - Hardcoded secrets + public repo = Credential leak
+        - Missing encryption + sensitive data = Data breach
+
+      Infrastructure:
+        - CORS misconfiguration + auth bypass = Account takeover
+        - Outdated deps + known CVEs = Exploitable vulnerabilities
+        - Docker misconfig + privileged mode = Container escape
+
+      Code Quality Impact:
+        - High complexity + no tests = Hidden vulnerabilities
+        - Dead code + security logic = Bypassed protections
+        - Circular deps + auth logic = Authorization bypass
+
+    How FCE Works:
+      1. Loads findings from all analysis tools
+      2. Applies correlation rules to find patterns
+      3. Elevates severity when patterns match
+      4. Generates actionable compound findings
+
+    Examples:
+      aud fce                     # Run correlation engine
+      aud fce --print-plan        # Preview what will be analyzed
+      aud fce --timeout 1200      # Increase timeout for large projects
+
+    Input Sources:
+      - Pattern detection results
+      - Taint analysis findings
+      - Lint results
+      - Dependency vulnerabilities
+      - Graph analysis
+      - Control flow analysis
+
+    Output:
+      .pf/raw/fce.json           # Correlated findings
+      .pf/raw/fce_failures.json  # Critical compound issues
+      .pf/readthis/fce_*.json    # AI-optimized chunks
+
+    Finding Format:
+      {
+        "rule": "sql_injection_compound",
+        "severity": "critical",
+        "confidence": "high",
+        "evidence": [
+          {"tool": "taint", "finding": "user_input_to_query"},
+          {"tool": "patterns", "finding": "sql_concatenation"},
+          {"tool": "lint", "finding": "no_input_validation"}
+        ],
+        "recommendation": "Implement parameterized queries",
+        "files_affected": ["api/users.py", "db/queries.py"]
+      }
+
+    Value Proposition:
+      - Finds vulnerabilities that single tools miss
+      - Reduces false positives through correlation
+      - Prioritizes real compound risks
+      - Provides evidence chain for each finding
+
+    Note: FCE is most effective after running 'aud full' to ensure
+    all analysis data is available for correlation."""
     from theauditor.fce import run_fce
 
     result = run_fce(

@@ -1,7 +1,7 @@
 """Core functionality for file system operations and AST caching.
 
 This module contains the FileWalker class for directory traversal with monorepo
-detection, and the ASTCache class for persistent AST caching.
+detection.
 """
 
 import os
@@ -14,70 +14,12 @@ from typing import Tuple, List, Dict, Any, Optional, Set
 from theauditor.utils import compute_file_hash, count_lines_in_file
 from theauditor.config_runtime import load_runtime_config
 from .config import (
-    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES
+    SKIP_DIRS, STANDARD_MONOREPO_PATHS, MONOREPO_ENTRY_FILES,
+    COMPOSE_PATTERNS, DOCKERFILE_PATTERNS, NGINX_PATTERNS
 )
 
-
-class ASTCache:
-    """Manages persistent AST caching for improved performance."""
-    
-    def __init__(self, root_path: Path):
-        """Initialize the AST cache.
-        
-        Args:
-            root_path: Project root path for cache directory
-        """
-        self.cache_dir = root_path / ".pf" / "ast_cache"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-    
-    def get(self, file_hash: str) -> Optional[Dict]:
-        """Get cached AST for a file by its hash.
-        
-        Args:
-            file_hash: SHA256 hash of the file content
-            
-        Returns:
-            Cached AST tree or None if not found
-        """
-        cache_file = self.cache_dir / f"{file_hash}.json"
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except (json.JSONDecodeError, OSError):
-                # Cache corrupted, return None
-                return None
-        return None
-    
-    def set(self, file_hash: str, tree: Dict) -> None:
-        """Store an AST tree in the cache.
-        
-        Args:
-            file_hash: SHA256 hash of the file content
-            tree: AST tree to cache (must be JSON serializable)
-        """
-        cache_file = self.cache_dir / f"{file_hash}.json"
-        try:
-            # Only cache if tree is JSON serializable (dict), not a Tree object
-            if isinstance(tree, dict):
-                with open(cache_file, 'w', encoding='utf-8') as f:
-                    json.dump(tree, f)
-        except (OSError, PermissionError, TypeError):
-            # Cache write failed, non-critical
-            pass
-    
-    def invalidate(self, file_hash: str) -> None:
-        """Invalidate cache entry for a specific file.
-        
-        Args:
-            file_hash: SHA256 hash of the file content
-        """
-        cache_file = self.cache_dir / f"{file_hash}.json"
-        if cache_file.exists():
-            try:
-                cache_file.unlink()
-            except (OSError, PermissionError):
-                pass
+# Import ASTCache from the new unified cache module
+from ..cache.ast_cache import ASTCache
 
 
 def is_text_file(file_path: Path) -> bool:
@@ -338,9 +280,22 @@ class FileWalker:
                             files.append(file_info)
             
             # CRITICAL: Also collect config files from monorepo directories
-            # These are outside src/ but essential for module resolution
-            config_patterns = ['tsconfig.json', 'tsconfig.*.json', 'package.json', 
-                             'webpack.config.js', 'vite.config.ts', '.babelrc*']
+            # These are outside src/ but essential for module resolution and security analysis
+            config_patterns = [
+                # TypeScript/JavaScript configs
+                'tsconfig.json', 'tsconfig.*.json', 'package.json',
+                'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+                'webpack.config.js', 'vite.config.ts', '.babelrc*',
+                # Infrastructure patterns (dynamically imported from config.py)
+                *COMPOSE_PATTERNS,      # docker-compose.yml, compose.yml, etc.
+                *DOCKERFILE_PATTERNS,   # Dockerfile, Dockerfile.dev, etc.
+                *NGINX_PATTERNS,        # nginx.conf, site.conf, etc.
+                # Environment and schema files
+                '.env', '.env.*', '.env.local', '.env.production', '.env.development',
+                'prisma/schema.prisma',
+                # Linter and formatter configs
+                '.eslintrc*', '.prettierrc*', '.editorconfig',
+            ]
             
             for base_dir, _ in STANDARD_MONOREPO_PATHS:
                 base_path = self.root_path / base_dir

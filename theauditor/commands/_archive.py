@@ -11,17 +11,34 @@ import click
 @click.command(name="_archive")
 @click.option("--run-type", required=True, type=click.Choice(["full", "diff"]), help="Type of run being archived")
 @click.option("--diff-spec", help="Git diff specification for diff runs (e.g., main..HEAD)")
-def _archive(run_type: str, diff_spec: str = None):
+@click.option("--wipe-cache", is_flag=True, help="Delete caches during archive (default: preserve)")
+def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     """
     Internal command to archive previous run artifacts with segregation by type.
-    
+
     This command is not intended for direct user execution. It's called by
     the full and orchestrate workflows to maintain clean, segregated history.
+
+    Cache Preservation:
+    By default, caches (.cache/, context/) are PRESERVED to speed up subsequent
+    runs. Use --wipe-cache to force deletion (useful for cache corruption recovery).
+
+    Preserved by default:
+    - .pf/.cache/ (AST parsing cache)
+    - .pf/context/ (documentation cache and summaries)
+
+    Always archived:
+    - .pf/raw/ (raw tool outputs)
+    - .pf/readthis/ (AI-consumable chunks)
+    - All other .pf/ contents
     """
     # Define base paths
     pf_dir = Path(".pf")
     history_dir = pf_dir / "history"
-    
+
+    # Define cache directories that should be preserved by default
+    CACHE_DIRS = {".cache", "context"}
+
     # Check if there's a previous run to archive (by checking if .pf exists and has files)
     if not pf_dir.exists() or not any(pf_dir.iterdir()):
         # No previous run to archive
@@ -65,12 +82,19 @@ def _archive(run_type: str, diff_spec: str = None):
     # Move all top-level items from pf_dir to archive_dest
     archived_count = 0
     skipped_count = 0
-    
+    preserved_count = 0
+
     for item in pf_dir.iterdir():
         # CRITICAL: Skip the history directory itself to prevent recursive archiving
         if item.name == "history":
             continue
-        
+
+        # NEW: Preserve cache directories unless --wipe-cache was used
+        if item.name in CACHE_DIRS and not wipe_cache:
+            print(f"[ARCHIVE] Preserving cache: {item.name}/", file=sys.stderr)
+            preserved_count += 1
+            continue
+
         # Safely move the item to archive destination
         try:
             shutil.move(str(item), str(archive_dest))
@@ -83,10 +107,15 @@ def _archive(run_type: str, diff_spec: str = None):
     # Log summary
     if archived_count > 0:
         click.echo(f"[ARCHIVE] Archived {archived_count} items to {archive_dest}")
+        if preserved_count > 0:
+            click.echo(f"[ARCHIVE] Preserved {preserved_count} cache directories for reuse")
         if skipped_count > 0:
             click.echo(f"[ARCHIVE] Skipped {skipped_count} items due to errors")
     else:
-        click.echo("[ARCHIVE] No artifacts archived (directory was empty)")
+        if preserved_count > 0:
+            click.echo(f"[ARCHIVE] No artifacts to archive (only caches remain)")
+        else:
+            click.echo("[ARCHIVE] No artifacts archived (directory was empty)")
     
     # Create a metadata file in the archive to track run type and context
     metadata = {
@@ -96,6 +125,8 @@ def _archive(run_type: str, diff_spec: str = None):
         "archived_at": datetime.now().isoformat(),
         "files_archived": archived_count,
         "files_skipped": skipped_count,
+        "caches_preserved": preserved_count,
+        "wipe_cache_requested": wipe_cache,
     }
     
     try:

@@ -15,6 +15,9 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Optional, Any, List, Tuple
 
+# Import helper templates for JavaScript/Node.js scripts
+from theauditor.ast_extractors import js_helper_templates
+
 # Import our custom temp manager to avoid WSL2/Windows issues
 try:
     from theauditor.utils.temp_manager import TempManager
@@ -28,13 +31,19 @@ IS_WINDOWS = platform.system() == "Windows"
 # Module-level cache for resolver (it's stateless now)
 _module_resolver_cache = None
 
+# Module-level cache for JSSemanticParser instances (one per project root)
+_parser_cache = {}
+
+# Track cache statistics for debugging
+_cache_stats = {'hits': 0, 'misses': 0}
+
 
 class JSSemanticParser:
     """Semantic parser for JavaScript/TypeScript using the TypeScript Compiler API."""
     
     def __init__(self, project_root: str = None):
         """Initialize the semantic parser.
-        
+
         Args:
             project_root: Absolute path to project root. If not provided, uses current directory.
         """
@@ -42,13 +51,25 @@ class JSSemanticParser:
         self.using_windows_node = False  # Track if we're using Windows node.exe from WSL
         self.tsc_path = None  # Path to TypeScript compiler
         self.node_modules_path = None  # Path to sandbox node_modules
+        self.project_module_type = self._detect_module_type()  # Detect ES module or CommonJS
+
+        # Debug: Log parser creation to detect if caching is failing
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import traceback
+            # Show where this was called from to debug caching issues
+            stack = traceback.extract_stack()
+            caller = stack[-2] if len(stack) > 1 else None
+            if caller:
+                print(f"[DEBUG] JSSemanticParser.__init__ called from {caller.filename}:{caller.lineno}")
+            print(f"[DEBUG] Created JSSemanticParser for project: {self.project_root}")
+            if self.project_module_type == "module":
+                print(f"[DEBUG] Detected ES module project (package.json has 'type': 'module')")
         
         # CRITICAL: Reuse cached ModuleResolver (stateless, database-driven)
         global _module_resolver_cache
         if _module_resolver_cache is None:
             from theauditor.module_resolver import ModuleResolver
             _module_resolver_cache = ModuleResolver()  # No project_root needed!
-            print("[DEBUG] Created singleton ModuleResolver instance")
         
         self.module_resolver = _module_resolver_cache
         
@@ -78,7 +99,29 @@ class JSSemanticParser:
         self.tsc_available = self._check_tsc_availability()
         self.helper_script = self._create_helper_script()
         self.batch_helper_script = self._create_batch_helper_script()  # NEW: Batch processing helper
-    
+
+    def _detect_module_type(self) -> str:
+        """Detect the project's module type from package.json.
+
+        Returns:
+            "module" if ES modules are used, "commonjs" otherwise
+        """
+        try:
+            package_json_path = self.project_root / "package.json"
+            if package_json_path.exists():
+                with open(package_json_path, 'r', encoding='utf-8') as f:
+                    package_data = json.load(f)
+                    module_type = package_data.get("type", "commonjs")
+                    if module_type == "module":
+                        return "module"
+            # Default to CommonJS (Node.js default)
+            return "commonjs"
+        except (json.JSONDecodeError, IOError, OSError) as e:
+            # On any error, default to CommonJS
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] Could not detect module type: {e}. Defaulting to CommonJS.")
+            return "commonjs"
+
     def _convert_path_for_node(self, path: Path) -> str:
         """Convert path to appropriate format for node execution.
         
@@ -202,7 +245,7 @@ class JSSemanticParser:
     
     def _create_helper_script(self) -> Path:
         """Create a Node.js helper script for TypeScript AST extraction.
-        
+
         Returns:
             Path to the created helper script
         """
@@ -210,481 +253,53 @@ class JSSemanticParser:
         # Always create in project root's .pf directory
         pf_dir = self.project_root / ".pf"
         pf_dir.mkdir(exist_ok=True)
-        
+
         helper_path = pf_dir / "tsc_ast_helper.js"
-        
+
         # Check if TypeScript module exists in our sandbox
         typescript_exists = False
         if self.node_modules_path:
             # The TypeScript module is at node_modules/typescript/lib/typescript.js
             ts_path = self.node_modules_path / "typescript" / "lib" / "typescript.js"
             typescript_exists = ts_path.exists()
-        
-        # Write the helper script that uses TypeScript Compiler API
-        # CRITICAL: Use relative path from helper script location to find TypeScript
-        helper_content = '''
-// Use TypeScript from our sandbox location with RELATIVE PATH
-// This is portable - works on any machine in any location
-const path = require('path');
-const fs = require('fs');
 
-// Find project root by going up from .pf directory
-const projectRoot = path.resolve(__dirname, '..');
+        # Generate appropriate helper content based on module type
+        if self.project_module_type == "module":
+            # Use the ES Module helper from templates
+            helper_content = js_helper_templates.get_single_file_helper("module")
+        else:
+            # Use the CommonJS helper from templates
+            helper_content = js_helper_templates.get_single_file_helper("commonjs")
 
-// Build path to TypeScript module relative to project root
-const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
-
-// Try to load TypeScript with helpful error message
-let ts;
-try {
-    if (!fs.existsSync(tsPath)) {
-        throw new Error(`TypeScript not found at expected location: ${tsPath}. Run 'aud setup-claude' to install tools.`);
-    }
-    ts = require(tsPath);
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: `Failed to load TypeScript: ${error.message}`,
-        expectedPath: tsPath,
-        projectRoot: projectRoot
-    }));
-    process.exit(1);
-}
-
-// Get file path and output path from command line arguments
-const filePath = process.argv[2];
-const outputPath = process.argv[3];
-
-if (!filePath || !outputPath) {
-    console.error(JSON.stringify({ error: "File path and output path required" }));
-    process.exit(1);
-}
-
-try {
-    // Read the source file
-    const sourceCode = fs.readFileSync(filePath, 'utf8');
-    
-    // Create a source file object
-    const sourceFile = ts.createSourceFile(
-        filePath,
-        sourceCode,
-        ts.ScriptTarget.Latest,
-        true,  // setParentNodes - important for full AST traversal
-        ts.ScriptKind.TSX  // Support both TS and TSX
-    );
-    
-    // Helper function to serialize AST nodes
-    function serializeNode(node, depth = 0) {
-        if (depth > 100) {  // Prevent infinite recursion
-            return { kind: "TooDeep" };
-        }
-        
-        const result = {
-            kind: node.kind !== undefined ? (ts.SyntaxKind[node.kind] || node.kind) : 'Unknown',
-            kindValue: node.kind || 0,
-            pos: node.pos || 0,
-            end: node.end || 0,
-            flags: node.flags || 0
-        };
-        
-        // Add text content for leaf nodes
-        if (node.text !== undefined) {
-            result.text = node.text;
-        }
-        
-        // Add identifier name
-        if (node.name) {
-            if (typeof node.name === 'object') {
-                // Handle both escapedName and regular name
-                if (node.name.escapedText !== undefined) {
-                    result.name = node.name.escapedText;
-                } else if (node.name.text !== undefined) {
-                    result.name = node.name.text;
-                } else {
-                    result.name = serializeNode(node.name, depth + 1);
-                }
-            } else {
-                result.name = node.name;
-            }
-        }
-        
-        // Add type information if available
-        if (node.type) {
-            result.type = serializeNode(node.type, depth + 1);
-        }
-        
-        // Add children - handle nodes with members property
-        const children = [];
-        if (node.members && Array.isArray(node.members)) {
-            // Handle nodes with members (interfaces, enums, etc.)
-            node.members.forEach(member => {
-                if (member) children.push(serializeNode(member, depth + 1));
-            });
-        }
-        ts.forEachChild(node, child => {
-            if (child) children.push(serializeNode(child, depth + 1));
-        });
-        
-        if (children.length > 0) {
-            result.children = children;
-        }
-        
-        // Get line and column information
-        // CRITICAL FIX: Use getStart() to exclude leading trivia for accurate line numbers
-        const actualStart = node.getStart ? node.getStart(sourceFile) : node.pos;
-        const { line, character } = sourceFile.getLineAndCharacterOfPosition(actualStart);
-        result.line = line + 1;  // Convert to 1-indexed
-        result.column = character;
-        
-        // RESTORED: Text extraction needed for accurate symbol names in taint analysis
-        result.text = sourceCode.substring(node.pos, node.end).trim();
-        
-        return result;
-    }
-    
-    // Collect diagnostics (errors, warnings)
-    const diagnostics = [];
-    const program = ts.createProgram([filePath], {
-        target: ts.ScriptTarget.Latest,
-        module: ts.ModuleKind.ESNext,
-        jsx: ts.JsxEmit.Preserve,
-        allowJs: true,
-        checkJs: false,
-        noEmit: true,
-        skipLibCheck: true  // Skip checking .d.ts files for speed
-    });
-    
-    const allDiagnostics = ts.getPreEmitDiagnostics(program);
-    allDiagnostics.forEach(diagnostic => {
-        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\\n');
-        const location = diagnostic.file && diagnostic.start
-            ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-            : null;
-            
-        diagnostics.push({
-            message,
-            category: ts.DiagnosticCategory[diagnostic.category],
-            code: diagnostic.code,
-            line: location ? location.line + 1 : null,
-            column: location ? location.character : null
-        });
-    });
-    
-    // Collect symbols and type information
-    const checker = program.getTypeChecker();
-    const symbols = [];
-    
-    // Visit nodes to collect symbols
-    function visit(node) {
-        try {
-            const symbol = checker.getSymbolAtLocation(node);
-            if (symbol && symbol.getName) {
-                const type = checker.getTypeOfSymbolAtLocation(symbol, node);
-                const typeString = checker.typeToString(type);
-                
-                symbols.push({
-                    name: symbol.getName ? symbol.getName() : 'anonymous',
-                    kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
-                    type: typeString || 'unknown',
-                    line: node.pos !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.pos).line + 1 : 0
-                });
-            }
-        } catch (e) {
-            // Log error for debugging
-            console.error(`[ERROR] Symbol extraction failed at ${filePath}:${node.pos}: ${e.message}`);
-        }
-        
-        ts.forEachChild(node, visit);
-    }
-    
-    visit(sourceFile);
-    
-    // Log symbol extraction results
-    console.error(`[INFO] Found ${symbols.length} symbols in ${filePath}`);
-    
-    // Output the complete AST with metadata
-    const result = {
-        success: true,
-        fileName: filePath,
-        languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-        ast: serializeNode(sourceFile),
-        diagnostics: diagnostics,
-        symbols: symbols,
-        nodeCount: 0,
-        hasTypes: symbols.some(s => s.type && s.type !== 'any')
-    };
-    
-    // Count nodes
-    function countNodes(node) {
-        if (!node) return;
-        result.nodeCount++;
-        if (node.children && Array.isArray(node.children)) {
-            node.children.forEach(countNodes);
-        }
-    }
-    if (result.ast) countNodes(result.ast);
-    
-    // Write output to file instead of stdout to avoid pipe buffer limits
-    fs.writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf8');
-    process.exit(0);  // CRITICAL: Ensure clean exit on success
-    
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: error.message,
-        stack: error.stack
-    }));
-    process.exit(1);
-}
-'''
-        
         helper_path.write_text(helper_content, encoding='utf-8')
         return helper_path
     
     def _create_batch_helper_script(self) -> Path:
         """Create a Node.js helper script for batch TypeScript AST extraction.
-        
+
         This script processes multiple files in a single TypeScript program,
         dramatically improving performance by reusing the dependency cache.
-        
+
         Returns:
             Path to the created batch helper script
         """
         pf_dir = self.project_root / ".pf"
         pf_dir.mkdir(exist_ok=True)
-        
+
         batch_helper_path = pf_dir / "tsc_batch_helper.js"
-        
-        batch_helper_content = '''
-// Batch TypeScript AST extraction - processes multiple files in one program
-const path = require('path');
-const fs = require('fs');
 
-// Find project root by going up from .pf directory
-const projectRoot = path.resolve(__dirname, '..');
+        # Generate appropriate batch helper based on module type
+        if self.project_module_type == "module":
+            # Use the ES Module batch helper from templates
+            batch_helper_content = js_helper_templates.get_batch_helper("module")
+        else:
+            # Use the CommonJS batch helper from templates
+            batch_helper_content = js_helper_templates.get_batch_helper("commonjs")
 
-// Build path to TypeScript module
-const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
-
-// Load TypeScript
-let ts;
-try {
-    if (!fs.existsSync(tsPath)) {
-        throw new Error(`TypeScript not found at: ${tsPath}`);
-    }
-    ts = require(tsPath);
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: `Failed to load TypeScript: ${error.message}`
-    }));
-    process.exit(1);
-}
-
-// Get request and output paths from command line
-const requestPath = process.argv[2];
-const outputPath = process.argv[3];
-
-if (!requestPath || !outputPath) {
-    console.error(JSON.stringify({ error: "Request and output paths required" }));
-    process.exit(1);
-}
-
-try {
-    // Read batch request
-    const request = JSON.parse(fs.readFileSync(requestPath, 'utf8'));
-    const filePaths = request.files || [];
-    
-    if (filePaths.length === 0) {
-        fs.writeFileSync(outputPath, JSON.stringify({}), 'utf8');
-        process.exit(0);
-    }
-    
-    // Create a SINGLE TypeScript program with ALL files
-    // This is the key optimization - TypeScript will parse dependencies ONCE
-    const program = ts.createProgram(filePaths, {
-        target: ts.ScriptTarget.Latest,
-        module: ts.ModuleKind.ESNext,
-        jsx: ts.JsxEmit.Preserve,
-        allowJs: true,
-        checkJs: false,
-        noEmit: true,
-        skipLibCheck: true,  // Skip checking .d.ts files for speed
-        moduleResolution: ts.ModuleResolutionKind.NodeJs
-    });
-    
-    const checker = program.getTypeChecker();
-    const results = {};
-    
-    // Process each file using the SHARED program
-    for (const filePath of filePaths) {
-        try {
-            const sourceFile = program.getSourceFile(filePath);
-            if (!sourceFile) {
-                results[filePath] = {
-                    success: false,
-                    error: `Could not load source file: ${filePath}`
-                };
-                continue;
-            }
-            
-            const sourceCode = sourceFile.text;
-            
-            // Helper function to serialize AST nodes (same as single-file version)
-            function serializeNode(node, depth = 0) {
-                if (depth > 100) return { kind: "TooDeep" };
-                
-                const result = {
-                    kind: node.kind !== undefined ? (ts.SyntaxKind[node.kind] || node.kind) : 'Unknown',
-                    kindValue: node.kind || 0,
-                    pos: node.pos || 0,
-                    end: node.end || 0,
-                    flags: node.flags || 0
-                };
-                
-                if (node.text !== undefined) result.text = node.text;
-                
-                if (node.name) {
-                    if (typeof node.name === 'object') {
-                        if (node.name.escapedText !== undefined) {
-                            result.name = node.name.escapedText;
-                        } else if (node.name.text !== undefined) {
-                            result.name = node.name.text;
-                        } else {
-                            result.name = serializeNode(node.name, depth + 1);
-                        }
-                    } else {
-                        result.name = node.name;
-                    }
-                }
-                
-                if (node.type) {
-                    result.type = serializeNode(node.type, depth + 1);
-                }
-                
-                const children = [];
-                if (node.members && Array.isArray(node.members)) {
-                    node.members.forEach(member => {
-                        if (member) children.push(serializeNode(member, depth + 1));
-                    });
-                }
-                ts.forEachChild(node, child => {
-                    if (child) children.push(serializeNode(child, depth + 1));
-                });
-                
-                if (children.length > 0) {
-                    result.children = children;
-                }
-                
-                // CRITICAL FIX: Use getStart() to exclude leading trivia for accurate line numbers
-                const actualStart = node.getStart ? node.getStart(sourceFile) : node.pos;
-                const { line, character } = sourceFile.getLineAndCharacterOfPosition(actualStart);
-                result.line = line + 1;
-                result.column = character;
-                // RESTORED: Text extraction needed for accurate symbol names in taint analysis
-                result.text = sourceCode.substring(node.pos, node.end).trim();
-                
-                return result;
-            }
-            
-            // Collect diagnostics for this file
-            const diagnostics = [];
-            const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
-            fileDiagnostics.forEach(diagnostic => {
-                const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\\n');
-                const location = diagnostic.file && diagnostic.start
-                    ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-                    : null;
-                
-                diagnostics.push({
-                    message,
-                    category: ts.DiagnosticCategory[diagnostic.category],
-                    code: diagnostic.code,
-                    line: location ? location.line + 1 : null,
-                    column: location ? location.character : null
-                });
-            });
-            
-            // Collect symbols for this file
-            const symbols = [];
-            function visit(node) {
-                try {
-                    const symbol = checker.getSymbolAtLocation(node);
-                    if (symbol && symbol.getName) {
-                        const type = checker.getTypeOfSymbolAtLocation(symbol, node);
-                        const typeString = checker.typeToString(type);
-                        
-                        symbols.push({
-                            name: symbol.getName ? symbol.getName() : 'anonymous',
-                            kind: symbol.flags ? (ts.SymbolFlags[symbol.flags] || symbol.flags) : 0,
-                            type: typeString || 'unknown',
-                            line: node.pos !== undefined ? sourceFile.getLineAndCharacterOfPosition(node.pos).line + 1 : 0
-                        });
-                    }
-                } catch (e) {
-                    // Log error for debugging
-                    console.error(`[ERROR] Symbol extraction failed at ${filePath}:${node.pos}: ${e.message}`);
-                }
-                ts.forEachChild(node, visit);
-            }
-            visit(sourceFile);
-            
-            // Log symbol extraction results
-            console.error(`[INFO] Found ${symbols.length} symbols in ${filePath}`);
-            
-            // Build result for this file
-            const result = {
-                success: true,
-                fileName: filePath,
-                languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                ast: serializeNode(sourceFile),
-                diagnostics: diagnostics,
-                symbols: symbols,
-                nodeCount: 0,
-                hasTypes: symbols.some(s => s.type && s.type !== 'any')
-            };
-            
-            // Count nodes
-            function countNodes(node) {
-                if (!node) return;
-                result.nodeCount++;
-                if (node.children && Array.isArray(node.children)) {
-                    node.children.forEach(countNodes);
-                }
-            }
-            if (result.ast) countNodes(result.ast);
-            
-            results[filePath] = result;
-            
-        } catch (error) {
-            results[filePath] = {
-                success: false,
-                error: `Error processing file: ${error.message}`,
-                ast: null,
-                diagnostics: [],
-                symbols: []
-            };
-        }
-    }
-    
-    // Write all results to output file
-    fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), 'utf8');
-    process.exit(0);
-    
-} catch (error) {
-    console.error(JSON.stringify({
-        success: false,
-        error: error.message,
-        stack: error.stack
-    }));
-    process.exit(1);
-}
-'''
-        
         batch_helper_path.write_text(batch_helper_content, encoding='utf-8')
         return batch_helper_path
     
-    def get_semantic_ast_batch(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_semantic_ast_batch(self, file_paths: List[str], jsx_mode: str = 'transformed') -> Dict[str, Dict[str, Any]]:
         """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
         
         This dramatically improves performance by reusing the TypeScript program
@@ -739,7 +354,8 @@ try {
             # Create batch request
             batch_request = {
                 "files": valid_files,
-                "projectRoot": str(self.project_root)
+                "projectRoot": str(self.project_root),
+                "jsxMode": jsx_mode
             }
             
             # Write batch request to temp file
@@ -852,12 +468,23 @@ try {
         
         return results
     
-    def get_semantic_ast(self, file_path: str) -> Dict[str, Any]:
+    def get_semantic_ast(self, file_path: str, jsx_mode: str = 'transformed') -> Dict[str, Any]:
         """Get semantic AST for a JavaScript/TypeScript file using the TypeScript compiler.
-        
+
+        CRITICAL JSX HANDLING:
+        This function operates differently based on jsx_mode parameter:
+        - 'preserved': Keeps JSX nodes like JsxElement, JsxOpeningElement
+                      Used for structural analysis (accessibility, prop validation)
+        - 'transformed': Converts JSX to React.createElement calls
+                        Used for data flow analysis (taint tracking)
+
+        The jsx_mode parameter is propagated from the indexer orchestration
+        layer and determines which database tables receive the extracted data.
+
         Args:
             file_path: Path to the JavaScript or TypeScript file to parse
-            
+            jsx_mode: Either 'preserved' or 'transformed' (default: 'transformed')
+
         Returns:
             Dictionary containing the semantic AST and metadata:
             - success: Boolean indicating if parsing was successful
@@ -866,8 +493,19 @@ try {
             - symbols: List of symbols with type information
             - nodeCount: Total number of AST nodes
             - hasTypes: Boolean indicating if type information is available
+            - jsx_mode: The JSX mode used for this extraction
             - error: Error message if parsing failed
         """
+        # Validate jsx_mode
+        if jsx_mode not in ['preserved', 'transformed']:
+            return {
+                "success": False,
+                "error": f"Invalid jsx_mode: {jsx_mode}. Must be 'preserved' or 'transformed'",
+                "ast": None,
+                "diagnostics": [],
+                "symbols": [],
+                "jsx_mode": jsx_mode
+            }
         # Validate file exists
         file = Path(file_path).resolve()
         if not file.exists():
@@ -876,7 +514,8 @@ try {
                 "error": f"File not found: {file_path}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         
         # Check if it's a JavaScript, TypeScript, or Vue file
@@ -886,7 +525,8 @@ try {
                 "error": f"Not a JavaScript/TypeScript file: {file_path}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         
         # CRITICAL: No fallbacks allowed - fail fast with clear error
@@ -896,7 +536,8 @@ try {
                 "error": "TypeScript compiler not available in TheAuditor sandbox. Run 'aud setup-claude' to install tools.",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         
         try:
@@ -920,6 +561,7 @@ try {
                         "ast": None,
                         "diagnostics": [],
                         "symbols": [],
+                        "jsx_mode": jsx_mode,
                         "vueMetadata": {
                             "hasTemplate": template_content is not None,
                             "hasScript": False
@@ -969,7 +611,8 @@ try {
                         "error": "Node.js runtime not found. Run 'aud setup-claude' to install tools.",
                         "ast": None,
                         "diagnostics": [],
-                        "symbols": []
+                        "symbols": [],
+                        "jsx_mode": jsx_mode
                     }
                 
                 # Convert paths for Windows node if needed
@@ -977,8 +620,11 @@ try {
                 file_path_converted = self._convert_path_for_node(Path(actual_file_to_parse).resolve())
                 output_path_converted = self._convert_path_for_node(Path(tmp_output_path))
                 
+                # Pass projectRoot as the fourth argument and jsx_mode as fifth
+                project_root_converted = self._convert_path_for_node(self.project_root)
+
                 result = subprocess.run(
-                    [str(self.node_exe), helper_path_converted, file_path_converted, output_path_converted],
+                    [str(self.node_exe), helper_path_converted, file_path_converted, output_path_converted, project_root_converted, jsx_mode],
                     capture_output=False,  # Don't capture stdout - writing to file instead
                     stderr=subprocess.PIPE,  # Still capture stderr for error messages
                     text=True,
@@ -1022,7 +668,8 @@ try {
                         "error": error_msg,
                         "ast": None,
                         "diagnostics": [],
-                        "symbols": []
+                        "symbols": [],
+                        "jsx_mode": jsx_mode
                     }
                 else:
                     # Read output from file
@@ -1032,7 +679,8 @@ try {
                             "error": "TypeScript compiler succeeded but output file was not created",
                             "ast": None,
                             "diagnostics": [],
-                            "symbols": []
+                            "symbols": [],
+                            "jsx_mode": jsx_mode
                         }
                     
                     try:
@@ -1042,6 +690,8 @@ try {
                         # Add Vue metadata if this was a Vue file
                         if vue_metadata:
                             ast_data["vueMetadata"] = vue_metadata
+                        # Add jsx_mode to the response
+                        ast_data["jsx_mode"] = jsx_mode
                         return ast_data
                     except json.JSONDecodeError as e:
                         # Include file size in error for debugging
@@ -1051,7 +701,8 @@ try {
                             "error": f"Failed to parse TypeScript AST output: {e}. Output file size: {file_size} bytes",
                             "ast": None,
                             "diagnostics": [],
-                            "symbols": []
+                            "symbols": [],
+                            "jsx_mode": jsx_mode
                         }
             finally:
                 # Clean up temporary output file
@@ -1064,7 +715,8 @@ try {
                 "error": f"Timeout: File too large or complex to parse within {dynamic_timeout:.0f} seconds",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         except subprocess.SubprocessError as e:
             return {
@@ -1072,7 +724,8 @@ try {
                 "error": f"Subprocess error: {e}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
         except Exception as e:
             return {
@@ -1080,7 +733,8 @@ try {
                 "error": f"Unexpected error: {e}",
                 "ast": None,
                 "diagnostics": [],
-                "symbols": []
+                "symbols": [],
+                "jsx_mode": jsx_mode
             }
     
     
@@ -1236,35 +890,60 @@ try {
 
 
 # Module-level function for direct usage
-def get_semantic_ast(file_path: str, project_root: str = None) -> Dict[str, Any]:
+def get_semantic_ast(file_path: str, project_root: str = None, jsx_mode: str = 'transformed') -> Dict[str, Any]:
     """Get semantic AST for a JavaScript/TypeScript file.
-    
-    This is a convenience function that creates a parser instance
+
+    This is a convenience function that creates or reuses a cached parser instance
     and calls its get_semantic_ast method.
-    
+
     Args:
         file_path: Path to the JavaScript or TypeScript file to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
-        
+        jsx_mode: JSX parsing mode ('preserved' or 'transformed')
+
     Returns:
         Dictionary containing the semantic AST and metadata
     """
-    parser = JSSemanticParser(project_root=project_root)
-    return parser.get_semantic_ast(file_path)
+    # Reuse parser for same project
+    cache_key = str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
+    if cache_key not in _parser_cache:
+        _cache_stats['misses'] += 1
+        _parser_cache[cache_key] = JSSemanticParser(project_root=project_root)
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] Cache MISS - Created new JSSemanticParser for {cache_key}")
+            print(f"[DEBUG] Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses")
+    else:
+        _cache_stats['hits'] += 1
+        if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
+            print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
+    parser = _parser_cache[cache_key]
+    return parser.get_semantic_ast(file_path, jsx_mode)
 
 
-def get_semantic_ast_batch(file_paths: List[str], project_root: str = None) -> Dict[str, Dict[str, Any]]:
+def get_semantic_ast_batch(file_paths: List[str], project_root: str = None, jsx_mode: str = 'transformed') -> Dict[str, Dict[str, Any]]:
     """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
-    
-    This is a convenience function that creates a parser instance
+
+    This is a convenience function that creates or reuses a cached parser instance
     and calls its get_semantic_ast_batch method.
-    
+
     Args:
         file_paths: List of paths to JavaScript or TypeScript files to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
-        
+
     Returns:
         Dictionary mapping file paths to their AST results
     """
-    parser = JSSemanticParser(project_root=project_root)
-    return parser.get_semantic_ast_batch(file_paths)
+    # Reuse parser for same project
+    cache_key = str(Path(project_root).resolve() if project_root else Path.cwd().resolve())
+    if cache_key not in _parser_cache:
+        _cache_stats['misses'] += 1
+        _parser_cache[cache_key] = JSSemanticParser(project_root=project_root)
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] Cache MISS - Created new JSSemanticParser for {cache_key}")
+            print(f"[DEBUG] Cache stats: {_cache_stats['hits']} hits, {_cache_stats['misses']} misses")
+    else:
+        _cache_stats['hits'] += 1
+        if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
+            print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
+    parser = _parser_cache[cache_key]
+    return parser.get_semantic_ast_batch(file_paths, jsx_mode)

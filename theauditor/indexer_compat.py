@@ -13,11 +13,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Import from the new package structure  
+# Import from the new package structure
 from theauditor.indexer import IndexerOrchestrator
 from theauditor.indexer.config import (
-    SKIP_DIRS, IMPORT_PATTERNS, ROUTE_PATTERNS, SQL_PATTERNS,
-    SQL_QUERY_PATTERNS, DEFAULT_BATCH_SIZE
+    SKIP_DIRS, ROUTE_PATTERNS, SQL_PATTERNS, DEFAULT_BATCH_SIZE
 )
 from theauditor.indexer.core import (
     FileWalker, is_text_file, get_first_lines, load_gitignore_patterns
@@ -40,22 +39,20 @@ __all__ = [
 
 
 def extract_imports(content: str, file_ext: str) -> List[tuple]:
-    """Extract import statements - backward compatibility wrapper."""
-    imports = []
-    for pattern in IMPORT_PATTERNS:
-        for match in pattern.finditer(content):
-            value = match.group(1) if match.lastindex else match.group(0)
-            # Determine kind based on pattern
-            if "require" in pattern.pattern:
-                kind = "require"
-            elif "from" in pattern.pattern and "import" in pattern.pattern:
-                kind = "from"
-            elif "package" in pattern.pattern:
-                kind = "package"
-            else:
-                kind = "import"
-            imports.append((kind, value))
-    return imports
+    """Extract import statements - DEPRECATED backward compatibility wrapper.
+
+    WARNING: This function is deprecated and returns empty results.
+    Regex-based import extraction has been removed due to 97% false positive rate.
+    Use AST-based extraction in language-specific extractors instead.
+    """
+    import warnings
+    warnings.warn(
+        "extract_imports() is deprecated. Use AST-based extraction via "
+        "PythonExtractor or JavaScriptExtractor instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return []
 
 
 def extract_routes(content: str) -> List[tuple]:
@@ -100,75 +97,22 @@ def extract_sql_objects(content: str) -> List[tuple]:
 
 
 def extract_sql_queries(content: str) -> List[dict]:
-    """Extract SQL queries - backward compatibility wrapper.
-    
-    Note: This requires sqlparse to be installed for full functionality.
+    """Extract SQL queries - DEPRECATED backward compatibility wrapper.
+
+    WARNING: This function is deprecated and returns empty results.
+    Regex-based SQL extraction had 97.6% false positive rate.
+    Use AST-based extraction in PythonExtractor or JavaScriptExtractor instead,
+    which detect actual db.execute() calls rather than any string containing "SELECT".
     """
-    try:
-        import sqlparse
-    except ImportError:
-        return []
-    
-    queries = []
-    for pattern in SQL_QUERY_PATTERNS:
-        for match in pattern.finditer(content):
-            query_text = match.group(1) if match.lastindex else match.group(0)
-            
-            # Calculate line number
-            line = content[:match.start()].count('\n') + 1
-            
-            # Clean up the query text
-            query_text = query_text.strip()
-            if not query_text:
-                continue
-            
-            try:
-                # Parse the SQL query
-                parsed = sqlparse.parse(query_text)
-                if not parsed:
-                    continue
-                
-                for statement in parsed:
-                    # Extract command type
-                    command = statement.get_type()
-                    if not command:
-                        # Try to extract manually from first token
-                        tokens = statement.tokens
-                        for token in tokens:
-                            if not token.is_whitespace:
-                                command = str(token).upper()
-                                break
-                    
-                    # Extract table names
-                    tables = []
-                    tokens = list(statement.flatten())
-                    for i, token in enumerate(tokens):
-                        if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
-                            # Look for the next non-whitespace token
-                            for j in range(i + 1, len(tokens)):
-                                next_token = tokens[j]
-                                if not next_token.is_whitespace:
-                                    if next_token.ttype in [None, sqlparse.tokens.Name]:
-                                        table_name = next_token.value
-                                        # Clean up table name
-                                        table_name = table_name.strip('"\'`')
-                                        if '.' in table_name:
-                                            table_name = table_name.split('.')[-1]
-                                        if table_name and not table_name.upper() in ['SELECT', 'WHERE', 'SET', 'VALUES']:
-                                            tables.append(table_name)
-                                    break
-                    
-                    queries.append({
-                        'line': line,
-                        'query_text': query_text[:1000],  # Limit length
-                        'command': command or 'UNKNOWN',
-                        'tables': tables
-                    })
-            except Exception:
-                # Skip queries that can't be parsed
-                continue
-    
-    return queries
+    import warnings
+    warnings.warn(
+        "extract_sql_queries() is deprecated. Use AST-based extraction via "
+        "PythonExtractor._extract_sql_queries_ast() or "
+        "JavaScriptExtractor._extract_sql_from_function_calls() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return []
 
 
 def walk_directory(

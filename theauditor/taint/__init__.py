@@ -23,6 +23,10 @@ from .database import (
     get_containing_function,
     get_function_boundaries,
     get_code_snippet,
+    # Object literal resolution (v1.2+)
+    resolve_object_literal_properties,
+    find_dynamic_dispatch_targets,
+    check_object_literals_available,
 )
 
 from .sources import (
@@ -34,24 +38,76 @@ from .sources import (
 
 from .propagation import (
     trace_from_source,
-    trace_from_source_legacy,
-    is_sanitizer,
+    # DELETED: trace_from_source_legacy - proximity-based algorithm removed (v1.2)
+    # DELETED: is_sanitizer - moved to TaintRegistry.is_sanitizer() method
     has_sanitizer_between,
-    is_external_source,
+    # DELETED: is_external_source - string matching fallback removed
     deduplicate_paths,
 )
 
+# Import registry for backward compatibility
+from .registry import TaintRegistry
+
+# Create module-level function for backward compatibility
+_registry = TaintRegistry()
+def is_sanitizer(function_name: str) -> bool:
+    """Check if a function is a known sanitizer (backward compatibility wrapper)."""
+    return _registry.is_sanitizer(function_name)
+
 from .interprocedural import (
-    trace_inter_procedural_flow,
+    trace_inter_procedural_flow_insensitive,
+    trace_inter_procedural_flow_cfg,
 )
 
-from .javascript import (
-    track_destructuring,
-    track_spread_operators,
-    track_bracket_notation,
-    track_array_operations,
-    track_type_conversions,
-    enhance_javascript_tracking,
+from .interprocedural_cfg import (
+    InterProceduralCFGAnalyzer,
+    InterProceduralEffect,
+)
+
+from .cfg_integration import (
+    BlockTaintState,
+    PathAnalyzer,
+)
+
+# DELETED: taint/javascript.py (375 lines) - All string parsing fallbacks removed
+#
+# Functions that existed:
+#   - track_destructuring()
+#   - track_spread_operators()
+#   - track_bracket_notation()
+#   - track_array_operations()
+#   - track_type_conversions()
+#   - enhance_javascript_tracking()
+#
+# These existed because indexer wasn't populating symbols with call/property types.
+# Now that indexer is fixed, these fallbacks are CANCER.
+#
+# NEVER re-add this file. If JavaScript analysis is incomplete:
+#   1. Check symbols table has call/property records
+#   2. Add missing patterns to taint/sources.py
+#   3. Fix indexer extraction
+
+# DELETED: taint/python.py (473 lines) - All string parsing fallbacks removed
+#
+# Functions that existed:
+#   - track_fstrings()
+#   - track_comprehensions()
+#   - track_unpacking()
+#   - track_decorators()
+#   - track_context_managers()
+#   - track_string_operations()
+#   - track_exception_propagation()
+#   - enhance_python_tracking()
+#
+# Same reason as javascript.py - these existed because symbols table was empty.
+# Now that indexer populates call/property symbols, these are unnecessary fallbacks.
+#
+# NEVER re-add this file. Python taint analysis works via database queries.
+
+# Memory cache optimization (NEW!)
+from .memory_cache import (
+    MemoryCache,
+    attempt_cache_preload,
 )
 
 # Re-export EVERYTHING to maintain backward compatibility
@@ -71,6 +127,11 @@ __all__ = [
     "get_containing_function",
     "get_function_boundaries",
     "get_code_snippet",
+
+    # Object literal resolution (v1.2+)
+    "resolve_object_literal_properties",
+    "find_dynamic_dispatch_targets",
+    "check_object_literals_available",
     
     # Constants
     "TAINT_SOURCES",
@@ -80,20 +141,43 @@ __all__ = [
     
     # Propagation functions
     "trace_from_source",
-    "trace_from_source_legacy",
+    # DELETED: "trace_from_source_legacy" - proximity-based algorithm removed (v1.2)
     "is_sanitizer",
     "has_sanitizer_between",
-    "is_external_source",
+    # DELETED: "is_external_source" - string matching fallback removed
     "deduplicate_paths",
+
+    # Inter-procedural (flow-insensitive and CFG-based)
+    "trace_inter_procedural_flow_insensitive",
+    "trace_inter_procedural_flow_cfg",
+    "InterProceduralCFGAnalyzer",
+    "InterProceduralEffect",
+
+    # CFG integration classes
+    "BlockTaintState",
+    "PathAnalyzer",
+
+    # DELETED: JavaScript enhancements - taint/javascript.py removed (375 lines)
+    # These functions were string parsing fallbacks:
+    #   - track_destructuring
+    #   - track_spread_operators
+    #   - track_bracket_notation
+    #   - track_array_operations
+    #   - track_type_conversions
+    #   - enhance_javascript_tracking
+
+    # DELETED: Python enhancements - taint/python.py removed (473 lines)
+    # These functions were string parsing fallbacks:
+    #   - track_fstrings
+    #   - track_comprehensions
+    #   - track_unpacking
+    #   - track_decorators
+    #   - track_context_managers
+    #   - track_string_operations
+    #   - track_exception_propagation
+    #   - enhance_python_tracking
     
-    # Inter-procedural
-    "trace_inter_procedural_flow",
-    
-    # JavaScript enhancements (new!)
-    "track_destructuring",
-    "track_spread_operators",
-    "track_bracket_notation",
-    "track_array_operations",
-    "track_type_conversions",
-    "enhance_javascript_tracking",
+    # Memory cache optimization (NEW!)
+    "MemoryCache",
+    "attempt_cache_preload",
 ]

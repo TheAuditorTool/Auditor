@@ -4,6 +4,8 @@ This module contains all the constant definitions for taint analysis:
 - TAINT_SOURCES: Where untrusted data originates
 - SECURITY_SINKS: Where untrusted data should not flow
 - SANITIZERS: Functions that clean/validate data
+
+PERFORMANCE: All patterns use frozensets for O(1) lookup instead of O(N) lists.
 """
 
 import platform
@@ -14,9 +16,10 @@ IS_WINDOWS = platform.system() == "Windows"
 
 # Define taint sources (where untrusted data originates)
 # Refined to focus on truly external/untrusted input sources
+# PERFORMANCE: frozensets provide O(1) membership testing
 TAINT_SOURCES = {
     # JavaScript/TypeScript sources - Web request data only
-    "js": [
+    "js": frozenset([
         "req.body",
         "req.query",
         "req.params",
@@ -36,9 +39,9 @@ TAINT_SOURCES = {
         "sessionStorage.getItem",
         "URLSearchParams",
         "postMessage",
-    ],
+    ]),
     # Python sources - Web and CLI input only
-    "python": [
+    "python": frozenset([
         "request.args",
         "request.form",
         "request.json",
@@ -55,16 +58,16 @@ TAINT_SOURCES = {
         "click.argument",  # Click CLI arguments
         "click.option",  # Click CLI options
         "argparse.parse_args",  # Argparse arguments
-    ],
+    ]),
     # Network sources only - removed generic file operations
-    "network": [
+    "network": frozenset([
         "socket.recv",
         "socket.recvfrom",
         "websocket.receive",
         "stdin.read",  # Console input
-    ],
+    ]),
     # Web scraping and data extraction sources
-    "web_scraping": [
+    "web_scraping": frozenset([
         # Requests library
         "requests.get",
         "requests.post",
@@ -77,12 +80,12 @@ TAINT_SOURCES = {
         "resp.text",
         "resp.content",
         "resp.json",
-        
+
         # urllib
         "urlopen",
         "urllib.request.urlopen",
         "urllib2.urlopen",
-        
+
         # BeautifulSoup HTML parsing
         "BeautifulSoup",
         "soup.find",
@@ -94,7 +97,7 @@ TAINT_SOURCES = {
         "element.string",
         "tag.text",
         "tag.get_text",
-        
+
         # Playwright browser automation
         "page.content",
         "page.inner_text",
@@ -104,14 +107,14 @@ TAINT_SOURCES = {
         "element.inner_text",
         "element.inner_html",
         "element.text_content",
-        
+
         # Selenium browser automation
         "driver.page_source",
         "driver.find_element",
         "element.text",
         "element.get_attribute",
         "webdriver.page_source",
-        
+
         # Scrapy framework
         "response.body",
         "response.text",
@@ -119,20 +122,20 @@ TAINT_SOURCES = {
         "response.xpath",
         "selector.get",
         "selector.getall",
-    ],
+    ]),
     # File I/O and data loading sources
-    "file_io": [
+    "file_io": frozenset([
         # Basic file operations
         "open",
         "file.read",
         "file.readline",
         "file.readlines",
-        
+
         # JSON operations
         "json.load",
         "json.loads",
         "json.JSONDecoder",
-        
+
         # CSV/Excel operations
         "csv.reader",
         "csv.DictReader",
@@ -143,30 +146,31 @@ TAINT_SOURCES = {
         "pd.read_sql",
         "pandas.read_csv",
         "pandas.read_excel",
-        
+
         # YAML operations
         "yaml.load",
         "yaml.safe_load",
         "yaml.full_load",
-        
+
         # XML operations
         "etree.parse",
         "etree.fromstring",
         "xml.parse",
         "ElementTree.parse",
-        
+
         # Environment variables
         "os.getenv",
         "os.environ.get",
         "environ.get",
-    ]
+    ])
     # Database category REMOVED - internal database data is trusted, not a taint source
 }
 
 # Define sanitizers that clean/validate data for different vulnerability types
+# PERFORMANCE: frozensets provide O(1) membership testing
 SANITIZERS = {
     # SQL sanitizers - Functions that properly escape or parameterize queries
-    "sql": [
+    "sql": frozenset([
         "escape_string",
         "mysql_real_escape_string",
         "mysqli_real_escape_string",
@@ -181,9 +185,9 @@ SANITIZERS = {
         "psycopg2.sql.SQL",
         "psycopg2.sql.Identifier",
         "psycopg2.sql.Literal",
-    ],
+    ]),
     # XSS sanitizers - HTML escaping functions
-    "xss": [
+    "xss": frozenset([
         "escape_html",
         "html.escape",
         "cgi.escape",
@@ -201,9 +205,9 @@ SANITIZERS = {
         "escapeHtml",
         "htmlspecialchars",
         "htmlentities",
-    ],
+    ]),
     # Path traversal sanitizers
-    "path": [
+    "path": frozenset([
         "os.path.basename",
         "Path.basename",
         "secure_filename",
@@ -214,9 +218,9 @@ SANITIZERS = {
         "path.resolve",
         "path.normalize",
         "werkzeug.utils.secure_filename",
-    ],
+    ]),
     # Command injection sanitizers
-    "command": [
+    "command": frozenset([
         "shlex.quote",
         "pipes.quote",
         "escapeshellarg",
@@ -224,9 +228,10 @@ SANITIZERS = {
         "shell_escape",
         "quote",
         "escape_shell",
-    ],
-    # General validation functions
-    "validation": [
+    ]),
+    # General validation functions + modern framework patterns
+    "validation": frozenset([
+        # Generic validation patterns (existing)
         "validate",
         "validator",
         "is_valid",
@@ -236,22 +241,55 @@ SANITIZERS = {
         "filter_var",
         "assert_valid",
         "verify",
-    ]
+
+        # Zod (TypeScript schema validation - popular in Next.js, tRPC)
+        ".parse",           # schema.parse(data) - throws on invalid
+        ".parseAsync",      # schema.parseAsync(data) - async validation
+        ".safeParse",       # schema.safeParse(data) - returns result object
+        "z.parse",          # z.string().parse(data) - direct Zod call
+        "schema.parse",     # Explicit schema reference
+
+        # Joi (Node.js validation - Hapi ecosystem)
+        ".validateAsync",   # schema.validateAsync(data)
+        "Joi.validate",     # Joi.object().validate(data)
+        "schema.validate",  # Explicit schema reference
+
+        # Yup (React form validation - Formik integration)
+        "yup.validate",     # yup.string().validate(data)
+        "yup.validateSync", # yup.object().validateSync(data)
+        "schema.validateSync", # Explicit schema reference
+        ".isValid",         # schema.isValid(data)
+
+        # express-validator (Express middleware)
+        "validationResult", # validationResult(req) - extracts validation errors
+        "matchedData",      # matchedData(req) - extracts validated data only
+        "checkSchema",      # checkSchema(schema) - schema-based validation
+
+        # class-validator (NestJS/TypeORM ecosystems)
+        "validateSync",     # validateSync(object) - synchronous validation
+        "validateOrReject", # validateOrReject(object) - async, throws on error
+
+        # AJV (JSON Schema validator - high performance)
+        "ajv.validate",     # ajv.compile(schema); validate(data)
+        "ajv.compile",      # Compiles schema for validation
+        "validator.validate" # validator(data) - compiled validator function
+    ])
 }
 
 # Define security sinks (functions where external data flows are tracked)
 # Categories are for organizational purposes only - Truth Couriers don't classify vulnerabilities
+# PERFORMANCE: frozensets provide O(1) membership testing
 SECURITY_SINKS = {
     # SQL-related sinks (factual: functions that interact with databases)
-    "sql": [
+    "sql": frozenset([
         "db.query",
         "db.execute",
         "db.exec",
         "db.raw",
         "cursor.execute",
         "connection.execute",
-        "query",
-        "execute",
+        # REMOVED "query" - too broad, matches inside "req.query" source
+        # REMOVED "execute" - too broad, use qualified patterns instead
         "executemany",
         "rawQuery",
         "knex.raw",
@@ -278,9 +316,9 @@ SECURITY_SINKS = {
         "typeorm.createQueryBuilder",
         "objection.raw",
         "knex.raw",
-    ],
+    ]),
     # Command execution sinks (factual: functions that execute system commands)
-    "command": [
+    "command": frozenset([
         "os.system",
         "os.popen",
         "subprocess.run",
@@ -294,9 +332,9 @@ SECURITY_SINKS = {
         "child_process.spawn",
         "child_process.execFile",
         "shell.exec",
-    ],
+    ]),
     # HTML/Response output sinks (factual: functions that output to HTML/HTTP responses)
-    "xss": [
+    "xss": frozenset([
         "innerHTML",
         "outerHTML",
         "document.write",
@@ -305,11 +343,15 @@ SECURITY_SINKS = {
         "insertAdjacentHTML",
         "response.write",
         "res.send",
+        "res.write",
+        "res.end",
+        "res.sendStatus",
+        "res.sendFile",
         "res.render",
         "res.json",
-    ],
+    ]),
     # File system operation sinks (factual: functions that interact with file system)
-    "path": [
+    "path": frozenset([
         "fs.readFile",
         "fs.readFileSync",
         "fs.writeFile",
@@ -321,17 +363,17 @@ SECURITY_SINKS = {
         "Path.join",
         "path.join",
         "os.path.join",
-    ],
+    ]),
     # LDAP injection sinks
-    "ldap": [
+    "ldap": frozenset([
         "ldap.search",
         "ldap.bind",
         "ldap.modify",
         "ldap.add",
         "ldap.delete",
-    ],
+    ]),
     # NoSQL injection sinks
-    "nosql": [
+    "nosql": frozenset([
         "$where",
         "$regex",
         "collection.find",
@@ -339,5 +381,40 @@ SECURITY_SINKS = {
         "collection.update",
         "collection.remove",
         "collection.aggregate",
-    ]
+    ]),
+    # Dynamic dispatch / Object injection sinks (NEW - v1.2)
+    # Factual: member expressions and function calls where user input controls dispatch
+    # Patterns: obj[userInput], handlers[req.query.action](), routes[key]
+    # Vulnerability types: Prototype pollution, mass assignment, arbitrary function execution
+    "dynamic_dispatch": frozenset([
+        # Member expression patterns (bracket notation with tainted key)
+        "member_expression",  # Generic AST pattern for obj[key]
+        "computed_member_expression",  # Explicit computed property access
+
+        # Call expression patterns (tainted callee)
+        "dynamic_call",  # Generic pattern for variable()
+        "dynamic_invoke",  # Method invocation with tainted reference
+
+        # Common vulnerable patterns in web frameworks
+        "handlers[",  # Route handlers accessed dynamically
+        "routes[",    # Route maps accessed by user input
+        "actions[",   # Action dispatchers
+        "commands[",  # Command maps
+        "methods[",   # Method maps
+        "services[",  # Service locators
+        "controllers[",  # Controller dispatch
+
+        # Prototype access (JavaScript prototype pollution)
+        "__proto__",
+        "prototype",
+        "constructor",
+
+        # Python dynamic attribute access
+        "getattr",
+        "setattr",
+        "hasattr",
+        "__getattribute__",
+        "__getitem__",
+        "__setitem__",
+    ])
 }

@@ -1,0 +1,144 @@
+# TheAuditor SAST Configuration - Sandbox Python Tools
+# This file is copied to .auditor_venv/.theauditor_tools/ during setup
+# Focused on security, bugs, and code quality over style
+
+[tool.black]
+line-length = 100  # Match TheAuditor's standard
+target-version = ['py311']
+exclude = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.venv
+  | \.auditor_venv
+  | \.pf
+  | __pycache__
+  | build
+  | dist
+  | \.eggs
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [
+    ".pf",
+    ".auditor_venv",
+    "__pycache__",
+    "build",
+    "dist",
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".venv"
+]
+
+[tool.ruff.lint]
+# SAST-focused: Comprehensive security + bugs + quality
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes (undefined names, imports)
+    "I",    # isort (import sorting)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade (Python version upgrade suggestions)
+    "B",    # flake8-bugbear (likely bugs and design problems)
+    "S",    # flake8-bandit (security - quick scan via Ruff)
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "PL",   # pylint checks
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long (Black handles this)
+    "S101",   # assert used (needed in tests)
+    "SIM105", # contextlib.suppress (can be less readable)
+    "PLR0913", # too many arguments (sometimes necessary)
+    "SIM117", # multiple-with-statements (can be clearer separated)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow security test patterns in test files
+"test*.py" = ["S101", "S106", "S105", "S311", "S324"]
+"**/test_*.py" = ["S101", "S106", "S105", "S311", "S324"]
+"**/tests/**/*.py" = ["S101", "S106", "S105", "S311", "S324"]
+"conftest.py" = ["S101"]
+"**/conftest.py" = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+# Maximum strictness for SAST - type safety prevents many vulnerabilities
+strict = true
+disallow_untyped_defs = true
+disallow_any_unimported = true
+no_implicit_optional = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_optional = true
+strict_equality = true
+# Output formatting
+no_pretty = true
+show_column_numbers = true
+show_error_codes = true
+show_error_context = true
+# Exclude patterns
+exclude = [
+    "\\.pf",
+    "\\.auditor_venv",
+    "__pycache__",
+    "\\.eggs",
+    "build",
+    "dist"
+]
+
+[tool.bandit]
+# Deep security scanning configuration
+# Complements Ruff's quick scan with detailed vulnerability analysis
+exclude_dirs = [
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".tox",
+    ".venv",
+    "build",
+    "dist",
+    "__pycache__",
+    # TheAuditor-specific exclusions
+    ".pf",
+    ".auditor_venv"
+]
+
+# Skip B101 (assert_used) - handled by per-file-ignores in Ruff
+skips = ["B101"]
+
+# SAST principle: Collect everything, filter in reporting
+# LOW thresholds ensure we catch subtle security issues
+severity_level = "LOW"
+confidence_level = "LOW"
+
+[tool.pytest.ini_options]
+# Testing configuration (for future test runner integration)
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra -q --strict-markers --tb=short"
+norecursedirs = [
+    ".pf",
+    ".auditor_venv",
+    ".git",
+    "__pycache__",
+    ".eggs",
+    "build",
+    "dist"
+]
+
+# Note on Dual-Layer Security:
+# 1. Quick Scan: Ruff with 'S' codes provides millisecond security feedback
+# 2. Deep Scan: Standalone Bandit provides CWE/OWASP mappings and detailed context
+# Both are valuable for different stages of development and CI/CD

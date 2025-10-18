@@ -2,6 +2,39 @@
 
 This module provides the main ASTExtractorMixin class that routes extraction
 requests to the appropriate language-specific implementation.
+
+ARCHITECTURAL CONTRACT: File Path Responsibility
+=================================================
+This module is part of a 3-layer extraction architecture:
+
+1. **Indexer Layer** (indexer/__init__.py):
+   - PROVIDES: file_path (absolute or relative path to source file)
+   - CALLS: extractor.extract(file_info, content, tree)
+   - STORES: Database records with file_path context
+
+2. **Extractor Layer** (indexer/extractors/*.py):
+   - RECEIVES: file_info dict (contains 'path' key)
+   - DELEGATES: To ast_parser.extract_X(tree) methods
+   - RETURNS: Extracted data WITHOUT file_path keys
+
+3. **Implementation Layer** (ast_extractors/*_impl.py):
+   - RECEIVES: AST tree only
+   - EXTRACTS: Data with 'line' numbers and content
+   - RETURNS: List[Dict] with keys like 'line', 'name', 'type', etc.
+   - MUST NOT: Include 'file' or 'file_path' keys in returned dicts
+
+CRITICAL: All extraction functions in *_impl.py files return data with 'line'
+numbers only. The indexer layer adds file_path when storing to database.
+
+Example flow for object literals:
+  indexer/__init__.py:952 → Uses file_path parameter
+  javascript.py:290 → Calls ast_parser.extract_object_literals(tree)
+  __init__.py:277 → Routes to typescript_impl.extract_typescript_object_literals()
+  typescript_impl.py:1293 → Returns {"line": 42, "variable_name": "x", ...}
+  indexer/__init__.py:952 → Stores with add_object_literal(file_path, obj_lit['line'], ...)
+
+WHY: This separation ensures single source of truth for file paths and prevents
+architectural violations where implementations incorrectly attempt to track files.
 """
 
 import os
@@ -183,24 +216,43 @@ class ASTExtractorMixin:
 
     def extract_function_calls_with_args(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
         """Extract function calls with argument mapping for data flow analysis.
-        
+
         This is a two-pass analysis:
         1. First pass: Find all function definitions and their parameters
         2. Second pass: Find all function calls and map arguments to parameters
         """
         if not tree:
             return []
-        
+
+        # DEBUG: Check tree structure
+        import sys, os
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            tree_type_debug = tree.get('type') if isinstance(tree, dict) else type(tree).__name__
+            print(f"[DEBUG __init__.py:225] extract_function_calls_with_args: tree type = {tree_type_debug}", file=sys.stderr)
+            if isinstance(tree, dict) and tree.get('type') == 'semantic_ast':
+                if 'tree' in tree:
+                    nested_keys = list(tree['tree'].keys())[:10] if isinstance(tree.get('tree'), dict) else 'not a dict'
+                    print(f"[DEBUG __init__.py:225] Nested tree keys: {nested_keys}", file=sys.stderr)
+
         # First pass: Get all function definitions with their parameters
         function_params = self._extract_function_parameters(tree, language)
-        
+
+        # DEBUG: Log extracted function params
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:229] function_params extracted: {len(function_params)} functions", file=sys.stderr)
+            if function_params:
+                sample = list(function_params.items())[:3]
+                print(f"[DEBUG __init__.py:229] Sample function_params: {sample}", file=sys.stderr)
+            else:
+                print(f"[DEBUG __init__.py:229] WARNING: function_params is EMPTY", file=sys.stderr)
+
         # Second pass: Extract calls with argument mapping
         calls_with_args = []
-        
+
         if isinstance(tree, dict):
             tree_type = tree.get("type")
             language = tree.get("language", language)
-            
+
             if tree_type == "python_ast":
                 calls_with_args = python_impl.extract_python_calls_with_args(tree, function_params, self)
             elif tree_type == "semantic_ast":
@@ -209,29 +261,70 @@ class ASTExtractorMixin:
                 calls_with_args = treesitter_impl.extract_treesitter_calls_with_args(
                     tree, function_params, self, language
                 )
-        
+
+        # DEBUG: Log result
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:246] calls_with_args returned: {len(calls_with_args)} calls", file=sys.stderr)
+            if calls_with_args:
+                sample_call = calls_with_args[0]
+                print(f"[DEBUG __init__.py:246] Sample call: {sample_call}", file=sys.stderr)
+
         return calls_with_args
 
     def _extract_function_parameters(self, tree: Any, language: str = None) -> Dict[str, List[str]]:
         """Extract function definitions and their parameter names.
-        
+
         Returns:
             Dict mapping function_name -> list of parameter names
         """
+        import sys, os
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:274] _extract_function_parameters called", file=sys.stderr)
+
+        # CRITICAL FIX (Bug #3): Use global cache if available
+        # The global cache is populated during batch processing (indexer/__init__.py:268-291)
+        # and contains ALL function parameters from ALL JS/TS files in the project.
+        # This enables cross-file parameter name resolution for taint analysis.
+        if hasattr(self, 'global_function_params') and self.global_function_params:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG __init__.py:274] Using global function params cache ({len(self.global_function_params)} entries)", file=sys.stderr)
+            return self.global_function_params
+
+        # Fallback: extract from current tree only (backward compatibility for Python, non-batch files)
         if not tree:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG __init__.py:274] WARNING: tree is None/empty, returning empty dict", file=sys.stderr)
             return {}
-        
+
         if isinstance(tree, dict):
             tree_type = tree.get("type")
             language = tree.get("language", language)
-            
+
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG __init__.py:274] tree_type = {tree_type}, language = {language}", file=sys.stderr)
+
             if tree_type == "python_ast":
-                return python_impl.extract_python_function_params(tree, self)
+                result = python_impl.extract_python_function_params(tree, self)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG __init__.py:274] Python extraction returned {len(result)} functions", file=sys.stderr)
+                return result
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_function_params(tree, self)
+                result = typescript_impl.extract_typescript_function_params(tree, self)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG __init__.py:274] TypeScript extraction returned {len(result)} functions", file=sys.stderr)
+                    if result:
+                        sample = list(result.items())[:2]
+                        print(f"[DEBUG __init__.py:274] Sample TS params: {sample}", file=sys.stderr)
+                return result
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
-                return treesitter_impl.extract_treesitter_function_params(tree, self, language)
-        
+                result = treesitter_impl.extract_treesitter_function_params(tree, self, language)
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG __init__.py:274] Tree-sitter extraction returned {len(result)} functions", file=sys.stderr)
+                return result
+
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG __init__.py:274] WARNING: No matching tree type, returning empty dict", file=sys.stderr)
+
         return {}
 
     def extract_returns(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
@@ -252,97 +345,42 @@ class ASTExtractorMixin:
         
         return []
 
-    def parse_files_batch(self, file_paths: List[Path], root_path: str = None) -> Dict[str, Any]:
-        """Parse multiple files into ASTs in batch for performance.
-        
-        This method dramatically improves performance for JavaScript/TypeScript projects
-        by processing multiple files in a single TypeScript compiler invocation.
-        
-        Args:
-            file_paths: List of paths to source files
-            root_path: Absolute path to project root (for sandbox resolution)
-            
+    def extract_cfg(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
+        """Extract control flow graphs for all functions in AST.
+
         Returns:
-            Dictionary mapping file paths to their AST trees
+            List of CFG dictionaries with blocks and edges for each function
         """
-        results = {}
-        
-        # Separate files by language
-        js_ts_files = []
-        python_files = []
-        other_files = []
-        
-        for file_path in file_paths:
-            language = self._detect_language(file_path)
-            if language in ["javascript", "typescript"]:
-                js_ts_files.append(file_path)
-            elif language == "python":
-                python_files.append(file_path)
-            else:
-                other_files.append(file_path)
-        
-        # Batch process JavaScript/TypeScript files if in a JS or polyglot project
-        project_type = self._detect_project_type()
-        if js_ts_files and project_type in ["javascript", "polyglot"] and get_semantic_ast_batch:
-            try:
-                # Convert paths to strings for the semantic parser with normalized separators
-                js_ts_paths = [str(f).replace("\\", "/") for f in js_ts_files]
-                
-                # Use batch processing for JS/TS files
-                batch_results = get_semantic_ast_batch(js_ts_paths, project_root=root_path)
-                
-                # Process batch results
-                for file_path in js_ts_files:
-                    file_str = str(file_path).replace("\\", "/")  # Normalize for matching
-                    if file_str in batch_results:
-                        semantic_result = batch_results[file_str]
-                        if semantic_result.get("success"):
-                            # Read file content for inclusion
-                            try:
-                                with open(file_path, "rb") as f:
-                                    content = f.read()
-                                
-                                results[str(file_path).replace("\\", "/")] = {
-                                    "type": "semantic_ast",
-                                    "tree": semantic_result,
-                                    "language": self._detect_language(file_path),
-                                    "content": content.decode("utf-8", errors="ignore"),
-                                    "has_types": semantic_result.get("hasTypes", False),
-                                    "diagnostics": semantic_result.get("diagnostics", []),
-                                    "symbols": semantic_result.get("symbols", [])
-                                }
-                            except Exception as e:
-                                print(f"Warning: Failed to read {file_path}: {e}, falling back to individual parsing")
-                                # CRITICAL FIX: Fall back to individual parsing on read failure
-                                individual_result = self.parse_file(file_path, root_path=root_path)
-                                results[str(file_path).replace("\\", "/")] = individual_result
-                        else:
-                            print(f"Warning: Semantic parser failed for {file_path}: {semantic_result.get('error')}, falling back to individual parsing")
-                            # CRITICAL FIX: Fall back to individual parsing instead of None
-                            individual_result = self.parse_file(file_path, root_path=root_path)
-                            results[str(file_path).replace("\\", "/")] = individual_result
-                    else:
-                        # CRITICAL FIX: Fall back to individual parsing instead of None
-                        print(f"Warning: No batch result for {file_path}, falling back to individual parsing")
-                        individual_result = self.parse_file(file_path, root_path=root_path)
-                        results[str(file_path).replace("\\", "/")] = individual_result
-                        
-            except Exception as e:
-                print(f"Warning: Batch processing failed for JS/TS files: {e}")
-                # Fall back to individual processing
-                for file_path in js_ts_files:
-                    results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
-        else:
-            # Process JS/TS files individually if not in JS project or batch failed
-            for file_path in js_ts_files:
-                results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
-        
-        # Process Python files individually (they're fast enough)
-        for file_path in python_files:
-            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
-        
-        # Process other files individually
-        for file_path in other_files:
-            results[str(file_path).replace("\\", "/")] = self.parse_file(file_path, root_path=root_path)
-        
-        return results
+        if not tree:
+            return []
+
+        if isinstance(tree, dict):
+            tree_type = tree.get("type")
+            language = tree.get("language", language)
+
+            if tree_type == "python_ast":
+                return python_impl.extract_python_cfg(tree, self)
+            elif tree_type == "semantic_ast":
+                return typescript_impl.extract_typescript_cfg(tree, self)
+            elif tree_type == "tree_sitter" and self.has_tree_sitter:
+                return treesitter_impl.extract_treesitter_cfg(tree, self, language)
+
+        return []
+
+    def extract_object_literals(self, tree: Any) -> List[Dict[str, Any]]:
+        """Extract object literal properties from AST."""
+        if not tree or not isinstance(tree, dict):
+            return []
+
+        tree_type = tree.get("type")
+
+        if tree_type == "semantic_ast":
+            # The new, correct path for TypeScript/JavaScript
+            return typescript_impl.extract_typescript_object_literals(tree, self)
+
+        elif tree_type == "python_ast":
+            # Python dict literal extraction
+            return python_impl.extract_python_dicts(tree, self)
+
+        return []
+

@@ -18,7 +18,40 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--out", default=None, help="Output workset file path")
 @click.option("--print-stats", is_flag=True, help="Print summary statistics")
 def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, out, print_stats):
-    """Compute target file set from git diff and dependencies."""
+    """Identify files to analyze based on changes or patterns.
+
+    A workset is a focused subset of files for targeted analysis. Instead
+    of analyzing your entire codebase every time, workset identifies only
+    the files that matter for your current task. It automatically includes
+    dependent files that could be affected by changes.
+
+    Use Cases:
+      - After making changes: Analyze only modified files and their deps
+      - Pull request review: Focus on files changed in the PR
+      - Targeted security scan: Check specific components
+      - Performance optimization: Reduce analysis time by 10-100x
+
+    Examples:
+      aud workset --diff HEAD~1          # Files changed in last commit
+      aud workset --diff main..feature   # Files changed in feature branch
+      aud workset --all                  # All source files (skip git diff)
+      aud workset --files auth.py db.py  # Specific files + dependencies
+      aud workset --include "*/auth/*"   # Files matching pattern
+
+    Then use with other commands:
+      aud workset --diff HEAD~3 && aud lint --workset
+      aud workset --diff main && aud taint-analyze --workset
+      aud workset --files api.py && aud impact --workset
+
+    Output:
+      .pf/workset.json    # List of files to analyze
+
+    Contains:
+      - seed_files: Directly changed/selected files
+      - expanded_files: Dependencies and affected files
+      - total_files: Complete set for analysis
+
+    Note: Most analysis commands support --workset flag to use this file."""
     from theauditor.workset import compute_workset
     from theauditor.config_runtime import load_runtime_config
     
