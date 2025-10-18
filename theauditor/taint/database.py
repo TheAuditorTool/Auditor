@@ -343,13 +343,13 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
     if command_sinks:
         for pattern in command_sinks:
             query = build_query('function_call_args',
-                ['file', 'line', 'callee_function', 'argument_expr'],
+                ['file', 'line', 'callee_function', 'argument_expr', 'callee_file_path'],
                 where="callee_function LIKE ? OR callee_function = ?",
                 order_by="file, line"
             )
             cursor.execute(query, (f"%{pattern}%", pattern))
 
-            for file, line, callee_func, arg_expr in cursor.fetchall():
+            for file, line, callee_func, arg_expr, callee_file_path in cursor.fetchall():
                 sinks.append({
                     "file": file.replace("\\", "/"),
                     "name": callee_func,
@@ -358,6 +358,7 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     "pattern": pattern,
                     "category": "command",
                     "type": "sink",
+                    "callee_file_path": callee_file_path,  # Enable cross-file resolution
                     "metadata": {
                         "arguments": arg_expr[:200] if arg_expr else "",
                         "table": "function_call_args"
@@ -429,13 +430,13 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 continue  # Already handled in react_hooks
 
             query = build_query('function_call_args',
-                ['file', 'line', 'callee_function', 'argument_expr'],
+                ['file', 'line', 'callee_function', 'argument_expr', 'callee_file_path'],
                 where="callee_function LIKE ? OR callee_function = ?",
                 order_by="file, line"
             )
             cursor.execute(query, (f"%{pattern}%", pattern))
 
-            for file, line, callee_func, arg_expr in cursor.fetchall():
+            for file, line, callee_func, arg_expr, callee_file_path in cursor.fetchall():
                 sinks.append({
                     "file": file.replace("\\", "/"),
                     "name": callee_func,
@@ -444,6 +445,7 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     "pattern": pattern,
                     "category": "xss",
                     "type": "sink",
+                    "callee_file_path": callee_file_path,  # Enable cross-file resolution
                     "metadata": {
                         "arguments": arg_expr[:200] if arg_expr else "",
                         "table": "function_call_args"
@@ -455,13 +457,13 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
     if path_sinks:
         for pattern in path_sinks:
             query = build_query('function_call_args',
-                ['file', 'line', 'callee_function', 'argument_expr'],
+                ['file', 'line', 'callee_function', 'argument_expr', 'callee_file_path'],
                 where="callee_function LIKE ? OR callee_function = ?",
                 order_by="file, line"
             )
             cursor.execute(query, (f"%{pattern}%", pattern))
 
-            for file, line, callee_func, arg_expr in cursor.fetchall():
+            for file, line, callee_func, arg_expr, callee_file_path in cursor.fetchall():
                 sinks.append({
                     "file": file.replace("\\", "/"),
                     "name": callee_func,
@@ -470,6 +472,7 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     "pattern": pattern,
                     "category": "path",
                     "type": "sink",
+                    "callee_file_path": callee_file_path,  # Enable cross-file resolution
                     "metadata": {
                         "path_argument": arg_expr[:200] if arg_expr else "",
                         "table": "function_call_args"

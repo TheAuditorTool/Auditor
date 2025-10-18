@@ -17,6 +17,48 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
+# ABSOLUTE RULES - READ FIRST OR WASTE TIME
+
+## NEVER USE SQLITE3 COMMAND DIRECTLY
+
+**ALWAYS** use Python with sqlite3 import. The sqlite3 command is not installed in WSL.
+
+```python
+# CORRECT - Always use this pattern
+cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
+import sqlite3
+conn = sqlite3.connect('C:/path/to/database.db')
+c = conn.cursor()
+c.execute('SELECT ...')
+for row in c.fetchall():
+    print(row)
+conn.close()
+"
+```
+
+```bash
+# WRONG - This will fail with "sqlite3: command not found"
+sqlite3 database.db "SELECT ..."
+```
+
+## NEVER USE EMOJIS IN PYTHON OUTPUT
+
+Windows Command Prompt uses CP1252 encoding. Emojis cause `UnicodeEncodeError: 'charmap' codec can't encode character`.
+
+```python
+# WRONG - Will crash on Windows
+print('Status: ✅ PASS')
+print('Cross-file: ❌')
+
+# CORRECT - Use plain ASCII
+print('Status: PASS')
+print('Cross-file: NO')
+```
+
+**These two rules alone waste 5-10 tool calls per session. Follow them religiously.**
+
+---
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with TheAuditor codebase.
