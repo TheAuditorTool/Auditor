@@ -436,16 +436,39 @@ class PathAnalyzer:
         self.cursor.execute(sink_args_query, (self.file_path, sink_line))
         sink_args_result = self.cursor.fetchone()
 
-        if sink_args_result:
-            argument_expr = sink_args_result[0]
-            # SURGICAL FIX: Check if ANY variable tainted at sink point is used in sink arguments
-            # This handles propagated vars: data → newUser, both checked
-            for var in current_state.tainted_vars:
-                if var in argument_expr and current_state.is_tainted(var):
-                    is_vulnerable = True
-                    if self.debug:
-                        print(f"[CFG]     VULNERABLE: Tainted var '{var}' reaches sink at line {sink_line} via args '{argument_expr[:80]}'", file=sys.stderr)
-                    break
+        # NEW: Also consult variable_usage for object-literal / destructured arguments
+        usage_query = build_query('variable_usage', ['variable_name'],
+                                  where="file = ? AND line = ?")
+        self.cursor.execute(usage_query, (self.file_path, sink_line))
+        sink_usage_names = {row[0] for row in self.cursor.fetchall()}
+
+        argument_expr = sink_args_result[0] if sink_args_result else ""
+
+        def _matches_usage(var_name: str) -> bool:
+            """Return True if var_name is referenced in sink usage metadata."""
+            if not sink_usage_names:
+                return False
+            for usage in sink_usage_names:
+                if var_name == usage:
+                    return True
+                if usage.startswith(f"{var_name}."):
+                    return True
+                if var_name.startswith(f"{usage}."):
+                    return True
+            return False
+
+        # SURGICAL FIX: Check if ANY variable tainted at sink point is used in sink arguments
+        # This handles propagated vars: data → newUser, both checked. Variable usage
+        # metadata makes sure object literal fields like data.company_name are detected.
+        for var in current_state.tainted_vars:
+            if current_state.is_tainted(var) and (
+                (argument_expr and var in argument_expr) or _matches_usage(var)
+            ):
+                is_vulnerable = True
+                if self.debug:
+                    preview = argument_expr[:80] if argument_expr else ", ".join(sorted(sink_usage_names))[:80]
+                    print(f"[CFG]     VULNERABLE: Tainted var '{var}' reaches sink at line {sink_line} (evidence: {preview})", file=sys.stderr)
+                break
 
         # Stage 2: Enhanced path info with detailed conditions
         path_info = {

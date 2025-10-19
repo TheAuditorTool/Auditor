@@ -22,6 +22,7 @@ from .database import (
     get_function_boundaries,
     get_code_snippet,
     check_cfg_available,
+    resolve_function_identity,
 )
 from .interprocedural import trace_inter_procedural_flow_insensitive
 from .registry import TaintRegistry
@@ -353,55 +354,108 @@ def trace_from_source(
         start_func_name = source_function.get("name", "global")
         tainted_by_function = {}  # func_name -> {var1, var2, ...}
 
+        start_display_name = source_function.get("name", "global")
+        start_canonical_name, start_file_hint = resolve_function_identity(
+            cursor,
+            start_display_name,
+            source["file"]
+        )
+
+        tainted_by_function: Dict[str, Dict[str, Any]] = {}
+
+        def record_tainted_function(func_display: str, var_name: str) -> None:
+            canonical_name, resolved_file = resolve_function_identity(
+                cursor,
+                func_display,
+                None
+            )
+            entry = tainted_by_function.setdefault(
+                canonical_name,
+                {"vars": set(), "displays": set(), "file": resolved_file}
+            )
+            entry["vars"].add(var_name)
+            entry["displays"].add(func_display)
+            if resolved_file:
+                entry["file"] = resolved_file
+
         for element in tainted_elements:
             if ":" in element:
-                func_name, var_name = element.split(":", 1)
-                if func_name not in tainted_by_function:
-                    tainted_by_function[func_name] = set()
-                tainted_by_function[func_name].add(var_name)
+                func_display, var_name = element.split(":", 1)
+                record_tainted_function(func_display, var_name)
             else:
-                # No function qualifier - belongs to source function
-                if start_func_name not in tainted_by_function:
-                    tainted_by_function[start_func_name] = set()
-                tainted_by_function[start_func_name].add(element)
+                record_tainted_function(start_display_name, element)
 
         if debug_mode:
-            print(f"[TAINT] Grouped tainted elements by function: {dict((k, list(v)) for k, v in tainted_by_function.items())}", file=sys.stderr)
+            debug_repr = {
+                name: {
+                    "vars": list(info["vars"]),
+                    "aliases": list(info["displays"])
+                }
+                for name, info in tainted_by_function.items()
+            }
+            print(f"[TAINT] Grouped tainted elements by function: {debug_repr}", file=sys.stderr)
 
         # Process EACH tainted function (not just source function!)
         inter_paths = []
-        for func_name, vars_to_trace in tainted_by_function.items():
+        ordered_keys: List[str] = []
+        primary_candidates = [
+            start_canonical_name if 'start_canonical_name' in locals() else None,
+            start_display_name
+        ]
+        for candidate in primary_candidates:
+            if candidate and candidate in tainted_by_function and candidate not in ordered_keys:
+                ordered_keys.append(candidate)
+        for func_name in tainted_by_function.keys():
+            if func_name not in ordered_keys:
+                ordered_keys.append(func_name)
+
+        for func_name in ordered_keys:
+            func_info = tainted_by_function.get(func_name)
+            if not func_info:
+                continue
+            vars_to_trace = func_info["vars"]
             if not vars_to_trace:
                 continue
 
-            # Resolve function file path
-            if func_name == start_func_name:
-                func_file_path = source_function.get("file_path", source["file"])
+            display_aliases = func_info["displays"]
+            display_name = next(iter(display_aliases), func_name)
+
+            if func_name == start_canonical_name:
+                func_file_path = start_file_hint or source_function.get("file_path", source["file"])
                 func_line = source["line"]
             else:
-                # Cross-file function - look up in symbols table
+                func_file_path = func_info.get("file")
+                func_line = None
+
                 func_file_query = build_query(
-                    "symbols", ["path", "line"], where="name = ? AND type = 'function'"
+                    "symbols", ["path", "line"], where="name = ? AND type = 'function'", limit=1
                 )
                 cursor.execute(func_file_query, (func_name,))
                 result = cursor.fetchone()
                 if result:
                     func_file_path, func_line = result[0], result[1]
                 else:
-                    # Try function_call_args table (callee_file_path)
                     callee_query = build_query(
                         "function_call_args", ["callee_file_path"],
                         where="callee_function = ?", limit=1
                     )
                     cursor.execute(callee_query, (func_name,))
                     result = cursor.fetchone()
-                    func_file_path = result[0] if result else None
-                    func_line = 1  # Default line if not found
+                    if result and result[0]:
+                        func_file_path = result[0]
+                    if func_line is None:
+                        func_line = 1
+
+            if func_file_path:
+                func_file_path = func_file_path.replace("\\", "/")
 
             if not func_file_path:
                 if debug_mode:
                     print(f"[TAINT] WARNING: Could not resolve file path for {func_name}, skipping", file=sys.stderr)
                 continue
+
+            if func_line is None:
+                func_line = 1
 
             if debug_mode:
                 print(f"[TAINT] Tracing from {func_name} in {func_file_path} with vars: {vars_to_trace}", file=sys.stderr)
@@ -412,10 +466,11 @@ def trace_from_source(
                 source_vars=vars_to_trace,  # Pass entire set for this function
                 source_file=func_file_path,
                 source_line=func_line,
-                source_function=func_name,
+                source_function=display_name,
                 sinks=sinks,  # ALL sinks, including cross-file
                 max_depth=max_depth,
-                cache=cache
+                cache=cache,
+                origin_source=source
             )
 
             if paths_from_func:
@@ -433,60 +488,93 @@ def trace_from_source(
         if debug_mode:
             print(f"[TAINT] Running flow-insensitive inter-procedural analysis for all {len(sinks)} sinks", file=sys.stderr)
 
-        # CRITICAL FIX: Group tainted_elements by function to enable multi-hop cross-file
-        # Previous bug: Only traced vars from source function, discarded cross-file tainted elements
-        start_func_name = source_function.get("name", "global")
-        tainted_by_function = {}  # func_name -> {var1, var2, ...}
+        start_display_name = source_function.get("name", "global")
+        start_canonical_name, start_file_hint = resolve_function_identity(
+            cursor,
+            start_display_name,
+            source["file"]
+        )
+
+        tainted_by_function: Dict[str, Dict[str, Any]] = {}
+
+        def record_tainted_function(func_display: str, var_name: str) -> None:
+            canonical_name, resolved_file = resolve_function_identity(
+                cursor,
+                func_display,
+                None
+            )
+            entry = tainted_by_function.setdefault(
+                canonical_name,
+                {"vars": set(), "displays": set(), "file": resolved_file}
+            )
+            entry["vars"].add(var_name)
+            entry["displays"].add(func_display)
+            if resolved_file:
+                entry["file"] = resolved_file
 
         for element in tainted_elements:
             if ":" in element:
-                func_name, var_name = element.split(":", 1)
-                if func_name not in tainted_by_function:
-                    tainted_by_function[func_name] = set()
-                tainted_by_function[func_name].add(var_name)
+                func_display, var_name = element.split(":", 1)
+                record_tainted_function(func_display, var_name)
             else:
-                # No function qualifier - belongs to source function
-                if start_func_name not in tainted_by_function:
-                    tainted_by_function[start_func_name] = set()
-                tainted_by_function[start_func_name].add(element)
+                record_tainted_function(start_display_name, element)
 
         if debug_mode:
-            print(f"[TAINT] Grouped tainted elements by function: {dict((k, list(v)) for k, v in tainted_by_function.items())}", file=sys.stderr)
+            debug_repr = {
+                name: {
+                    "vars": list(info["vars"]),
+                    "aliases": list(info["displays"])
+                }
+                for name, info in tainted_by_function.items()
+            }
+            print(f"[TAINT] Grouped tainted elements by function: {debug_repr}", file=sys.stderr)
 
         # Process EACH tainted function (not just source function!)
         inter_paths = []
-        for func_name, vars_to_trace in tainted_by_function.items():
+        for func_name, func_info in tainted_by_function.items():
+            vars_to_trace = func_info["vars"]
             if not vars_to_trace:
                 continue
 
-            # Resolve function file path
-            if func_name == start_func_name:
-                func_file_path = source_function.get("file_path", source["file"])
+            display_aliases = func_info["displays"]
+            display_name = next(iter(display_aliases), func_name)
+
+            if func_name == start_canonical_name:
+                func_file_path = start_file_hint or source_function.get("file_path", source["file"])
                 func_line = source["line"]
             else:
-                # Cross-file function - look up in symbols table
+                func_file_path = func_info.get("file")
+                func_line = None
+
                 func_file_query = build_query(
-                    "symbols", ["path", "line"], where="name = ? AND type = 'function'"
+                    "symbols", ["path", "line"], where="name = ? AND type = 'function'", limit=1
                 )
                 cursor.execute(func_file_query, (func_name,))
                 result = cursor.fetchone()
                 if result:
                     func_file_path, func_line = result[0], result[1]
                 else:
-                    # Try function_call_args table (callee_file_path)
                     callee_query = build_query(
                         "function_call_args", ["callee_file_path"],
                         where="callee_function = ?", limit=1
                     )
                     cursor.execute(callee_query, (func_name,))
                     result = cursor.fetchone()
-                    func_file_path = result[0] if result else None
-                    func_line = 1  # Default line if not found
+                    if result and result[0]:
+                        func_file_path = result[0]
+                    if func_line is None:
+                        func_line = 1
+
+            if func_file_path:
+                func_file_path = func_file_path.replace("\\", "/")
 
             if not func_file_path:
                 if debug_mode:
                     print(f"[TAINT] WARNING: Could not resolve file path for {func_name}, skipping", file=sys.stderr)
                 continue
+
+            if func_line is None:
+                func_line = 1
 
             if debug_mode:
                 print(f"[TAINT] Tracing from {func_name} in {func_file_path} with vars: {vars_to_trace}", file=sys.stderr)
@@ -504,10 +592,11 @@ def trace_from_source(
                     source_var=source_var,
                     source_file=func_file_path,
                     source_line=func_line,
-                    source_function=func_name,
+                    source_function=display_name,
                     sinks=sinks,  # ALL sinks, including cross-file
                     max_depth=max_depth,
-                    cache=cache
+                    cache=cache,
+                    origin_source=source
                 )
                 inter_paths.extend(paths_for_var)
 
@@ -688,24 +777,55 @@ def trace_from_source(
 
 
 def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
-    """Deduplicate taint paths, keeping the shortest path for each source-sink pair.
-    
-    Clean implementation - only handles TaintPath objects now that cfg_integration
-    has been fixed to create proper TaintPath objects instead of dicts.
+    """Deduplicate taint paths while preserving the most informative flow for each source-sink pair.
+
+    Key rule: Prefer cross-file / multi-hop and flow-sensitive paths over shorter, same-file variants.
+    This prevents the Stage 2 direct path (2 steps) from overwriting Stage 3 multi-hop results.
     """
-    unique = {}
-    
+
+    def _path_score(path: Any) -> tuple[int, int, int]:
+        """Score paths so we keep the most informative version per source/sink pair.
+
+        Score dimensions (higher is better):
+        1. Number of cross-file hops (`cfg_call`, `argument_pass`, `return_flow`)
+        2. Whether the path used flow-sensitive analysis (Stage 3)
+        3. Path length (prefer longer when cross-file, shorter otherwise)
+        """
+        steps = path.path or []
+
+        cross_hops = 0
+        uses_cfg = bool(getattr(path, "flow_sensitive", False))
+
+        for step in steps:
+            step_type = step.get("type")
+            if step_type == "cfg_call":
+                uses_cfg = True  # Ensure cfg-aware paths win ties
+            if step_type in {"cfg_call", "argument_pass", "return_flow"}:
+                from_file = step.get("from_file")
+                to_file = step.get("to_file")
+                if from_file and to_file and from_file != to_file:
+                    cross_hops += 1
+
+        length = len(steps)
+
+        # Prefer longer paths when they traverse files, shorter otherwise (cleaner intra-file output)
+        length_component = length if cross_hops else -length
+
+        return (cross_hops, 1 if uses_cfg else 0, length_component)
+
+    unique: Dict[tuple[str, str], tuple[Any, tuple[int, int, int]]] = {}
+
     for path in paths:
-        # Direct attribute access - no defensive checks needed
         key = (
             f"{path.source['file']}:{path.source['line']}",
-            f"{path.sink['file']}:{path.sink['line']}"
+            f"{path.sink['file']}:{path.sink['line']}",
         )
-        
-        if key not in unique or len(path.path) < len(unique[key].path):
-            unique[key] = path
-    
-    return list(unique.values())
+        score = _path_score(path)
+
+        if key not in unique or score > unique[key][1]:
+            unique[key] = (path, score)
+
+    return [entry[0] for entry in unique.values()]
 
 
 def trace_from_source_flow_sensitive(

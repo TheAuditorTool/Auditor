@@ -193,6 +193,8 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         try:
             with open(file_path, "rb") as f:
                 content = f.read()
+
+            tsconfig_path = self._find_tsconfig_for_file(file_path, root_path)
             
             # Compute content hash for caching
             content_hash = hashlib.md5(content).hexdigest()
@@ -205,7 +207,12 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                 normalized_path = str(file_path).replace("\\", "/")
 
                 try:
-                    semantic_result = get_semantic_ast(normalized_path, jsx_mode=jsx_mode)
+                    semantic_result = get_semantic_ast(
+                        normalized_path,
+                        project_root=root_path,
+                        jsx_mode=jsx_mode,
+                        tsconfig_path=str(tsconfig_path) if tsconfig_path else None
+                    )
                 except Exception as e:
                     raise RuntimeError(
                         f"FATAL: TypeScript semantic parser failed for {file_path}\n"
@@ -430,10 +437,22 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         if js_ts_files and project_type in ["javascript", "polyglot"] and get_semantic_ast_batch:
             try:
                 # Convert paths to strings for the semantic parser with normalized separators
-                js_ts_paths = [str(f).replace("\\", "/") for f in js_ts_files]
+                js_ts_paths = []
+                tsconfig_map: Dict[str, str] = {}
+                for f in js_ts_files:
+                    normalized_path = str(f).replace("\\", "/")
+                    js_ts_paths.append(normalized_path)
+                    tsconfig_for_file = self._find_tsconfig_for_file(f, root_path)
+                    if tsconfig_for_file:
+                        tsconfig_map[normalized_path] = str(tsconfig_for_file).replace("\\", "/")
 
                 # Use batch processing for JS/TS files
-                batch_results = get_semantic_ast_batch(js_ts_paths, jsx_mode=jsx_mode, project_root=root_path)
+                batch_results = get_semantic_ast_batch(
+                    js_ts_paths,
+                    project_root=root_path,
+                    jsx_mode=jsx_mode,
+                    tsconfig_map=tsconfig_map
+                )
 
                 # Process batch results
                 for file_path in js_ts_files:
@@ -509,3 +528,32 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             languages.extend(self.parsers.keys())
 
         return sorted(set(languages))
+
+    def _find_tsconfig_for_file(self, file_path: Path, root_path: Optional[str]) -> Optional[Path]:
+        """Locate the nearest tsconfig.json for a given file within the project root."""
+        try:
+            resolved_file = file_path.resolve()
+        except OSError:
+            resolved_file = file_path
+
+        search_dir = resolved_file.parent
+        root_dir = Path(root_path).resolve() if root_path else None
+
+        while True:
+            candidate = search_dir / "tsconfig.json"
+            if candidate.exists():
+                return candidate
+
+            if search_dir == search_dir.parent:
+                break
+
+            if root_dir and search_dir == root_dir:
+                # Already checked project root, stop searching
+                break
+
+            if root_dir and not str(search_dir).startswith(str(root_dir)):
+                break
+
+            search_dir = search_dir.parent
+
+        return None

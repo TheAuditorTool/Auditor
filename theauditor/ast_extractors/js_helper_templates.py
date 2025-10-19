@@ -594,6 +594,24 @@ import {{ fileURLToPath, pathToFileURL }} from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function findNearestTsconfig(startPath, projectRoot, ts, path) {{
+    let currentDir = path.resolve(path.dirname(startPath));
+    const projectRootResolved = path.resolve(projectRoot);
+
+    while (true) {{
+        const candidate = path.join(currentDir, 'tsconfig.json');
+        if (ts.sys.fileExists(candidate)) {{
+            return candidate;
+        }}
+        if (currentDir === projectRootResolved || currentDir === path.dirname(currentDir)) {{
+            break;
+        }}
+        currentDir = path.dirname(currentDir);
+    }}
+
+    return null;
+}}
+
 {ANONYMOUS_FUNCTION_NAMING_HEURISTICS}
 
 {NODE_SERIALIZATION}
@@ -607,10 +625,11 @@ async function main() {{
         // Get file path, output path, project root, and jsx mode from command line
         const filePath = process.argv[2];
         const outputPath = process.argv[3];
-        const projectRoot = process.argv[4] || path.resolve(__dirname, '..');  // Use provided projectRoot or fallback
+        const projectRootArg = process.argv[4] || path.resolve(__dirname, '..');  // Use provided projectRoot or fallback
         const jsxMode = process.argv[5] || 'transformed';  // Default to transformed for backward compatibility
+        const explicitTsConfigArg = process.argv[6] || '';
 
-        if (!filePath || !outputPath || !projectRoot) {{
+        if (!filePath || !outputPath || !projectRootArg) {{
             console.error(JSON.stringify({{ error: "File path, output path, and project root required" }}));
             process.exit(1);
         }}
@@ -621,8 +640,12 @@ async function main() {{
             process.exit(1);
         }}
 
+        const absoluteFilePath = path.resolve(filePath);
+        const resolvedProjectRoot = path.resolve(projectRootArg);
+        const explicitTsConfig = explicitTsConfigArg && explicitTsConfigArg.trim() !== '' ? path.resolve(explicitTsConfigArg) : null;
+
         // Load TypeScript dynamically
-        const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+        const tsPath = path.join(resolvedProjectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
 
         if (!fs.existsSync(tsPath)) {{
             throw new Error(`TypeScript not found at: ${{tsPath}}. Run 'aud setup-claude' to install.`);
@@ -633,32 +656,76 @@ async function main() {{
         const ts = tsModule.default || tsModule;
 
         // Read source file
-        const sourceCode = fs.readFileSync(filePath, 'utf8');
+        const sourceCode = fs.readFileSync(absoluteFilePath, 'utf8');
 
         // Create TypeScript source file
         const sourceFile = ts.createSourceFile(
-            filePath,
+            absoluteFilePath,
             sourceCode,
             ts.ScriptTarget.Latest,
             true,  // setParentNodes - important for traversal
             ts.ScriptKind.TSX  // Support JSX
         );
 
-        // Create program for type checking
-        // CRITICAL: JSX mode determines how JSX is handled
-        // 'preserved' -> ts.JsxEmit.Preserve (keeps JSX syntax)
-        // 'transformed' -> ts.JsxEmit.React (converts to React.createElement)
+        // Determine compiler options for type checking
         const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+        const inferredTsConfigPath = explicitTsConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
 
-        const program = ts.createProgram([filePath], {{
-            target: ts.ScriptTarget.Latest,
-            module: ts.ModuleKind.ESNext,
-            jsx: jsxEmitMode,
-            allowJs: true,
-            checkJs: false,
-            noEmit: true,
-            skipLibCheck: true
-        }});
+        let program;
+        let compilerOptions;
+        if (inferredTsConfigPath) {{
+        const configPath = path.resolve(inferredTsConfigPath);
+        const configDir = path.dirname(configPath);
+        const extension = path.extname(absoluteFilePath).toLowerCase();
+        const isJavaScriptFile = extension === '.js' || extension === '.jsx' || extension === '.cjs' || extension === '.mjs';
+        const tsConfig = ts.readConfigFile(configPath, ts.sys.readFile);
+        if (tsConfig.error) {{
+            throw new Error(`Failed to read tsconfig: ${{ts.flattenDiagnosticMessageText(tsConfig.error.messageText, '\\n')}}`);
+        }}
+
+            const parsedConfig = ts.parseJsonConfigFileContent(
+                tsConfig.config,
+                ts.sys,
+                configDir,
+                {{}},  // Existing options override (none)
+                configPath
+            );
+
+            if (parsedConfig.errors && parsedConfig.errors.length > 0) {{
+                const errorMessages = parsedConfig.errors
+                    .map(err => ts.flattenDiagnosticMessageText(err.messageText, '\\n'))
+                    .join('; ');
+                throw new Error(`Failed to parse tsconfig: ${{errorMessages}}`);
+            }}
+
+        compilerOptions = Object.assign({{}}, parsedConfig.options);
+        compilerOptions.jsx = jsxEmitMode;
+        if (isJavaScriptFile) {{
+            compilerOptions.allowJs = true;
+            if (compilerOptions.checkJs === undefined) {{
+                compilerOptions.checkJs = false;
+            }}
+        }}
+        const projectReferences = parsedConfig.projectReferences || [];
+        program = ts.createProgram([absoluteFilePath], compilerOptions, undefined, undefined, undefined, projectReferences);
+        }} else {{
+            if (!explicitTsConfig) {{
+                console.error("[WARN] No tsconfig.json found for file, using default options");
+            }}
+            compilerOptions = {{
+                target: ts.ScriptTarget.Latest,
+                module: ts.ModuleKind.ESNext,
+                jsx: jsxEmitMode,
+                allowJs: true,
+                checkJs: false,
+                noEmit: true,
+                skipLibCheck: true,
+                moduleResolution: ts.ModuleResolutionKind.NodeJs,
+                baseUrl: resolvedProjectRoot,
+                rootDir: resolvedProjectRoot
+            }};
+            program = ts.createProgram([absoluteFilePath], compilerOptions);
+        }}
 
         // Get diagnostics
         const diagnostics = [];
@@ -685,7 +752,7 @@ async function main() {{
         const checker = program.getTypeChecker();
 
         // Serialize AST with checker for inline type extraction and call resolution
-        const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
+        const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, resolvedProjectRoot);
 
         // Build result
         const result = {{
@@ -729,6 +796,24 @@ COMMONJS_SINGLE = f'''// CommonJS helper script for single-file TypeScript AST e
 const path = require('path');
 const fs = require('fs');
 
+function findNearestTsconfig(startPath, projectRoot, ts, path) {{
+    let currentDir = path.resolve(path.dirname(startPath));
+    const projectRootResolved = path.resolve(projectRoot);
+
+    while (true) {{
+        const candidate = path.join(currentDir, 'tsconfig.json');
+        if (ts.sys.fileExists(candidate)) {{
+            return candidate;
+        }}
+        if (currentDir === projectRootResolved || currentDir === path.dirname(currentDir)) {{
+            break;
+        }}
+        currentDir = path.dirname(currentDir);
+    }}
+
+    return null;
+}}
+
 {ANONYMOUS_FUNCTION_NAMING_HEURISTICS}
 
 {NODE_SERIALIZATION}
@@ -740,10 +825,11 @@ const fs = require('fs');
 // Get file path, output path, project root, and jsx mode from command line
 const filePath = process.argv[2];
 const outputPath = process.argv[3];
-const projectRoot = process.argv[4] || path.resolve(__dirname, '..');  // Use provided projectRoot or fallback
+const projectRootArg = process.argv[4] || path.resolve(__dirname, '..');  // Use provided projectRoot or fallback
 const jsxMode = process.argv[5] || 'transformed';  // Default to transformed for backward compatibility
+const explicitTsConfigArg = process.argv[6] || '';
 
-if (!filePath || !outputPath || !projectRoot) {{
+if (!filePath || !outputPath || !projectRootArg) {{
     console.error(JSON.stringify({{ error: "File path, output path, and project root required" }}));
     process.exit(1);
 }}
@@ -755,8 +841,12 @@ if (jsxMode !== 'preserved' && jsxMode !== 'transformed') {{
 }}
 
 try {{
+    const absoluteFilePath = path.resolve(filePath);
+    const resolvedProjectRoot = path.resolve(projectRootArg);
+    const explicitTsConfig = explicitTsConfigArg && explicitTsConfigArg.trim() !== '' ? path.resolve(explicitTsConfigArg) : null;
+
     // Load TypeScript
-    const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+    const tsPath = path.join(resolvedProjectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
 
     if (!fs.existsSync(tsPath)) {{
         throw new Error(`TypeScript not found at: ${{tsPath}}. Run 'aud setup-claude' to install.`);
@@ -765,32 +855,76 @@ try {{
     const ts = require(tsPath);
 
     // Read source file
-    const sourceCode = fs.readFileSync(filePath, 'utf8');
+    const sourceCode = fs.readFileSync(absoluteFilePath, 'utf8');
 
     // Create TypeScript source file
     const sourceFile = ts.createSourceFile(
-        filePath,
+        absoluteFilePath,
         sourceCode,
         ts.ScriptTarget.Latest,
         true,  // setParentNodes - important for traversal
         ts.ScriptKind.TSX  // Support JSX
     );
 
-    // Create program for type checking
-    // CRITICAL: JSX mode determines how JSX is handled
-    // 'preserved' -> ts.JsxEmit.Preserve (keeps JSX syntax)
-    // 'transformed' -> ts.JsxEmit.React (converts to React.createElement)
+    // Determine compiler options for type checking
     const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+    const inferredTsConfigPath = explicitTsConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
 
-    const program = ts.createProgram([filePath], {{
-        target: ts.ScriptTarget.Latest,
-        module: ts.ModuleKind.ESNext,
-        jsx: jsxEmitMode,
-        allowJs: true,
-        checkJs: false,
-        noEmit: true,
-        skipLibCheck: true
-    }});
+    let program;
+    let compilerOptions;
+    if (inferredTsConfigPath) {{
+        const configPath = path.resolve(inferredTsConfigPath);
+        const configDir = path.dirname(configPath);
+        const extension = path.extname(absoluteFilePath).toLowerCase();
+        const isJavaScriptFile = extension === '.js' || extension === '.jsx' || extension === '.cjs' || extension === '.mjs';
+        const tsConfig = ts.readConfigFile(configPath, ts.sys.readFile);
+        if (tsConfig.error) {{
+            throw new Error(`Failed to read tsconfig: ${{ts.flattenDiagnosticMessageText(tsConfig.error.messageText, '\\n')}}`);
+        }}
+
+        const parsedConfig = ts.parseJsonConfigFileContent(
+            tsConfig.config,
+            ts.sys,
+            configDir,
+            {{}},  // existing options override (none)
+            configPath
+        );
+
+        if (parsedConfig.errors && parsedConfig.errors.length > 0) {{
+            const errorMessages = parsedConfig.errors
+                .map(err => ts.flattenDiagnosticMessageText(err.messageText, '\\n'))
+                .join('; ');
+            throw new Error(`Failed to parse tsconfig: ${{errorMessages}}`);
+        }}
+
+        compilerOptions = Object.assign({{}}, parsedConfig.options);
+        compilerOptions.jsx = jsxEmitMode;
+        if (isJavaScriptFile) {{
+            compilerOptions.allowJs = true;
+            if (compilerOptions.checkJs === undefined) {{
+                compilerOptions.checkJs = false;
+            }}
+        }}
+        const projectReferences = parsedConfig.projectReferences || [];
+        program = ts.createProgram([absoluteFilePath], compilerOptions, undefined, undefined, undefined, projectReferences);
+    }} else {{
+        if (!explicitTsConfig) {{
+            console.error("[WARN] No tsconfig.json found for file, using default options");
+        }}
+        compilerOptions = {{
+            target: ts.ScriptTarget.Latest,
+            module: ts.ModuleKind.ESNext,
+            jsx: jsxEmitMode,
+            allowJs: true,
+            checkJs: false,
+            noEmit: true,
+            skipLibCheck: true,
+            moduleResolution: ts.ModuleResolutionKind.NodeJs,
+            baseUrl: resolvedProjectRoot,
+            rootDir: resolvedProjectRoot
+        }};
+        program = ts.createProgram([absoluteFilePath], compilerOptions);
+    }}
 
     // Get diagnostics
     const diagnostics = [];
@@ -817,12 +951,12 @@ try {{
     const checker = program.getTypeChecker();
 
     // Serialize AST with checker for inline type extraction and call resolution
-    const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
+    const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, resolvedProjectRoot);
 
     // Build result
     const result = {{
         success: true,
-        fileName: filePath,
+        fileName: absoluteFilePath,
         languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
         ast: ast,
         diagnostics: diagnostics,
@@ -858,6 +992,24 @@ import {{ fileURLToPath, pathToFileURL }} from 'url';
 // ES modules don't have __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function findNearestTsconfig(startPath, projectRoot, ts, path) {{
+    let currentDir = path.resolve(path.dirname(startPath));
+    const projectRootResolved = path.resolve(projectRoot);
+
+    while (true) {{
+        const candidate = path.join(currentDir, 'tsconfig.json');
+        if (ts.sys.fileExists(candidate)) {{
+            return candidate;
+        }}
+        if (currentDir === projectRootResolved || currentDir === path.dirname(currentDir)) {{
+            break;
+        }}
+        currentDir = path.dirname(currentDir);
+    }}
+
+    return null;
+}}
 
 {ANONYMOUS_FUNCTION_NAMING_HEURISTICS}
 
@@ -903,102 +1055,169 @@ async function main() {{
         const tsModule = await import(pathToFileURL(tsPath));
         const ts = tsModule.default || tsModule;
 
-        // Find tsconfig.json if available
-        const tsConfigPath = ts.findConfigFile(projectRoot, ts.sys.fileExists, "tsconfig.json");
+        const configMap = request.configMap || {{}};
+        const resolvedProjectRoot = path.resolve(projectRoot);
 
-        let program;
-        if (tsConfigPath) {{
-            // Use project's tsconfig
-            const tsConfig = ts.readConfigFile(tsConfigPath, ts.sys.readFile);
-            const parsedConfig = ts.parseJsonConfigFileContent(
-                tsConfig.config,
-                ts.sys,
-                path.dirname(tsConfigPath),
-                {{}},
-                tsConfigPath
-            );
-
-            // Create program with all files at once for shared type checking
-            program = ts.createProgram(filePaths, parsedConfig.options);
-        }} else {{
-            // Use default options
-            console.error("[WARN] No tsconfig.json found, using default options");
-            program = ts.createProgram(filePaths, {{
-                target: ts.ScriptTarget.Latest,
-                module: ts.ModuleKind.ESNext,
-                jsx: jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React,
-                allowJs: true,
-                checkJs: false,
-                noEmit: true,
-                skipLibCheck: true,
-                moduleResolution: ts.ModuleResolutionKind.NodeJs,
-                baseUrl: projectRoot,
-                rootDir: projectRoot
-            }});
+        const normalizedConfigMap = new Map();
+        for (const [key, value] of Object.entries(configMap)) {{
+            const resolvedKey = path.resolve(key);
+            normalizedConfigMap.set(resolvedKey, value ? path.resolve(value) : null);
         }}
 
-        const checker = program.getTypeChecker();
-        const results = {{}};
+        const filesByConfig = new Map();
+        const DEFAULT_KEY = '__DEFAULT__';
 
-        // Process each file using the shared program
         for (const filePath of filePaths) {{
-            try {{
-                const sourceFile = program.getSourceFile(filePath);
-                if (!sourceFile) {{
-                    results[filePath] = {{
-                        success: false,
-                        error: `Could not load source file: ${{filePath}}`
-                    }};
-                    continue;
+            const absoluteFilePath = path.resolve(filePath);
+            const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
+            const nearestConfig = mappedConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
+            const groupKey = nearestConfig ? path.resolve(nearestConfig) : DEFAULT_KEY;
+
+            if (!filesByConfig.has(groupKey)) {{
+                filesByConfig.set(groupKey, []);
+            }}
+            filesByConfig.get(groupKey).push({{ original: filePath, absolute: absoluteFilePath }});
+        }}
+
+        const results = {{}};
+        const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
+
+        for (const [configKey, groupedFiles] of filesByConfig.entries()) {{
+            let compilerOptions;
+            let program;
+
+            if (configKey !== DEFAULT_KEY) {{
+                const tsConfig = ts.readConfigFile(configKey, ts.sys.readFile);
+                if (tsConfig.error) {{
+                    throw new Error(`Failed to read tsconfig: ${{ts.flattenDiagnosticMessageText(tsConfig.error.messageText, '\\n')}}`);
                 }}
 
-                const sourceCode = sourceFile.text;
+                const configDir = path.dirname(configKey);
+                const parsedConfig = ts.parseJsonConfigFileContent(
+                    tsConfig.config,
+                    ts.sys,
+                    configDir,
+                    {{}},
+                    configKey
+                );
 
-                // Get file-specific diagnostics
-                const diagnostics = [];
-                const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
-                fileDiagnostics.forEach(diagnostic => {{
-                    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\\n');
-                    const location = diagnostic.file && diagnostic.start
-                        ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-                        : null;
+                if (parsedConfig.errors && parsedConfig.errors.length > 0) {{
+                    const errorMessages = parsedConfig.errors
+                        .map(err => ts.flattenDiagnosticMessageText(err.messageText, '\\n'))
+                        .join('; ');
+                    throw new Error(`Failed to parse tsconfig: ${{errorMessages}}`);
+                }}
 
-                    diagnostics.push({{
-                        message,
-                        category: ts.DiagnosticCategory[diagnostic.category],
-                        code: diagnostic.code,
-                        line: location ? location.line + 1 : null,
-                        column: location ? location.character : null
+        compilerOptions = Object.assign({{}}, parsedConfig.options);
+        compilerOptions.jsx = jsxEmitMode;
+        const hasJavaScriptFiles = groupedFiles.some(fileInfo => {{
+            const ext = path.extname(fileInfo.absolute).toLowerCase();
+            return ext === '.js' || ext === '.jsx' || ext === '.cjs' || ext === '.mjs';
+        }});
+        if (hasJavaScriptFiles) {{
+            compilerOptions.allowJs = true;
+            if (compilerOptions.checkJs === undefined) {{
+                compilerOptions.checkJs = false;
+            }}
+        }}
+        const projectReferences = parsedConfig.projectReferences || [];
+        program = ts.createProgram(
+            groupedFiles.map(f => f.absolute),
+            compilerOptions,
+            undefined,
+                    undefined,
+                    undefined,
+                    projectReferences
+                );
+            }} else {{
+                compilerOptions = {{
+                    target: ts.ScriptTarget.Latest,
+                    module: ts.ModuleKind.ESNext,
+                    jsx: jsxEmitMode,
+                    allowJs: true,
+                    checkJs: false,
+                    noEmit: true,
+                    skipLibCheck: true,
+                    moduleResolution: ts.ModuleResolutionKind.NodeJs,
+                    baseUrl: resolvedProjectRoot,
+                    rootDir: resolvedProjectRoot
+                }};
+                program = ts.createProgram(
+                    groupedFiles.map(f => f.absolute),
+                    compilerOptions
+                );
+            }}
+
+            const checker = program.getTypeChecker();
+
+            for (const fileInfo of groupedFiles) {{
+                try {{
+                    const sourceFile = program.getSourceFile(fileInfo.absolute);
+                    if (!sourceFile) {{
+                        results[fileInfo.original] = {{
+                            success: false,
+                            error: `Could not load source file: ${{fileInfo.original}}`,
+                            ast: null,
+                            diagnostics: [],
+                            symbols: []
+                        }};
+                        continue;
+                    }}
+
+                    const sourceCode = sourceFile.text;
+
+                    const diagnostics = [];
+                    const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
+                    fileDiagnostics.forEach(diagnostic => {{
+                        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\\n');
+                        const location = diagnostic.file && diagnostic.start
+                            ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+                            : null;
+
+                        diagnostics.push({{
+                            message,
+                            category: ts.DiagnosticCategory[diagnostic.category],
+                            code: diagnostic.code,
+                            line: location ? location.line + 1 : null,
+                            column: location ? location.character : null
+                        }});
                     }});
-                }});
 
-                // Extract imports
-                const imports = extractImports(sourceFile, ts);
+                    const imports = extractImports(sourceFile, ts);
 
-                // PHASE 4: Get type checker for inline type extraction in serializeNode
-                // Serialize AST with checker for inline type extraction and call resolution
-                const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
+                    const ast = serializeNode(
+                        sourceFile,
+                        0,
+                        null,
+                        null,
+                        sourceFile,
+                        sourceCode,
+                        ts,
+                        checker,
+                        resolvedProjectRoot
+                    );
 
-                // Build result for this file
-                results[filePath] = {{
-                    success: true,
-                    fileName: filePath,
-                    languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                    ast: ast,
-                    diagnostics: diagnostics,
-                    imports: imports,  // CRITICAL: Import tracking for dependency analysis
-                    nodeCount: countNodes(ast),
-                    hasTypes: true,  // PHASE 4: Always true now - type info extracted inline in AST nodes
-                    jsxMode: jsxMode  // Include JSX mode in result
-                }};
+                    results[fileInfo.original] = {{
+                        success: true,
+                        fileName: fileInfo.absolute,
+                        languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
+                        ast: ast,
+                        diagnostics: diagnostics,
+                        imports: imports,
+                        nodeCount: countNodes(ast),
+                        hasTypes: true,
+                        jsxMode: jsxMode
+                    }};
 
-            }} catch (error) {{
-                results[filePath] = {{
-                    success: false,
-                    error: `Error processing file: ${{error.message}}`,
-                    ast: null,
-                    diagnostics: []
-                }};
+                }} catch (error) {{
+                    results[fileInfo.original] = {{
+                        success: false,
+                        error: `Error processing file: ${{error.message}}`,
+                        ast: null,
+                        diagnostics: [],
+                        symbols: []
+                    }};
+                }}
             }}
         }}
 
@@ -1030,6 +1249,24 @@ main().catch(error => {{
 COMMONJS_BATCH = f'''// CommonJS helper script for batch TypeScript AST extraction
 const path = require('path');
 const fs = require('fs');
+
+function findNearestTsconfig(startPath, projectRoot, ts, path) {{
+    let currentDir = path.resolve(path.dirname(startPath));
+    const projectRootResolved = path.resolve(projectRoot);
+
+    while (true) {{
+        const candidate = path.join(currentDir, 'tsconfig.json');
+        if (ts.sys.fileExists(candidate)) {{
+            return candidate;
+        }}
+        if (currentDir === projectRootResolved || currentDir === path.dirname(currentDir)) {{
+            break;
+        }}
+        currentDir = path.dirname(currentDir);
+    }}
+
+    return null;
+}}
 
 {ANONYMOUS_FUNCTION_NAMING_HEURISTICS}
 
@@ -1074,103 +1311,171 @@ try {{
     const ts = require(tsPath);
 
     // Find tsconfig.json if available
-    const tsConfigPath = ts.findConfigFile(projectRoot, ts.sys.fileExists, "tsconfig.json");
+    const configMap = request.configMap || {{}};
+    const resolvedProjectRoot = path.resolve(projectRoot);
 
-    let program;
-    if (tsConfigPath) {{
-        // Use project's tsconfig
-        const tsConfig = ts.readConfigFile(tsConfigPath, ts.sys.readFile);
-        const parsedConfig = ts.parseJsonConfigFileContent(
-            tsConfig.config,
-            ts.sys,
-            path.dirname(tsConfigPath),
-            {{}},
-            tsConfigPath
-        );
+    const normalizedConfigMap = new Map();
+    Object.entries(configMap).forEach(([key, value]) => {{
+        const resolvedKey = path.resolve(key);
+        normalizedConfigMap.set(resolvedKey, value ? path.resolve(value) : null);
+    }});
 
-        // Create program with all files at once for shared type checking
-        program = ts.createProgram(filePaths, parsedConfig.options);
-    }} else {{
-        // Use default options
-        program = ts.createProgram(filePaths, {{
-            target: ts.ScriptTarget.Latest,
-            module: ts.ModuleKind.ESNext,
-            jsx: jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React,
-            allowJs: true,
-            checkJs: false,
-            noEmit: true,
-            skipLibCheck: true,
-            moduleResolution: ts.ModuleResolutionKind.NodeJs,
-            baseUrl: projectRoot,
-            rootDir: projectRoot
-        }});
+    const filesByConfig = new Map();
+    const DEFAULT_KEY = '__DEFAULT__';
+
+    for (const filePath of filePaths) {{
+        const absoluteFilePath = path.resolve(filePath);
+        const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
+        const nearestConfig = mappedConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
+        const groupKey = nearestConfig ? path.resolve(nearestConfig) : DEFAULT_KEY;
+
+        if (!filesByConfig.has(groupKey)) {{
+            filesByConfig.set(groupKey, []);
+        }}
+        filesByConfig.get(groupKey).push({{ original: filePath, absolute: absoluteFilePath }});
     }}
 
-    const checker = program.getTypeChecker();
     const results = {{}};
+    const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
 
-    // Process each file using the shared program
-    for (const filePath of filePaths) {{
-        try {{
-            const sourceFile = program.getSourceFile(filePath);
-            if (!sourceFile) {{
-                results[filePath] = {{
-                    success: false,
-                    error: `Could not load source file: ${{filePath}}`
-                }};
-                continue;
+    for (const [configKey, groupedFiles] of filesByConfig.entries()) {{
+        let compilerOptions;
+        let program;
+
+        if (configKey !== DEFAULT_KEY) {{
+            const tsConfig = ts.readConfigFile(configKey, ts.sys.readFile);
+            if (tsConfig.error) {{
+                throw new Error(`Failed to read tsconfig: ${{ts.flattenDiagnosticMessageText(tsConfig.error.messageText, '\n')}}`);
             }}
 
-            const sourceCode = sourceFile.text;
+            const configDir = path.dirname(configKey);
+            const parsedConfig = ts.parseJsonConfigFileContent(
+                tsConfig.config,
+                ts.sys,
+                configDir,
+                {{}},
+                configKey
+            );
 
-            // Get file-specific diagnostics
-            const diagnostics = [];
-            const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
-            fileDiagnostics.forEach(diagnostic => {{
-                const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\\n');
-                const location = diagnostic.file && diagnostic.start
-                    ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
-                    : null;
+            if (parsedConfig.errors && parsedConfig.errors.length > 0) {{
+                const errorMessages = parsedConfig.errors
+                    .map(err => ts.flattenDiagnosticMessageText(err.messageText, '\n'))
+                    .join('; ');
+                throw new Error(`Failed to parse tsconfig: ${{errorMessages}}`);
+            }}
 
-                diagnostics.push({{
-                    message,
-                    category: ts.DiagnosticCategory[diagnostic.category],
-                    code: diagnostic.code,
-                    line: location ? location.line + 1 : null,
-                    column: location ? location.character : null
+                compilerOptions = Object.assign({{}}, parsedConfig.options);
+                compilerOptions.jsx = jsxEmitMode;
+                const hasJavaScriptFiles = groupedFiles.some(fileInfo => {{
+                    const ext = path.extname(fileInfo.absolute).toLowerCase();
+                    return ext === '.js' || ext === '.jsx' || ext === '.cjs' || ext === '.mjs';
                 }});
-            }});
-
-            // Extract imports
-            const imports = extractImports(sourceFile, ts);
-
-            // PHASE 4: Get type checker for inline type extraction in serializeNode
-            // Serialize AST with checker for inline type extraction and call resolution
-            const ast = serializeNode(sourceFile, 0, null, null, sourceFile, sourceCode, ts, checker, projectRoot);
-
-            // Build result for this file
-            results[filePath] = {{
-                success: true,
-                fileName: filePath,
-                languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                ast: ast,
-                diagnostics: diagnostics,
-                imports: imports,  // CRITICAL: Import tracking for dependency analysis
-                nodeCount: countNodes(ast),
-                hasTypes: true,  // PHASE 4: Always true now - type info extracted inline in AST nodes
-                jsxMode: jsxMode  // Include JSX mode in result
+                if (hasJavaScriptFiles) {{
+                    compilerOptions.allowJs = true;
+                    if (compilerOptions.checkJs === undefined) {{
+                        compilerOptions.checkJs = false;
+                    }}
+                }}
+                const projectReferences = parsedConfig.projectReferences || [];
+                program = ts.createProgram(
+                    groupedFiles.map(f => f.absolute),
+                    compilerOptions,
+                    undefined,
+                undefined,
+                undefined,
+                projectReferences
+            );
+        }} else {{
+            compilerOptions = {{
+                target: ts.ScriptTarget.Latest,
+                module: ts.ModuleKind.ESNext,
+                jsx: jsxEmitMode,
+                allowJs: true,
+                checkJs: false,
+                noEmit: true,
+                skipLibCheck: true,
+                moduleResolution: ts.ModuleResolutionKind.NodeJs,
+                baseUrl: resolvedProjectRoot,
+                rootDir: resolvedProjectRoot
             }};
+            program = ts.createProgram(
+                groupedFiles.map(f => f.absolute),
+                compilerOptions
+            );
+        }}
 
-        }} catch (error) {{
-            results[filePath] = {{
-                success: false,
-                error: `Error processing file: ${{error.message}}`,
-                ast: null,
-                diagnostics: []
-            }};
+        const checker = program.getTypeChecker();
+
+        for (const fileInfo of groupedFiles) {{
+            try {{
+                const sourceFile = program.getSourceFile(fileInfo.absolute);
+                if (!sourceFile) {{
+                    results[fileInfo.original] = {{
+                        success: false,
+                        error: `Could not load source file: ${{fileInfo.original}}`,
+                        ast: null,
+                        diagnostics: [],
+                        symbols: []
+                    }};
+                    continue;
+                }}
+
+                const sourceCode = sourceFile.text;
+
+                const diagnostics = [];
+                const fileDiagnostics = ts.getPreEmitDiagnostics(program, sourceFile);
+                fileDiagnostics.forEach(diagnostic => {{
+                    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+                    const location = diagnostic.file && diagnostic.start
+                        ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start)
+                        : null;
+
+                    diagnostics.push({{
+                        message,
+                        category: ts.DiagnosticCategory[diagnostic.category],
+                        code: diagnostic.code,
+                        line: location ? location.line + 1 : null,
+                        column: location ? location.character : null
+                    }});
+                }});
+
+                const imports = extractImports(sourceFile, ts);
+
+                const ast = serializeNode(
+                    sourceFile,
+                    0,
+                    null,
+                    null,
+                    sourceFile,
+                    sourceCode,
+                    ts,
+                    checker,
+                    resolvedProjectRoot
+                );
+
+                results[fileInfo.original] = {{
+                    success: true,
+                    fileName: fileInfo.absolute,
+                    languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
+                    ast: ast,
+                    diagnostics: diagnostics,
+                    imports: imports,
+                    nodeCount: countNodes(ast),
+                    hasTypes: true,
+                    jsxMode: jsxMode
+                }};
+
+            }} catch (error) {{
+                results[fileInfo.original] = {{
+                    success: false,
+                    error: `Error processing file: ${{error.message}}`,
+                    ast: null,
+                    diagnostics: [],
+                    symbols: []
+                }};
+            }}
         }}
     }}
-
     // Write all results
     fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), 'utf8');
     process.exit(0);
