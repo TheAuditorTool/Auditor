@@ -116,6 +116,7 @@ class MemoryCache:
         # Pre-computed patterns (will be populated during precompute)
         self.precomputed_sources = {}  # pattern -> [matching symbols]
         self.precomputed_sinks = {}    # pattern -> [matching symbols]
+        self.precomputed_orm_sinks = []  # ORM query sinks (pattern-agnostic)
         self.call_graph = {}            # func -> [called_funcs]
 
         # Track active pattern maps for dynamic framework/registry support
@@ -623,6 +624,7 @@ class MemoryCache:
         """Pre-compute common taint source and sink patterns for TRUE O(1) lookup."""
         self.precomputed_sources.clear()
         self.precomputed_sinks.clear()
+        self.precomputed_orm_sinks = []
 
         # Pre-compute ALL taint source patterns
         for category, patterns in sources_dict.items():
@@ -841,6 +843,24 @@ class MemoryCache:
                 # Store pre-computed results even if empty
                 self.precomputed_sinks[pattern] = matching_results
 
+        # ORM queries behave as implicit SQL sinks regardless of configured patterns.
+        # Mimic disk-based implementation by caching every ORM query as its own sink.
+        for query in self.orm_queries:
+            self.precomputed_orm_sinks.append({
+                "file": query["file"],
+                "name": query["query_type"],
+                "line": query["line"],
+                "column": 0,
+                "pattern": query["query_type"],
+                "category": "sql",
+                "type": "sink",
+                "metadata": {
+                    "query_type": query["query_type"],
+                    "includes": query["includes"],
+                    "table": "orm_queries"
+                }
+            })
+
         print(f"[MEMORY] Pre-computed {len(self.precomputed_sources)} source patterns", file=sys.stderr)
         print(f"[MEMORY] Pre-computed {len(self.precomputed_sinks)} sink patterns (multi-table)", file=sys.stderr)
 
@@ -952,6 +972,9 @@ class MemoryCache:
             else:
                 # This should never happen if _precompute_patterns() worked correctly
                 print(f"[MEMORY] WARNING: Pattern not pre-computed: {sink_pattern}", file=sys.stderr)
+
+        # Always include ORM sinks (implicit SQL operations)
+        sinks.extend(self.precomputed_orm_sinks)
 
         return sinks
 

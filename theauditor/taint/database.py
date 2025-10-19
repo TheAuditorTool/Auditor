@@ -9,7 +9,7 @@ Schema Contract:
 
 import sys
 import sqlite3
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Set
 from collections import defaultdict
 
 from theauditor.indexer.schema import build_query
@@ -833,6 +833,80 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
 
     # Default: global scope
     return {"file": normalized_file, "name": "global", "line": 0}
+
+
+def resolve_function_identity(
+    cursor: sqlite3.Cursor,
+    function_name: str,
+    file_hint: Optional[str] = None
+) -> Tuple[str, Optional[str]]:
+    """
+    Resolve the canonical function name (as stored in symbols) and, when possible,
+    the authoritative source file for the function.
+
+    Args:
+        cursor: Database cursor
+        function_name: Function name as observed (may be alias/object-qualified)
+        file_hint: Optional file path hint
+
+    Returns:
+        Tuple of (canonical_name, file_path or None)
+    """
+    if not function_name:
+        return function_name, file_hint.replace("\\", "/") if file_hint else None
+
+    file_norm = file_hint.replace("\\", "/") if file_hint else None
+    name_suffix = function_name.split('.')[-1]
+
+    def _query_symbols(where: str, params: Tuple[Any, ...]) -> Optional[Tuple[str, str]]:
+        query = build_query(
+            'symbols',
+            ['name', 'path'],
+            where=f"{where} AND type = 'function'",
+            limit=1
+        )
+        cursor.execute(query, params)
+        row = cursor.fetchone()
+        if row:
+            return row[0], row[1].replace("\\", "/")
+        return None
+
+    # 1. Exact match within hinted file.
+    if file_norm:
+        result = _query_symbols("path = ? AND name = ?", (file_norm, function_name))
+        if result:
+            return result
+
+    # 2. Suffix match within hinted file (handles object prefixes/casing).
+    if file_norm:
+        result = _query_symbols("path = ? AND name LIKE ?", (file_norm, f"%.{name_suffix}"))
+        if result:
+            return result
+
+    # 3. Global exact match.
+    result = _query_symbols("name = ?", (function_name,))
+    if result:
+        return result
+
+    # 4. Global suffix match.
+    result = _query_symbols("name LIKE ?", (f"%.{name_suffix}",))
+    if result:
+        return result
+
+    # 5. Fallback: derive file from function_call_args if available.
+    resolved_file = file_norm
+    query = build_query(
+        'function_call_args',
+        ['callee_file_path'],
+        where="callee_function = ?",
+        limit=1
+    )
+    cursor.execute(query, (function_name,))
+    row = cursor.fetchone()
+    if row and row[0]:
+        resolved_file = row[0].replace("\\", "/")
+
+    return function_name, resolved_file
 
 
 def get_function_boundaries(cursor: sqlite3.Cursor, file_path: str,
