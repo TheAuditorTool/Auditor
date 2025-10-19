@@ -1075,3 +1075,43 @@ RITICAL PRE-IMPLEMENTATION AUDIT - MULTI-HOP & ACTIVATION ISSUES
 
   Prepared By: AI Coder (Sonnet 4.5)Protocol: TeamSOP v4.20 - Truth CourierArchitect: Awaiting direction on
   multi-hop implementation
+
+
+
+THE GAP
+
+  My fix handles:
+  ✅ create = this.asyncHandler(async (req, res) => {}) (wrapped)
+
+  My fix MISSES:
+  ❌ create = async (req, res) => {} (direct arrow)
+  ❌ update = (req, res) => {} (direct arrow, not async)
+  ❌ delete = function(req, res) {} (function expression)
+
+  ---
+  WHAT HAPPENS WITH DIRECT ARROW FUNCTIONS
+
+  Given this code:
+  class AccountController {
+    create = async (req, res) => {
+      await accountService.createAccount(req.body);  // Line 34
+    };
+  }
+
+  With current (incomplete) fix:
+
+  1. symbols table (extract_typescript_functions_for_symbols):
+    - ✅ Adds AccountController.create at line 32 (property declaration line)
+  2. scope_map (build_scope_map):
+    - ❌ PropertyDeclaration check sees initializer.kind = "ArrowFunction", NOT "CallExpression"
+    - ❌ is_wrapped_func = False, condition fails
+    - ❌ Doesn't add to scope_map
+    - ❌ Later recursion sees the ArrowFunction node with name = "anonymous"
+    - ❌ Adds "anonymous" or wrong name to scope_map
+  3. function_call_args table:
+    - ❌ Line 34: caller_function = "anonymous" or some wrong name
+    - ❌ NOT "AccountController.create"
+  4. Taint analysis:
+    - ❌ Source found in function AccountController.create
+    - ❌ Calls are attributed to "anonymous"
+    - ❌ Mismatch → NO cross-file tracking
