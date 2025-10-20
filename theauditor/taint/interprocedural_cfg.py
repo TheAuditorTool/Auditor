@@ -532,6 +532,43 @@ class InterProceduralCFGAnalyzer:
                                 print(f"[INTER-CFG]   Propagated: {tainted_var} -> {target_var} at line {line}", file=sys.stderr)
                             break # One propagation is enough
 
+        # After processing assignments, check if any returns propagate taint
+        if block_ranges:
+            min_line = min(start for start, _ in block_ranges.values())
+            max_line = max(end for _, end in block_ranges.values())
+        else:
+            min_line = 0
+            max_line = 10**9
+
+        query = build_query(
+            'function_returns',
+            ['return_expr', 'return_vars', 'line'],
+            where="file = ? AND function_name = ? AND line >= ? AND line <= ?",
+            order_by="line"
+        )
+        self.cursor.execute(query, (file_path, function_name, min_line, max_line))
+
+        for return_expr, return_vars_json, ret_line in self.cursor.fetchall():
+            return_vars: List[str] = []
+            if return_vars_json:
+                try:
+                    parsed = json.loads(return_vars_json)
+                    if isinstance(parsed, list):
+                        return_vars = [str(item) for item in parsed]
+                    elif isinstance(parsed, str):
+                        return_vars = [parsed]
+                except (TypeError, json.JSONDecodeError):
+                    return_vars = []
+
+            expr_text = return_expr or ""
+
+            for tainted_var in list(current_tainted):
+                if tainted_var in expr_text or tainted_var in return_vars:
+                    current_tainted.add("__return__")
+                    if self.debug:
+                        print(f"[INTER-CFG]   Return tainted: {tainted_var} flows to return at line {ret_line}", file=sys.stderr)
+                    break
+
         final_state = BlockTaintState(block_id=path[-1])
         final_state.tainted_vars = current_tainted
         final_state.sanitized_vars = current_sanitized # Pass sanitization state up

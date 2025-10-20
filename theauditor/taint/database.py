@@ -7,6 +7,7 @@ Schema Contract:
     Table existence is guaranteed by schema contract - no checks needed.
 """
 
+import re
 import sys
 import sqlite3
 from typing import Dict, List, Any, Optional, Tuple, Set
@@ -14,6 +15,55 @@ from collections import defaultdict
 
 from theauditor.indexer.schema import build_query
 from .sources import TAINT_SOURCES, SECURITY_SINKS
+
+
+_GENERATED_FUNC_PATTERNS = (
+    re.compile(r"_arg\d+$", re.IGNORECASE),
+    re.compile(r"__anon\d*$", re.IGNORECASE),
+)
+
+
+def _looks_like_generated_function(name: Optional[str]) -> bool:
+    """Return True when the function name follows helper-generated patterns."""
+    if not name:
+        return False
+    return any(pattern.search(name) for pattern in _GENERATED_FUNC_PATTERNS)
+
+
+def _find_enclosing_canonical_function(
+    cursor: sqlite3.Cursor,
+    file_path: str,
+    target_line: int
+) -> Optional[Dict[str, Any]]:
+    """
+    Locate the canonical function (as stored in symbols) that encloses target_line.
+
+    Args:
+        cursor: Database cursor
+        file_path: File to inspect (normalized path)
+        target_line: Source line that must be enclosed by a canonical function
+
+    Returns:
+        Dict with file, name, and line for the enclosing canonical function or None
+    """
+    file_norm = file_path.replace("\\", "/")
+    query = build_query(
+        'symbols',
+        ['name', 'line', 'path'],
+        where="path = ? AND type = 'function' AND line <= ?",
+        order_by="line DESC",
+        limit=10
+    )
+    cursor.execute(query, (file_norm, target_line))
+    rows = cursor.fetchall()
+
+    for name, start_line, row_path in rows:
+        canonical_path = row_path.replace("\\", "/") if row_path else file_norm
+        _, end_line = get_function_boundaries(cursor, canonical_path, start_line)
+        if target_line <= end_line:
+            return {"file": canonical_path, "name": name, "line": start_line}
+
+    return None
 
 
 def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, List[str]]] = None,
@@ -775,10 +825,11 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
 
     cfg_func_name = None
     cfg_func_line = None
+    cfg_func_end = None
 
     # Step 1: Try precise CFG block boundaries to find which function contains the line
     query = build_query('cfg_blocks',
-        ['function_name', 'start_line'],
+        ['function_name', 'start_line', 'end_line'],
         where="file = ? AND start_line <= ? AND end_line >= ?",
         order_by="(end_line - start_line) ASC",  # Smallest (most nested) block first
         limit=1
@@ -787,7 +838,7 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
 
     result = cursor.fetchone()
     if result:
-        cfg_func_name, cfg_func_line = result
+        cfg_func_name, cfg_func_line, cfg_func_end = result
 
     # Step 2: If no CFG data, fall back to symbols table with boundary checking
     if not cfg_func_name:
@@ -826,10 +877,18 @@ def get_containing_function(cursor: sqlite3.Cursor, location: Dict[str, Any]) ->
         if result:
             # Return canonical name from symbols table
             return {"file": normalized_file, "name": result[0], "line": cfg_func_line}
-        else:
-            # Symbols table doesn't have this function (shouldn't happen)
-            # Fall back to CFG's normalized name
-            return {"file": normalized_file, "name": cfg_func_name, "line": cfg_func_line}
+
+        # Symbols table did not contain this function start (likely a generated closure).
+        enclosing = _find_enclosing_canonical_function(
+            cursor,
+            normalized_file,
+            line if cfg_func_end is None else min(max(line, cfg_func_line), cfg_func_end)
+        )
+        if enclosing:
+            return enclosing
+
+        # Fall back to CFG's normalized name as a last resort.
+        return {"file": normalized_file, "name": cfg_func_name, "line": cfg_func_line}
 
     # Default: global scope
     return {"file": normalized_file, "name": "global", "line": 0}
@@ -893,7 +952,41 @@ def resolve_function_identity(
     if result:
         return result
 
-    # 5. Fallback: derive file from function_call_args if available.
+    # 5. Generated helper functions (e.g., *_argN) should resolve to their enclosing canonical method.
+    if _looks_like_generated_function(function_name):
+        block_row = None
+        if file_norm:
+            scoped_query = build_query(
+                'cfg_blocks',
+                ['file', 'start_line', 'end_line'],
+                where="function_name = ? AND file = ?",
+                order_by="(end_line - start_line) ASC",
+                limit=1
+            )
+            cursor.execute(scoped_query, (function_name, file_norm))
+            block_row = cursor.fetchone()
+
+        if not block_row:
+            block_query = build_query(
+                'cfg_blocks',
+                ['file', 'start_line', 'end_line'],
+                where="function_name = ?",
+                order_by="(end_line - start_line) ASC",
+                limit=1
+            )
+            cursor.execute(block_query, (function_name,))
+            block_row = cursor.fetchone()
+
+        if block_row:
+            block_file = block_row[0].replace("\\", "/") if block_row[0] else file_norm
+            start_line = block_row[1]
+            search_file = block_file or file_norm
+            if search_file:
+                enclosing = _find_enclosing_canonical_function(cursor, search_file, start_line)
+                if enclosing:
+                    return enclosing["name"], enclosing["file"]
+
+    # 6. Fallback: derive file from function_call_args if available.
     resolved_file = file_norm
     query = build_query(
         'function_call_args',

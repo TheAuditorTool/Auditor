@@ -289,7 +289,15 @@ def trace_from_source(
     # Note: get_containing_function() now returns CANONICAL function names from symbols table
     # (e.g., "AccountController.create" not "asyncHandler_arg0"), so this works correctly
     func_name = source_function.get("name", "global")
-    tainted_elements.add(f"{func_name}:{source['pattern']}")
+    source_pattern = source['pattern']
+    tainted_elements.add(f"{func_name}:{source_pattern}")
+    if "." in source_pattern:
+        segments = source_pattern.split(".")
+        # Add hierarchical prefixes (e.g., req, req.params) to preserve alias mapping
+        for i in range(1, len(segments)):
+            prefix = ".".join(segments[:i])
+            if prefix:
+                tainted_elements.add(f"{func_name}:{prefix}")
     if debug_mode:
         print(f"[TAINT] Phase 2: Added source pattern to tainted elements: {func_name}:{source['pattern']}", file=sys.stderr)
 
@@ -813,7 +821,8 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
 
         return (cross_hops, 1 if uses_cfg else 0, length_component)
 
-    unique: Dict[tuple[str, str], tuple[Any, tuple[int, int, int]]] = {}
+    # Phase 1: retain the best path for each unique source/sink pairing.
+    unique_source_sink: Dict[tuple[str, str], tuple[Any, tuple[int, int, int]]] = {}
 
     for path in paths:
         key = (
@@ -822,10 +831,37 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
         )
         score = _path_score(path)
 
-        if key not in unique or score > unique[key][1]:
-            unique[key] = (path, score)
+        if key not in unique_source_sink or score > unique_source_sink[key][1]:
+            unique_source_sink[key] = (path, score)
 
-    return [entry[0] for entry in unique.values()]
+    if not unique_source_sink:
+        return []
+
+    # Phase 2: group by sink location so we only emit one finding per sink line.
+    sink_groups: Dict[tuple[str, int], List[Any]] = {}
+    for path, _score in unique_source_sink.values():
+        sink = path.sink
+        sink_key = (sink.get("file", "unknown_file"), sink.get("line", 0))
+        sink_groups.setdefault(sink_key, []).append(path)
+
+    deduped_paths: List[Any] = []
+    for sink_key, sink_paths in sink_groups.items():
+        if not sink_paths:
+            continue
+
+        scored_paths = [(p, _path_score(p)) for p in sink_paths]
+        scored_paths.sort(key=lambda item: item[1], reverse=True)
+        best_path, _ = scored_paths[0]
+
+        # Reset aggregation before attaching related sources
+        best_path.related_sources = []
+
+        for other_path, _ in scored_paths[1:]:
+            best_path.add_related_path(other_path)
+
+        deduped_paths.append(best_path)
+
+    return deduped_paths
 
 
 def trace_from_source_flow_sensitive(
