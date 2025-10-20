@@ -340,6 +340,12 @@ function serializeNode(node, depth = 0, parentNode = null, grandparentNode = nul
         result.expression = serializeNode(node.expression, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
     }
 
+    // CRITICAL FIX: Preserve return expression AST for ReturnStatement
+    // Without this, downstream extraction cannot map returned identifiers (e.g., `return record`)
+    if (nodeKind === 'ReturnStatement' && node.expression) {
+        result.expression = serializeNode(node.expression, depth + 1, node, parentNode, sourceFile, sourceCode, ts, checker, projectRoot);
+    }
+
     // CRITICAL: Resolve callee file path for CallExpression nodes
     // This enables unambiguous cross-file taint tracking
     if (nodeKind === 'CallExpression' && node.expression && checker) {
