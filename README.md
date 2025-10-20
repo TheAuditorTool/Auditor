@@ -147,6 +147,7 @@ TheAuditor solves ALL of this. It's not a "nice to have" - it's the missing piec
 
 I've built the tool that makes AI assistants production-ready. This isn't competing with SonarQube/SemGrep. This is creating an entirely new category: **AI Development Verification Tools**.
 
+<<<<<<< Updated upstream
 ## The Search for Ground Truth in an Age of AI
 
 My background is in systems architecture/infrastructure, not professional software development. I have only been "coding/developing" for little over 3 months. This gives me a unique perspective: I can see the forest, but I'm blind to the individual trees of the code. After immersing myself for 500+ hours in AI-assisted development, I concluded that the entire ecosystem is built on a fundamentally flawed premise: it lacks a source of **ground truth**.
@@ -154,6 +155,9 @@ My background is in systems architecture/infrastructure, not professional softwa
 From start to launch on GitHub took me about a month across 250 active hours in front of the computer, for anyone that wonders or cares :P
 
 ### The Problem: A Cascade of Corrupted Context
+=======
+## 🎼 `aud full`: A Symphony of Analysis
+>>>>>>> Stashed changes
 
 Most AI development tools try to solve the wrong problem. They focus on perfecting the *input*—better prompts, more context—but they ignore the critical issue of **compounding deviation**.
 
@@ -263,7 +267,17 @@ aud graph viz --view impact --impact-target "src/auth.py"
 
 ### Control Flow Graph Analysis
 
+<<<<<<< Updated upstream
 TheAuditor analyzes function-level control flow to identify code quality issues:
+=======
+## How It Works With ANY AI Assistant
+
+<img src="https://github.com/user-attachments/assets/6abdf102-621c-4ebf-8ad6-c2912364bed5" width="600" alt="TheAuditor working in Claude Code" />
+
+---
+
+## 🛡️ Troubleshooting & Antivirus
+>>>>>>> Stashed changes
 
 - **Cyclomatic Complexity**: Measures number of independent paths through functions
 - **Dead Code Detection**: Finds unreachable code blocks that can be removed
