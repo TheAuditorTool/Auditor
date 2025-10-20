@@ -41,12 +41,6 @@ This isn’t hypothetical. **It works today.** It’s 100% offline, language-agn
 
 ---
 
-## How It Works With ANY AI Assistant
-
-<img src="https://github.com/user-attachments/assets/6abdf102-621c-4ebf-8ad6-c2912364bed5" width="600" alt="TheAuditor working in Claude Code" />
-
----
-
 ## 🎼 `aud full`: A Symphony of Analysis
 
 A multi-stage pipeline that orchestrates best-in-class tools plus proprietary engines to build a complete, **queryable** model of your repo.
@@ -166,6 +160,12 @@ aud graph viz --view hotspots --top-hotspots 5
 # Show the impact of changing a file
 aud graph viz --view impact --impact-target "src/api/auth.js"
 ```
+
+---
+
+## How It Works With ANY AI Assistant
+
+<img src="https://github.com/user-attachments/assets/6abdf102-621c-4ebf-8ad6-c2912364bed5" width="600" alt="TheAuditor working in Claude Code" />
 
 ---
 
