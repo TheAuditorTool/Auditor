@@ -1,166 +1,416 @@
-TheAuditor v1.3-RC1
+\# TheAuditor v1.3-RC1
 
-The Ground Truth Engine for AI-Driven Development
 
-AI assistants write code, but they don't understand it. They operate with a fundamental blindness, creating a dangerous illusion of progress. TheAuditor gives them eyes.
 
-It's an offline-first, polyglot, and tool-agnostic static analysis platform that creates an incorruptible source of ground truth about your codebase. It empowers developers and AI assistants to build, refactor, and secure software with verifiable facts, not statistical guesses.
+\### The Ground-Truth Engine for AI-Driven Development 🧭
 
-The Revolution: The Autonomous AI Workflow
 
-TheAuditor isn't just another tool you run. It's a platform you give to your AI assistant. It's designed for a fully autonomous, recursive development loop where the AI corrects its own mistakes until the code is verifiably secure and correct.
 
-This is the new paradigm:
+AI assistants write code, but they don’t \*understand\* it. They can create a convincing illusion of progress while missing what matters. \*\*TheAuditor gives them eyes.\*\* 👀
+
+
+
+\*\*Offline-first. Polyglot. Tool-agnostic.\*\* TheAuditor builds an incorruptible, queryable source of truth about your codebase so humans and AIs can build, refactor, and secure software with \*\*verifiable facts\*\*—not statistical guesses.
+
+
+
+\*\*Universal Integration\*\*: No SDK, no integration, no setup - it just works with Claude, Cursor, Windsurf, Copilot, or any future AI tool that can run terminal/shell commands and read files.
+
+
+
+---
+
+
+
+\## 🚀 The Revolution: The Autonomous AI Workflow
+
+
+
+TheAuditor isn’t just “another tool you run.” It’s a platform you hand to your AI assistant for a \*\*recursive, self-correcting development loop\*\* where the AI fixes its own mistakes until the code is verifiably secure and correct.
+
+
+
+\*\*Example loop:\*\*
+
+
+
+```
 
 Human: "Add authentication to my app."
 
+
+
 AI Assistant: Writes the initial code.
 
-AI Assistant: Runs aud full.
+AI Assistant: Runs `aud full`.
 
-AI Assistant: Reads the structured reports in .pf/readthis/.
+AI Assistant: Reads structured reports in `.pf/readthis/` and queries the SQLite DB for deep context.
 
 AI Assistant: "I found 3 security issues and 2 style violations. Fixing now."
 
 AI Assistant: Fixes its own code.
 
-AI Assistant: Runs aud full again.
+AI Assistant: Runs `aud full` again.
 
 AI Assistant: "All checks passed. Authentication is complete and secure."
 
-This is not a theoretical workflow. This is what TheAuditor enables, today. It's 100% offline, language-agnostic, and works with any AI assistant that can run a terminal command.
+```
 
-What TheAuditor Actually Does
 
-The aud full command is a comprehensive, multi-stage pipeline that orchestrates a suite of best-in-class tools and proprietary engines to build a complete model of your codebase.
 
-Project Agnostic: Full support for Python, JavaScript/TypeScript, and Rust ecosystems.
+\### Market Reality Check
 
-100% Offline Analysis: No code ever leaves your machine.
 
-Performance-Obsessed: A full analysis on a medium-sized project completes in minutes, thanks to an in-memory architecture and O(1) lookups. It's CI/CD ready.
 
-Analysis Stage
+Every developer using AI assistants has this problem:
 
-What it Does
+\- AI writes insecure code
 
-Framework & Dependency Scan
+\- AI introduces bugs
 
-Detects frameworks (React, Vue, Express, Django, Flask, FastAPI) and scans for OSV vulnerabilities (CVEs/CWEs) using npm audit, pip-audit, and osv-scanner.
+\- AI doesn't see the full picture
 
-Industry-Standard Linting
+\- AI can't verify its work
 
-Runs and correlates findings from professional linters: ESLint, Ruff, MyPy, and Clippy.
 
-Multi-Hop Taint Analysis
 
-Performs true inter-procedural (cross-file) taint analysis with Control Flow Graph (CFG) validation to find complex vulnerabilities like SQL Injection and XSS with near-zero false positives.
+TheAuditor solves ALL of this. It's not a "nice to have" - it's the missing piece that makes AI development actually trustworthy.
 
-Graph & Architecture Engine
+This isn’t hypothetical. \*\*It works today.\*\* It’s 100% offline, language-agnostic, and can be driven by any AI that can run a terminal command. `aud --help` is written for AI consumption so agents can \*\*learn and operate autonomously\*\*.
 
-Builds and analyzes Dependency & Call Graphs to find circular dependencies, identify architectural hotspots, and visualize the "blast radius" of code changes.
 
-Factual Correlation Engine
 
-The "brain" that correlates findings from all other tools to uncover deep, systemic issues that no single tool could find alone.
+---
 
-AI-Centric Output Generation
 
-Preserves all raw tool output in .pf/raw/ for human review, while generating concise, chunked, and summarized reports specifically for AI consumption in .pf/readthis/.
 
-✨ New in v1.3-RC1: The Intelligence Layer
+\## How It Works With ANY AI Assistant
 
-v1.3 introduces the "Insights Engine," turning factual data into actionable intelligence.
 
-🧠 Semantic Context Engine: Teach TheAuditor your project's specific business logic! Define refactorings, API deprecations, and architectural patterns in simple YAML files. The engine uses this context to find obsolete code and track migration progress.
 
-🔮 Predictive ML Insights: An optional Machine Learning engine that learns from your project's history (Git churn, past findings, code complexity) to predict "likely root causes" of bugs and the "next files to edit," helping teams prioritize their work.
+<img src="https://github.com/user-attachments/assets/6abdf102-621c-4ebf-8ad6-c2912364bed5" width="600" alt="TheAuditor working in Claude Code" />
 
-🚀 Quick Start
 
-TheAuditor is installed once on your system. It creates a sandboxed toolchain within each project you analyze.
 
-Step 1: Install TheAuditor (One-Time)
+---
 
-# Clone TheAuditor to your preferred tools directory
+
+
+\## 🎼 `aud full`: A Symphony of Analysis
+
+
+
+A multi-stage pipeline that orchestrates best-in-class tools plus proprietary engines to build a complete, \*\*queryable\*\* model of your repo.
+
+
+
+\* \*\*Polyglot:\*\* Python, JavaScript/TypeScript, and Rust ecosystems.
+
+\* \*\*100% Offline:\*\* Your code never leaves your machine. 🔒
+
+\* \*\*Performance-Obsessed:\*\* Medium projects finish in minutes thanks to in-memory architecture and O(1) lookups. CI/CD-ready.
+
+
+
+| Stage                              | What it Does                                                                                                                                                    |
+
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+| \*\*1. Index \& Model\*\*               | Indexes the entire codebase into a local \*\*SQLite\*\* DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches \& summarizes dependency docs. |
+
+| \*\*2. Dependency Security\*\*         | Scans for OSV vulnerabilities (CVEs/CWEs) using \*\*npm audit\*\*, \*\*pip-audit\*\*, and \*\*Google’s osv-scanner\*\*—cross-referenced for accuracy.                       |
+
+| \*\*3. Industry-Standard Linting\*\*   | Correlates \*\*ESLint\*\*, \*\*Ruff\*\*, \*\*MyPy\*\*, \*\*Clippy\*\* with project-aware configs.                                                                               |
+
+| \*\*4. Multi-Hop Taint Analysis\*\*    | True inter-procedural (cross-file) taint analysis with CFG validation to surface complex vulns (SQLi, XSS) with near-zero false positives.                      |
+
+| \*\*5. Graph \& Architecture Engine\*\* | Builds Dependency \& Call Graphs to spot cycles, hotspots, and the “blast radius” of code changes.                                                               |
+
+| \*\*6. Factual Correlation Engine\*\*  | The “brain” that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
+
+| \*\*7. AI-Centric Output\*\*           | Raw outputs preserved in `.pf/raw/` for humans; concise, chunked reports for AI in `.pf/readthis/`.                                                             |
+
+
+
+---
+
+
+
+\## ✨ The Intelligence Layer (v1.3)
+
+
+
+\*\*v1.3\*\* adds an \*\*Insights Engine\*\* that turns ground truth into action.
+
+
+
+\* 🧠 \*\*Semantic Context Engine\*\*
+
+&nbsp; Teach TheAuditor your business logic via simple YAML. Define refactors, API deprecations, and architecture patterns. It flags obsolete code and tracks migration progress.
+
+
+
+\* 🔮 \*\*Predictive ML Insights\*\* \*(optional)\*
+
+&nbsp; Learns from Git churn, past findings, and complexity to predict \*\*likely root causes\*\* and \*\*next files to edit\*\*, helping teams prioritize.
+
+
+
+---
+
+
+
+\## ⚡ Quick Start
+
+
+
+\*\*Important Directory Structure:\*\*
+
+\- `~/tools/TheAuditor/` - Where TheAuditor tool lives
+
+\- `~/my-project/` - Your project being analyzed
+
+\- `~/my-project/.auditor\_venv/` - Sandbox created BY TheAuditor
+
+\- `~/my-project/.pf/` - Analysis results
+
+
+
+\### 1) Install TheAuditor (one-time)
+
+
+
+```bash
+
+\# Clone TheAuditor to your preferred tools directory
+
 cd ~/tools
-git clone [https://github.com/TheAuditorTool/Auditor.git](https://github.com/TheAuditorTool/Auditor.git)
+
+git clone https://github.com/TheAuditorTool/Auditor.git
+
 cd TheAuditor
 
-# Install using your system's Python (do not use a venv here)
+
+
+\# Install using your system Python (no venv here)
+
 pip install -e .
 
-# Verify installation
+
+
+\# Verify installation
+
 aud --version
 
+```
 
-Step 2: Analyze Your Project
 
-# Go to YOUR project's directory
+
+\### 2) Analyze your project
+
+
+
+```bash
+
+\# Go to YOUR project
+
 cd ~/my-project-to-audit
 
-# 1. Setup a sandboxed toolchain for this project (npm, pip-audit, etc.)
+
+
+\# 1) Set up a sandboxed toolchain (npm, pip-audit, etc.)
+
 aud setup-ai --target .
 
-# 2. Index the codebase into a local SQLite database
+
+
+\# 2) Index the codebase into a local SQLite DB
+
 aud index
 
-# 3. Run the full analysis pipeline
+
+
+\# 3) Run the full pipeline
+
 aud full
 
+```
 
-Step 3: Use the Ground Truth
 
-For AI: Instruct your AI assistant to read the reports in the .pf/readthis/ directory.
 
-For Humans: Review the raw, unfiltered tool output in the .pf/raw/ directory.
+\### 3) Use the ground truth
 
-For Advanced Queries: Connect directly to the SQLite database at .pf/repo_index.db to run custom queries. The entire model of your code is yours to explore.
 
-💡 Feature Deep Dive
 
-The Semantic Context & Refactor Engine
+\* \*\*For AI:\*\* Instruct your assistant to read `.pf/readthis/` and query `.pf/repo\_index.db`.
 
-Track a major refactoring by defining what's obsolete and what's current in a simple YAML file.
+\* \*\*For humans:\*\* Review raw outputs in `.pf/raw/` (incl. Graphviz `.dot` files).
 
-Example: refactoring.yaml
+\* \*\*For advanced queries:\*\* Connect to `.pf/repo\_index.db` directly—\*\*the entire model is yours\*\*.
 
-context_name: "product_pricing_refactor"
+
+
+---
+
+
+
+\## 🧩 Feature Deep Dive
+
+
+
+\### Semantic Context \& Refactor Engine
+
+
+
+Track major refactors by declaring what’s \*\*obsolete\*\* vs \*\*current\*\* in a tiny YAML.
+
+
+
+\*\*`refactoring.yaml`\*\*
+
+
+
+```yaml
+
+context\_name: "product\_pricing\_refactor"
+
 patterns:
-  obsolete:
-    - id: "old_product_price"
-      pattern: "product\\.(unit_price|retail_price)"
-      reason: "Pricing fields moved to ProductVariant model"
-      replacement: "product_variant.retail_price"
-  current:
-    - id: "new_variant_price"
-      pattern: "product_variant\\.retail_price"
-      reason: "Correct pricing structure"
+
+&nbsp; obsolete:
+
+&nbsp;   - id: "old\_product\_price"
+
+&nbsp;     pattern: "product\\\\.(unit\_price|retail\_price)"
+
+&nbsp;     reason: "Pricing fields moved to ProductVariant model"
+
+&nbsp;     replacement: "product\_variant.retail\_price"
+
+&nbsp; current:
+
+&nbsp;   - id: "new\_variant\_price"
+
+&nbsp;     pattern: "product\_variant\\\\.retail\_price"
+
+&nbsp;     reason: "Correct pricing structure"
+
+```
 
 
-Run the refactor command to automatically find inconsistencies and track your migration progress across the entire stack.
 
-# Auto-detect refactoring from recent DB migrations
+Run it:
+
+
+
+```bash
+
+\# Auto-detect refactoring from recent DB migrations
+
 aud refactor --auto-detect --output report.json
 
+```
 
-Graph Analysis & Visualization
 
-Understand your architecture like never before with rich, data-encoded diagrams.
 
-# Visualize the top 5 hotspots and their connections
+\### Graph Analysis \& Visualization
+
+
+
+Understand your architecture with rich, data-encoded diagrams.
+
+
+
+```bash
+
+\# Visualize the top 5 hotspots and their connections
+
 aud graph viz --view hotspots --top-hotspots 5
 
-# Create a diagram showing the impact of changing a file
+
+
+\# Show the impact of changing a file
+
 aud graph viz --view impact --impact-target "src/api/auth.js"
 
+```
 
-Contributing
 
-This project was built by a non-developer in three months. Imagine what we can build together. We welcome contributions! See CONTRIBUTING.md for details.
 
-We are especially looking for help with GraphQL, Java/Spring, Go, and Ruby on Rails support.
+---
 
-License
 
-TheAuditor is licensed under AGPL-3.0. For commercial use, SaaS deployment, or integration into proprietary systems, please contact us for commercial licensing options.
+
+\## 🛡️ Troubleshooting \& Antivirus
+
+
+
+TheAuditor documents vulnerabilities, which can occasionally trip antivirus heuristics—\*\*that’s expected\*\* and means both your AV and TheAuditor are doing their jobs. We don’t recommend adding exclusions. For deeper context, see the original `README.md`.
+
+
+
+\*\*Common fixes:\*\*
+
+
+
+```bash
+
+\# Refresh tool install
+
+cd ~/tools/TheAuditor \&\& git pull \&\& pip install -e .
+
+
+
+\# Rebuild project sandbox
+
+cd ~/my-project \&\& rm -rf .auditor\_venv \&\& aud setup-ai --target .
+
+
+
+\# Run a clean analysis
+
+aud full --wipecache
+
+```
+
+
+
+---
+
+
+
+\## 🤝 Contributing
+
+
+
+This project started from a newcomer in ~3 months. Imagine what we can build together. See \*\*CONTRIBUTING.md\*\*.
+
+We’re especially looking for help with \*\*GraphQL\*\*, \*\*Java/Spring\*\*, \*\*Go\*\*, and \*\*Ruby on Rails\*\* support.
+
+
+
+---
+
+
+
+\## 📜 License
+
+
+
+\*\*AGPL-3.0.\*\*
+
+For commercial use, SaaS deployment, or proprietary integration, please reach out for commercial licensing options.
+
+
+
+---
+
+
+
+\## 🧠 Philosophy: A Truth Courier
+
+
+
+After ~500 hours of AI-assisted development, one gap stood out: there’s no shared \*\*ground truth\*\*. TheAuditor is built on a simple principle—\*\*be a courier of truth\*\*. It collects and orchestrates \*\*verifiable data\*\* and presents it \*\*without semantic interpretation\*\*. The core engine reports facts; the optional Insights Engine interprets them. That separation keeps your foundation uncorrupted, for humans and AIs alike.
+
+
+
