@@ -568,6 +568,271 @@ function extractImports(sourceFile, ts) {
 # PHASE 4: SYMBOL_EXTRACTION constant deleted - replaced by inline type extraction in serializeNode()
 # extractSymbols() function removed - single-pass AST traversal with type info is now the only mechanism
 
+# ============================================================================
+# PHASE 5: EXTRACTION-FIRST ARCHITECTURE
+# ============================================================================
+# Instead of serializing the full AST (512MB+) and extracting in Python,
+# we extract data directly in JavaScript where the TypeScript checker lives.
+# This sends only ~5MB of pre-processed data to Python, eliminating crashes.
+
+EXTRACT_FUNCTIONS = '''
+/**
+ * Extract function metadata directly from TypeScript AST with type annotations.
+ * This replaces Python's extract_typescript_functions_for_symbols().
+ *
+ * @param {Object} sourceFile - TypeScript source file node
+ * @param {Object} checker - TypeScript type checker
+ * @param {Object} ts - TypeScript compiler API
+ * @returns {Array} - List of function metadata objects
+ */
+function extractFunctions(sourceFile, checker, ts) {
+    const functions = [];
+    const class_stack = [];
+
+    function traverse(node) {
+        if (!node) return;
+        const kind = ts.SyntaxKind[node.kind];
+
+        // Track class context for qualified names
+        if (kind === 'ClassDeclaration') {
+            const className = node.name ? node.name.text : 'UnknownClass';
+            class_stack.push(className);
+            ts.forEachChild(node, traverse);
+            class_stack.pop();
+            return;
+        }
+
+        let is_function_like = false;
+        let func_name = '';
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+        const func_entry = {
+            line: line + 1,
+            col: character,
+            column: character,
+            kind: kind
+        };
+
+        // FunctionDeclaration
+        if (kind === 'FunctionDeclaration') {
+            is_function_like = true;
+            func_name = node.name ? node.name.text : 'anonymous';
+        }
+        // MethodDeclaration
+        else if (kind === 'MethodDeclaration') {
+            is_function_like = true;
+            const method_name = node.name ? node.name.text : 'anonymous';
+            func_name = class_stack.length > 0 ? class_stack[class_stack.length - 1] + '.' + method_name : method_name;
+        }
+        // PropertyDeclaration with ArrowFunction
+        else if (kind === 'PropertyDeclaration' && node.initializer) {
+            const init_kind = ts.SyntaxKind[node.initializer.kind];
+            if (init_kind === 'ArrowFunction' || init_kind === 'FunctionExpression') {
+                is_function_like = true;
+                const prop_name = node.name ? node.name.text : 'anonymous';
+                func_name = class_stack.length > 0 ? class_stack[class_stack.length - 1] + '.' + prop_name : prop_name;
+            }
+        }
+        // Constructor
+        else if (kind === 'Constructor') {
+            is_function_like = true;
+            func_name = class_stack.length > 0 ? class_stack[class_stack.length - 1] + '.constructor' : 'constructor';
+        }
+        // GetAccessor / SetAccessor
+        else if (kind === 'GetAccessor' || kind === 'SetAccessor') {
+            is_function_like = true;
+            const accessor_name = node.name ? node.name.text : 'anonymous';
+            const prefix = kind === 'GetAccessor' ? 'get ' : 'set ';
+            func_name = class_stack.length > 0 ? class_stack[class_stack.length - 1] + '.' + prefix + accessor_name : prefix + accessor_name;
+        }
+
+        if (is_function_like && func_name && func_name !== 'anonymous') {
+            func_entry.name = func_name;
+            func_entry.type = 'function';
+
+            // CRITICAL: Extract type metadata using TypeScript checker
+            try {
+                const symbol = checker.getSymbolAtLocation(node.name || node);
+                if (symbol) {
+                    const type = checker.getTypeOfSymbolAtLocation(symbol, node);
+                    if (type) {
+                        func_entry.type_annotation = checker.typeToString(type);
+
+                        if (type.flags & ts.TypeFlags.Any) {
+                            func_entry.is_any = true;
+                        }
+                        if (type.flags & ts.TypeFlags.Unknown) {
+                            func_entry.is_unknown = true;
+                        }
+                        if (type.isTypeParameter && type.isTypeParameter()) {
+                            func_entry.is_generic = true;
+                        }
+
+                        // Extract return type
+                        const callSignatures = type.getCallSignatures();
+                        if (callSignatures && callSignatures.length > 0) {
+                            const returnType = callSignatures[0].getReturnType();
+                            func_entry.return_type = checker.typeToString(returnType);
+                        }
+
+                        // Extract base class for methods
+                        const baseTypes = type.getBaseTypes ? type.getBaseTypes() : null;
+                        if (baseTypes && baseTypes.length > 0) {
+                            func_entry.extends_type = baseTypes.map(t => checker.typeToString(t)).join(', ');
+                        }
+                    }
+                }
+            } catch (typeError) {
+                // Type extraction failed - continue without type info
+            }
+
+            functions.push(func_entry);
+        }
+
+        ts.forEachChild(node, traverse);
+    }
+
+    traverse(sourceFile);
+
+    // DEBUG: Log extraction results if env var set
+    if (process.env.THEAUDITOR_DEBUG) {
+        console.error(`[DEBUG JS] extractFunctions: Extracted ${functions.length} functions from ${sourceFile.fileName}`);
+        if (functions.length > 0 && functions.length <= 5) {
+            functions.forEach(f => console.error(`[DEBUG JS]   - ${f.name} at line ${f.line}`));
+        }
+    }
+
+    return functions;
+}
+'''
+
+EXTRACT_CALLS = '''
+/**
+ * Extract call expressions with arguments and cross-file resolution.
+ * This replaces Python's extract_semantic_ast_symbols() for calls.
+ *
+ * @param {Object} sourceFile - TypeScript source file node
+ * @param {Object} checker - TypeScript type checker
+ * @param {Object} ts - TypeScript compiler API
+ * @param {string} projectRoot - Project root path for relative path resolution
+ * @returns {Array} - List of call/property access objects
+ */
+function extractCalls(sourceFile, checker, ts, projectRoot) {
+    const symbols = [];
+
+    function traverse(node) {
+        if (!node) return;
+        const kind = ts.SyntaxKind[node.kind];
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+
+        // PropertyAccessExpression: req.body, res.send, etc.
+        if (kind === 'PropertyAccessExpression') {
+            let full_name = '';
+            try {
+                // Build dotted name
+                if (node.expression && node.expression.kind === ts.SyntaxKind.Identifier) {
+                    const left = node.expression.text || node.expression.escapedText || '';
+                    const right = node.name ? (node.name.text || node.name.escapedText || '') : '';
+                    if (left && right) {
+                        full_name = left + '.' + right;
+                    }
+                } else if (node.expression && node.expression.kind === ts.SyntaxKind.PropertyAccessExpression) {
+                    // Nested property access - recursively build
+                    const buildName = (n) => {
+                        if (!n) return '';
+                        const k = ts.SyntaxKind[n.kind];
+                        if (k === 'Identifier') {
+                            return n.text || n.escapedText || '';
+                        } else if (k === 'PropertyAccessExpression') {
+                            const left = buildName(n.expression);
+                            const right = n.name ? (n.name.text || n.name.escapedText || '') : '';
+                            return left && right ? left + '.' + right : left || right;
+                        }
+                        return '';
+                    };
+                    full_name = buildName(node);
+                }
+            } catch (e) {
+                // Name construction failed
+            }
+
+            if (full_name) {
+                // Determine type: property or call
+                let db_type = 'property';
+                const sinkPatterns = ['res.send', 'res.render', 'res.json', 'response.write', 'innerHTML', 'outerHTML', 'exec', 'eval', 'system', 'spawn'];
+                for (const sink of sinkPatterns) {
+                    if (full_name.includes(sink)) {
+                        db_type = 'call';
+                        break;
+                    }
+                }
+
+                symbols.push({
+                    name: full_name,
+                    line: line + 1,
+                    column: character,
+                    type: db_type
+                });
+            }
+        }
+        // CallExpression
+        else if (kind === 'CallExpression') {
+            let callee_name = '';
+            try {
+                if (node.expression) {
+                    const expr_kind = ts.SyntaxKind[node.expression.kind];
+                    if (expr_kind === 'Identifier') {
+                        callee_name = node.expression.text || node.expression.escapedText || '';
+                    } else if (expr_kind === 'PropertyAccessExpression') {
+                        // Build dotted name for method calls
+                        const buildName = (n) => {
+                            if (!n) return '';
+                            const k = ts.SyntaxKind[n.kind];
+                            if (k === 'Identifier') {
+                                return n.text || n.escapedText || '';
+                            } else if (k === 'PropertyAccessExpression') {
+                                const left = buildName(n.expression);
+                                const right = n.name ? (n.name.text || n.name.escapedText || '') : '';
+                                return left && right ? left + '.' + right : left || right;
+                            }
+                            return '';
+                        };
+                        callee_name = buildName(node.expression);
+                    }
+                }
+            } catch (e) {
+                // Name extraction failed
+            }
+
+            if (callee_name) {
+                symbols.push({
+                    name: callee_name,
+                    line: line + 1,
+                    column: character,
+                    type: 'call'
+                });
+            }
+            // CRITICAL: Don't recurse into CallExpression children - we already extracted the call
+            // Recursing would extract the PropertyAccessExpression child again, creating duplicates
+            return;
+        }
+
+        ts.forEachChild(node, traverse);
+    }
+
+    traverse(sourceFile);
+
+    // DEBUG: Log extraction results if env var set
+    if (process.env.THEAUDITOR_DEBUG) {
+        console.error(`[DEBUG JS] extractCalls: Extracted ${symbols.length} calls/properties from ${sourceFile.fileName}`);
+        if (symbols.length > 0 && symbols.length <= 5) {
+            symbols.forEach(s => console.error(`[DEBUG JS]   - ${s.name} (${s.type}) at line ${s.line}`));
+        }
+    }
+
+    return symbols;
+}
+'''
+
 COUNT_NODES = '''
 /**
  * Count total nodes in AST for metrics.
@@ -1023,6 +1288,10 @@ function findNearestTsconfig(startPath, projectRoot, ts, path) {{
 
 {IMPORT_EXTRACTION}
 
+{EXTRACT_FUNCTIONS}
+
+{EXTRACT_CALLS}
+
 {COUNT_NODES}
 
 async function main() {{
@@ -1191,28 +1460,27 @@ async function main() {{
 
                     const imports = extractImports(sourceFile, ts);
 
-                    const ast = serializeNode(
-                        sourceFile,
-                        0,
-                        null,
-                        null,
-                        sourceFile,
-                        sourceCode,
-                        ts,
-                        checker,
-                        resolvedProjectRoot
-                    );
+                    // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (ENABLED)
+                    // Extract functions and calls directly in JavaScript using TypeScript checker
+                    // This sends ~5MB of structured data instead of 512MB+ serialized AST
+                    const functions = extractFunctions(sourceFile, checker, ts);
+                    const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
 
                     results[fileInfo.original] = {{
                         success: true,
                         fileName: fileInfo.absolute,
                         languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                        ast: ast,
+                        ast: null,  // Set to null to prevent JSON.stringify crash
                         diagnostics: diagnostics,
                         imports: imports,
-                        nodeCount: countNodes(ast),
+                        nodeCount: 0,  // No AST, so no node count
                         hasTypes: true,
-                        jsxMode: jsxMode
+                        jsxMode: jsxMode,
+                        extracted_data: {{
+                            functions: functions,
+                            calls: calls,
+                            imports: imports
+                        }}
                     }};
 
                 }} catch (error) {{
@@ -1279,6 +1547,10 @@ function findNearestTsconfig(startPath, projectRoot, ts, path) {{
 {NODE_SERIALIZATION}
 
 {IMPORT_EXTRACTION}
+
+{EXTRACT_FUNCTIONS}
+
+{EXTRACT_CALLS}
 
 {COUNT_NODES}
 
@@ -1447,28 +1719,27 @@ try {{
 
                 const imports = extractImports(sourceFile, ts);
 
-                const ast = serializeNode(
-                    sourceFile,
-                    0,
-                    null,
-                    null,
-                    sourceFile,
-                    sourceCode,
-                    ts,
-                    checker,
-                    resolvedProjectRoot
-                );
+                // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (ENABLED)
+                // Extract functions and calls directly in JavaScript using TypeScript checker
+                // This sends ~5MB of structured data instead of 512MB+ serialized AST
+                const functions = extractFunctions(sourceFile, checker, ts);
+                const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
 
                 results[fileInfo.original] = {{
                     success: true,
                     fileName: fileInfo.absolute,
                     languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                    ast: ast,
+                    ast: null,  // Set to null to prevent JSON.stringify crash
                     diagnostics: diagnostics,
                     imports: imports,
-                    nodeCount: countNodes(ast),
+                    nodeCount: 0,  // No AST, so no node count
                     hasTypes: true,
-                    jsxMode: jsxMode
+                    jsxMode: jsxMode,
+                    extracted_data: {{
+                        functions: functions,
+                        calls: calls,
+                        imports: imports
+                    }}
                 }};
 
             }} catch (error) {{

@@ -617,7 +617,12 @@ class IndexerOrchestrator:
         extractor = self._select_extractor(file_info['path'], file_info['ext'])
         if not extractor:
             return  # No extractor for this file type
-        
+
+        # DEBUG: Track file processing
+        import os
+        if os.getenv("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG ORCHESTRATOR] _process_file called for: {file_info['path']}")
+
         # Extract all information
         try:
             extracted = extractor.extract(file_info, content, tree)

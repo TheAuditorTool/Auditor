@@ -68,7 +68,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with Th
 
 TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python and JavaScript/TypeScript projects, producing AI-consumable reports optimized for LLM context windows.
 
-**Version**: 1.2.0-RC1 (pyproject.toml:7)
+**Version**: 1.3.0-RC1 (pyproject.toml:7)
 **Python**: >=3.11 required (pyproject.toml:10)
 
 ---

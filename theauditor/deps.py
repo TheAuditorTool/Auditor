@@ -12,6 +12,7 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from theauditor import __version__
 from theauditor.security import sanitize_path, sanitize_url_component, validate_package_name, SecurityError
 
 # Detect if running on Windows for character encoding
@@ -1090,7 +1091,7 @@ def _check_dockerhub_latest(image_name: str) -> Optional[str]:
     try:
         # Create request with proper headers
         req = urllib.request.Request(url)
-        req.add_header('User-Agent', 'TheAuditor/0.1.0')
+        req.add_header('User-Agent', f'TheAuditor/{__version__}')
         
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read())

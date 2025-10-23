@@ -540,23 +540,14 @@ def build_scope_map(ast_root: Dict) -> Dict[int, str]:
 def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Dict]:
     """Extract function metadata from TypeScript semantic AST for symbol table.
 
-    COMPREHENSIVE FIX for TypeScript class property arrow functions.
+    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
 
-    This implementation uses HYBRID APPROACH:
-    1. AST TRAVERSAL - Detects ALL function patterns including PropertyDeclaration
-    2. SYMBOL ENRICHMENT - Merges rich type metadata from TypeScript compiler
+    Now supports two modes:
+    1. PRE-EXTRACTED DATA (batch parsing) - Functions extracted in JavaScript, received directly
+    2. AST TRAVERSAL (individual parsing) - Fallback to full AST traversal for backward compatibility
 
-    Function patterns detected:
-    1. FunctionDeclaration - standard function declarations
-    2. MethodDeclaration - class methods (async method() {})
-    3. PropertyDeclaration - class property arrow functions (prop = async () => {})
-    4. Constructor - class constructors
-    5. GetAccessor/SetAccessor - property accessors
-
-    CRITICAL: PropertyDeclaration with ArrowFunction/FunctionExpression initializers
-    are now properly detected and extracted with full class context.
-
-    This unblocks multi-hop taint analysis by ensuring ALL functions are indexed.
+    This hybrid approach eliminates JSON.stringify crashes for batch parsing (512MB+ → 5MB)
+    while maintaining backward compatibility for individual file parsing.
     """
     functions = []
 
@@ -566,6 +557,20 @@ def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Di
     if not actual_tree or not actual_tree.get("success"):
         return functions
 
+    # PHASE 5: Check for pre-extracted data (from batch parsing)
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "functions" in extracted_data:
+        # Use pre-extracted function data - NO AST TRAVERSAL NEEDED
+        # This is the fast path for batch parsing (avoids 512MB AST transfer)
+        import os
+        if os.getenv("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)")
+        return extracted_data["functions"]
+
+    # FALLBACK: AST traversal for individual file parsing (backward compatibility)
+    import os
+    if os.getenv("THEAUDITOR_DEBUG"):
+        print(f"[DEBUG] extract_typescript_functions_for_symbols: Using FALLBACK AST traversal")
     ast_root = actual_tree.get("ast", {})
 
     if not ast_root:
@@ -878,14 +883,30 @@ def extract_typescript_classes(tree: Dict, parser_self) -> List[Dict]:
 def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
     """Extract function calls from TypeScript semantic AST.
 
-    PHASE 3: Single-pass extraction using only AST traversal.
-    Removed filtered symbols loop and deduplication logic.
+    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
+
+    Now supports two modes:
+    1. PRE-EXTRACTED DATA (batch parsing) - Calls extracted in JavaScript
+    2. AST TRAVERSAL (individual parsing) - Fallback for backward compatibility
     """
     calls = []
 
     # Get actual tree structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if actual_tree and actual_tree.get("success"):
+        # PHASE 5: Check for pre-extracted data (from batch parsing)
+        extracted_data = actual_tree.get("extracted_data")
+        if extracted_data and "calls" in extracted_data:
+            # Use pre-extracted call data - NO AST TRAVERSAL NEEDED
+            import os
+            if os.getenv("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)")
+            return extracted_data["calls"]
+
+        # FALLBACK: AST traversal for individual file parsing
+        import os
+        if os.getenv("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] extract_typescript_calls: Using FALLBACK AST traversal")
         ast_root = actual_tree.get("ast")
         if ast_root:
             # Single-pass AST traversal extracts ALL calls/properties
@@ -895,11 +916,29 @@ def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
 
 
 def extract_typescript_imports(tree: Dict, parser_self) -> List[Dict[str, Any]]:
-    """Extract import statements from TypeScript semantic AST."""
+    """Extract import statements from TypeScript semantic AST.
+
+    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
+
+    Imports are now part of extracted_data (batch) or tree.imports (individual).
+    """
     imports = []
-    
-    # Use TypeScript compiler API data
-    for imp in tree.get("imports", []):
+
+    # PHASE 5: Check for pre-extracted data (from batch parsing)
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if actual_tree and actual_tree.get("success"):
+        extracted_data = actual_tree.get("extracted_data")
+        if extracted_data and "imports" in extracted_data:
+            # Imports are already in extracted_data - use directly
+            tree_imports = extracted_data["imports"]
+        else:
+            # Fallback: Use imports from tree (individual parsing)
+            tree_imports = tree.get("imports", [])
+    else:
+        tree_imports = tree.get("imports", [])
+
+    # Process imports (same format in both modes)
+    for imp in tree_imports:
         specifiers = imp.get("specifiers", []) or []
         namespace = None
         default = None
