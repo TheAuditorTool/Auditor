@@ -213,12 +213,17 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                     if tsconfig_path:
                         tsconfig_map[normalized_path] = str(tsconfig_path).replace("\\", "/")
 
-                    # Use batch processor with single file (Phase 5 - only code path)
+                    # HYBRID MODE: Two-pass approach for Phase 5
+                    # Pass 1: Extract symbols with ast=null (prevents 512MB crash)
+                    # Pass 2: Extract CFG with lightweight AST serialization
+
+                    # Pass 1: Symbol extraction (current Phase 5 behavior)
                     batch_results = get_semantic_ast_batch(
                         [normalized_path],
                         project_root=root_path,
                         jsx_mode=jsx_mode,
-                        tsconfig_map=tsconfig_map
+                        tsconfig_map=tsconfig_map,
+                        cfg_only=False  # Symbol extraction mode
                     )
 
                     # Extract single result from batch
@@ -231,6 +236,34 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                         )
 
                     semantic_result = batch_results[normalized_path]
+
+                    # Pass 2: CFG extraction (new hybrid mode)
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        print(f"[DEBUG] Starting CFG pass for {file_path}")
+
+                    try:
+                        cfg_batch_results = get_semantic_ast_batch(
+                            [normalized_path],
+                            project_root=root_path,
+                            jsx_mode=jsx_mode,
+                            tsconfig_map=tsconfig_map,
+                            cfg_only=True  # CFG-only mode: serialize AST, skip extracted_data
+                        )
+
+                        if normalized_path in cfg_batch_results:
+                            cfg_result = cfg_batch_results[normalized_path]
+                            if cfg_result.get('success') and cfg_result.get('ast'):
+                                # Merge CFG AST into symbol result for extract_cfg() to use
+                                semantic_result['ast'] = cfg_result['ast']
+
+                                if os.environ.get("THEAUDITOR_DEBUG"):
+                                    print(f"[DEBUG] CFG pass: Got AST for {file_path}")
+                    except Exception as e:
+                        # CFG extraction is optional - don't fail if it doesn't work
+                        if os.environ.get("THEAUDITOR_DEBUG"):
+                            print(f"[DEBUG] CFG extraction failed for {file_path}: {e}")
+                            import traceback
+                            traceback.print_exc()
 
                 except Exception as e:
                     raise RuntimeError(
@@ -484,19 +517,53 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                     if tsconfig_for_file:
                         tsconfig_map[normalized_path] = str(tsconfig_for_file).replace("\\", "/")
 
-                # Use batch processing for JS/TS files
+                # HYBRID MODE: Two-pass batch processing
+                # Pass 1: Symbol extraction (ast=null, prevents 512MB crash)
                 batch_results = get_semantic_ast_batch(
                     js_ts_paths,
                     project_root=root_path,
                     jsx_mode=jsx_mode,
-                    tsconfig_map=tsconfig_map
+                    tsconfig_map=tsconfig_map,
+                    cfg_only=False  # Symbol extraction mode
                 )
+
+                # Pass 2: CFG extraction (serialize AST, skip extracted_data)
+                cfg_batch_results = {}
+                try:
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        print(f"[DEBUG] Starting CFG batch pass for {len(js_ts_paths)} files")
+
+                    cfg_batch_results = get_semantic_ast_batch(
+                        js_ts_paths,
+                        project_root=root_path,
+                        jsx_mode=jsx_mode,
+                        tsconfig_map=tsconfig_map,
+                        cfg_only=True  # CFG-only mode
+                    )
+
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        cfg_success_count = sum(1 for r in cfg_batch_results.values() if r.get('success') and r.get('ast'))
+                        print(f"[DEBUG] CFG pass: Got AST for {cfg_success_count}/{len(js_ts_paths)} files")
+                except Exception as e:
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        print(f"[DEBUG] CFG batch extraction failed: {e}")
+                        import traceback
+                        traceback.print_exc()
 
                 # Process batch results
                 for file_path in js_ts_files:
                     file_str = str(file_path).replace("\\", "/")  # Normalize for matching
                     if file_str in batch_results:
                         semantic_result = batch_results[file_str]
+
+                        # Merge CFG AST if available
+                        if file_str in cfg_batch_results:
+                            cfg_result = cfg_batch_results[file_str]
+                            if cfg_result.get('success') and cfg_result.get('ast'):
+                                semantic_result['ast'] = cfg_result['ast']
+                                if os.environ.get("THEAUDITOR_DEBUG"):
+                                    print(f"[DEBUG] Merged CFG AST for {Path(file_path).name}")
+
                         if semantic_result.get("success"):
                             # Read file content for inclusion
                             try:

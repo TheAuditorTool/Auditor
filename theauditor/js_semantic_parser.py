@@ -284,16 +284,20 @@ class JSSemanticParser:
         self,
         file_paths: List[str],
         jsx_mode: str = 'transformed',
-        tsconfig_map: Optional[Dict[str, str]] = None
+        tsconfig_map: Optional[Dict[str, str]] = None,
+        cfg_only: bool = False
     ) -> Dict[str, Dict[str, Any]]:
         """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
-        
+
         This dramatically improves performance by reusing the TypeScript program
         and dependency cache across multiple files.
-        
+
         Args:
             file_paths: List of paths to JavaScript or TypeScript files to parse
-            
+            jsx_mode: JSX transformation mode ('transformed' or 'preserved')
+            tsconfig_map: Optional mapping of file paths to tsconfig paths
+            cfg_only: If True, serialize AST for CFG extraction only (skip extracted_data)
+
         Returns:
             Dictionary mapping file paths to their AST results
         """
@@ -351,7 +355,8 @@ class JSSemanticParser:
                 "files": valid_files,
                 "projectRoot": str(self.project_root),
                 "jsxMode": jsx_mode,
-                "configMap": normalized_tsconfig_map
+                "configMap": normalized_tsconfig_map,
+                "cfgOnly": cfg_only  # Hybrid mode: CFG-only pass skips extracted_data
             }
             
             # Write batch request to temp file
@@ -975,7 +980,8 @@ def get_semantic_ast_batch(
     file_paths: List[str],
     project_root: str = None,
     jsx_mode: str = 'transformed',
-    tsconfig_map: Optional[Dict[str, str]] = None
+    tsconfig_map: Optional[Dict[str, str]] = None,
+    cfg_only: bool = False
 ) -> Dict[str, Dict[str, Any]]:
     """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
 
@@ -985,6 +991,9 @@ def get_semantic_ast_batch(
     Args:
         file_paths: List of paths to JavaScript or TypeScript files to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
+        jsx_mode: JSX transformation mode ('transformed' or 'preserved')
+        tsconfig_map: Optional mapping of file paths to tsconfig paths
+        cfg_only: If True, serialize AST for CFG extraction only (skip extracted_data)
 
     Returns:
         Dictionary mapping file paths to their AST results
@@ -1002,4 +1011,4 @@ def get_semantic_ast_batch(
         if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
             print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
     parser = _parser_cache[cache_key]
-    return parser.get_semantic_ast_batch(file_paths, jsx_mode, tsconfig_map)
+    return parser.get_semantic_ast_batch(file_paths, jsx_mode, tsconfig_map, cfg_only)
