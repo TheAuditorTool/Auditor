@@ -60,19 +60,86 @@ class Column:
 
 
 @dataclass
+class ForeignKey:
+    """Foreign key relationship metadata for JOIN query generation.
+
+    Purpose: Enables build_join_query() to validate and construct JOINs.
+    NOT used for CREATE TABLE generation (database.py defines FKs).
+
+    Attributes:
+        local_columns: Column names in this table (e.g., ['query_file', 'query_line'])
+        foreign_table: Referenced table name (e.g., 'sql_queries')
+        foreign_columns: Column names in foreign table (e.g., ['file_path', 'line_number'])
+
+    Example:
+        ForeignKey(
+            local_columns=['query_file', 'query_line'],
+            foreign_table='sql_queries',
+            foreign_columns=['file_path', 'line_number']
+        )
+    """
+    local_columns: List[str]
+    foreign_table: str
+    foreign_columns: List[str]
+
+    def validate(self, local_table: str, all_tables: Dict[str, 'TableSchema']) -> List[str]:
+        """Validate foreign key definition against schema.
+
+        Returns:
+            List of error messages (empty if valid)
+        """
+        errors = []
+
+        # Check foreign table exists
+        if self.foreign_table not in all_tables:
+            errors.append(f"Foreign table '{self.foreign_table}' does not exist")
+            return errors
+
+        local_schema = all_tables[local_table]
+        foreign_schema = all_tables[self.foreign_table]
+
+        # Check local columns exist
+        local_col_names = set(local_schema.column_names())
+        for col in self.local_columns:
+            if col not in local_col_names:
+                errors.append(f"Local column '{col}' not found in table '{local_table}'")
+
+        # Check foreign columns exist
+        foreign_col_names = set(foreign_schema.column_names())
+        for col in self.foreign_columns:
+            if col not in foreign_col_names:
+                errors.append(f"Foreign column '{col}' not found in table '{self.foreign_table}'")
+
+        # Check column count matches
+        if len(self.local_columns) != len(self.foreign_columns):
+            errors.append(
+                f"Column count mismatch: {len(self.local_columns)} local vs "
+                f"{len(self.foreign_columns)} foreign"
+            )
+
+        return errors
+
+
+@dataclass
 class TableSchema:
     """Represents a complete table schema.
 
     Design Pattern - Foreign Key Constraints:
-        FOREIGN KEY constraints are intentionally omitted from TableSchema definitions.
-        This design choice keeps the schema focused on table-level structure (columns,
-        types, indexes, constraints) and decouples it from relational integrity, which
-        is managed and enforced at the database.py layer where CREATE TABLE statements
-        are defined. This simplifies schema validation and code generation by avoiding
-        circular dependencies between table definitions.
+        Foreign keys serve TWO purposes in this schema:
 
-        Foreign keys are defined exclusively in database.py CREATE TABLE statements
-        and are not validated by the schema contract system.
+        1. JOIN Query Generation (NEW):
+           The foreign_keys field provides metadata for build_join_query() to:
+           - Validate JOIN conditions reference correct tables/columns
+           - Auto-generate proper JOIN ON clauses
+           - Enable type-safe relational queries
+
+        2. Database Integrity (UNCHANGED):
+           Actual FOREIGN KEY constraints in CREATE TABLE statements are still
+           defined exclusively in database.py. This separation maintains backward
+           compatibility and avoids circular dependencies during table creation.
+
+        The foreign_keys field is OPTIONAL and backward compatible. Tables without
+        foreign keys can still be queried normally with build_query().
 
     Attributes:
         name: Table name
@@ -80,12 +147,14 @@ class TableSchema:
         indexes: List of (index_name, [column_names]) tuples
         primary_key: Composite primary key column list (for multi-column PKs)
         unique_constraints: List of UNIQUE constraint column lists
+        foreign_keys: List of ForeignKey definitions (for JOIN generation)
     """
     name: str
     columns: List[Column]
     indexes: List[Tuple[str, List[str]]] = field(default_factory=list)
     primary_key: Optional[List[str]] = None  # Composite primary keys
     unique_constraints: List[List[str]] = field(default_factory=list)  # UNIQUE constraints
+    foreign_keys: List[ForeignKey] = field(default_factory=list)  # For JOIN query generation
 
     def column_names(self) -> List[str]:
         """Get list of column names in definition order."""
@@ -288,6 +357,13 @@ API_ENDPOINT_CONTROLS = TableSchema(
         ("idx_api_endpoint_controls_endpoint", ["endpoint_file", "endpoint_line"]),  # FK composite lookup
         ("idx_api_endpoint_controls_control", ["control_name"]),  # Fast search by control name
         ("idx_api_endpoint_controls_file", ["endpoint_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["endpoint_file", "endpoint_line"],
+            foreign_table="api_endpoints",
+            foreign_columns=["file", "line"]
+        )
     ]
 )
 
@@ -338,6 +414,13 @@ SQL_QUERY_TABLES = TableSchema(
         ("idx_sql_query_tables_query", ["query_file", "query_line"]),  # FK composite lookup
         ("idx_sql_query_tables_table", ["table_name"]),  # Fast search by table name
         ("idx_sql_query_tables_file", ["query_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["query_file", "query_line"],
+            foreign_table="sql_queries",
+            foreign_columns=["file_path", "line_number"]
+        )
     ]
 )
 
@@ -526,6 +609,13 @@ ASSIGNMENT_SOURCES = TableSchema(
         ("idx_assignment_sources_assignment", ["assignment_file", "assignment_line", "assignment_target"]),
         ("idx_assignment_sources_var", ["source_var_name"]),
         ("idx_assignment_sources_file", ["assignment_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["assignment_file", "assignment_line", "assignment_target"],
+            foreign_table="assignments",
+            foreign_columns=["file", "line", "target_var"]
+        )
     ]
 )
 
@@ -543,6 +633,13 @@ ASSIGNMENT_SOURCES_JSX = TableSchema(
         ("idx_assignment_sources_jsx_assignment", ["assignment_file", "assignment_line", "assignment_target", "jsx_mode"]),
         ("idx_assignment_sources_jsx_var", ["source_var_name"]),
         ("idx_assignment_sources_jsx_file", ["assignment_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["assignment_file", "assignment_line", "assignment_target"],
+            foreign_table="assignments_jsx",
+            foreign_columns=["file", "line", "target_var"]
+        )
     ]
 )
 
@@ -559,6 +656,13 @@ FUNCTION_RETURN_SOURCES = TableSchema(
         ("idx_function_return_sources_return", ["return_file", "return_line", "return_function"]),
         ("idx_function_return_sources_var", ["return_var_name"]),
         ("idx_function_return_sources_file", ["return_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["return_file", "return_line", "return_function"],
+            foreign_table="function_returns",
+            foreign_columns=["file", "line", "function_name"]
+        )
     ]
 )
 
@@ -576,6 +680,13 @@ FUNCTION_RETURN_SOURCES_JSX = TableSchema(
         ("idx_function_return_sources_jsx_return", ["return_file", "return_line", "jsx_mode"]),
         ("idx_function_return_sources_jsx_var", ["return_var_name"]),
         ("idx_function_return_sources_jsx_file", ["return_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["return_file", "return_line"],
+            foreign_table="function_returns_jsx",
+            foreign_columns=["file", "line"]
+        )
     ]
 )
 
@@ -707,6 +818,13 @@ REACT_COMPONENT_HOOKS = TableSchema(
         ("idx_react_comp_hooks_component", ["component_file", "component_name"]),  # FK composite lookup
         ("idx_react_comp_hooks_hook", ["hook_name"]),  # Fast search by hook name
         ("idx_react_comp_hooks_file", ["component_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["component_file", "component_name"],
+            foreign_table="react_components",
+            foreign_columns=["file", "name"]
+        )
     ]
 )
 
@@ -746,6 +864,13 @@ REACT_HOOK_DEPENDENCIES = TableSchema(
         ("idx_react_hook_deps_hook", ["hook_file", "hook_line", "hook_component"]),  # FK composite lookup
         ("idx_react_hook_deps_name", ["dependency_name"]),  # Fast search by variable name
         ("idx_react_hook_deps_file", ["hook_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["hook_file", "hook_line", "hook_component"],
+            foreign_table="react_hooks",
+            foreign_columns=["file", "line", "component_name"]
+        )
     ]
 )
 
@@ -994,6 +1119,13 @@ IMPORT_STYLE_NAMES = TableSchema(
         ("idx_import_style_names_import", ["import_file", "import_line"]),  # FK composite lookup
         ("idx_import_style_names_name", ["imported_name"]),  # Fast search by imported name
         ("idx_import_style_names_file", ["import_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["import_file", "import_line"],
+            foreign_table="import_styles",
+            foreign_columns=["file", "line"]
+        )
     ]
 )
 
@@ -1197,6 +1329,174 @@ def build_query(table_name: str, columns: Optional[List[str]] = None,
 
     if where:
         query_parts.extend(["WHERE", where])
+
+    if order_by:
+        query_parts.extend(["ORDER BY", order_by])
+
+    if limit is not None:
+        query_parts.extend(["LIMIT", str(limit)])
+
+    return " ".join(query_parts)
+
+
+def build_join_query(
+    base_table: str,
+    base_columns: List[str],
+    join_table: str,
+    join_columns: List[str],
+    join_on: Optional[List[Tuple[str, str]]] = None,
+    aggregate: Optional[Dict[str, str]] = None,
+    where: Optional[str] = None,
+    group_by: Optional[List[str]] = None,
+    order_by: Optional[str] = None,
+    limit: Optional[int] = None,
+    join_type: str = "LEFT"
+) -> str:
+    """Build a JOIN query using schema definitions and foreign keys.
+
+    This function generates SQL JOIN queries with schema validation,
+    eliminating the need for raw SQL and enabling type-safe joins.
+
+    Args:
+        base_table: Name of the base table (e.g., 'react_hooks')
+        base_columns: Columns to select from base table (e.g., ['file', 'line', 'hook_name'])
+        join_table: Name of table to join (e.g., 'react_hook_dependencies')
+        join_columns: Columns to select/aggregate from join table (e.g., ['dependency_name'])
+        join_on: Optional explicit JOIN conditions as (base_col, join_col) tuples.
+                 If None, uses foreign key relationship from schema.
+        aggregate: Optional aggregation for join columns (e.g., {'dependency_name': 'GROUP_CONCAT'})
+        where: Optional WHERE clause (without 'WHERE' keyword)
+        group_by: Optional GROUP BY columns (required when using aggregation)
+        order_by: Optional ORDER BY clause (without 'ORDER BY' keyword)
+        limit: Optional LIMIT clause (just the number)
+        join_type: Type of JOIN ('LEFT', 'INNER', 'RIGHT') - default 'LEFT'
+
+    Returns:
+        Complete SELECT query string with JOIN
+
+    Example:
+        >>> build_join_query(
+        ...     base_table='react_hooks',
+        ...     base_columns=['file', 'line', 'hook_name'],
+        ...     join_table='react_hook_dependencies',
+        ...     join_columns=['dependency_name'],
+        ...     aggregate={'dependency_name': 'GROUP_CONCAT'},
+        ...     group_by=['file', 'line', 'hook_name']
+        ... )
+        'SELECT rh.file, rh.line, rh.hook_name, GROUP_CONCAT(rhd.dependency_name, '|') as dependency_name_concat FROM react_hooks rh LEFT JOIN react_hook_dependencies rhd ON rh.file = rhd.hook_file AND rh.line = rhd.hook_line AND rh.component_name = rhd.hook_component GROUP BY rh.file, rh.line, rh.hook_name'
+
+    Raises:
+        ValueError: If tables don't exist, columns invalid, or foreign key not found
+    """
+    # Validate tables exist
+    if base_table not in TABLES:
+        raise ValueError(f"Unknown base table: {base_table}. Available: {', '.join(sorted(TABLES.keys()))}")
+    if join_table not in TABLES:
+        raise ValueError(f"Unknown join table: {join_table}. Available: {', '.join(sorted(TABLES.keys()))}")
+
+    base_schema = TABLES[base_table]
+    join_schema = TABLES[join_table]
+
+    # Validate base columns exist
+    base_col_names = set(base_schema.column_names())
+    for col in base_columns:
+        if col not in base_col_names:
+            raise ValueError(
+                f"Unknown column '{col}' in base table '{base_table}'. "
+                f"Valid columns: {', '.join(sorted(base_col_names))}"
+            )
+
+    # Validate join columns exist (unless they're being aggregated)
+    join_col_names = set(join_schema.column_names())
+    for col in join_columns:
+        if col not in join_col_names:
+            raise ValueError(
+                f"Unknown column '{col}' in join table '{join_table}'. "
+                f"Valid columns: {', '.join(sorted(join_col_names))}"
+            )
+
+    # Determine JOIN ON conditions
+    if join_on is None:
+        # Auto-discover from foreign keys
+        fk = None
+        for foreign_key in join_schema.foreign_keys:
+            if foreign_key.foreign_table == base_table:
+                fk = foreign_key
+                break
+
+        if fk is None:
+            raise ValueError(
+                f"No foreign key found from '{join_table}' to '{base_table}'. "
+                f"Either define foreign_keys in schema or provide explicit join_on parameter."
+            )
+
+        # Build JOIN conditions from foreign key
+        join_on = list(zip(fk.foreign_columns, fk.local_columns))
+
+    # Validate JOIN ON columns
+    for base_col, join_col in join_on:
+        if base_col not in base_col_names:
+            raise ValueError(f"JOIN ON column '{base_col}' not found in base table '{base_table}'")
+        if join_col not in join_col_names:
+            raise ValueError(f"JOIN ON column '{join_col}' not found in join table '{join_table}'")
+
+    # Generate table aliases
+    base_alias = ''.join([c for c in base_table if c.isalpha()])[:2]  # First 2 letters
+    join_alias = ''.join([c for c in join_table if c.isalpha()])[:3]  # First 3 letters
+
+    # Build SELECT clause
+    select_parts = [f"{base_alias}.{col}" for col in base_columns]
+
+    if aggregate:
+        for col, agg_func in aggregate.items():
+            if agg_func == 'GROUP_CONCAT':
+                select_parts.append(
+                    f"GROUP_CONCAT({join_alias}.{col}, '|') as {col}_concat"
+                )
+            elif agg_func in ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']:
+                select_parts.append(
+                    f"{agg_func}({join_alias}.{col}) as {col}_{agg_func.lower()}"
+                )
+            else:
+                raise ValueError(
+                    f"Unknown aggregation function '{agg_func}'. "
+                    f"Supported: GROUP_CONCAT, COUNT, SUM, AVG, MIN, MAX"
+                )
+    else:
+        # No aggregation - select join columns directly
+        select_parts.extend([f"{join_alias}.{col}" for col in join_columns])
+
+    # Build JOIN ON clause
+    on_conditions = [
+        f"{base_alias}.{base_col} = {join_alias}.{join_col}"
+        for base_col, join_col in join_on
+    ]
+    on_clause = " AND ".join(on_conditions)
+
+    # Assemble query
+    query_parts = [
+        "SELECT",
+        ", ".join(select_parts),
+        "FROM",
+        f"{base_table} {base_alias}",
+        f"{join_type} JOIN",
+        f"{join_table} {join_alias}",
+        "ON",
+        on_clause
+    ]
+
+    if where:
+        query_parts.extend(["WHERE", where])
+
+    if group_by:
+        # Prefix group_by columns with base alias if not already qualified
+        qualified_group_by = []
+        for col in group_by:
+            if '.' not in col:
+                qualified_group_by.append(f"{base_alias}.{col}")
+            else:
+                qualified_group_by.append(col)
+        query_parts.extend(["GROUP BY", ", ".join(qualified_group_by)])
 
     if order_by:
         query_parts.extend(["ORDER BY", order_by])

@@ -35,15 +35,19 @@ These are **optional packages** that consume Truth Courier data to add scoring a
 
 ```
 theauditor/insights/
-├── __init__.py      # Package exports
-├── ml.py           # Machine learning predictions (requires pip install -e ".[ml]")
-├── graph.py        # Graph health scoring and recommendations
-└── taint.py        # Vulnerability severity classification
+├── __init__.py              # Package exports
+├── ml.py                    # Machine learning predictions (requires pip install -e ".[ml]")
+├── graph.py                 # Graph health scoring and recommendations
+├── taint.py                 # Vulnerability severity classification
+├── impact_analyzer.py       # Change impact assessment and risk scoring
+└── semantic_context.py      # User-defined business logic (YAML-based)
 ```
 
 - **insights/taint.py**: Adds "This flow is XSS with HIGH severity"
 - **insights/graph.py**: Adds "Health score: 70/100, Grade: B"
 - **insights/ml.py** (requires `pip install -e ".[ml]"`): Adds "80% probability of bugs based on historical patterns"
+- **insights/impact_analyzer.py**: Adds "Change affects 47 files with HIGH risk score"
+- **insights/semantic_context.py**: Applies user-defined refactoring patterns (e.g., "product.price moved to variant.price")
 
 **Important**: Insights modules are:
 - Not installed by default (ML requires explicit opt-in)
@@ -51,6 +55,258 @@ theauditor/insights/
 - Still based on technical patterns, not business logic interpretation
 - Designed for teams that want actionable scores alongside raw facts
 - All consolidated in `/insights` package for consistency
+
+### Insights Architecture Principles (CRITICAL)
+
+All insights modules **MUST** follow these architectural patterns to maintain system integrity:
+
+#### 1. Database-First Pattern (MANDATORY)
+
+**Rule**: Insights modules query the database, NEVER read source files directly.
+
+**Why**: TheAuditor indexer already extracted all code structure into `repo_index.db`. Reading files duplicates work and violates separation of concerns.
+
+✅ **CORRECT - Database-first:**
+```python
+# insights/impact_analyzer.py - Frontend-to-backend tracing
+cursor.execute("""
+    SELECT callee_function, argument_expr
+    FROM function_call_args
+    WHERE file = ? AND line = ?
+    AND callee_function LIKE 'axios.%'
+""", (target_file, target_line))
+```
+
+❌ **WRONG - File I/O:**
+```python
+# This violates database-first principle
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+    # ... regex patterns to find API calls
+```
+
+**Enforcement**: All insights modules must query existing tables (`function_call_args`, `symbols`, `api_endpoints`, etc.) instead of parsing source code.
+
+#### 2. Zero Fallback Policy (ABSOLUTE)
+
+**Rule**: NO fallback logic, NO alternative code paths, NO graceful degradation. If data is missing, FAIL LOUDLY.
+
+**Why**: TheAuditor regenerates the database FRESH on every `aud full` run. Missing data indicates a pipeline bug that MUST be fixed, not hidden.
+
+✅ **CORRECT - Hard fail:**
+```python
+# insights/ml.py - Journal data required for training
+journal_files = list(history_dir.glob("full/*/journal.ndjson"))
+if not journal_files:
+    raise FileNotFoundError(
+        f"No journal.ndjson files found. "
+        "Run 'aud full' to generate journal data before training."
+    )
+```
+
+❌ **WRONG - Fallback logic:**
+```python
+# This hides bugs and corrupts ML training data
+if not journal_files:
+    print("Warning: Using FCE data as fallback")
+    fce_files = list(history_dir.glob("full/*/raw/fce.json"))
+    # ... process FCE data (SEMANTIC MISMATCH - journal ≠ FCE)
+```
+
+**Violation Categories**:
+- ❌ Try-except fallbacks (catch exception → use alternative logic)
+- ❌ Conditional fallbacks (if X missing, use Y instead)
+- ❌ Table existence checks (if table exists then query, else skip)
+- ❌ Regex fallbacks (query fails → fall back to regex on source)
+
+**Enforcement**: All insights modules must raise exceptions on missing data with clear remediation messages.
+
+#### 3. Schema Contract Compliance
+
+**Rule**: All database queries MUST use schema contract system for validation.
+
+**Why**: Schema changes (like normalization) break queries that hardcode column names. Schema contract validates queries at runtime.
+
+✅ **CORRECT - Schema-aware:**
+```python
+# insights/ml.py - Schema validation at module init
+from theauditor.indexer.schema import get_table_schema
+
+def validate_ml_schema():
+    refs_schema = get_table_schema("refs")
+    assert "src" in refs_schema.column_names()
+    assert "value" in refs_schema.column_names()
+```
+
+✅ **CORRECT - Junction table queries:**
+```python
+# insights/impact_analyzer.py - Uses normalized schema
+cursor.execute("""
+    SELECT file, line, method, pattern
+    FROM api_endpoints
+    WHERE pattern = ? AND method = ?
+""")
+# Then query junction table for controls
+cursor.execute("""
+    SELECT control_name
+    FROM api_endpoint_controls
+    WHERE file = ? AND line = ?
+""")
+```
+
+❌ **WRONG - Hardcoded removed columns:**
+```python
+# This queries a column that was removed during normalization
+cursor.execute("""
+    SELECT file, method, pattern, controls  # ← 'controls' removed!
+    FROM api_endpoints
+""")
+```
+
+**Enforcement**: Query existing schema, never assume column structure.
+
+#### 4. Delegation to Truth Couriers
+
+**Rule**: Insights interpret facts, they don't gather them. Delegate data extraction to core modules.
+
+**Why**: Separation of concerns - indexer extracts, insights interpret.
+
+✅ **CORRECT - Delegates to indexer:**
+```python
+# insights/graph.py - Uses XGraphAnalyzer (truth courier)
+from theauditor.graph.analyzer import XGraphAnalyzer
+analyzer = XGraphAnalyzer()
+cycles = analyzer.detect_cycles(import_graph)  # Courier provides facts
+health_score = _calculate_health(cycles)       # Insight interprets
+```
+
+❌ **WRONG - Duplicates courier work:**
+```python
+# This duplicates what the indexer already did
+def _extract_api_calls(file_path):
+    with open(file_path) as f:
+        content = f.read()
+    # ... regex to find axios/fetch calls (indexer already did this!)
+```
+
+**Enforcement**: Import and use existing analysis results, don't re-analyze.
+
+#### 5. Real-World Examples from Recent Fixes
+
+**Example 1: impact_analyzer.py - Frontend-to-Backend Tracing**
+
+**Before (BROKEN - 3 violations):**
+```python
+# ❌ File I/O violation
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+
+# ❌ Undefined variable bug
+if not file_path.exists():  # 'file_path' undefined
+
+# ❌ Schema violation
+cursor.execute("""
+    SELECT file, method, pattern, controls  # 'controls' column removed
+    FROM api_endpoints
+""")
+```
+
+**After (FIXED - database-first):**
+```python
+# ✅ Query function_call_args instead of reading files
+cursor.execute("""
+    SELECT callee_function, argument_expr
+    FROM function_call_args
+    WHERE file = ? AND line = ?
+    AND (callee_function LIKE 'axios.%' OR callee_function = 'fetch')
+""")
+
+# ✅ Use normalized schema with junction tables
+cursor.execute("""
+    SELECT file, line, method, pattern
+    FROM api_endpoints
+""")
+cursor.execute("""
+    SELECT control_name
+    FROM api_endpoint_controls
+    WHERE file = ? AND line = ?
+""")
+```
+
+**Impact**: 50 lines removed, zero file I/O, schema-compliant.
+
+**Example 2: ml.py - Zero Fallback Policy**
+
+**Before (BROKEN - semantic mismatch):**
+```python
+# ❌ Fallback hides missing pipeline data
+if not journal_files:
+    print("Warning: Using FCE data as fallback")
+    fce_files = list(history_dir.glob("full/*/raw/fce.json"))
+    # Treats FCE findings as journal events (WRONG - different semantics)
+    for finding in fce_data['all_findings']:
+        stats[file]["touches"] += 1  # FCE findings ≠ journal touches
+```
+
+**After (FIXED - hard fail):**
+```python
+# ✅ Hard fail with clear remediation
+if not journal_files:
+    raise FileNotFoundError(
+        f"No journal.ndjson files found in {history_dir}. "
+        "ML model training requires execution history from journal files. "
+        "Run 'aud full' at least once to generate journal data."
+    )
+```
+
+**Impact**: 36 lines removed, prevents ML model corruption, enforces correct pipeline usage.
+
+#### 6. Performance Characteristics
+
+Insights modules leverage indexed database queries:
+
+| Operation | Time | Database Table |
+|-----------|------|----------------|
+| API call lookup | <10ms | function_call_args (indexed) |
+| Symbol resolution | <5ms | symbols (indexed by name) |
+| Endpoint matching | <10ms | api_endpoints (indexed by pattern) |
+| Control lookup | <5ms | api_endpoint_controls (junction) |
+| Historical data | <50ms | journal.ndjson (file I/O acceptable here) |
+
+**No file I/O for code analysis** - all data from `.pf/repo_index.db` with indexed lookups.
+
+#### 7. Testing Requirements
+
+All insights modules must include:
+- **Unit tests**: Verify database queries return expected structure
+- **Schema validation**: Assert required columns exist
+- **Error handling**: Test missing database/table scenarios
+- **Integration tests**: Verify with real project data
+
+**Example Test Pattern:**
+```python
+def test_impact_analyzer_database_first():
+    # Verify NO file I/O
+    with patch('builtins.open') as mock_open:
+        result = trace_frontend_to_backend(cursor, "src/api.ts", 42)
+        mock_open.assert_not_called()  # ✅ No file reads
+
+def test_ml_hard_fail_on_missing_journal():
+    with pytest.raises(FileNotFoundError, match="journal.ndjson"):
+        load_journal_stats(empty_history_dir)  # ✅ Fails loud
+```
+
+#### Summary: Insights Architecture Checklist
+
+Before adding new insights modules, verify:
+- ✅ Queries database, never reads source files
+- ✅ No fallback logic (hard fail on missing data)
+- ✅ Uses schema contract for validation
+- ✅ Delegates to truth couriers for facts
+- ✅ Includes error handling with remediation
+- ✅ Has comprehensive tests
+- ✅ Documents database tables used
+- ✅ Performance: <50ms for indexed queries
 
 ### The FCE: Factual Correlation Engine
 The FCE correlates facts from multiple tools without interpreting them:
