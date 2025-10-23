@@ -223,8 +223,24 @@ def extract_python_assignments(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                 "in_function": in_function or "global",
                 "source_vars": extract_vars_from_expr(node.value)
             })
-    
-    return assignments
+
+    # CRITICAL FIX: Deduplicate assignments by (line, target_var, in_function)
+    # WHY: ast.walk() can visit nodes multiple times if they appear in tree multiple times.
+    # Same issue as TypeScript extractor, same solution.
+    seen = set()
+    deduped = []
+    for a in assignments:
+        key = (a['line'], a['target_var'], a['in_function'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(a)
+
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        import sys
+        if len(assignments) != len(deduped):
+            print(f"[AST_DEBUG] Python deduplication: {len(assignments)} -> {len(deduped)} assignments ({len(assignments) - len(deduped)} duplicates removed)", file=sys.stderr)
+
+    return deduped
 
 
 def extract_python_function_params(tree: Dict, parser_self) -> Dict[str, List[str]]:
@@ -328,8 +344,24 @@ def extract_python_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                 "return_expr": return_expr,
                 "return_vars": return_vars
             })
-    
-    return returns
+
+    # CRITICAL FIX: Deduplicate returns by (line, function_name)
+    # WHY: ast.walk() can visit nodes multiple times
+    # NOTE: PRIMARY KEY is (file, line, function_name) but file is added by orchestrator
+    seen = set()
+    deduped = []
+    for r in returns:
+        key = (r['line'], r['function_name'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        import sys
+        if len(returns) != len(deduped):
+            print(f"[AST_DEBUG] Python returns deduplication: {len(returns)} -> {len(deduped)} ({len(returns) - len(deduped)} duplicates removed)", file=sys.stderr)
+
+    return deduped
 
 
 # Python doesn't have property accesses in the same way as JS

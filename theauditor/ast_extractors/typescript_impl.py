@@ -1119,15 +1119,30 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
     # Get AST from the correct location after unwrapping
     ast_root = actual_tree.get("ast", {})
     traverse(ast_root)
-    
+
+    # CRITICAL FIX: Deduplicate assignments by (line, target_var, in_function)
+    # WHY: TypeScript semantic AST can represent nodes in multiple parent contexts,
+    # causing traverse() to visit same VariableDeclaration multiple times.
+    # This is NOT a fallback - it's fixing the extraction at source.
+    seen = set()
+    deduped = []
+    for a in assignments:
+        # Use composite key matching PRIMARY KEY constraint
+        key = (a['line'], a['target_var'], a['in_function'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(a)
+
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
-        print(f"[AST_DEBUG] extract_typescript_assignments: Found {len(assignments)} assignments", file=sys.stderr)
-        if assignments and len(assignments) < 5:
-            for a in assignments[:3]:
+        if len(assignments) != len(deduped):
+            print(f"[AST_DEBUG] Deduplication: {len(assignments)} -> {len(deduped)} assignments ({len(assignments) - len(deduped)} duplicates removed)", file=sys.stderr)
+        print(f"[AST_DEBUG] extract_typescript_assignments: Found {len(deduped)} unique assignments", file=sys.stderr)
+        if deduped and len(deduped) < 5:
+            for a in deduped[:3]:
                 print(f"[AST_DEBUG]   Example: {a['target_var']} = {a['source_expr'][:30]}...", file=sys.stderr)
-    
-    return assignments
+
+    return deduped
 
 
 def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, List[str]]:
@@ -1562,16 +1577,29 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     # Start traversal
     traverse(ast_root)
 
+    # CRITICAL FIX: Deduplicate returns by (line, function_name)
+    # WHY: Same issue as assignments - AST traverse visits nodes multiple times
+    # NOTE: PRIMARY KEY is (file, line, function_name) but file is added by orchestrator
+    seen = set()
+    deduped = []
+    for r in returns:
+        key = (r['line'], r['function_name'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+
     # Debug output for JSX detection
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
-        jsx_returns = [r for r in returns if r.get("has_jsx")]
-        print(f"[DEBUG] Found {len(returns)} total returns, {len(jsx_returns)} with JSX", file=sys.stderr)
+        if len(returns) != len(deduped):
+            print(f"[AST_DEBUG] TypeScript returns deduplication: {len(returns)} -> {len(deduped)} ({len(returns) - len(deduped)} duplicates removed)", file=sys.stderr)
+        jsx_returns = [r for r in deduped if r.get("has_jsx")]
+        print(f"[DEBUG] Found {len(deduped)} total returns, {len(jsx_returns)} with JSX", file=sys.stderr)
         if jsx_returns and len(jsx_returns) < 5:
             for r in jsx_returns[:3]:
                 print(f"[DEBUG]   JSX return in {r['function_name']} at line {r['line']}: {r['return_expr'][:50]}...", file=sys.stderr)
 
-    return returns
+    return deduped
 
 
 def extract_typescript_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:

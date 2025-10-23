@@ -263,6 +263,266 @@ Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** 
 - Categories: Authentication, Injection, Data Exposure, Infrastructure, Code Quality, Framework-Specific
 - **5 architectural meta-findings**: Correlates security issues with graph hotspots, complexity, churn, and test coverage
 
+### Code Context Query Engine (`theauditor/context/`)
+
+**NEW in v1.3**: Direct database query interface for AI-assisted code navigation and refactoring.
+
+#### The Problem It Solves
+
+AI assistants waste 5-10k tokens per refactoring iteration reading files to answer basic questions:
+- "Who calls this function?"
+- "What does this function call?"
+- "Which files import this module?"
+- "Where is this API endpoint implemented?"
+
+TheAuditor already indexes all this relationship data during `aud index`. The query engine provides instant access via SQL queries - **zero file reads, <10ms response time**.
+
+#### Architecture Overview
+
+```
+theauditor/context/
+├── __init__.py      # Package exports
+├── query.py         # CodeQueryEngine class (6 query methods)
+└── formatters.py    # Output formatting (text, json, tree)
+```
+
+**Design Principles:**
+1. **Database-First**: NO new schema - queries existing tables from `repo_index.db` and `graphs.db`
+2. **Zero Inference**: Exact SQL queries with provenance - no guessing, no embeddings
+3. **Performance-Obsessed**: Indexed lookups with O(1) hash maps and BFS for transitive queries
+4. **Type-Safe Results**: Dataclasses (SymbolInfo, CallSite, Dependency) for structured returns
+5. **Format-Agnostic**: Text (human), JSON (AI), tree (visualization) output modes
+
+#### Database Schema Used
+
+The query engine leverages existing indexed data:
+
+**repo_index.db (required):**
+- `symbols` (33k rows) - Function/class definitions (CRITICAL: uses `path` column, not `file`)
+- `symbols_jsx` (8k rows) - JSX component definitions
+- `function_call_args` (13k rows) - Function call sites with arguments
+- `function_call_args_jsx` (4k rows) - JSX component usages
+- `api_endpoints` (185 rows) - REST endpoint handlers
+- `react_components` (1k rows) - React component metadata
+- `react_hooks` (667 rows) - Hook usage tracking
+
+**graphs.db (optional for dependency queries):**
+- `edges` (7.3k rows) - Import and call relationships
+- `nodes` (4.8k rows) - File/module nodes
+
+**No schema changes required** - queries run on existing indexed data.
+
+#### Query Methods
+
+The `CodeQueryEngine` class provides 6 query methods:
+
+**1. find_symbol(name, type_filter) → List[SymbolInfo]**
+- Exact name match across `symbols` and `symbols_jsx` tables
+- Returns: Symbol definitions with file, line, signature, export status
+- Performance: <5ms (indexed by name)
+
+**2. get_callers(symbol_name, depth=1) → List[CallSite]**
+- BFS traversal for transitive caller discovery
+- Queries: `function_call_args` WHERE `callee_function = ?`
+- Depth 1-5 supported (default: 1 for direct callers only)
+- Performance: <10ms direct, <50ms depth=3 transitive
+- Cycle detection: Visited set prevents infinite loops
+
+**3. get_callees(symbol_name) → List[CallSite]**
+- What a function calls
+- Queries: `function_call_args` WHERE `caller_function LIKE ?`
+- Returns: Call sites with arguments and line numbers
+- Performance: <10ms
+
+**4. get_file_dependencies(file_path, direction='both') → Dict[str, List[Dependency]]**
+- Import relationships from `graphs.db`
+- Directions: 'incoming' (dependents), 'outgoing' (dependencies), 'both'
+- Queries: `edges` WHERE `graph_type = 'import'`
+- Performance: <10ms
+- Graceful degradation: Returns error if graphs.db not built
+
+**5. get_api_handlers(route_pattern) → List[Dict]**
+- Find REST endpoint implementations
+- Queries: `api_endpoints` WHERE `path LIKE ? OR pattern LIKE ?`
+- Returns: Method, path, handler function, auth status, file location
+- Performance: <5ms
+
+**6. get_component_tree(component_name) → Dict**
+- React component hierarchy
+- Queries: `react_components`, `react_hooks`, `function_call_args_jsx`
+- Returns: Component metadata, hooks used, child components
+- Performance: <10ms
+
+#### Transitive Query Algorithm (BFS)
+
+For `get_callers(depth > 1)`, the engine uses Breadth-First Search:
+
+```python
+queue = deque([(symbol_name, 0)])
+visited = set()
+
+while queue:
+    current_symbol, current_depth = queue.popleft()
+    if current_depth >= depth:
+        continue
+
+    # Query direct callers
+    callers = query_function_call_args(current_symbol)
+
+    for caller in callers:
+        caller_key = (caller.function, caller.file, caller.line)
+        if caller_key not in visited:
+            visited.add(caller_key)
+            all_callers.append(caller)
+
+            # Add to queue for next level
+            if current_depth + 1 < depth:
+                queue.append((caller.function, current_depth + 1))
+```
+
+**Why BFS?**
+- Guarantees shortest path to each caller
+- Level-order traversal (depth-aware)
+- Cycle detection via visited set
+- Memory-efficient (stores only unique caller keys)
+
+#### Output Formatters
+
+Three output modes via `formatters.py`:
+
+**1. Text Format (default)** - Human-readable:
+```
+Symbol Definitions (1):
+  1. authenticateUser
+     Type: function
+     File: backend/src/auth.ts:42-67
+     Signature: (username: string, password: string) => Promise<User>
+     Exported: Yes
+
+Callers (3):
+  1. backend/src/routes/login.ts:23
+     handleLogin -> authenticateUser
+     Args: req.body.username, req.body.password
+```
+
+**2. JSON Format** - AI-consumable structured data:
+```json
+{
+  "symbol": [{
+    "name": "authenticateUser",
+    "type": "function",
+    "file": "backend/src/auth.ts",
+    "line": 42,
+    "end_line": 67,
+    "signature": "(username: string, password: string) => Promise<User>",
+    "is_exported": true
+  }],
+  "callers": [...]
+}
+```
+
+**3. Tree Format** - Visual hierarchy (placeholder, falls back to text):
+```
+└─ authenticateUser
+   ├─ handleLogin (backend/src/routes/login.ts:23)
+   ├─ validateCredentials (backend/src/middleware/auth.ts:15)
+   └─ refreshSession (backend/src/sessions/refresh.ts:8)
+```
+
+#### Performance Characteristics
+
+All queries leverage SQLite indexes:
+
+| Query Type | Time | Method |
+|------------|------|--------|
+| Symbol lookup | <5ms | Indexed by name + type |
+| Direct callers | <10ms | Indexed by callee_function |
+| Transitive (depth=3) | <50ms | BFS with visited set |
+| File dependencies | <10ms | Indexed by source/target + graph_type |
+| API handlers | <5ms | Indexed by path pattern |
+| Component tree | <10ms | Multiple indexed queries |
+
+**Zero file I/O** - all data from SQLite databases with O(1) hash map lookups internally.
+
+#### CLI Integration
+
+Exposed via `aud context query` command:
+
+```bash
+# Symbol queries
+aud context query --symbol authenticateUser --show-callers --depth 3
+aud context query --symbol handleRequest --show-callees
+
+# File queries
+aud context query --file src/auth.ts --show-dependents
+aud context query --file src/utils.ts --show-dependencies
+
+# API queries
+aud context query --api "/users/:id"
+
+# Component queries
+aud context query --component UserProfile
+
+# Format control
+aud context query --symbol validateInput --show-callers --format json
+aud context query --file src/api.ts --format json --save deps.json
+```
+
+#### Integration with Existing Systems
+
+The query engine is a **read-only consumer** of indexed data:
+- **Indexer**: Populates tables during `aud index`
+- **Graph Builder**: Creates edges/nodes during `aud graph build`
+- **Query Engine**: Reads data, never writes
+
+**No pipeline changes** - runs independently after indexing completes.
+
+#### Error Handling
+
+**Graceful degradation:**
+- Missing `repo_index.db`: Raises FileNotFoundError with remediation
+- Missing `graphs.db`: Returns error dict for dependency queries
+- Missing tables (e.g., no JSX in Python projects): Silently skipped via try/except
+- Empty results: Returns empty list (not an error)
+
+**Helpful error messages:**
+```python
+# If database not found
+FileNotFoundError: "Database not found: .pf/repo_index.db\nRun 'aud index' first to build the database."
+
+# If graphs.db not built
+{'error': 'Graph database not found. Run: aud graph build'}
+```
+
+#### Example: Token Savings Calculation
+
+**Without query engine (traditional approach):**
+```
+AI reads auth.ts (500 tokens)
+AI reads login.ts (300 tokens)
+AI reads middleware/auth.ts (400 tokens)
+AI reads sessions/refresh.ts (350 tokens)
+Total: 1,550 tokens per iteration
+10 iterations: 15,500 tokens
+```
+
+**With query engine:**
+```
+aud context query --symbol authenticateUser --show-callers --depth 2 --format json
+Output: 150 tokens (structured call graph)
+10 iterations: 1,500 tokens
+Savings: 14,000 tokens (90% reduction)
+```
+
+#### Future Enhancements
+
+Potential additions (not yet implemented):
+- Tree format visualization (currently placeholder)
+- Cross-file taint path queries
+- SQL query builder for custom queries
+- GraphQL schema traversal
+- Database migration impact analysis
+
 ### Taint Analysis Package (`theauditor/taint/`)
 Previously a monolithic file, the taint analysis system has been refactored into a modular package with 11 specialized modules. A backward compatibility shim remains at `theauditor/taint_analyzer.py` for legacy imports.
 

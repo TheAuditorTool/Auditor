@@ -86,6 +86,12 @@ class DatabaseManager:
         # JWT patterns batch list
         self.jwt_patterns_batch = []
 
+        # Junction table batch lists for normalized many-to-many relationships
+        self.assignment_sources_batch = []
+        self.assignment_sources_jsx_batch = []
+        self.function_return_sources_batch = []
+        self.function_return_sources_jsx_batch = []
+
     def begin_transaction(self):
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -388,8 +394,8 @@ class DatabaseManager:
                 line INTEGER NOT NULL,
                 target_var TEXT NOT NULL,
                 source_expr TEXT NOT NULL,
-                source_vars TEXT,
                 in_function TEXT NOT NULL,
+                PRIMARY KEY (file, line, target_var),
                 FOREIGN KEY(file) REFERENCES files(path)
             )
         """
@@ -418,11 +424,41 @@ class DatabaseManager:
                 line INTEGER NOT NULL,
                 function_name TEXT NOT NULL,
                 return_expr TEXT NOT NULL,
-                return_vars TEXT,
                 has_jsx BOOLEAN DEFAULT 0,
                 returns_component BOOLEAN DEFAULT 0,
                 cleanup_operations TEXT,
+                PRIMARY KEY (file, line, function_name),
                 FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Junction tables for normalized many-to-many relationships
+        # Replaces JSON TEXT columns source_vars and return_vars
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assignment_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignment_file TEXT NOT NULL,
+                assignment_line INTEGER NOT NULL,
+                assignment_target TEXT NOT NULL,
+                source_var_name TEXT NOT NULL,
+                FOREIGN KEY(assignment_file, assignment_line, assignment_target)
+                    REFERENCES assignments(file, line, target_var)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS function_return_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                return_file TEXT NOT NULL,
+                return_line INTEGER NOT NULL,
+                return_function TEXT NOT NULL,
+                return_var_name TEXT NOT NULL,
+                FOREIGN KEY(return_file, return_line, return_function)
+                    REFERENCES function_returns(file, line, function_name)
             )
         """
         )
@@ -581,7 +617,6 @@ class DatabaseManager:
                 line INTEGER NOT NULL,
                 function_name TEXT,
                 return_expr TEXT,
-                return_vars TEXT,
                 has_jsx BOOLEAN DEFAULT 0,
                 returns_component BOOLEAN DEFAULT 0,
                 cleanup_operations TEXT,
@@ -616,7 +651,6 @@ class DatabaseManager:
                 line INTEGER NOT NULL,
                 target_var TEXT NOT NULL,
                 source_expr TEXT NOT NULL,
-                source_vars TEXT,
                 in_function TEXT NOT NULL,
                 jsx_mode TEXT NOT NULL DEFAULT 'preserved',
                 extraction_pass INTEGER DEFAULT 1,
@@ -640,6 +674,36 @@ class DatabaseManager:
                 extraction_pass INTEGER DEFAULT 1,
                 PRIMARY KEY (file, line, callee_function, argument_index, jsx_mode),
                 FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # JSX junction tables for normalized many-to-many relationships
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS assignment_sources_jsx (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignment_file TEXT NOT NULL,
+                assignment_line INTEGER NOT NULL,
+                assignment_target TEXT NOT NULL,
+                jsx_mode TEXT NOT NULL,
+                source_var_name TEXT NOT NULL,
+                FOREIGN KEY(assignment_file, assignment_line, assignment_target, jsx_mode)
+                    REFERENCES assignments_jsx(file, line, target_var, jsx_mode)
+            )
+        """
+        )
+
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS function_return_sources_jsx (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                return_file TEXT NOT NULL,
+                return_line INTEGER NOT NULL,
+                jsx_mode TEXT NOT NULL,
+                return_var_name TEXT NOT NULL,
+                FOREIGN KEY(return_file, return_line, jsx_mode)
+                    REFERENCES function_returns_jsx(file, line, jsx_mode)
             )
         """
         )
@@ -820,6 +884,14 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_call_args_callee_file ON function_call_args(callee_file_path)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_file ON function_returns(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_returns_function ON function_returns(function_name)")
+
+        # Indexes for junction tables (normalized many-to-many relationships)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignment_sources_assignment ON assignment_sources(assignment_file, assignment_line, assignment_target)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignment_sources_var ON assignment_sources(source_var_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignment_sources_file ON assignment_sources(assignment_file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_return ON function_return_sources(return_file, return_line, return_function)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_var ON function_return_sources(return_var_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_file ON function_return_sources(return_file)")
         
         # Indexes for CFG tables
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_file ON cfg_blocks(file)")
@@ -853,6 +925,14 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_assignments_function ON assignments_jsx(in_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_calls_file ON function_call_args_jsx(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_jsx_calls_caller ON function_call_args_jsx(caller_function)")
+
+        # Indexes for JSX junction tables
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignment_sources_jsx_assignment ON assignment_sources_jsx(assignment_file, assignment_line, assignment_target, jsx_mode)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignment_sources_jsx_var ON assignment_sources_jsx(source_var_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_assignment_sources_jsx_file ON assignment_sources_jsx(assignment_file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_jsx_return ON function_return_sources_jsx(return_file, return_line, jsx_mode)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_jsx_var ON function_return_sources_jsx(return_var_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_jsx_file ON function_return_sources_jsx(return_file)")
 
         # Indexes for Vue tables
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_vue_components_file ON vue_components(file)")
@@ -906,8 +986,10 @@ class DatabaseManager:
             cursor.execute("DELETE FROM compose_services")
             cursor.execute("DELETE FROM nginx_configs")
             cursor.execute("DELETE FROM assignments")
+            cursor.execute("DELETE FROM assignment_sources")
             cursor.execute("DELETE FROM function_call_args")
             cursor.execute("DELETE FROM function_returns")
+            cursor.execute("DELETE FROM function_return_sources")
             cursor.execute("DELETE FROM cfg_blocks")
             cursor.execute("DELETE FROM cfg_edges")
             cursor.execute("DELETE FROM cfg_block_statements")
@@ -916,8 +998,10 @@ class DatabaseManager:
             cursor.execute("DELETE FROM variable_usage")
             # Also clear JSX tables
             cursor.execute("DELETE FROM function_returns_jsx")
+            cursor.execute("DELETE FROM function_return_sources_jsx")
             cursor.execute("DELETE FROM symbols_jsx")
             cursor.execute("DELETE FROM assignments_jsx")
+            cursor.execute("DELETE FROM assignment_sources_jsx")
             cursor.execute("DELETE FROM function_call_args_jsx")
             # Also clear Vue tables
             cursor.execute("DELETE FROM vue_components")
@@ -998,10 +1082,30 @@ class DatabaseManager:
 
     def add_assignment(self, file_path: str, line: int, target_var: str, source_expr: str,
                       source_vars: List[str], in_function: str):
-        """Add a variable assignment record to the batch."""
-        source_vars_json = json.dumps(source_vars)
-        self.assignments_batch.append((file_path, line, target_var, source_expr, 
-                                      source_vars_json, in_function))
+        """Add a variable assignment record to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationship.
+        - Phase 1: Batch assignment record (without source_vars column)
+        - Phase 2: Batch junction records for each source variable
+
+        NO FALLBACKS. If source_vars is malformed, hard fail.
+        """
+        # DEBUG: Track batch index for duplicate investigation
+        import os
+        if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
+            batch_idx = len(self.assignments_batch)
+            import sys
+            print(f"[TRACE] add_assignment() call #{batch_idx}: {file_path}:{line} {target_var} in {in_function}", file=sys.stderr)
+
+        # Phase 1: Add assignment record (5 params, no source_vars column)
+        self.assignments_batch.append((file_path, line, target_var, source_expr, in_function))
+
+        # Phase 2: Add junction records for each source variable
+        if source_vars:
+            for source_var in source_vars:
+                if not source_var:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.assignment_sources_batch.append((file_path, line, target_var, source_var))
 
     def add_function_call_arg(self, file_path: str, line: int, caller_function: str,
                               callee_function: str, arg_index: int, arg_expr: str, param_name: str,
@@ -1023,10 +1127,23 @@ class DatabaseManager:
 
     def add_function_return(self, file_path: str, line: int, function_name: str,
                            return_expr: str, return_vars: List[str]):
-        """Add a function return statement record to the batch."""
-        return_vars_json = json.dumps(return_vars)
-        self.function_returns_batch.append((file_path, line, function_name, 
-                                           return_expr, return_vars_json))
+        """Add a function return statement record to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationship.
+        - Phase 1: Batch function return record (without return_vars column)
+        - Phase 2: Batch junction records for each return variable
+
+        NO FALLBACKS. If return_vars is malformed, hard fail.
+        """
+        # Phase 1: Add function return record (4 params, no return_vars column)
+        self.function_returns_batch.append((file_path, line, function_name, return_expr))
+
+        # Phase 2: Add junction records for each return variable
+        if return_vars:
+            for return_var in return_vars:
+                if not return_var:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.function_return_sources_batch.append((file_path, line, function_name, return_var))
 
     def add_config_file(self, path: str, content: str, file_type: str, context: Optional[str] = None):
         """Add a configuration file content to the batch."""
@@ -1231,11 +1348,25 @@ class DatabaseManager:
                                 return_expr: str, return_vars: List[str], has_jsx: bool = False,
                                 returns_component: bool = False, cleanup_operations: Optional[str] = None,
                                 jsx_mode: str = 'preserved', extraction_pass: int = 1):
-        """Add a JSX function return record for preserved JSX extraction."""
-        return_vars_json = json.dumps(return_vars)
+        """Add a JSX function return record for preserved JSX extraction.
+
+        ARCHITECTURE: Normalized many-to-many relationship (JSX variant).
+        - Phase 1: Batch JSX function return record (without return_vars column)
+        - Phase 2: Batch JSX junction records for each return variable
+
+        NO FALLBACKS. If return_vars is malformed, hard fail.
+        """
+        # Phase 1: Add JSX function return record (8 params, no return_vars column)
         self.function_returns_jsx_batch.append((file_path, line, function_name, return_expr,
-                                                return_vars_json, has_jsx, returns_component,
+                                                has_jsx, returns_component,
                                                 cleanup_operations, jsx_mode, extraction_pass))
+
+        # Phase 2: Add JSX junction records for each return variable
+        if return_vars:
+            for return_var in return_vars:
+                if not return_var:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.function_return_sources_jsx_batch.append((file_path, line, jsx_mode, return_var))
 
     def add_symbol_jsx(self, path: str, name: str, symbol_type: str, line: int, col: int,
                       jsx_mode: str = 'preserved', extraction_pass: int = 1):
@@ -1245,10 +1376,24 @@ class DatabaseManager:
     def add_assignment_jsx(self, file_path: str, line: int, target_var: str, source_expr: str,
                           source_vars: List[str], in_function: str, jsx_mode: str = 'preserved',
                           extraction_pass: int = 1):
-        """Add a JSX assignment record for preserved JSX extraction."""
-        source_vars_json = json.dumps(source_vars)
+        """Add a JSX assignment record for preserved JSX extraction.
+
+        ARCHITECTURE: Normalized many-to-many relationship (JSX variant).
+        - Phase 1: Batch JSX assignment record (without source_vars column)
+        - Phase 2: Batch JSX junction records for each source variable
+
+        NO FALLBACKS. If source_vars is malformed, hard fail.
+        """
+        # Phase 1: Add JSX assignment record (6 params, no source_vars column)
         self.assignments_jsx_batch.append((file_path, line, target_var, source_expr,
-                                          source_vars_json, in_function, jsx_mode, extraction_pass))
+                                          in_function, jsx_mode, extraction_pass))
+
+        # Phase 2: Add JSX junction records for each source variable
+        if source_vars:
+            for source_var in source_vars:
+                if not source_var:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.assignment_sources_jsx_batch.append((file_path, line, target_var, jsx_mode, source_var))
 
     def add_function_call_arg_jsx(self, file_path: str, line: int, caller_function: str,
                                   callee_function: str, arg_index: int, arg_expr: str, param_name: str,
@@ -1514,10 +1659,17 @@ class DatabaseManager:
 
             if self.assignments_batch:
                 cursor.executemany(
-                    "INSERT INTO assignments (file, line, target_var, source_expr, source_vars, in_function) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO assignments (file, line, target_var, source_expr, in_function) VALUES (?, ?, ?, ?, ?)",
                     self.assignments_batch
                 )
                 self.assignments_batch = []
+
+            if self.assignment_sources_batch:
+                cursor.executemany(
+                    "INSERT INTO assignment_sources (assignment_file, assignment_line, assignment_target, source_var_name) VALUES (?, ?, ?, ?)",
+                    self.assignment_sources_batch
+                )
+                self.assignment_sources_batch = []
             
             if self.function_call_args_batch:
                 cursor.executemany(
@@ -1528,10 +1680,17 @@ class DatabaseManager:
             
             if self.function_returns_batch:
                 cursor.executemany(
-                    "INSERT INTO function_returns (file, line, function_name, return_expr, return_vars) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO function_returns (file, line, function_name, return_expr) VALUES (?, ?, ?, ?)",
                     self.function_returns_batch
                 )
                 self.function_returns_batch = []
+
+            if self.function_return_sources_batch:
+                cursor.executemany(
+                    "INSERT INTO function_return_sources (return_file, return_line, return_function, return_var_name) VALUES (?, ?, ?, ?)",
+                    self.function_return_sources_batch
+                )
+                self.function_return_sources_batch = []
             
             if self.prisma_batch:
                 cursor.executemany(
@@ -1663,12 +1822,21 @@ class DatabaseManager:
             if self.function_returns_jsx_batch:
                 cursor.executemany(
                     """INSERT OR REPLACE INTO function_returns_jsx
-                       (file, line, function_name, return_expr, return_vars, has_jsx, returns_component,
+                       (file, line, function_name, return_expr, has_jsx, returns_component,
                         cleanup_operations, jsx_mode, extraction_pass)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     self.function_returns_jsx_batch
                 )
                 self.function_returns_jsx_batch = []
+
+            if self.function_return_sources_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO function_return_sources_jsx
+                       (return_file, return_line, jsx_mode, return_var_name)
+                       VALUES (?, ?, ?, ?)""",
+                    self.function_return_sources_jsx_batch
+                )
+                self.function_return_sources_jsx_batch = []
 
             if self.symbols_jsx_batch:
                 cursor.executemany(
@@ -1682,11 +1850,20 @@ class DatabaseManager:
             if self.assignments_jsx_batch:
                 cursor.executemany(
                     """INSERT OR REPLACE INTO assignments_jsx
-                       (file, line, target_var, source_expr, source_vars, in_function, jsx_mode, extraction_pass)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (file, line, target_var, source_expr, in_function, jsx_mode, extraction_pass)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     self.assignments_jsx_batch
                 )
                 self.assignments_jsx_batch = []
+
+            if self.assignment_sources_jsx_batch:
+                cursor.executemany(
+                    """INSERT INTO assignment_sources_jsx
+                       (assignment_file, assignment_line, assignment_target, jsx_mode, source_var_name)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    self.assignment_sources_jsx_batch
+                )
+                self.assignment_sources_jsx_batch = []
 
             if self.function_call_args_jsx_batch:
                 cursor.executemany(
@@ -1814,6 +1991,31 @@ class DatabaseManager:
                 self.cfg_statements_batch = []
                 
         except sqlite3.Error as e:
+            # DEBUG: Dump batch contents on UNIQUE constraint failure
+            if "UNIQUE constraint failed: assignments" in str(e) and self.assignments_batch:
+                import sys
+                print("\n[DEBUG] DUPLICATE ASSIGNMENT DETECTED:", file=sys.stderr)
+                print(f"[DEBUG] Total assignments in batch: {len(self.assignments_batch)}", file=sys.stderr)
+
+                # Find duplicates in batch
+                seen = {}
+                for idx, (file, line, target, expr, func) in enumerate(self.assignments_batch):
+                    key = (file, line, target)
+                    if key in seen:
+                        print(f"[DEBUG] DUPLICATE #{idx}:", file=sys.stderr)
+                        print(f"  File: {file}", file=sys.stderr)
+                        print(f"  Line: {line}", file=sys.stderr)
+                        print(f"  Target: {target}", file=sys.stderr)
+                        print(f"  First occurrence: batch index {seen[key]}", file=sys.stderr)
+                        print(f"    - source_expr: {self.assignments_batch[seen[key]][3][:100]}", file=sys.stderr)
+                        print(f"    - in_function: {self.assignments_batch[seen[key]][4]}", file=sys.stderr)
+                        print(f"  Second occurrence: batch index {idx}", file=sys.stderr)
+                        print(f"    - source_expr: {expr[:100]}", file=sys.stderr)
+                        print(f"    - in_function: {func}", file=sys.stderr)
+                        print("", file=sys.stderr)
+                    else:
+                        seen[key] = idx
+
             if batch_idx is not None:
                 raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}")
             else:

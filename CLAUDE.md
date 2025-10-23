@@ -227,8 +227,18 @@ aud structure                # Display project structure
 
 # Advanced
 aud insights                 # Optional insights analysis (requires [ml] extras)
-aud context --file ctx.yaml  # Apply user-defined semantic context
 aud refactor --auto-detect   # Detect incomplete refactorings
+
+# Code Context Queries (AI-assisted refactoring)
+aud context query --symbol authenticateUser --show-callers  # Who calls this function
+aud context query --symbol validateInput --show-callees     # What does this call
+aud context query --file src/auth.ts --show-dependencies    # What file imports
+aud context query --file src/utils.ts --show-dependents     # Who imports file
+aud context query --api "/users/:id"                        # Find endpoint handler
+aud context query --component UserProfile --show-tree       # Component hierarchy
+
+# Semantic Context Analysis
+aud context semantic --file rules/oauth_migration.yaml  # Classify findings by business logic
 ```
 
 ## Core Philosophy: Truth Courier, Not Mind Reader
