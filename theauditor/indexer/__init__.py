@@ -481,6 +481,17 @@ class IndexerOrchestrator:
                 if not tree:
                     continue
 
+                # DEBUG: Check if AST is present in tree
+                import os
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    has_ast = False
+                    if isinstance(tree, dict):
+                        if 'ast' in tree:
+                            has_ast = tree['ast'] is not None
+                        elif 'tree' in tree and isinstance(tree['tree'], dict):
+                            has_ast = tree['tree'].get('ast') is not None
+                    print(f"[DEBUG] JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}")
+
                 # Read file content (cap at 1MB)
                 try:
                     with open(file_path, encoding="utf-8", errors="ignore") as f:
@@ -543,6 +554,57 @@ class IndexerOrchestrator:
                         jsx_mode='preserved', extraction_pass=2
                     )
                     jsx_counts['returns'] += 1
+
+                # CFG extraction (JSX PASS)
+                # Extract CFG from JSX files - critical for control flow analysis
+                for function_cfg in extracted.get('cfg', []):
+                    if not function_cfg:
+                        continue
+
+                    # Map temporary block IDs to real IDs
+                    block_id_map = {}
+
+                    # Store blocks and build ID mapping
+                    for block in function_cfg.get('blocks', []):
+                        temp_id = block['id']
+                        real_id = self.db_manager.add_cfg_block(
+                            file_path_str,
+                            function_cfg['function_name'],
+                            block['type'],
+                            block['start_line'],
+                            block['end_line'],
+                            block.get('condition')
+                        )
+                        block_id_map[temp_id] = real_id
+                        self.counts['cfg_blocks'] += 1
+
+                        # Store statements for this block
+                        for stmt in block.get('statements', []):
+                            self.db_manager.add_cfg_block_statement(
+                                file_path_str, real_id,
+                                stmt['type'],
+                                stmt['line'],
+                                stmt.get('text')
+                            )
+                            self.counts['cfg_statements'] += 1
+
+                    # Store edges with mapped IDs
+                    for edge in function_cfg.get('edges', []):
+                        source_id = block_id_map.get(edge['source'], edge['source'])
+                        target_id = block_id_map.get(edge['target'], edge['target'])
+                        self.db_manager.add_cfg_edge(
+                            file_path_str,
+                            function_cfg['function_name'],
+                            source_id,
+                            target_id,
+                            edge['type']
+                        )
+                        self.counts['cfg_edges'] += 1
+
+                    # Track count
+                    if 'cfg_functions' not in self.counts:
+                        self.counts['cfg_functions'] = 0
+                    self.counts['cfg_functions'] += 1
 
                 # Flush batches periodically for memory efficiency
                 if (idx + 1) % self.db_manager.batch_size == 0:
