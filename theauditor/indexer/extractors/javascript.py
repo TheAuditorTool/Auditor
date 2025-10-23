@@ -199,7 +199,38 @@ class JavaScriptExtractor(BaseExtractor):
 
         # Extract symbols (functions, classes, calls, properties)
         functions = self.ast_parser.extract_functions(tree)
+
+        import os
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            if functions:
+                sample = functions[0]
+                print(f"[DEBUG JS extractor] Sample function keys: {list(sample.keys())}")
+                if 'type_annotation' in sample:
+                    print(f"[DEBUG JS extractor] Has type_annotation: {sample['type_annotation'][:50] if sample['type_annotation'] else 'None'}")
+                if 'return_type' in sample:
+                    print(f"[DEBUG JS extractor] Has return_type: {sample['return_type'][:50] if sample['return_type'] else 'None'}")
+
         for func in functions:
+            # CRITICAL: Create type_annotation records FIRST (before adding to symbols)
+            # Symbols table only has basic info, type_annotations table has full type metadata
+            if func.get('type_annotation') or func.get('return_type'):
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG JS extractor] Creating type_annotation for {func.get('name')}")
+                result['type_annotations'].append({
+                    'line': func.get('line', 0),
+                    'column': func.get('col', func.get('column', 0)),
+                    'symbol_name': func.get('name', ''),
+                    'symbol_kind': 'function',
+                    'type_annotation': func.get('type_annotation'),
+                    'is_any': func.get('is_any', False),
+                    'is_unknown': func.get('is_unknown', False),
+                    'is_generic': func.get('is_generic', False),
+                    'has_type_params': func.get('has_type_params', False),
+                    'type_params': func.get('type_params'),
+                    'return_type': func.get('return_type'),
+                    'extends_type': func.get('extends_type')
+                })
+
             symbol_entry = {
                 'name': func.get('name', ''),
                 'type': 'function',
@@ -208,8 +239,10 @@ class JavaScriptExtractor(BaseExtractor):
                 'column': func.get('column', func.get('col', 0)),
             }
 
+            # REMOVED: No longer copying type info to symbol_entry
+            # Type info goes to type_annotations table, not symbols table
             for key in (
-                'type_annotation',
+                'type_annotation',  # Still check for is_typed flag
                 'return_type',
                 'type_params',
                 'has_type_params',
@@ -269,6 +302,18 @@ class JavaScriptExtractor(BaseExtractor):
         # Extract call symbols for taint analysis
         calls = self.ast_parser.extract_calls(tree)
         if calls:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                # Check for duplicates in extracted calls
+                call_keys = [(c.get('name'), c.get('line'), c.get('col', c.get('column', 0))) for c in calls]
+                unique_keys = set(call_keys)
+                if len(call_keys) != len(unique_keys):
+                    print(f"[DEBUG] JS extractor: DUPLICATE CALLS DETECTED in extract_calls() output for {file_info['path']}")
+                    from collections import Counter
+                    counts = Counter(call_keys)
+                    for key, count in counts.items():
+                        if count > 1:
+                            print(f"[DEBUG]   {key[0]} at line {key[1]}, col {key[2]}: appears {count} times")
+
             for call in calls:
                 result['symbols'].append({
                     'name': call.get('name', ''),
@@ -591,24 +636,8 @@ class JavaScriptExtractor(BaseExtractor):
             file_info.get('path', '')
         )
 
-        # Extract TypeScript type annotations from symbols with rich type information
-        for symbol in result['symbols']:
-            # Only create type annotation if we have type information
-            if symbol.get('type_annotation') or symbol.get('return_type'):
-                result['type_annotations'].append({
-                    'line': symbol.get('line', 0),
-                    'column': symbol.get('column', 0),
-                    'symbol_name': symbol.get('name', ''),
-                    'symbol_kind': symbol.get('type', 'unknown'),  # Declaration type
-                    'type_annotation': symbol.get('type_annotation'),
-                    'is_any': symbol.get('is_any', False),
-                    'is_unknown': symbol.get('is_unknown', False),
-                    'is_generic': symbol.get('is_generic', False),
-                    'has_type_params': symbol.get('has_type_params', False),
-                    'type_params': symbol.get('type_params'),
-                    'return_type': symbol.get('return_type'),
-                    'extends_type': symbol.get('extends_type')
-                })
+        # NOTE: Type annotations are now created directly from functions (line 203-219)
+        # Not from symbols, because symbols table doesn't have full type metadata
 
         # Build variable usage from assignments and symbols
         # This is CRITICAL for dead code detection and taint analysis

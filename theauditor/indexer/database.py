@@ -500,6 +500,13 @@ class DatabaseManager:
 
     def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int, end_line: Optional[int] = None):
         """Add a symbol record to the batch."""
+        import os
+        if os.getenv("THEAUDITOR_DEBUG"):
+            # Check if this exact symbol already exists in batch
+            symbol_key = (path, name, symbol_type, line, col)
+            existing = [s for s in self.generic_batches['symbols'] if (s[0], s[1], s[2], s[3], s[4]) == symbol_key]
+            if existing:
+                print(f"[DEBUG] add_symbol: DUPLICATE detected! {name} ({symbol_type}) at {path}:{line}:{col}")
         self.generic_batches['symbols'].append((path, name, symbol_type, line, col, end_line))
 
     def add_orm_query(self, file_path: str, line: int, query_type: str, includes: Optional[str],
