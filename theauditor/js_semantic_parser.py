@@ -95,10 +95,11 @@ class JSSemanticParser:
                 break
         
         # If not found, will trigger proper error messages
-        
+
         self.tsc_available = self._check_tsc_availability()
-        self.helper_script = self._create_helper_script()
-        self.batch_helper_script = self._create_batch_helper_script()  # NEW: Batch processing helper
+        # PHASE 5: Single-file mode removed (512MB crash). Use batch mode for all files.
+        self.helper_script = None  # Deprecated - do not use
+        self.batch_helper_script = self._create_batch_helper_script()  # All parsing uses batch mode
 
     def _detect_module_type(self) -> str:
         """Detect the project's module type from package.json.
@@ -244,35 +245,15 @@ class JSSemanticParser:
         return script_content, template_content
     
     def _create_helper_script(self) -> Path:
-        """Create a Node.js helper script for TypeScript AST extraction.
+        """DEPRECATED: Single-file mode removed in Phase 5.
 
-        Returns:
-            Path to the created helper script
+        Raises:
+            RuntimeError: Always - single-file mode causes 512MB crash
         """
-        # CRITICAL: Create helper script with relative path resolution
-        # Always create in project root's .pf directory
-        pf_dir = self.project_root / ".pf"
-        pf_dir.mkdir(exist_ok=True)
-
-        helper_path = pf_dir / "tsc_ast_helper.js"
-
-        # Check if TypeScript module exists in our sandbox
-        typescript_exists = False
-        if self.node_modules_path:
-            # The TypeScript module is at node_modules/typescript/lib/typescript.js
-            ts_path = self.node_modules_path / "typescript" / "lib" / "typescript.js"
-            typescript_exists = ts_path.exists()
-
-        # Generate appropriate helper content based on module type
-        if self.project_module_type == "module":
-            # Use the ES Module helper from templates
-            helper_content = js_helper_templates.get_single_file_helper("module")
-        else:
-            # Use the CommonJS helper from templates
-            helper_content = js_helper_templates.get_single_file_helper("commonjs")
-
-        helper_path.write_text(helper_content, encoding='utf-8')
-        return helper_path
+        raise RuntimeError(
+            "Single-file mode removed in Phase 5. Single-file templates serialize full AST (512MB crash). "
+            "Use _create_batch_helper_script() instead (sets ast: null)."
+        )
     
     def _create_batch_helper_script(self) -> Path:
         """Create a Node.js helper script for batch TypeScript AST extraction.
