@@ -264,12 +264,30 @@ API_ENDPOINTS = TableSchema(
         Column("method", "TEXT", nullable=False),
         Column("pattern", "TEXT", nullable=False),
         Column("path", "TEXT"),
-        Column("controls", "TEXT"),
+        # controls REMOVED - see api_endpoint_controls junction table
         Column("has_auth", "BOOLEAN", default="0"),
         Column("handler_function", "TEXT"),
     ],
     indexes=[
         ("idx_api_endpoints_file", ["file"]),
+    ]
+)
+
+# Junction table for normalized API endpoint controls/middleware
+# Replaces JSON TEXT column api_endpoints.controls with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+API_ENDPOINT_CONTROLS = TableSchema(
+    name="api_endpoint_controls",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("endpoint_file", "TEXT", nullable=False),
+        Column("endpoint_line", "INTEGER", nullable=False),
+        Column("control_name", "TEXT", nullable=False),  # 1 row per middleware/control
+    ],
+    indexes=[
+        ("idx_api_endpoint_controls_endpoint", ["endpoint_file", "endpoint_line"]),  # FK composite lookup
+        ("idx_api_endpoint_controls_control", ["control_name"]),  # Fast search by control name
+        ("idx_api_endpoint_controls_file", ["endpoint_file"]),  # File-level aggregation queries
     ]
 )
 
@@ -296,12 +314,30 @@ SQL_QUERIES = TableSchema(
         Column("line_number", "INTEGER", nullable=False),  # NOTE: line_number not line
         Column("query_text", "TEXT", nullable=False),
         Column("command", "TEXT", nullable=False, check="command != 'UNKNOWN'"),
-        Column("tables", "TEXT"),
+        # tables REMOVED - see sql_query_tables junction table
         Column("extraction_source", "TEXT", nullable=False, default="'code_execute'"),
     ],
     indexes=[
         ("idx_sql_queries_file", ["file_path"]),
         ("idx_sql_queries_command", ["command"]),
+    ]
+)
+
+# Junction table for normalized SQL query table references
+# Replaces JSON TEXT column sql_queries.tables with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+SQL_QUERY_TABLES = TableSchema(
+    name="sql_query_tables",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("query_file", "TEXT", nullable=False),
+        Column("query_line", "INTEGER", nullable=False),
+        Column("table_name", "TEXT", nullable=False),  # 1 row per table referenced
+    ],
+    indexes=[
+        ("idx_sql_query_tables_query", ["query_file", "query_line"]),  # FK composite lookup
+        ("idx_sql_query_tables_table", ["table_name"]),  # Fast search by table name
+        ("idx_sql_query_tables_file", ["query_file"]),  # File-level aggregation queries
     ]
 )
 
@@ -647,12 +683,30 @@ REACT_COMPONENTS = TableSchema(
         Column("start_line", "INTEGER", nullable=False),
         Column("end_line", "INTEGER", nullable=False),
         Column("has_jsx", "BOOLEAN", default="0"),
-        Column("hooks_used", "TEXT"),
+        # hooks_used REMOVED - see react_component_hooks junction table
         Column("props_type", "TEXT"),
     ],
     indexes=[
         ("idx_react_components_file", ["file"]),
         ("idx_react_components_name", ["name"]),
+    ]
+)
+
+# Junction table for normalized React component hooks
+# Replaces JSON TEXT column react_components.hooks_used with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+REACT_COMPONENT_HOOKS = TableSchema(
+    name="react_component_hooks",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("component_file", "TEXT", nullable=False),
+        Column("component_name", "TEXT", nullable=False),
+        Column("hook_name", "TEXT", nullable=False),  # 1 row per hook used
+    ],
+    indexes=[
+        ("idx_react_comp_hooks_component", ["component_file", "component_name"]),  # FK composite lookup
+        ("idx_react_comp_hooks_hook", ["hook_name"]),  # Fast search by hook name
+        ("idx_react_comp_hooks_file", ["component_file"]),  # File-level aggregation queries
     ]
 )
 
@@ -664,7 +718,7 @@ REACT_HOOKS = TableSchema(
         Column("component_name", "TEXT", nullable=False),
         Column("hook_name", "TEXT", nullable=False),
         Column("dependency_array", "TEXT"),
-        Column("dependency_vars", "TEXT"),
+        # dependency_vars REMOVED - see react_hook_dependencies junction table
         Column("callback_body", "TEXT"),
         Column("has_cleanup", "BOOLEAN", default="0"),
         Column("cleanup_type", "TEXT"),
@@ -673,6 +727,25 @@ REACT_HOOKS = TableSchema(
         ("idx_react_hooks_file", ["file"]),
         ("idx_react_hooks_component", ["component_name"]),
         ("idx_react_hooks_name", ["hook_name"]),
+    ]
+)
+
+# Junction table for normalized React hook dependency variables
+# Replaces JSON TEXT column react_hooks.dependency_vars with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+REACT_HOOK_DEPENDENCIES = TableSchema(
+    name="react_hook_dependencies",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("hook_file", "TEXT", nullable=False),
+        Column("hook_line", "INTEGER", nullable=False),
+        Column("hook_component", "TEXT", nullable=False),
+        Column("dependency_name", "TEXT", nullable=False),  # 1 row per dependency variable
+    ],
+    indexes=[
+        ("idx_react_hook_deps_hook", ["hook_file", "hook_line", "hook_component"]),  # FK composite lookup
+        ("idx_react_hook_deps_name", ["dependency_name"]),  # Fast search by variable name
+        ("idx_react_hook_deps_file", ["hook_file"]),  # File-level aggregation queries
     ]
 )
 
@@ -895,7 +968,7 @@ IMPORT_STYLES = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("package", "TEXT", nullable=False),
         Column("import_style", "TEXT", nullable=False),
-        Column("imported_names", "TEXT"),
+        # imported_names REMOVED - see import_style_names junction table
         Column("alias_name", "TEXT"),
         Column("full_statement", "TEXT"),
     ],
@@ -903,6 +976,24 @@ IMPORT_STYLES = TableSchema(
         ("idx_import_styles_file", ["file"]),
         ("idx_import_styles_package", ["package"]),
         ("idx_import_styles_style", ["import_style"]),
+    ]
+)
+
+# Junction table for normalized import statement names
+# Replaces JSON TEXT column import_styles.imported_names with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+IMPORT_STYLE_NAMES = TableSchema(
+    name="import_style_names",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("import_file", "TEXT", nullable=False),
+        Column("import_line", "INTEGER", nullable=False),
+        Column("imported_name", "TEXT", nullable=False),  # 1 row per imported name
+    ],
+    indexes=[
+        ("idx_import_style_names_import", ["import_file", "import_line"]),  # FK composite lookup
+        ("idx_import_style_names_name", ["imported_name"]),  # Fast search by imported name
+        ("idx_import_style_names_file", ["import_file"]),  # File-level aggregation queries
     ]
 )
 
@@ -986,10 +1077,12 @@ TABLES: Dict[str, TableSchema] = {
 
     # API & routing
     "api_endpoints": API_ENDPOINTS,
+    "api_endpoint_controls": API_ENDPOINT_CONTROLS,  # Junction table for normalized controls
 
     # SQL & database
     "sql_objects": SQL_OBJECTS,
     "sql_queries": SQL_QUERIES,
+    "sql_query_tables": SQL_QUERY_TABLES,  # Junction table for normalized table references
     "jwt_patterns": JWT_PATTERNS,
     "orm_queries": ORM_QUERIES,
     "prisma_models": PRISMA_MODELS,
@@ -1015,7 +1108,9 @@ TABLES: Dict[str, TableSchema] = {
 
     # React
     "react_components": REACT_COMPONENTS,
+    "react_component_hooks": REACT_COMPONENT_HOOKS,  # Junction table for normalized hooks_used
     "react_hooks": REACT_HOOKS,
+    "react_hook_dependencies": REACT_HOOK_DEPENDENCIES,  # Junction table for normalized dependency_vars
 
     # Vue
     "vue_components": VUE_COMPONENTS,
@@ -1035,6 +1130,7 @@ TABLES: Dict[str, TableSchema] = {
     "package_configs": PACKAGE_CONFIGS,
     "lock_analysis": LOCK_ANALYSIS,
     "import_styles": IMPORT_STYLES,
+    "import_style_names": IMPORT_STYLE_NAMES,  # Junction table for normalized imported_names
 
     # Framework detection
     "frameworks": FRAMEWORKS,

@@ -92,6 +92,13 @@ class DatabaseManager:
         self.function_return_sources_batch = []
         self.function_return_sources_jsx_batch = []
 
+        # NEW: Junction table batch lists for Phase 1 normalization
+        self.react_hook_dependencies_batch = []
+        self.react_component_hooks_batch = []
+        self.sql_query_tables_batch = []
+        self.api_endpoint_controls_batch = []
+        self.import_style_names_batch = []
+
     def begin_transaction(self):
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -191,10 +198,23 @@ class DatabaseManager:
                 method TEXT NOT NULL,
                 pattern TEXT NOT NULL,
                 path TEXT,
-                controls TEXT,
                 has_auth BOOLEAN DEFAULT 0,
                 handler_function TEXT,
                 FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Junction table for normalized API endpoint controls/middleware
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_endpoint_controls (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                endpoint_file TEXT NOT NULL,
+                endpoint_line INTEGER NOT NULL,
+                control_name TEXT NOT NULL,
+                FOREIGN KEY(endpoint_file, endpoint_line)
+                    REFERENCES api_endpoints(file, line)
             )
         """
         )
@@ -234,9 +254,22 @@ class DatabaseManager:
                 line_number INTEGER NOT NULL,
                 query_text TEXT NOT NULL,
                 command TEXT NOT NULL CHECK(command != 'UNKNOWN'),
-                tables TEXT,
                 extraction_source TEXT NOT NULL DEFAULT 'code_execute',
                 FOREIGN KEY(file_path) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Junction table for normalized SQL query table references
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sql_query_tables (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query_file TEXT NOT NULL,
+                query_line INTEGER NOT NULL,
+                table_name TEXT NOT NULL,
+                FOREIGN KEY(query_file, query_line)
+                    REFERENCES sql_queries(file_path, line_number)
             )
         """
         )
@@ -378,10 +411,23 @@ class DatabaseManager:
                 line INTEGER NOT NULL,
                 package TEXT NOT NULL,
                 import_style TEXT NOT NULL,
-                imported_names TEXT,
                 alias_name TEXT,
                 full_statement TEXT,
                 FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Junction table for normalized import statement names
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS import_style_names (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                import_file TEXT NOT NULL,
+                import_line INTEGER NOT NULL,
+                imported_name TEXT NOT NULL,
+                FOREIGN KEY(import_file, import_line)
+                    REFERENCES import_styles(file, line)
             )
         """
         )
@@ -517,9 +563,22 @@ class DatabaseManager:
                 start_line INTEGER NOT NULL,
                 end_line INTEGER NOT NULL,
                 has_jsx BOOLEAN DEFAULT 0,
-                hooks_used TEXT,
                 props_type TEXT,
                 FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Junction table for normalized React component hooks
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_component_hooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                component_file TEXT NOT NULL,
+                component_name TEXT NOT NULL,
+                hook_name TEXT NOT NULL,
+                FOREIGN KEY(component_file, component_name)
+                    REFERENCES react_components(file, name)
             )
         """
         )
@@ -532,11 +591,25 @@ class DatabaseManager:
                 component_name TEXT NOT NULL,
                 hook_name TEXT NOT NULL,
                 dependency_array TEXT,
-                dependency_vars TEXT,
                 callback_body TEXT,
                 has_cleanup BOOLEAN DEFAULT 0,
                 cleanup_type TEXT,
                 FOREIGN KEY(file) REFERENCES files(path)
+            )
+        """
+        )
+
+        # Junction table for normalized React hook dependency variables
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS react_hook_dependencies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                hook_file TEXT NOT NULL,
+                hook_line INTEGER NOT NULL,
+                hook_component TEXT NOT NULL,
+                dependency_name TEXT NOT NULL,
+                FOREIGN KEY(hook_file, hook_line, hook_component)
+                    REFERENCES react_hooks(file, line, component_name)
             )
         """
         )
@@ -892,7 +965,24 @@ class DatabaseManager:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_return ON function_return_sources(return_file, return_line, return_function)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_var ON function_return_sources(return_var_name)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_function_return_sources_file ON function_return_sources(return_file)")
-        
+
+        # NEW: Junction table indexes for Phase 1 normalization
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_hook_deps_hook ON react_hook_dependencies(hook_file, hook_line, hook_component)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_hook_deps_name ON react_hook_dependencies(dependency_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_hook_deps_file ON react_hook_dependencies(hook_file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_comp_hooks_component ON react_component_hooks(component_file, component_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_comp_hooks_hook ON react_component_hooks(hook_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_react_comp_hooks_file ON react_component_hooks(component_file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_query_tables_query ON sql_query_tables(query_file, query_line)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_query_tables_table ON sql_query_tables(table_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sql_query_tables_file ON sql_query_tables(query_file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoint_controls_endpoint ON api_endpoint_controls(endpoint_file, endpoint_line)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoint_controls_control ON api_endpoint_controls(control_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_api_endpoint_controls_file ON api_endpoint_controls(endpoint_file)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_style_names_import ON import_style_names(import_file, import_line)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_style_names_name ON import_style_names(imported_name)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_import_style_names_file ON import_style_names(import_file)")
+
         # Indexes for CFG tables
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_file ON cfg_blocks(file)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_cfg_blocks_function ON cfg_blocks(function_name)")
@@ -1035,10 +1125,24 @@ class DatabaseManager:
     def add_endpoint(self, file_path: str, method: str, pattern: str, controls: List[str],
                      line: Optional[int] = None, path: Optional[str] = None,
                      has_auth: bool = False, handler_function: Optional[str] = None):
-        """Add an API endpoint record to the batch."""
-        controls_json = json.dumps(controls) if controls else "[]"
+        """Add an API endpoint record to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationship.
+        - Phase 1: Batch endpoint record (without controls column)
+        - Phase 2: Batch junction records for each control/middleware
+
+        NO FALLBACKS. If controls is malformed, hard fail.
+        """
+        # Phase 1: Add endpoint record (6 params, no controls column)
         self.endpoints_batch.append((file_path, line, method, pattern, path,
-                                    controls_json, has_auth, handler_function))
+                                    has_auth, handler_function))
+
+        # Phase 2: Add junction records for each control/middleware
+        if controls:
+            for control_name in controls:
+                if not control_name:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.api_endpoint_controls_batch.append((file_path, line, control_name))
 
     def add_sql_object(self, file_path: str, kind: str, name: str):
         """Add a SQL object record to the batch."""
@@ -1047,6 +1151,10 @@ class DatabaseManager:
     def add_sql_query(self, file_path: str, line: int, query_text: str, command: str, tables: List[str],
                       extraction_source: str = 'code_execute'):
         """Add a SQL query record to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationship.
+        - Phase 1: Batch SQL query record (without tables column)
+        - Phase 2: Batch junction records for each table referenced
 
         Args:
             file_path: Path to the file containing the query
@@ -1058,9 +1166,18 @@ class DatabaseManager:
                 - 'code_execute': Direct db.execute() calls (HIGH priority for SQL injection)
                 - 'orm_query': ORM method calls (MEDIUM priority, usually parameterized)
                 - 'migration_file': Database migration files (LOW priority, DDL only)
+
+        NO FALLBACKS. If tables is malformed, hard fail.
         """
-        tables_json = json.dumps(tables) if tables else "[]"
-        self.sql_queries_batch.append((file_path, line, query_text, command, tables_json, extraction_source))
+        # Phase 1: Add SQL query record (5 params, no tables column)
+        self.sql_queries_batch.append((file_path, line, query_text, command, extraction_source))
+
+        # Phase 2: Add junction records for each table referenced
+        if tables:
+            for table_name in tables:
+                if not table_name:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.sql_query_tables_batch.append((file_path, line, table_name))
 
     def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int, end_line: Optional[int] = None):
         """Add a symbol record to the batch."""
@@ -1283,26 +1400,53 @@ class DatabaseManager:
                            start_line: int, end_line: int, has_jsx: bool,
                            hooks_used: Optional[List[str]] = None,
                            props_type: Optional[str] = None):
-        """Add a React component to the batch."""
-        hooks_json = json.dumps(hooks_used) if hooks_used else None
+        """Add a React component to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationship.
+        - Phase 1: Batch component record (without hooks_used column)
+        - Phase 2: Batch junction records for each hook used
+
+        NO FALLBACKS. If hooks_used is malformed, hard fail.
+        """
+        # Phase 1: Add component record (6 params, no hooks_used column)
         self.react_components_batch.append((file_path, name, component_type,
-                                           start_line, end_line, has_jsx,
-                                           hooks_json, props_type))
+                                           start_line, end_line, has_jsx, props_type))
+
+        # Phase 2: Add junction records for each hook used
+        if hooks_used:
+            for hook_name in hooks_used:
+                if not hook_name:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.react_component_hooks_batch.append((file_path, name, hook_name))
 
     def add_react_hook(self, file_path: str, line: int, component_name: str,
                       hook_name: str, dependency_array: Optional[List[str]] = None,
                       dependency_vars: Optional[List[str]] = None,
                       callback_body: Optional[str] = None, has_cleanup: bool = False,
                       cleanup_type: Optional[str] = None):
-        """Add a React hook usage to the batch."""
+        """Add a React hook usage to the batch.
+
+        ARCHITECTURE: Normalized many-to-many relationship.
+        - Phase 1: Batch hook record (without dependency_vars column)
+        - Phase 2: Batch junction records for each dependency variable
+
+        NO FALLBACKS. If dependency_vars is malformed, hard fail.
+        """
+        # Phase 1: Add hook record (7 params, no dependency_vars column)
         deps_array_json = json.dumps(dependency_array) if dependency_array is not None else None
-        deps_vars_json = json.dumps(dependency_vars) if dependency_vars else None
         # Limit callback body to 500 chars
         if callback_body and len(callback_body) > 500:
             callback_body = callback_body[:497] + '...'
         self.react_hooks_batch.append((file_path, line, component_name, hook_name,
-                                      deps_array_json, deps_vars_json, callback_body,
+                                      deps_array_json, callback_body,
                                       has_cleanup, cleanup_type))
+
+        # Phase 2: Add junction records for each dependency variable
+        if dependency_vars:
+            for dep_var in dependency_vars:
+                if not dep_var:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.react_hook_dependencies_batch.append((file_path, line, component_name, dep_var))
 
     def add_variable_usage(self, file_path: str, line: int, variable_name: str,
                           usage_type: str, in_component: Optional[str] = None,
@@ -1484,11 +1628,24 @@ class DatabaseManager:
     def add_import_style(self, file_path: str, line: int, package: str,
                         import_style: str, imported_names: Optional[List[str]] = None,
                         alias_name: Optional[str] = None, full_statement: Optional[str] = None):
-        """Add an import style record to the batch."""
-        names_json = json.dumps(imported_names) if imported_names else None
+        """Add an import style record to the batch.
 
+        ARCHITECTURE: Normalized many-to-many relationship.
+        - Phase 1: Batch import style record (without imported_names column)
+        - Phase 2: Batch junction records for each imported name
+
+        NO FALLBACKS. If imported_names is malformed, hard fail.
+        """
+        # Phase 1: Add import style record (5 params, no imported_names column)
         self.import_styles_batch.append((file_path, line, package, import_style,
-                                        names_json, alias_name, full_statement))
+                                        alias_name, full_statement))
+
+        # Phase 2: Add junction records for each imported name
+        if imported_names:
+            for imported_name in imported_names:
+                if not imported_name:  # Skip empty strings (data validation, not fallback)
+                    continue
+                self.import_style_names_batch.append((file_path, line, imported_name))
 
     def add_framework(self, name, version, language, path, source, is_primary=False):
         """Add framework to batch."""
@@ -1614,10 +1771,18 @@ class DatabaseManager:
             
             if self.endpoints_batch:
                 cursor.executemany(
-                    "INSERT INTO api_endpoints (file, line, method, pattern, path, controls, has_auth, handler_function) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO api_endpoints (file, line, method, pattern, path, has_auth, handler_function) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     self.endpoints_batch
                 )
                 self.endpoints_batch = []
+
+            # Junction table for normalized API endpoint controls/middleware
+            if self.api_endpoint_controls_batch:
+                cursor.executemany(
+                    "INSERT INTO api_endpoint_controls (endpoint_file, endpoint_line, control_name) VALUES (?, ?, ?)",
+                    self.api_endpoint_controls_batch
+                )
+                self.api_endpoint_controls_batch = []
             
             if self.sql_objects_batch:
                 cursor.executemany(
@@ -1628,10 +1793,18 @@ class DatabaseManager:
             
             if self.sql_queries_batch:
                 cursor.executemany(
-                    "INSERT INTO sql_queries (file_path, line_number, query_text, command, tables, extraction_source) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO sql_queries (file_path, line_number, query_text, command, extraction_source) VALUES (?, ?, ?, ?, ?)",
                     self.sql_queries_batch
                 )
                 self.sql_queries_batch = []
+
+            # Junction table for normalized SQL query table references
+            if self.sql_query_tables_batch:
+                cursor.executemany(
+                    "INSERT INTO sql_query_tables (query_file, query_line, table_name) VALUES (?, ?, ?)",
+                    self.sql_query_tables_batch
+                )
+                self.sql_query_tables_batch = []
 
             # Flush JWT patterns
             self._flush_jwt_patterns()
@@ -1783,21 +1956,41 @@ class DatabaseManager:
             if self.react_components_batch:
                 cursor.executemany(
                     """INSERT INTO react_components
-                       (file, name, type, start_line, end_line, has_jsx, hooks_used, props_type)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (file, name, type, start_line, end_line, has_jsx, props_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     self.react_components_batch
                 )
                 self.react_components_batch = []
 
+            # Junction table for normalized React component hooks
+            if self.react_component_hooks_batch:
+                cursor.executemany(
+                    """INSERT INTO react_component_hooks
+                       (component_file, component_name, hook_name)
+                       VALUES (?, ?, ?)""",
+                    self.react_component_hooks_batch
+                )
+                self.react_component_hooks_batch = []
+
             if self.react_hooks_batch:
                 cursor.executemany(
                     """INSERT INTO react_hooks
-                       (file, line, component_name, hook_name, dependency_array, dependency_vars,
+                       (file, line, component_name, hook_name, dependency_array,
                         callback_body, has_cleanup, cleanup_type)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     self.react_hooks_batch
                 )
                 self.react_hooks_batch = []
+
+            # Junction table for normalized React hook dependencies
+            if self.react_hook_dependencies_batch:
+                cursor.executemany(
+                    """INSERT INTO react_hook_dependencies
+                       (hook_file, hook_line, hook_component, dependency_name)
+                       VALUES (?, ?, ?, ?)""",
+                    self.react_hook_dependencies_batch
+                )
+                self.react_hook_dependencies_batch = []
 
             if self.variable_usage_batch:
                 cursor.executemany(
@@ -1967,11 +2160,21 @@ class DatabaseManager:
             if self.import_styles_batch:
                 cursor.executemany(
                     """INSERT INTO import_styles
-                       (file, line, package, import_style, imported_names, alias_name, full_statement)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                       (file, line, package, import_style, alias_name, full_statement)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
                     self.import_styles_batch
                 )
                 self.import_styles_batch = []
+
+            # Junction table for normalized import statement names
+            if self.import_style_names_batch:
+                cursor.executemany(
+                    """INSERT INTO import_style_names
+                       (import_file, import_line, imported_name)
+                       VALUES (?, ?, ?)""",
+                    self.import_style_names_batch
+                )
+                self.import_style_names_batch = []
 
             # Handle edges and statements without blocks (shouldn't happen, but be safe)
             elif self.cfg_edges_batch:
