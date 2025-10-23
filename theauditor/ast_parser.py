@@ -202,17 +202,36 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             # For JavaScript/TypeScript, semantic parser is MANDATORY
             # NO FALLBACKS. If semantic parser fails, we MUST fail loudly.
             # Silent fallbacks to Tree-sitter produce corrupted databases with "anonymous" function names.
+            # PHASE 5: Always use batch mode (even for single files) - no single-file mode exists
             if language in ["javascript", "typescript"]:
                 # Normalize path for cross-platform compatibility
                 normalized_path = str(file_path).replace("\\", "/")
 
                 try:
-                    semantic_result = get_semantic_ast(
-                        normalized_path,
+                    # Build tsconfig map for batch processor
+                    tsconfig_map = {}
+                    if tsconfig_path:
+                        tsconfig_map[normalized_path] = str(tsconfig_path).replace("\\", "/")
+
+                    # Use batch processor with single file (Phase 5 - only code path)
+                    batch_results = get_semantic_ast_batch(
+                        [normalized_path],
                         project_root=root_path,
                         jsx_mode=jsx_mode,
-                        tsconfig_path=str(tsconfig_path) if tsconfig_path else None
+                        tsconfig_map=tsconfig_map
                     )
+
+                    # Extract single result from batch
+                    if normalized_path not in batch_results:
+                        raise RuntimeError(
+                            f"FATAL: Batch processor did not return result for {file_path}\n"
+                            f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                            f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                            f"DO NOT use fallback parsers - they produce corrupted data."
+                        )
+
+                    semantic_result = batch_results[normalized_path]
+
                 except Exception as e:
                     raise RuntimeError(
                         f"FATAL: TypeScript semantic parser failed for {file_path}\n"
@@ -355,15 +374,34 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         content_hash = hashlib.md5(content_bytes).hexdigest()
         
         # JavaScript/TypeScript REQUIRE semantic parser - NO FALLBACKS
+        # PHASE 5: Always use batch mode (even for single files) - no single-file mode exists
         if language in ["javascript", "typescript"]:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
 
             try:
-                # Use semantic parser - MUST succeed
+                # Normalize path for batch processor
+                normalized_path = str(tmp_path).replace("\\", "/")
+
+                # Use batch processor with single file (Phase 5 - only code path)
                 try:
-                    semantic_result = get_semantic_ast(tmp_path, jsx_mode=jsx_mode)
+                    batch_results = get_semantic_ast_batch(
+                        [normalized_path],
+                        jsx_mode=jsx_mode
+                    )
+
+                    # Extract single result from batch
+                    if normalized_path not in batch_results:
+                        raise RuntimeError(
+                            f"FATAL: Batch processor did not return result for {filepath}\n"
+                            f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                            f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                            f"DO NOT use fallback parsers - they produce corrupted data."
+                        )
+
+                    semantic_result = batch_results[normalized_path]
+
                 except Exception as e:
                     raise RuntimeError(
                         f"FATAL: TypeScript semantic parser failed for {filepath}\n"

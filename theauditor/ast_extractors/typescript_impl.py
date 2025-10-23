@@ -1013,11 +1013,11 @@ def extract_typescript_properties(tree: Dict, parser_self) -> List[Dict]:
 
 def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring.
-    
+
     CRITICAL FIX: Now uses line-based scope mapping for accurate function context.
     """
     assignments = []
-    
+
     # Check if parsing was successful - handle nested structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
@@ -1025,7 +1025,15 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
             import sys
             print(f"[AST_DEBUG] extract_typescript_assignments: No success in tree", file=sys.stderr)
         return assignments
-    
+
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "assignments" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_assignments: Using PRE-EXTRACTED data ({len(extracted_data['assignments'])} assignments)", file=sys.stderr)
+        return extracted_data["assignments"]
+
     # CRITICAL FIX: Build scope map FIRST!
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
@@ -1381,21 +1389,29 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
 
 def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, List[str]], parser_self) -> List[Dict[str, Any]]:
     """Extract function calls with arguments from TypeScript semantic AST.
-    
+
     CRITICAL FIX: Now uses line-based scope mapping instead of broken recursive tracking.
     This solves the "100% anonymous caller" problem that crippled taint analysis.
     """
     calls = []
-    
+
     if os.environ.get("THEAUDITOR_DEBUG"):
         print(f"[DEBUG] extract_typescript_calls_with_args: tree type={type(tree)}, success={tree.get('success') if tree else 'N/A'}")
-    
+
     # Check if parsing was successful - handle nested structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] extract_typescript_calls_with_args: Returning early - no tree or no success")
         return calls
+
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "function_call_args" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_calls_with_args: Using PRE-EXTRACTED data ({len(extracted_data['function_call_args'])} calls)", file=sys.stderr)
+        return extracted_data["function_call_args"]
 
     # CRITICAL FIX: Build scope map FIRST before traversing!
     # This pre-computes which function contains each line number
@@ -1515,6 +1531,14 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
         return returns
+
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "returns" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_returns: Using PRE-EXTRACTED data ({len(extracted_data['returns'])} returns)", file=sys.stderr)
+        return extracted_data["returns"]
 
     # CRITICAL FIX: Build scope map FIRST!
     ast_root = actual_tree.get("ast", {})
@@ -1683,6 +1707,14 @@ def extract_typescript_object_literals(tree: Dict, parser_self) -> List[Dict[str
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
         return object_literals
+
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "object_literals" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_object_literals: Using PRE-EXTRACTED data ({len(extracted_data['object_literals'])} literals)", file=sys.stderr)
+        return extracted_data["object_literals"]
 
     ast_root = actual_tree.get("ast", {})
     if not ast_root:

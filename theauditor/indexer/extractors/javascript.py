@@ -75,7 +75,122 @@ class JavaScriptExtractor(BaseExtractor):
         if not tree or not self.ast_parser:
             return result
 
+        # === PHASE 5: CHECK FOR PRE-EXTRACTED DATA ===
+        # If batch processing provided extracted_data, use it directly
+        # CRITICAL FIX: Check TOP-LEVEL tree dict first (batch results),
+        # then fallback to nested tree (individual file parsing)
+        used_phase5_symbols = False  # Track if we used pre-extracted symbols
+        if isinstance(tree, dict):
+            # Try top-level first (batch results have extracted_data at same level as "tree")
+            extracted_data = tree.get("extracted_data")
+
+            # If not found at top level, try nested tree (individual parsing)
+            if not extracted_data:
+                actual_tree = tree.get("tree") if tree.get("type") == "semantic_ast" else tree
+                if isinstance(actual_tree, dict):
+                    extracted_data = actual_tree.get("extracted_data")
+
+            if extracted_data and isinstance(extracted_data, dict):
+                used_phase5_symbols = True  # Mark that we're using Phase 5 data
+
+                # DEBUG: Log Phase 5 data usage
+                import os
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG] {file_info['path']}: Using Phase 5 extracted_data")
+                    print(f"[DEBUG]   Functions: {len(extracted_data.get('functions', []))}")
+                    print(f"[DEBUG]   Classes: {len(extracted_data.get('classes', []))}")
+                    print(f"[DEBUG]   Calls: {len(extracted_data.get('calls', []))}")
+
+                # Map keys that match between JS and orchestrator
+                for key in ['assignments', 'returns', 'object_literals', 'variable_usage']:
+                    if key in extracted_data:
+                        result[key] = extracted_data[key]
+
+                # Fix key mismatch: JS sends 'function_call_args', orchestrator expects 'function_calls'
+                if 'function_call_args' in extracted_data:
+                    result['function_calls'] = extracted_data['function_call_args']
+
+                # Map all new Phase 5 keys
+                KEY_MAPPINGS = {
+                    'import_styles': 'import_styles',
+                    'resolved_imports': 'resolved_imports',
+                    'react_components': 'react_components',
+                    'react_hooks': 'react_hooks',
+                    'orm_queries': 'orm_queries',
+                    'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
+                }
+
+                for js_key, python_key in KEY_MAPPINGS.items():
+                    if js_key in extracted_data:
+                        result[python_key] = extracted_data[js_key]
+
+                # CRITICAL FIX: Use pre-extracted functions/calls for symbols table
+                # Phase 5 sets ast: null, so extract_functions/extract_calls/extract_classes
+                # will fail. Must use JavaScript-extracted data.
+                if 'functions' in extracted_data:
+                    for func in extracted_data['functions']:
+                        # Handle type annotations (create type_annotations record)
+                        if func.get('type_annotation') or func.get('return_type'):
+                            result['type_annotations'].append({
+                                'line': func.get('line', 0),
+                                'column': func.get('col', func.get('column', 0)),
+                                'symbol_name': func.get('name', ''),
+                                'symbol_kind': 'function',
+                                'type_annotation': func.get('type_annotation'),
+                                'is_any': func.get('is_any', False),
+                                'is_unknown': func.get('is_unknown', False),
+                                'is_generic': func.get('is_generic', False),
+                                'has_type_params': func.get('has_type_params', False),
+                                'type_params': func.get('type_params'),
+                                'return_type': func.get('return_type'),
+                                'extends_type': func.get('extends_type')
+                            })
+
+                        # Add to symbols table
+                        symbol_entry = {
+                            'name': func.get('name', ''),
+                            'type': 'function',
+                            'line': func.get('line', 0),
+                            'col': func.get('col', func.get('column', 0)),
+                            'column': func.get('column', func.get('col', 0)),
+                        }
+                        # Preserve type metadata in symbols
+                        for key in ('type_annotation', 'return_type', 'type_params', 'has_type_params',
+                                    'is_any', 'is_unknown', 'is_generic', 'extends_type'):
+                            if key in func:
+                                symbol_entry[key] = func[key]
+                        result['symbols'].append(symbol_entry)
+
+                # Use pre-extracted calls for symbols table
+                if 'calls' in extracted_data:
+                    for call in extracted_data['calls']:
+                        result['symbols'].append({
+                            'name': call.get('name', ''),
+                            'type': call.get('type', 'call'),
+                            'line': call.get('line', 0),
+                            'col': call.get('col', call.get('column', 0))
+                        })
+
+                # Use pre-extracted classes for symbols table
+                if 'classes' in extracted_data:
+                    for cls in extracted_data['classes']:
+                        symbol_entry = {
+                            'name': cls.get('name', ''),
+                            'type': 'class',
+                            'line': cls.get('line', 0),
+                            'col': cls.get('col', cls.get('column', 0)),
+                            'column': cls.get('column', cls.get('col', 0)),
+                        }
+                        # Preserve type metadata in symbols
+                        for key in ('type_annotation', 'extends_type', 'type_params', 'has_type_params'):
+                            if key in cls:
+                                symbol_entry[key] = cls[key]
+                        result['symbols'].append(symbol_entry)
+
+                # Phase 5 data loaded - Python extractors wrapped in conditional below
+
         # === CORE EXTRACTION via AST parser ===
+        # These only run if Phase 5 data was NOT used (backward compatibility for individual file parsing)
 
         # Extract imports - check both direct tree and nested tree structure
         # CRITICAL: Handle different AST formats
@@ -198,7 +313,14 @@ class JavaScriptExtractor(BaseExtractor):
             result['import_styles'] = self._analyze_import_styles(imports_data, file_info['path'])
 
         # Extract symbols (functions, classes, calls, properties)
-        functions = self.ast_parser.extract_functions(tree)
+        # PHASE 5: Only extract if Phase 5 data was NOT used
+        if not used_phase5_symbols:
+            import os
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] {file_info['path']}: NO Phase 5 data - using Python extractors")
+            functions = self.ast_parser.extract_functions(tree)
+        else:
+            functions = []
 
         import os
         if os.environ.get("THEAUDITOR_DEBUG"):
@@ -256,7 +378,11 @@ class JavaScriptExtractor(BaseExtractor):
 
             result['symbols'].append(symbol_entry)
 
-        classes = self.ast_parser.extract_classes(tree)
+        if not used_phase5_symbols:
+            classes = self.ast_parser.extract_classes(tree)
+        else:
+            classes = []
+
         for cls in classes:
             symbol_entry = {
                 'name': cls.get('name', ''),
@@ -299,8 +425,14 @@ class JavaScriptExtractor(BaseExtractor):
         # This is a DATABASE CONTRACT, not a design opinion.
         # ============================================================================
 
-        # Extract call symbols for taint analysis
-        calls = self.ast_parser.extract_calls(tree)
+        # PHASE 5: Only run Python extractors if Phase 5 data was NOT used
+        # This maintains backward compatibility for individual file parsing
+        if not used_phase5_symbols:
+            # Extract call symbols for taint analysis
+            calls = self.ast_parser.extract_calls(tree)
+        else:
+            calls = []
+
         if calls:
             if os.environ.get("THEAUDITOR_DEBUG"):
                 # Check for duplicates in extracted calls
@@ -641,37 +773,39 @@ class JavaScriptExtractor(BaseExtractor):
 
         # Build variable usage from assignments and symbols
         # This is CRITICAL for dead code detection and taint analysis
-        for assign in result.get('assignments', []):
-            result['variable_usage'].append({
-                'line': assign.get('line', 0),
-                'variable_name': assign.get('target_var', ''),
-                'usage_type': 'write',
-                'in_component': assign.get('in_function', 'global'),
-                'in_hook': '',
-                'scope_level': 0 if assign.get('in_function') == 'global' else 1
-            })
-            # Also track reads from source variables
-            for var in assign.get('source_vars', []):
+        # PHASE 5: Skip if already provided by extracted_data
+        if not result.get('variable_usage'):
+            for assign in result.get('assignments', []):
                 result['variable_usage'].append({
                     'line': assign.get('line', 0),
-                    'variable_name': var,
-                    'usage_type': 'read',
+                    'variable_name': assign.get('target_var', ''),
+                    'usage_type': 'write',
                     'in_component': assign.get('in_function', 'global'),
                     'in_hook': '',
                     'scope_level': 0 if assign.get('in_function') == 'global' else 1
                 })
+                # Also track reads from source variables
+                for var in assign.get('source_vars', []):
+                    result['variable_usage'].append({
+                        'line': assign.get('line', 0),
+                        'variable_name': var,
+                        'usage_type': 'read',
+                        'in_component': assign.get('in_function', 'global'),
+                        'in_hook': '',
+                        'scope_level': 0 if assign.get('in_function') == 'global' else 1
+                    })
 
-        # Track function calls as variable usage (function names are "read")
-        for call in result.get('function_calls', []):
-            if call.get('callee_function'):
-                result['variable_usage'].append({
-                    'line': call.get('line', 0),
-                    'variable_name': call.get('callee_function'),
-                    'usage_type': 'call',
-                    'in_component': call.get('caller_function', 'global'),
-                    'in_hook': '',
-                    'scope_level': 0 if call.get('caller_function') == 'global' else 1
-                })
+            # Track function calls as variable usage (function names are "read")
+            for call in result.get('function_calls', []):
+                if call.get('callee_function'):
+                    result['variable_usage'].append({
+                        'line': call.get('line', 0),
+                        'variable_name': call.get('callee_function'),
+                        'usage_type': 'call',
+                        'in_component': call.get('caller_function', 'global'),
+                        'in_hook': '',
+                        'scope_level': 0 if call.get('caller_function') == 'global' else 1
+                    })
 
         # Module resolution for imports (CRITICAL for taint tracking across modules)
         # This maps import names to their actual module paths
