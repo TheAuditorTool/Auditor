@@ -17,7 +17,7 @@ from collections import defaultdict
 from typing import Dict, List, Set, Any, Optional, Tuple
 import sqlite3
 
-from theauditor.indexer.schema import build_query, TABLES
+from theauditor.indexer.schema import build_query, build_join_query, TABLES
 from theauditor.utils.memory import get_recommended_memory_limit, get_available_memory
 
 class MemoryCache:
@@ -346,21 +346,28 @@ class MemoryCache:
 
             print(f"[MEMORY] Loaded {len(self.orm_queries)} ORM queries", file=sys.stderr)
 
-            # SCHEMA CONTRACT: Use build_query for correct columns
-            query = build_query('react_hooks', [
-                'file', 'line', 'hook_name', 'dependency_vars'
-            ])
+            # SCHEMA-DRIVEN JOIN: Auto-discovers foreign key, validates columns, generates SQL
+            query = build_join_query(
+                base_table='react_hooks',
+                base_columns=['file', 'line', 'hook_name'],
+                join_table='react_hook_dependencies',
+                join_columns=['dependency_name'],
+                aggregate={'dependency_name': 'GROUP_CONCAT'},
+                group_by=['file', 'line', 'hook_name']
+            )
             cursor.execute(query)
             react_hooks_data = cursor.fetchall()
 
-            for file, line, hook_name, deps in react_hooks_data:
+            for file, line, hook_name, deps_concat in react_hooks_data:
                 file = file.replace("\\", "/") if file else ""
+                # Reconstruct dependencies list from concatenated string
+                deps_list = deps_concat.split('|') if deps_concat else []
 
                 hook = {
                     "file": file,
                     "line": line or 0,
                     "hook_name": hook_name or "",
-                    "dependencies": deps or ""
+                    "dependencies": deps_list  # Now a real Python list
                 }
 
                 self.react_hooks.append(hook)
@@ -479,14 +486,22 @@ class MemoryCache:
             # Step 7: Load Phase 3.4 security tables (jwt_patterns, api_endpoints)
 
             # Load api_endpoints
-            query = build_query('api_endpoints', [
-                'file', 'line', 'method', 'pattern', 'path', 'controls', 'has_auth', 'handler_function'
-            ])
+            # SCHEMA-DRIVEN JOIN: Auto-discovers foreign key, validates columns, generates SQL
+            query = build_join_query(
+                base_table='api_endpoints',
+                base_columns=['file', 'line', 'method', 'pattern', 'path', 'has_auth', 'handler_function'],
+                join_table='api_endpoint_controls',
+                join_columns=['control_name'],
+                aggregate={'control_name': 'GROUP_CONCAT'},
+                group_by=['file', 'line', 'method', 'pattern', 'path', 'has_auth', 'handler_function']
+            )
             cursor.execute(query)
             api_endpoints_data = cursor.fetchall()
 
-            for file, line, method, pattern, path, controls, has_auth, handler_func in api_endpoints_data:
+            for file, line, method, pattern, path, has_auth, handler_func, controls_concat in api_endpoints_data:
                 file = file.replace("\\", "/") if file else ""
+                # Reconstruct controls list from concatenated string
+                controls_list = controls_concat.split('|') if controls_concat else []
 
                 endpoint = {
                     "file": file,
@@ -494,7 +509,7 @@ class MemoryCache:
                     "method": method or "",
                     "pattern": pattern or "",
                     "path": path or "",
-                    "controls": controls or "",
+                    "controls": controls_list,  # Now a real Python list
                     "has_auth": bool(has_auth),
                     "handler_function": handler_func or ""
                 }

@@ -456,6 +456,66 @@ The insights command:
 - Outputs to `.pf/insights/` for separation from facts
 - Provides technical scoring without crossing into semantic interpretation
 
+#### Important: Insights Requirements
+
+**All insights modules follow strict architectural patterns:**
+
+1. **Database-First**: Insights query `repo_index.db`, never read source files
+   - Uses indexed database queries (<50ms response time)
+   - Leverages data already extracted by indexer
+   - Example: Impact analysis queries `function_call_args` table for API calls
+
+2. **Zero Fallback Policy**: Missing data causes hard failure, not silent degradation
+   - Forces correct pipeline execution order
+   - Prevents data corruption and semantic mismatches
+   - Example: ML training fails if `journal.ndjson` missing (won't fall back to FCE data)
+
+3. **Schema Contract Compliance**: All queries validated against schema definitions
+   - Adapts to schema changes (e.g., normalization with junction tables)
+   - Uses `api_endpoint_controls` junction table instead of removed `controls` column
+   - Validated at runtime to prevent stale queries
+
+**Prerequisites for Insights Modules:**
+
+| Module | Prerequisites | Why |
+|--------|---------------|-----|
+| **ml** | `aud full` run at least once | Requires `journal.ndjson` execution history |
+| **impact** | `aud index` + `aud graph build` | Queries symbols + dependency graph |
+| **graph** | `aud graph build` | Analyzes dependency graph structure |
+| **taint** | `aud taint-analyze` | Scores taint findings from analyzer |
+
+**Common Errors and Solutions:**
+
+**Error: "No journal.ndjson files found"**
+```bash
+# Cause: ML training requires execution history
+# Solution: Run full pipeline first
+aud full
+aud insights --mode ml --ml-train
+```
+
+**Error: "Database not found"**
+```bash
+# Cause: Insights need indexed database
+# Solution: Run indexing first
+aud index
+aud insights --mode impact
+```
+
+**Error: "Graph database not found"**
+```bash
+# Cause: Impact analysis needs dependency graph
+# Solution: Build graph first
+aud graph build
+aud insights --mode impact
+```
+
+**Performance Characteristics:**
+- Symbol lookups: <5ms (indexed by name)
+- API call tracing: <10ms (indexed by function name)
+- Cross-file analysis: <50ms (BFS with cycle detection)
+- All insights use **zero file I/O** for code analysis
+
 ### Graph Visualization
 
 Generate rich visual intelligence from dependency graphs:
