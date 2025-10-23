@@ -564,11 +564,16 @@ class IndexerOrchestrator:
     
     def _process_file(self, file_info: Dict[str, Any], js_ts_cache: Dict[str, Any]):
         """Process a single file.
-        
+
         Args:
             file_info: File metadata
             js_ts_cache: Cache of pre-parsed JS/TS ASTs
         """
+        # DEBUG: Trace file processing
+        import os, sys
+        if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
+            print(f"[TRACE] _process_file() called for: {file_info['path']}", file=sys.stderr)
+
         # Insert file record
         self.db_manager.add_file(
             file_info['path'], file_info['sha256'], file_info['ext'],
@@ -622,6 +627,10 @@ class IndexerOrchestrator:
             return
         
         # Store extracted data in database
+        import os, sys
+        if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
+            num_assignments = len(extracted.get('assignments', []))
+            print(f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments", file=sys.stderr)
         self._store_extracted_data(file_info['path'], extracted)
     
     def _get_or_parse_ast(self, file_info: Dict[str, Any], 

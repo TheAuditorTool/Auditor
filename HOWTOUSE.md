@@ -555,6 +555,224 @@ The CFG commands help identify:
 - High-risk functions with many execution paths
 - Code quality issues before they become bugs
 
+### Code Context Queries
+
+**NEW in v1.3**: Direct database queries for AI-assisted refactoring and code navigation.
+
+AI assistants waste 5-10k tokens per refactoring iteration reading files to understand:
+- "Who calls this function?"
+- "What does this function call?"
+- "Which files depend on this module?"
+- "Where is this API endpoint implemented?"
+
+TheAuditor's query interface provides instant answers by querying the indexed database - **zero file reads, <10ms response time**.
+
+#### When to Use Code Context Queries
+
+Use `aud context query` when you need to:
+- Understand code relationships without reading files
+- Trace function call chains (who calls what)
+- Map file dependencies (import/export relationships)
+- Find API endpoint implementations
+- Explore React component hierarchies
+- Save tokens during AI-assisted refactoring
+
+#### Query Types
+
+**1. Symbol Queries** - Find function/class definitions and their relationships:
+
+```bash
+# Find symbol definition
+aud context query --symbol authenticateUser
+
+# Find who calls this function (direct callers)
+aud context query --symbol validateInput --show-callers
+
+# Find transitive callers (3 levels deep)
+aud context query --symbol sanitizeHtml --show-callers --depth 3
+
+# Find what this function calls
+aud context query --symbol handleRequest --show-callees
+```
+
+**2. File Dependency Queries** - Map import/export relationships:
+
+```bash
+# Show all dependencies for a file (both incoming and outgoing)
+aud context query --file src/auth.ts
+
+# Show only files that import this module (dependents)
+aud context query --file src/utils.ts --show-dependents
+
+# Show only files this module imports (dependencies)
+aud context query --file src/api.ts --show-dependencies
+```
+
+**3. API Endpoint Queries** - Find route handlers:
+
+```bash
+# Find handler for specific route
+aud context query --api "/users/:id"
+
+# Find all user-related endpoints
+aud context query --api "/users"
+
+# Find authentication endpoints
+aud context query --api "/auth"
+```
+
+**4. Component Tree Queries** - React/Vue component hierarchies:
+
+```bash
+# Get component information, hooks used, and child components
+aud context query --component UserProfile
+
+# Explore component tree
+aud context query --component Dashboard
+```
+
+#### Output Formats
+
+Control output format for different use cases:
+
+```bash
+# Human-readable text (default)
+aud context query --symbol authenticateUser --show-callers
+
+# AI-consumable JSON
+aud context query --symbol validateInput --show-callers --format json
+
+# Visual tree (for transitive queries)
+aud context query --symbol handleRequest --show-callers --depth 3 --format tree
+
+# Save to file
+aud context query --file src/auth.ts --format json --save analysis.json
+```
+
+#### Transitive Queries
+
+Follow call chains through multiple levels:
+
+```bash
+# Direct callers only (depth=1, default)
+aud context query --symbol validateInput --show-callers
+
+# Callers of callers (depth=2)
+aud context query --symbol sanitizeHtml --show-callers --depth 2
+
+# 3 levels deep (callers → callers → callers)
+aud context query --symbol executeQuery --show-callers --depth 3
+
+# Maximum depth (depth=5)
+aud context query --symbol logEvent --show-callers --depth 5
+```
+
+#### Example Workflows
+
+**Refactoring a Function:**
+```bash
+# 1. Find all callers
+aud context query --symbol processPayment --show-callers --depth 2
+
+# 2. Understand what it calls
+aud context query --symbol processPayment --show-callees
+
+# 3. Save complete context
+aud context query --symbol processPayment --show-callers --depth 3 --format json --save payment_context.json
+```
+
+**Understanding File Impact:**
+```bash
+# 1. Find all files that import this module
+aud context query --file src/database.ts --show-dependents
+
+# 2. Find what this file imports
+aud context query --file src/database.ts --show-dependencies
+
+# 3. Save dependency map
+aud context query --file src/database.ts --format json --save db_deps.json
+```
+
+**API Endpoint Investigation:**
+```bash
+# 1. Find endpoint handler
+aud context query --api "/api/users"
+
+# 2. Find what the handler calls
+aud context query --symbol createUser --show-callees
+
+# 3. Trace authentication chain
+aud context query --symbol authenticateRequest --show-callers --depth 2
+```
+
+#### Performance Characteristics
+
+All queries use indexed database lookups:
+- **Symbol lookup**: <5ms (indexed by name and type)
+- **Direct callers/callees**: <10ms (indexed by function name)
+- **Transitive queries** (depth=3): <50ms (BFS with cycle detection)
+- **File dependencies**: <10ms (indexed by file path)
+- **API handlers**: <5ms (indexed by route pattern)
+- **Component trees**: <10ms (indexed by component name)
+
+**No file I/O** - all data comes from `.pf/repo_index.db` and `.pf/graphs.db`.
+
+#### Prerequisites
+
+Code context queries require indexed database:
+
+```bash
+# 1. Index the codebase first
+aud index
+
+# 2. Build dependency graph (for file dependency queries)
+aud graph build
+
+# 3. Run queries
+aud context query --symbol myFunction --show-callers
+```
+
+#### Troubleshooting
+
+**"Database not found" error:**
+```bash
+# Solution: Run indexing first
+aud index
+```
+
+**"Graph database not found" error (for file dependency queries):**
+```bash
+# Solution: Build dependency graph
+aud graph build
+```
+
+**Empty results:**
+- Verify symbol name is exact match (case-sensitive)
+- Check if file path includes correct directory structure
+- Ensure graph was built for dependency queries
+
+**Slow queries:**
+- Queries should be <50ms on projects up to 100k LOC
+- If slower, check database size and consider upgrading SQLite
+
+#### Integration with Other Commands
+
+Code context queries complement other TheAuditor commands:
+
+```bash
+# Find complex function
+aud cfg analyze --complexity-threshold 15
+
+# Understand its call graph
+aud context query --symbol complexFunction --show-callers --depth 3
+
+# Check impact radius
+aud impact --file src/payment.py --line 42
+
+# Visualize dependencies
+aud graph viz --view impact --impact-target "src/payment.py"
+```
+
 ### Dependency Management
 
 Check for outdated or vulnerable dependencies:

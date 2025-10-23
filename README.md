@@ -161,6 +161,32 @@ aud graph viz --view hotspots --top-hotspots 5
 aud graph viz --view impact --impact-target "src/api/auth.js"
 ```
 
+### Code Context Queries
+
+**NEW**: Direct database queries for AI-assisted refactoring - stop burning tokens on file reads.
+
+AI assistants waste 5-10k tokens per refactoring iteration reading files to understand code relationships. TheAuditor's query interface gives them instant access to indexed relationships.
+
+```bash
+# Who calls this function? (transitive, 3 levels deep)
+aud context query --symbol authenticateUser --show-callers --depth 3
+
+# What does this function call?
+aud context query --symbol handleRequest --show-callees
+
+# What files import this module?
+aud context query --file src/auth.ts --show-dependents
+
+# Find API endpoint handler
+aud context query --api "/users/:id"
+```
+
+**Query types**: Symbol lookup, call graphs, file dependencies, API handlers, React component trees.
+**Performance**: <10ms indexed lookups, zero file reads.
+**Formats**: Human-readable text, AI-consumable JSON, visual tree.
+
+See [HOWTOUSE.md](HOWTOUSE.md#code-context-queries) for complete usage guide.
+
 ---
 
 ## How It Works With ANY AI Assistant

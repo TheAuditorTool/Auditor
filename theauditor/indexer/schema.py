@@ -365,9 +365,9 @@ ASSIGNMENTS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
-        Column("source_vars", "TEXT"),
         Column("in_function", "TEXT", nullable=False),
     ],
+    primary_key=["file", "line", "target_var"],
     indexes=[
         ("idx_assignments_file", ["file"]),
         ("idx_assignments_function", ["in_function"]),
@@ -382,7 +382,6 @@ ASSIGNMENTS_JSX = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
-        Column("source_vars", "TEXT"),
         Column("in_function", "TEXT", nullable=False),
         Column("jsx_mode", "TEXT", nullable=False, default="'preserved'"),
         Column("extraction_pass", "INTEGER", default="1"),
@@ -442,12 +441,12 @@ FUNCTION_RETURNS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("function_name", "TEXT", nullable=False),
         Column("return_expr", "TEXT", nullable=False),
-        Column("return_vars", "TEXT"),
         # React-specific columns (added via ALTER TABLE)
         Column("has_jsx", "BOOLEAN", default="0"),
         Column("returns_component", "BOOLEAN", default="0"),
         Column("cleanup_operations", "TEXT"),
     ],
+    primary_key=["file", "line", "function_name"],
     indexes=[
         ("idx_function_returns_file", ["file"]),
         ("idx_function_returns_function", ["function_name"]),
@@ -461,7 +460,6 @@ FUNCTION_RETURNS_JSX = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("function_name", "TEXT"),
         Column("return_expr", "TEXT"),
-        Column("return_vars", "TEXT"),
         Column("has_jsx", "BOOLEAN", default="0"),
         Column("returns_component", "BOOLEAN", default="0"),
         Column("cleanup_operations", "TEXT"),
@@ -472,6 +470,76 @@ FUNCTION_RETURNS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_returns_file", ["file"]),
         ("idx_jsx_returns_function", ["function_name"]),
+    ]
+)
+
+# Junction tables for normalized many-to-many relationships
+# Replaces JSON TEXT columns source_vars and return_vars with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+
+ASSIGNMENT_SOURCES = TableSchema(
+    name="assignment_sources",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("assignment_file", "TEXT", nullable=False),
+        Column("assignment_line", "INTEGER", nullable=False),
+        Column("assignment_target", "TEXT", nullable=False),
+        Column("source_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_assignment_sources_assignment", ["assignment_file", "assignment_line", "assignment_target"]),
+        ("idx_assignment_sources_var", ["source_var_name"]),
+        ("idx_assignment_sources_file", ["assignment_file"]),
+    ]
+)
+
+ASSIGNMENT_SOURCES_JSX = TableSchema(
+    name="assignment_sources_jsx",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("assignment_file", "TEXT", nullable=False),
+        Column("assignment_line", "INTEGER", nullable=False),
+        Column("assignment_target", "TEXT", nullable=False),
+        Column("jsx_mode", "TEXT", nullable=False),
+        Column("source_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_assignment_sources_jsx_assignment", ["assignment_file", "assignment_line", "assignment_target", "jsx_mode"]),
+        ("idx_assignment_sources_jsx_var", ["source_var_name"]),
+        ("idx_assignment_sources_jsx_file", ["assignment_file"]),
+    ]
+)
+
+FUNCTION_RETURN_SOURCES = TableSchema(
+    name="function_return_sources",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("return_file", "TEXT", nullable=False),
+        Column("return_line", "INTEGER", nullable=False),
+        Column("return_function", "TEXT", nullable=False),
+        Column("return_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_function_return_sources_return", ["return_file", "return_line", "return_function"]),
+        ("idx_function_return_sources_var", ["return_var_name"]),
+        ("idx_function_return_sources_file", ["return_file"]),
+    ]
+)
+
+FUNCTION_RETURN_SOURCES_JSX = TableSchema(
+    name="function_return_sources_jsx",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("return_file", "TEXT", nullable=False),
+        Column("return_line", "INTEGER", nullable=False),
+        Column("return_function", "TEXT"),
+        Column("jsx_mode", "TEXT", nullable=False),
+        Column("return_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_function_return_sources_jsx_return", ["return_file", "return_line", "jsx_mode"]),
+        ("idx_function_return_sources_jsx_var", ["return_var_name"]),
+        ("idx_function_return_sources_jsx_file", ["return_file"]),
     ]
 )
 
@@ -929,10 +997,14 @@ TABLES: Dict[str, TableSchema] = {
     # Data flow (taint analysis critical)
     "assignments": ASSIGNMENTS,
     "assignments_jsx": ASSIGNMENTS_JSX,
+    "assignment_sources": ASSIGNMENT_SOURCES,
+    "assignment_sources_jsx": ASSIGNMENT_SOURCES_JSX,
     "function_call_args": FUNCTION_CALL_ARGS,
     "function_call_args_jsx": FUNCTION_CALL_ARGS_JSX,
     "function_returns": FUNCTION_RETURNS,
     "function_returns_jsx": FUNCTION_RETURNS_JSX,
+    "function_return_sources": FUNCTION_RETURN_SOURCES,
+    "function_return_sources_jsx": FUNCTION_RETURN_SOURCES_JSX,
     "variable_usage": VARIABLE_USAGE,
     "object_literals": OBJECT_LITERALS,
 
