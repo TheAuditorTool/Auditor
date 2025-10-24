@@ -5,8 +5,10 @@ AST data using the TypeScript Compiler API. It operates by loading pre-extracted
 JavaScript modules from the javascript/ directory and assembling them into
 complete batch processing scripts.
 
-Architecture (Phase 5 - Extraction-First):
-- javascript/core_extractors.js: 18 extraction functions (imports, functions, classes, etc.)
+Architecture (Phase 5 - Extraction-First, Domain-Separated):
+- javascript/core_ast_extractors.js: Foundation extractors (imports, functions, classes, etc.)
+- javascript/security_extractors.js: Security pattern detection (ORM, API endpoints, etc.)
+- javascript/framework_extractors.js: Framework patterns (React components, hooks, etc.)
 - javascript/cfg_extractor.js: Control flow graph extraction
 - javascript/batch_templates.js: ES Module and CommonJS batch scaffolding
 
@@ -16,7 +18,7 @@ the batch templates via simple string concatenation (no f-string placeholders).
 Workflow:
 1. Python calls get_batch_helper(module_type)
 2. Orchestrator reads javascript/*.js files from disk
-3. Concatenates: core_extractors + cfg_extractor + batch_template
+3. Concatenates: core → security → framework → cfg → batch_template
 4. Returns complete JavaScript program as string
 5. Python writes to temp file and executes via Node.js subprocess
 
@@ -30,7 +32,9 @@ from typing import Literal
 
 # Module-level cache for JavaScript file contents (loaded once on first use)
 _JS_CACHE = {
-    'core_extractors': None,
+    'core_ast_extractors': None,
+    'security_extractors': None,
+    'framework_extractors': None,
     'cfg_extractor': None,
     'batch_es_module': None,
     'batch_commonjs': None
@@ -59,16 +63,30 @@ def _load_javascript_modules():
         raise FileNotFoundError(
             f"JavaScript modules directory not found: {js_dir}\n"
             f"Expected structure:\n"
-            f"  {js_dir}/core_extractors.js\n"
+            f"  {js_dir}/core_ast_extractors.js\n"
+            f"  {js_dir}/security_extractors.js\n"
+            f"  {js_dir}/framework_extractors.js\n"
             f"  {js_dir}/cfg_extractor.js\n"
             f"  {js_dir}/batch_templates.js"
         )
 
-    # Load core extractors (18 functions)
-    core_path = js_dir / 'core_extractors.js'
+    # Load core AST extractors (foundation layer)
+    core_path = js_dir / 'core_ast_extractors.js'
     if not core_path.exists():
-        raise FileNotFoundError(f"Missing core extractors: {core_path}")
-    _JS_CACHE['core_extractors'] = core_path.read_text(encoding='utf-8')
+        raise FileNotFoundError(f"Missing core AST extractors: {core_path}")
+    _JS_CACHE['core_ast_extractors'] = core_path.read_text(encoding='utf-8')
+
+    # Load security extractors (SAST patterns)
+    security_path = js_dir / 'security_extractors.js'
+    if not security_path.exists():
+        raise FileNotFoundError(f"Missing security extractors: {security_path}")
+    _JS_CACHE['security_extractors'] = security_path.read_text(encoding='utf-8')
+
+    # Load framework extractors (React, TypeScript, etc.)
+    framework_path = js_dir / 'framework_extractors.js'
+    if not framework_path.exists():
+        raise FileNotFoundError(f"Missing framework extractors: {framework_path}")
+    _JS_CACHE['framework_extractors'] = framework_path.read_text(encoding='utf-8')
 
     # Load CFG extractor
     cfg_path = js_dir / 'cfg_extractor.js'
@@ -116,13 +134,21 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
     """Get the complete batch processing helper script.
 
     Assembles a complete JavaScript batch processing script by combining:
-    1. Core extraction functions (extractImports, extractFunctions, etc.)
-    2. CFG extraction function (extractCFG)
-    3. Batch template scaffold (main function, error handling, etc.)
+    1. Core AST extractors (foundation - imports, functions, classes, etc.)
+    2. Security extractors (SAST patterns - ORM queries, API endpoints, etc.)
+    3. Framework extractors (React components, hooks, etc.)
+    4. CFG extraction function (extractCFG)
+    5. Batch template scaffold (main function, error handling, etc.)
 
     The assembly is done via simple string concatenation - the JavaScript files
     are loaded from disk and prepended to the batch template. No f-string
     injection or placeholders are used.
+
+    Assembly order is important:
+    - Core must come first (foundation layer)
+    - Security/Framework depend on core extractors
+    - CFG extraction is independent
+    - Batch template orchestrates everything
 
     Args:
         module_type: Either "module" for ES modules or "commonjs" for CommonJS
@@ -142,7 +168,7 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
         >>> subprocess.run(['node', str(temp_path), ...])
     """
     # Load JavaScript modules from disk (cached after first call)
-    if _JS_CACHE['core_extractors'] is None:
+    if _JS_CACHE['core_ast_extractors'] is None:
         _load_javascript_modules()
 
     # Select the appropriate batch template
@@ -154,10 +180,14 @@ def get_batch_helper(module_type: Literal["module", "commonjs"]) -> str:
         raise ValueError(f"Invalid module_type: {module_type}. Expected 'module' or 'commonjs'")
 
     # Assemble the complete script via string concatenation
-    # Order: core_extractors → cfg_extractor → batch_template
+    # Order: core → security → framework → cfg → batch_template
     # This ensures all functions are defined before the main() function tries to call them
     assembled_script = (
-        _JS_CACHE['core_extractors'] +
+        _JS_CACHE['core_ast_extractors'] +
+        '\n\n' +
+        _JS_CACHE['security_extractors'] +
+        '\n\n' +
+        _JS_CACHE['framework_extractors'] +
         '\n\n' +
         _JS_CACHE['cfg_extractor'] +
         '\n\n' +
