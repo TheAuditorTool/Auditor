@@ -94,7 +94,6 @@ class JavaScriptExtractor(BaseExtractor):
                 used_phase5_symbols = True  # Mark that we're using Phase 5 data
 
                 # DEBUG: Log Phase 5 data usage
-                import os
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG] {file_info['path']}: Using Phase 5 extracted_data")
                     print(f"[DEBUG]   Functions: {len(extracted_data.get('functions', []))}")
@@ -276,7 +275,6 @@ class JavaScriptExtractor(BaseExtractor):
         imports_data = normalized_imports
 
         # DEBUG: Log import extraction
-        import os
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] JS extractor for {file_info['path']}: tree_type = {tree_type}")
             print(f"[DEBUG] JS extractor: tree keys = {tree.keys() if isinstance(tree, dict) else 'not a dict'}")
@@ -315,14 +313,12 @@ class JavaScriptExtractor(BaseExtractor):
         # Extract symbols (functions, classes, calls, properties)
         # PHASE 5: Only extract if Phase 5 data was NOT used
         if not used_phase5_symbols:
-            import os
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] {file_info['path']}: NO Phase 5 data - using Python extractors")
             functions = self.ast_parser.extract_functions(tree)
         else:
             functions = []
 
-        import os
         if os.environ.get("THEAUDITOR_DEBUG"):
             if functions:
                 sample = functions[0]
@@ -491,9 +487,26 @@ class JavaScriptExtractor(BaseExtractor):
                 print(f"[DEBUG] JS extractor: Found {len(returns)} returns")
 
         # Extract control flow graphs
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            # Check if tree has AST for CFG extraction
+            has_ast = False
+            ast_location = "none"
+            if isinstance(tree, dict):
+                if tree.get('ast'):
+                    has_ast = True
+                    ast_location = "tree.ast"
+                elif isinstance(tree.get('tree'), dict) and tree['tree'].get('ast'):
+                    has_ast = True
+                    ast_location = "tree.tree.ast"
+            print(f"[DEBUG CFG] {file_info['path']}: has_ast={has_ast}, location={ast_location}, tree_type={tree.get('type') if isinstance(tree, dict) else 'not_dict'}")
+
         cfg = self.ast_parser.extract_cfg(tree)
         if cfg:
             result['cfg'] = cfg
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG CFG] {file_info['path']}: Extracted {len(cfg)} CFG functions")
+        elif os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG CFG] {file_info['path']}: extract_cfg returned empty")
 
         # Extract routes from AST function calls (Express/Fastify patterns)
         # This provides complete metadata: line, auth middleware, handler names

@@ -1643,6 +1643,307 @@ function countNodes(node, ts) {
 }
 '''
 
+EXTRACT_CFG = '''
+/**
+ * Build CFG for all functions directly from TypeScript AST.
+ * Ports Python build_typescript_function_cfg to JavaScript.
+ *
+ * Handles ALL node types including JsxElement, JsxSelfClosingElement, etc.
+ * This fixes the jsx='preserved' mode CFG extraction bug.
+ *
+ * @param {Object} sourceFile - TypeScript source file
+ * @param {Object} ts - TypeScript compiler API
+ * @returns {Array} - List of CFG objects (one per function)
+ */
+function extractCFG(sourceFile, ts) {
+    const cfgs = [];
+    const class_stack = [];
+
+    function getFunctionName(node, classStack) {
+        if (node.name) {
+            const name = node.name.text || node.name.escapedText || 'anonymous';
+            if (classStack.length > 0 && node.kind !== ts.SyntaxKind.FunctionDeclaration) {
+                return classStack[classStack.length - 1] + '.' + name;
+            }
+            return name;
+        }
+
+        const kind = ts.SyntaxKind[node.kind];
+        if (kind === 'Constructor') {
+            return classStack.length > 0 ? classStack[classStack.length - 1] + '.constructor' : 'constructor';
+        }
+
+        // Try to get name from parent context
+        if (node.parent) {
+            const parentKind = ts.SyntaxKind[node.parent.kind];
+            if (parentKind === 'VariableDeclaration' && node.parent.name) {
+                const varName = node.parent.name.text || node.parent.name.escapedText || 'anonymous';
+                return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + varName : varName;
+            }
+            if (parentKind === 'PropertyAssignment' && node.parent.name) {
+                const propName = node.parent.name.text || node.parent.name.escapedText || 'anonymous';
+                return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + propName : propName;
+            }
+        }
+
+        return 'anonymous';
+    }
+
+    function buildFunctionCFG(funcNode, classStack) {
+        const blocks = [];
+        const edges = [];
+        let blockCounter = 0;
+
+        function getNextBlockId() {
+            return ++blockCounter;
+        }
+
+        const funcName = getFunctionName(funcNode, classStack);
+        const { line: funcStartLine } = sourceFile.getLineAndCharacterOfPosition(funcNode.getStart(sourceFile));
+        const { line: funcEndLine } = sourceFile.getLineAndCharacterOfPosition(funcNode.getEnd());
+
+        const entryId = getNextBlockId();
+        const exitId = getNextBlockId();
+
+        blocks.push({
+            id: entryId,
+            type: 'entry',
+            start_line: funcStartLine + 1,
+            end_line: funcEndLine + 1,
+            statements: []
+        });
+
+        blocks.push({
+            id: exitId,
+            type: 'exit',
+            start_line: funcStartLine + 1,
+            end_line: funcEndLine + 1,
+            statements: []
+        });
+
+        function processNode(node, currentId, depth = 0) {
+            if (depth > 50 || !node) {
+                return currentId;
+            }
+
+            const kind = ts.SyntaxKind[node.kind];
+            const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+
+            // Control flow nodes
+            if (kind === 'IfStatement') {
+                const condId = getNextBlockId();
+                blocks.push({
+                    id: condId,
+                    type: 'condition',
+                    start_line: line + 1,
+                    end_line: line + 1,
+                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'condition'
+                });
+                edges.push({source: currentId, target: condId, type: 'normal'});
+
+                let thenId = condId;
+                if (node.thenStatement) {
+                    thenId = processNode(node.thenStatement, condId, depth + 1);
+                }
+
+                if (node.elseStatement) {
+                    const elseId = processNode(node.elseStatement, condId, depth + 1);
+                    const mergeId = getNextBlockId();
+                    blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1});
+                    if (thenId) edges.push({source: thenId, target: mergeId, type: 'normal'});
+                    if (elseId) edges.push({source: elseId, target: mergeId, type: 'normal'});
+                    return mergeId;
+                } else {
+                    const mergeId = getNextBlockId();
+                    blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1});
+                    if (thenId) edges.push({source: thenId, target: mergeId, type: 'normal'});
+                    edges.push({source: condId, target: mergeId, type: 'false'});
+                    return mergeId;
+                }
+            }
+            else if (kind === 'ForStatement' || kind === 'ForInStatement' || kind === 'ForOfStatement') {
+                const loopId = getNextBlockId();
+                blocks.push({
+                    id: loopId, type: 'loop', start_line: line + 1, end_line: line + 1,
+                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'loop'
+                });
+                edges.push({source: currentId, target: loopId, type: 'normal'});
+
+                let bodyId = loopId;
+                if (node.statement) {
+                    bodyId = processNode(node.statement, loopId, depth + 1);
+                }
+                if (bodyId) {
+                    edges.push({source: bodyId, target: loopId, type: 'back'});
+                }
+
+                const afterId = getNextBlockId();
+                blocks.push({id: afterId, type: 'normal', start_line: line + 1, end_line: line + 1});
+                edges.push({source: loopId, target: afterId, type: 'exit_loop'});
+                return afterId;
+            }
+            else if (kind === 'WhileStatement' || kind === 'DoStatement') {
+                const loopId = getNextBlockId();
+                blocks.push({
+                    id: loopId, type: 'loop', start_line: line + 1, end_line: line + 1,
+                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'loop'
+                });
+                edges.push({source: currentId, target: loopId, type: 'normal'});
+
+                let bodyId = loopId;
+                if (node.statement) {
+                    bodyId = processNode(node.statement, loopId, depth + 1);
+                }
+                if (bodyId) {
+                    edges.push({source: bodyId, target: loopId, type: 'back'});
+                }
+
+                const afterId = getNextBlockId();
+                blocks.push({id: afterId, type: 'normal', start_line: line + 1, end_line: line + 1});
+                edges.push({source: loopId, target: afterId, type: 'exit_loop'});
+                return afterId;
+            }
+            else if (kind === 'ReturnStatement') {
+                const retId = getNextBlockId();
+                blocks.push({id: retId, type: 'return', start_line: line + 1, end_line: line + 1});
+                edges.push({source: currentId, target: retId, type: 'normal'});
+                edges.push({source: retId, target: exitId, type: 'normal'});
+                return null; // Terminal block
+            }
+            else if (kind === 'TryStatement') {
+                const tryId = getNextBlockId();
+                blocks.push({id: tryId, type: 'try', start_line: line + 1, end_line: line + 1});
+                edges.push({source: currentId, target: tryId, type: 'normal'});
+
+                let tryBodyId = tryId;
+                if (node.tryBlock) {
+                    tryBodyId = processNode(node.tryBlock, tryId, depth + 1);
+                }
+
+                const mergeId = getNextBlockId();
+                blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1});
+
+                if (tryBodyId) {
+                    edges.push({source: tryBodyId, target: mergeId, type: 'normal'});
+                }
+
+                if (node.catchClause) {
+                    const catchId = getNextBlockId();
+                    blocks.push({id: catchId, type: 'catch', start_line: line + 1, end_line: line + 1});
+                    edges.push({source: tryId, target: catchId, type: 'exception'});
+
+                    let catchBodyId = catchId;
+                    if (node.catchClause.block) {
+                        catchBodyId = processNode(node.catchClause.block, catchId, depth + 1);
+                    }
+                    if (catchBodyId) {
+                        edges.push({source: catchBodyId, target: mergeId, type: 'normal'});
+                    }
+                }
+
+                if (node.finallyBlock) {
+                    const finallyId = getNextBlockId();
+                    blocks.push({id: finallyId, type: 'finally', start_line: line + 1, end_line: line + 1});
+                    edges.push({source: mergeId, target: finallyId, type: 'normal'});
+
+                    let finallyBodyId = finallyId;
+                    if (node.finallyBlock) {
+                        finallyBodyId = processNode(node.finallyBlock, finallyId, depth + 1);
+                    }
+                    return finallyBodyId || finallyId;
+                }
+
+                return mergeId;
+            }
+            // JSX nodes - treat as normal statements (NOT control flow)
+            // This is the CRITICAL FIX for jsx='preserved' mode
+            else if (kind.startsWith('Jsx')) {
+                // JSX is NOT control flow, just traverse children
+                let lastId = currentId;
+                ts.forEachChild(node, child => {
+                    if (lastId) {
+                        lastId = processNode(child, lastId, depth + 1);
+                    }
+                });
+                return lastId;
+            }
+            // Default: traverse children
+            else {
+                let lastId = currentId;
+                ts.forEachChild(node, child => {
+                    if (lastId) {
+                        lastId = processNode(child, lastId, depth + 1);
+                    }
+                });
+                return lastId;
+            }
+        }
+
+        // Start processing from function body
+        let lastBlockId = entryId;
+        if (funcNode.body) {
+            lastBlockId = processNode(funcNode.body, entryId, 0);
+        }
+
+        // Connect last block to exit
+        if (lastBlockId) {
+            edges.push({source: lastBlockId, target: exitId, type: 'normal'});
+        }
+
+        return {
+            function_name: funcName,
+            blocks: blocks,
+            edges: edges
+        };
+    }
+
+    function visit(node, depth = 0) {
+        if (depth > 100 || !node) return;
+
+        const kind = ts.SyntaxKind[node.kind];
+
+        // Track class context
+        if (kind === 'ClassDeclaration') {
+            const className = node.name ? (node.name.text || node.name.escapedText || 'UnknownClass') : 'UnknownClass';
+            class_stack.push(className);
+            ts.forEachChild(node, child => visit(child, depth + 1));
+            class_stack.pop();
+            return;
+        }
+
+        // Function-like nodes
+        if (kind === 'FunctionDeclaration' || kind === 'MethodDeclaration' ||
+            kind === 'ArrowFunction' || kind === 'FunctionExpression' ||
+            kind === 'Constructor' || kind === 'GetAccessor' || kind === 'SetAccessor') {
+
+            const cfg = buildFunctionCFG(node, class_stack);
+            if (cfg && cfg.function_name !== 'anonymous') {
+                cfgs.push(cfg);
+            }
+            // Don't recurse - buildFunctionCFG handles its own body
+            return;
+        }
+
+        // Property declarations with function initializers
+        if (kind === 'PropertyDeclaration' && node.initializer) {
+            const initKind = ts.SyntaxKind[node.initializer.kind];
+            if (initKind === 'ArrowFunction' || initKind === 'FunctionExpression') {
+                const cfg = buildFunctionCFG(node.initializer, class_stack);
+                if (cfg) {
+                    cfgs.push(cfg);
+                }
+                return;
+            }
+        }
+
+        ts.forEachChild(node, child => visit(child, depth + 1));
+    }
+
+    visit(sourceFile);
+    return cfgs;
+}
+'''
+
 EXTRACT_REACT_COMPONENTS = '''
 /**
  * Detect React function and class components.
@@ -1923,6 +2224,8 @@ function findNearestTsconfig(startPath, projectRoot, ts, path) {{
 
 {COUNT_NODES}
 
+{EXTRACT_CFG}
+
 async function main() {{
     try {{
         // Get request and output paths from command line
@@ -1939,7 +2242,7 @@ async function main() {{
         const filePaths = request.files || [];
         const projectRoot = request.projectRoot;
         const jsxMode = request.jsxMode || 'transformed';  // Default to transformed for backward compatibility
-        const cfgOnly = request.cfgOnly || false;  // CFG-only mode: serialize AST, skip extracted_data
+        // PHASE 5: No more cfgOnly flag - single-pass extraction includes CFG
 
         if (filePaths.length === 0) {{
             fs.writeFileSync(outputPath, JSON.stringify({{}}, 'utf8'));
@@ -1987,7 +2290,12 @@ async function main() {{
         const results = {{}};
         const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
 
+        // DEBUG: Log batch mode info (PHASE 5: single-pass architecture)
+        console.error(`[BATCH DEBUG] Processing ${{filePaths.length}} files, jsxMode=${{jsxMode}}, jsxEmitMode=${{ts.JsxEmit[jsxEmitMode]}}`);
+
         for (const [configKey, groupedFiles] of filesByConfig.entries()) {{
+            const configLabel = configKey === '__DEFAULT__' ? 'DEFAULT' : configKey;
+            console.error(`[BATCH DEBUG] Config group: ${{configLabel}}, files=${{groupedFiles.length}}`);
             let compilerOptions;
             let program;
 
@@ -2053,12 +2361,14 @@ async function main() {{
                 );
             }}
 
+            console.error(`[BATCH DEBUG] Created program, rootNames=${{program.getRootFileNames().length}}`);
             const checker = program.getTypeChecker();
 
             for (const fileInfo of groupedFiles) {{
                 try {{
                     const sourceFile = program.getSourceFile(fileInfo.absolute);
                     if (!sourceFile) {{
+                        console.error(`[DEBUG JS BATCH] Could not load sourceFile for ${{fileInfo.original}}, jsxMode=${{jsxMode}}`);
                         results[fileInfo.original] = {{
                             success: false,
                             error: `Could not load source file: ${{fileInfo.original}}`,
@@ -2068,6 +2378,7 @@ async function main() {{
                         }};
                         continue;
                     }}
+                    console.error(`[DEBUG JS BATCH] Loaded sourceFile for ${{fileInfo.original}}, jsxMode=${{jsxMode}}`);
 
                     const sourceCode = sourceFile.text;
 
@@ -2090,92 +2401,80 @@ async function main() {{
 
                     const imports = extractImports(sourceFile, ts);
 
-                    // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (COMPLETE)
-                    // Extract all data types directly in JavaScript using TypeScript checker
-                    // HYBRID MODE: Two-pass approach
-                    // Pass 1 (cfgOnly=false): Extract symbols, set ast=null (prevents 512MB crash)
-                    // Pass 2 (cfgOnly=true): Serialize AST for CFG, skip extracted_data
+                    // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (UNIFIED SINGLE-PASS)
+                    // Extract ALL data types directly in JavaScript using TypeScript checker
+                    // INCLUDES CFG EXTRACTION (fixes jsx='preserved' bug)
+                    // No more two-pass system - everything extracted in one call
 
-                    if (cfgOnly) {{
-                        // CFG-ONLY MODE: Serialize lightweight AST for CFG extraction
-                        const serializedAst = serializeNodeForCFG(sourceFile, sourceFile, ts);
+                    console.error(`[DEBUG JS BATCH] Single-pass extraction for ${{fileInfo.original}}, jsxMode=${{jsxMode}}`);
 
-                        results[fileInfo.original] = {{
-                            success: true,
-                            fileName: fileInfo.absolute,
-                            languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                            ast: serializedAst,  // Lightweight AST for CFG
-                            diagnostics: diagnostics,
+                    // Step 1: Build scope map (line → function name mapping)
+                    const scopeMap = buildScopeMap(sourceFile, ts);
+
+                    // Step 2: Extract functions and build parameter map
+                    const functions = extractFunctions(sourceFile, checker, ts);
+                    const functionParams = new Map();
+                    functions.forEach(f => {{
+                        if (f.name && f.parameters) {{
+                            functionParams.set(f.name, f.parameters);
+                        }}
+                    }});
+
+                    // Step 3: Extract all other data types
+                    const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
+                    const classes = extractClasses(sourceFile, checker, ts);
+                    const assignments = extractAssignments(sourceFile, ts, scopeMap);
+                    const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
+                    const returns = extractReturns(sourceFile, ts, scopeMap);
+                    const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
+                    const variableUsage = extractVariableUsage(assignments, functionCallArgs);
+                    const importStyles = extractImportStyles(imports);
+                    const refs = extractRefs(imports);
+                    const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs);
+                    const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
+                    const ormQueries = extractORMQueries(functionCallArgs);
+                    const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+
+                    // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
+                    console.error(`[DEBUG JS BATCH] Extracting CFG for ${{fileInfo.original}}`);
+                    const cfg = extractCFG(sourceFile, ts);
+                    console.error(`[DEBUG JS BATCH] Extracted ${{cfg.length}} CFGs from ${{fileInfo.original}}`);
+
+                    // Count nodes for complexity metrics
+                    const nodeCount = countNodes(sourceFile, ts);
+
+                    results[fileInfo.original] = {{
+                        success: true,
+                        fileName: fileInfo.absolute,
+                        languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
+                        ast: null,  // ALWAYS null - no serialization, prevents 512MB crash
+                        diagnostics: diagnostics,
+                        imports: imports,
+                        nodeCount: nodeCount,
+                        hasTypes: true,
+                        jsxMode: jsxMode,
+                        extracted_data: {{
+                            // PHASE 5: All data types extracted in JavaScript (including CFG)
+                            functions: functions,
+                            classes: classes,
+                            calls: calls,
                             imports: imports,
-                            nodeCount: 0,  // Not needed for CFG
-                            hasTypes: true,
-                            jsxMode: jsxMode,
-                            extracted_data: null  // Skip extraction in CFG-only mode
-                        }};
-                    }} else {{
-                        // SYMBOL EXTRACTION MODE (PHASE 5): Extract all data, set ast=null
-
-                        // Step 1: Build scope map (line → function name mapping)
-                        const scopeMap = buildScopeMap(sourceFile, ts);
-
-                        // Step 2: Extract functions and build parameter map
-                        const functions = extractFunctions(sourceFile, checker, ts);
-                        const functionParams = new Map();
-                        functions.forEach(f => {{
-                            if (f.name && f.parameters) {{
-                                functionParams.set(f.name, f.parameters);
-                            }}
-                        }});
-
-                        // Step 3: Extract all other data types
-                        const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
-                        const classes = extractClasses(sourceFile, checker, ts);
-                        const assignments = extractAssignments(sourceFile, ts, scopeMap);
-                        const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
-                        const returns = extractReturns(sourceFile, ts, scopeMap);
-                        const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
-                        const variableUsage = extractVariableUsage(assignments, functionCallArgs);
-                        const importStyles = extractImportStyles(imports);
-                        const refs = extractRefs(imports);
-                        const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs);
-                        const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
-                        const ormQueries = extractORMQueries(functionCallArgs);
-                        const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-
-                        // Count nodes for complexity metrics (we have AST, just not serializing it)
-                        const nodeCount = countNodes(sourceFile, ts);
-
-                        results[fileInfo.original] = {{
-                            success: true,
-                            fileName: fileInfo.absolute,
-                            languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                            ast: null,  // Set to null to prevent JSON.stringify crash
-                            diagnostics: diagnostics,
-                            imports: imports,
-                            nodeCount: nodeCount,  // Real node count from AST traversal
-                            hasTypes: true,
-                            jsxMode: jsxMode,
-                            extracted_data: {{
-                                // PHASE 5: All data types extracted in JavaScript
-                                functions: functions,
-                                classes: classes,
-                                calls: calls,
-                                imports: imports,
-                                assignments: assignments,
-                                function_call_args: functionCallArgs,
-                                returns: returns,
-                                object_literals: objectLiterals,
-                                variable_usage: variableUsage,
-                                import_styles: importStyles,
-                                resolved_imports: refs,
-                                react_components: reactComponents,
-                                react_hooks: reactHooks,
-                                orm_queries: ormQueries,
-                                api_endpoints: apiEndpoints,
-                                scope_map: Object.fromEntries(scopeMap)  // Convert Map to object for JSON
-                            }}
-                        }};
-                    }}
+                            assignments: assignments,
+                            function_call_args: functionCallArgs,
+                            returns: returns,
+                            object_literals: objectLiterals,
+                            variable_usage: variableUsage,
+                            import_styles: importStyles,
+                            resolved_imports: refs,
+                            react_components: reactComponents,
+                            react_hooks: reactHooks,
+                            orm_queries: ormQueries,
+                            api_endpoints: apiEndpoints,
+                            scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
+                            cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
+                        }}
+                    }};
+                    console.error(`[DEBUG JS BATCH] Single-pass complete for ${{fileInfo.original}}, cfg_count=${{cfg.length}}`)
 
                 }} catch (error) {{
                     results[fileInfo.original] = {{
@@ -2272,6 +2571,8 @@ function findNearestTsconfig(startPath, projectRoot, ts, path) {{
 
 {COUNT_NODES}
 
+{EXTRACT_CFG}
+
 // Get request and output paths from command line
 const requestPath = process.argv[2];
 const outputPath = process.argv[3];
@@ -2287,7 +2588,7 @@ try {{
     const filePaths = request.files || [];
     const projectRoot = request.projectRoot;
     const jsxMode = request.jsxMode || 'transformed';  // Default to transformed for backward compatibility
-    const cfgOnly = request.cfgOnly || false;  // CFG-only mode: serialize AST, skip extracted_data
+    // PHASE 5: No more cfgOnly flag - single-pass extraction includes CFG
 
     if (filePaths.length === 0) {{
         fs.writeFileSync(outputPath, JSON.stringify({{}}, 'utf8'));
@@ -2438,91 +2739,74 @@ try {{
 
                 const imports = extractImports(sourceFile, ts);
 
-                // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (COMPLETE)
-                // Extract all data types directly in JavaScript using TypeScript checker
-                // HYBRID MODE: Two-pass approach
-                // Pass 1 (cfgOnly=false): Extract symbols, set ast=null (prevents 512MB crash)
-                // Pass 2 (cfgOnly=true): Serialize AST for CFG, skip extracted_data
+                // PHASE 5: EXTRACTION-FIRST ARCHITECTURE (UNIFIED SINGLE-PASS)
+                // Extract ALL data types directly in JavaScript using TypeScript checker
+                // INCLUDES CFG EXTRACTION (fixes jsx='preserved' bug)
+                // No more two-pass system - everything extracted in one call
 
-                if (cfgOnly) {{
-                    // CFG-ONLY MODE: Serialize lightweight AST for CFG extraction
-                    const serializedAst = serializeNodeForCFG(sourceFile, sourceFile, ts);
+                // Step 1: Build scope map (line → function name mapping)
+                const scopeMap = buildScopeMap(sourceFile, ts);
 
-                    results[fileInfo.original] = {{
-                        success: true,
-                        fileName: fileInfo.absolute,
-                        languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                        ast: serializedAst,  // Lightweight AST for CFG
-                        diagnostics: diagnostics,
+                // Step 2: Extract functions and build parameter map
+                const functions = extractFunctions(sourceFile, checker, ts);
+                const functionParams = new Map();
+                functions.forEach(f => {{
+                    if (f.name && f.parameters) {{
+                        functionParams.set(f.name, f.parameters);
+                    }}
+                }});
+
+                // Step 3: Extract all other data types
+                const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
+                const classes = extractClasses(sourceFile, checker, ts);
+                const assignments = extractAssignments(sourceFile, ts, scopeMap);
+                const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
+                const returns = extractReturns(sourceFile, ts, scopeMap);
+                const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
+                const variableUsage = extractVariableUsage(assignments, functionCallArgs);
+                const importStyles = extractImportStyles(imports);
+                const refs = extractRefs(imports);
+                const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs);
+                const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
+                const ormQueries = extractORMQueries(functionCallArgs);
+                const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+
+                // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
+                const cfg = extractCFG(sourceFile, ts);
+
+                // Count nodes for complexity metrics
+                const nodeCount = countNodes(sourceFile, ts);
+
+                results[fileInfo.original] = {{
+                    success: true,
+                    fileName: fileInfo.absolute,
+                    languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
+                    ast: null,  // ALWAYS null - no serialization, prevents 512MB crash
+                    diagnostics: diagnostics,
+                    imports: imports,
+                    nodeCount: nodeCount,
+                    hasTypes: true,
+                    jsxMode: jsxMode,
+                    extracted_data: {{
+                        // PHASE 5: All data types extracted in JavaScript (including CFG)
+                        functions: functions,
+                        classes: classes,
+                        calls: calls,
                         imports: imports,
-                        nodeCount: 0,  // Not needed for CFG
-                        hasTypes: true,
-                        jsxMode: jsxMode,
-                        extracted_data: null  // Skip extraction in CFG-only mode
-                    }};
-                }} else {{
-                    // SYMBOL EXTRACTION MODE (PHASE 5): Extract all data, set ast=null
-
-                    // Step 1: Build scope map (line → function name mapping)
-                    const scopeMap = buildScopeMap(sourceFile, ts);
-
-                    // Step 2: Extract functions and build parameter map
-                    const functions = extractFunctions(sourceFile, checker, ts);
-                    const functionParams = new Map();
-                    functions.forEach(f => {{
-                        if (f.name && f.parameters) {{
-                            functionParams.set(f.name, f.parameters);
-                        }}
-                    }});
-
-                    // Step 3: Extract all other data types
-                    const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
-                    const classes = extractClasses(sourceFile, checker, ts);
-                    const assignments = extractAssignments(sourceFile, ts, scopeMap);
-                    const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
-                    const returns = extractReturns(sourceFile, ts, scopeMap);
-                    const objectLiterals = extractObjectLiterals(sourceFile, ts, scopeMap);
-                    const variableUsage = extractVariableUsage(assignments, functionCallArgs);
-                    const importStyles = extractImportStyles(imports);
-                    const refs = extractRefs(imports);
-                    const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs);
-                    const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
-                    const ormQueries = extractORMQueries(functionCallArgs);
-                    const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-
-                    // Count nodes for complexity metrics (we have AST, just not serializing it)
-                    const nodeCount = countNodes(sourceFile, ts);
-
-                    results[fileInfo.original] = {{
-                        success: true,
-                        fileName: fileInfo.absolute,
-                        languageVersion: ts.ScriptTarget[sourceFile.languageVersion],
-                        ast: null,  // Set to null to prevent JSON.stringify crash
-                        diagnostics: diagnostics,
-                        imports: imports,
-                        nodeCount: nodeCount,  // Real node count from AST traversal
-                        hasTypes: true,
-                        jsxMode: jsxMode,
-                        extracted_data: {{
-                            // PHASE 5: All data types extracted in JavaScript
-                            functions: functions,
-                            classes: classes,
-                            calls: calls,
-                            imports: imports,
-                            assignments: assignments,
-                            function_call_args: functionCallArgs,
-                            returns: returns,
-                            object_literals: objectLiterals,
-                            variable_usage: variableUsage,
-                            import_styles: importStyles,
-                            resolved_imports: refs,
-                            react_components: reactComponents,
-                            react_hooks: reactHooks,
-                            orm_queries: ormQueries,
-                            api_endpoints: apiEndpoints,
-                            scope_map: Object.fromEntries(scopeMap)  // Convert Map to object for JSON
-                        }}
-                    }};
+                        assignments: assignments,
+                        function_call_args: functionCallArgs,
+                        returns: returns,
+                        object_literals: objectLiterals,
+                        variable_usage: variableUsage,
+                        import_styles: importStyles,
+                        resolved_imports: refs,
+                        react_components: reactComponents,
+                        react_hooks: reactHooks,
+                        orm_queries: ormQueries,
+                        api_endpoints: apiEndpoints,
+                        scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
+                        cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
+                    }}
                 }}
 
             }} catch (error) {{

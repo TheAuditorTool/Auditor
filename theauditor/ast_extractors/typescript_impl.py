@@ -1666,19 +1666,34 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 
 
 def extract_typescript_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:
-    """Extract control flow graphs for all TypeScript/JavaScript functions.
+    """Extract control flow graphs from pre-extracted CFG data.
 
-    Returns CFG data matching the database schema expectations.
+    PHASE 5 UNIFIED SINGLE-PASS ARCHITECTURE:
+    CFG is now extracted directly in JavaScript using extractCFG() function,
+    which handles ALL node types including JSX (JsxElement, JsxSelfClosingElement, etc.).
+
+    This fixes the jsx='preserved' 0 CFG bug where Python's AST traverser
+    couldn't understand JSX nodes.
+
+    Returns:
+        List of CFG objects (one per function) from extracted_data.cfg
     """
     cfgs = []
 
-    # Get complete function AST nodes
-    func_nodes = extract_typescript_function_nodes(tree, parser_self)
+    # Get the actual tree structure
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
+        return cfgs
 
-    for func_node in func_nodes:
-        cfg = build_typescript_function_cfg(func_node)
-        if cfg:
-            cfgs.append(cfg)
+    # Get data from Phase 5 payload
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "cfg" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] extract_typescript_cfg: Using PRE-EXTRACTED CFG data ({len(extracted_data['cfg'])} CFGs)")
+        return extracted_data["cfg"]
+
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        print(f"[DEBUG] extract_typescript_cfg: No 'cfg' key found in extracted_data.")
 
     return cfgs
 
