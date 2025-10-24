@@ -519,9 +519,9 @@ FUNCTION_CALL_ARGS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("caller_function", "TEXT", nullable=False),
         Column("callee_function", "TEXT", nullable=False, check="callee_function != ''"),
-        Column("argument_index", "INTEGER", nullable=False),
-        Column("argument_expr", "TEXT", nullable=False),
-        Column("param_name", "TEXT", nullable=False),
+        Column("argument_index", "INTEGER", nullable=True),  # NULL for 0-arg calls
+        Column("argument_expr", "TEXT", nullable=True),     # NULL for 0-arg calls
+        Column("param_name", "TEXT", nullable=True),        # NULL for 0-arg calls
         Column("callee_file_path", "TEXT"),  # Resolved file path for callee function (enables unambiguous cross-file tracking)
     ],
     indexes=[
@@ -540,9 +540,9 @@ FUNCTION_CALL_ARGS_JSX = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("caller_function", "TEXT", nullable=False),
         Column("callee_function", "TEXT", nullable=False),
-        Column("argument_index", "INTEGER", nullable=False),
-        Column("argument_expr", "TEXT", nullable=False),
-        Column("param_name", "TEXT", nullable=False),
+        Column("argument_index", "INTEGER", nullable=True),  # NULL for 0-arg calls
+        Column("argument_expr", "TEXT", nullable=True),     # NULL for 0-arg calls
+        Column("param_name", "TEXT", nullable=True),        # NULL for 0-arg calls
         Column("jsx_mode", "TEXT", nullable=False, default="'preserved'"),
         Column("extraction_pass", "INTEGER", default="1"),
     ],

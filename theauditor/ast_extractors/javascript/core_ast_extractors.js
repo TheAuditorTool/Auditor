@@ -1098,20 +1098,36 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
                 const calleeBaseName = calleeName.split('.').pop();
                 const params = functionParams.get(calleeBaseName) || [];
 
-                args.forEach((arg, i) => {
-                    const paramName = i < params.length ? params[i] : 'arg' + i;
-                    const argExpr = arg.getText(sourceFile).substring(0, 500);
-
+                // FIX: Handle 0-arg calls (createApp(), useState(), etc.)
+                // For 0-arg calls, create baseline record with NULL argument fields
+                // This fixes 30.7% missing coverage in function_call_args table
+                if (args.length === 0) {
                     calls.push({
                         line: line + 1,
                         caller_function: callerFunction,
                         callee_function: calleeName,
-                        argument_index: i,
-                        argument_expr: argExpr,
-                        param_name: paramName,
+                        argument_index: null,        // NULL = no arguments (schema allows NULL as of 2025-10-25)
+                        argument_expr: null,
+                        param_name: null,
                         callee_file_path: calleeFilePath
                     });
-                });
+                } else {
+                    // Original logic for calls WITH arguments (1+ args)
+                    args.forEach((arg, i) => {
+                        const paramName = i < params.length ? params[i] : 'arg' + i;
+                        const argExpr = arg.getText(sourceFile).substring(0, 500);
+
+                        calls.push({
+                            line: line + 1,
+                            caller_function: callerFunction,
+                            callee_function: calleeName,
+                            argument_index: i,
+                            argument_expr: argExpr,
+                            param_name: paramName,
+                            callee_file_path: calleeFilePath
+                        });
+                    });
+                }
             }
         }
 

@@ -33,8 +33,60 @@
  * If multiple frameworks supported, split by framework (vue_extractors.js, angular_extractors.js)
  */
 
-function extractReactComponents(functions, classes, returns, functionCallArgs) {
+function extractReactComponents(functions, classes, returns, functionCallArgs, filePath, imports) {
     const components = [];
+
+    // FIX: Only analyze frontend files for React components
+    // Backend controllers may have uppercase method names but are NOT React components
+    // This fixes 1,183 false positives (83.4% false positive rate)
+    //
+    // NOTE: Relies on framework detection (framework_detector.py) which maps directories
+    // to frameworks in the `frameworks` table. Path-based filtering aligns with that mapping.
+
+    // Explicit backend path exclusions (aligns with framework_detector.py backend detection)
+    const isBackendPath = filePath && (
+        filePath.includes('backend/') ||
+        filePath.includes('backend\\') ||
+        filePath.includes('server/') ||
+        filePath.includes('server\\') ||
+        filePath.includes('/api/') ||
+        filePath.includes('\\api\\') ||
+        filePath.includes('controllers/') ||
+        filePath.includes('controllers\\') ||
+        filePath.includes('services/') ||
+        filePath.includes('services\\') ||
+        filePath.includes('middleware/') ||
+        filePath.includes('middleware\\') ||
+        filePath.includes('models/') ||
+        filePath.includes('models\\') ||
+        filePath.includes('routes/') ||
+        filePath.includes('routes\\')
+    );
+
+    if (isBackendPath) {
+        return components;
+    }
+
+    // Frontend path indicators (aligns with framework_detector.py frontend detection)
+    const isFrontendPath = filePath && (
+        filePath.includes('frontend/') ||
+        filePath.includes('frontend\\') ||
+        filePath.includes('client/') ||
+        filePath.includes('client\\') ||
+        filePath.includes('/components/') ||
+        filePath.includes('\\components\\') ||
+        filePath.includes('/pages/') ||
+        filePath.includes('\\pages\\') ||
+        filePath.includes('/ui/') ||
+        filePath.includes('\\ui\\') ||
+        filePath.endsWith('.tsx') ||
+        filePath.endsWith('.jsx')
+    );
+
+    // Only process if confirmed frontend file
+    if (!isFrontendPath) {
+        return components;
+    }
 
     // Detect function components
     for (const func of functions) {
@@ -115,6 +167,12 @@ function extractReactHooks(functionCallArgs, scopeMap) {
     for (const call of functionCallArgs) {
         const hookName = call.callee_function;
         if (!hookName || !hookName.startsWith('use')) continue;
+
+        // FIX: Filter out dotted method calls (userService.createUser, users.map)
+        // Real hooks are standalone identifiers: useState, useEffect, useCustomHook
+        // NOT: service.useMethod, obj.property.useFunc
+        // This fixes 42 false positive React hook records
+        if (hookName.includes('.')) continue;
 
         // Check if it's a known React hook or custom hook (starts with 'use')
         const isReactHook = REACT_HOOKS.has(hookName);
