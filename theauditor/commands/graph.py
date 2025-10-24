@@ -132,9 +132,13 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_import_graph(import_graph)
-        
-        # REMOVED: JSON dual persistence - using SQLite as single source
-        
+
+        # Dual write: Save JSON to .pf/raw/ for human/AI consumption
+        raw_import = Path(".pf/raw/import_graph.json")
+        raw_import.parent.mkdir(parents=True, exist_ok=True)
+        with open(raw_import, 'w') as f:
+            json.dump(import_graph, f, indent=2)
+
         click.echo(f"  Nodes: {len(import_graph['nodes'])}")
         click.echo(f"  Edges: {len(import_graph['edges'])}")
         
@@ -148,18 +152,106 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_call_graph(call_graph)
-        
-        # REMOVED: JSON dual persistence - using SQLite as single source
-        
+
+        # Dual write: Save JSON to .pf/raw/ for human/AI consumption
+        raw_call = Path(".pf/raw/call_graph.json")
+        raw_call.parent.mkdir(parents=True, exist_ok=True)
+        with open(raw_call, 'w') as f:
+            json.dump(call_graph, f, indent=2)
+
         # Call graph uses 'nodes' for functions and 'edges' for calls
         click.echo(f"  Functions: {len(call_graph.get('nodes', []))}")
         click.echo(f"  Calls: {len(call_graph.get('edges', []))}")
         
         click.echo(f"\nGraphs saved to database: {db}")
-        
+
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         raise click.ClickException(str(e)) from e
+
+
+@graph.command("build-dfg")
+@click.option("--root", default=".", help="Root directory")
+@click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
+@click.option("--repo-db", default="./.pf/repo_index.db", help="Repo index database")
+def graph_build_dfg(root, db, repo_db):
+    """Build data flow graph from indexed assignments and returns.
+
+    Constructs a data flow graph showing how data flows through variable
+    assignments and function returns. Uses normalized junction tables
+    (assignment_sources, function_return_sources) for accurate tracking.
+
+    Must run 'aud index' first to populate junction tables.
+
+    Examples:
+      aud graph build-dfg                  # Build DFG from current project
+
+    Output:
+      .pf/graphs.db - SQLite database with:
+        - nodes (graph_type='data_flow'): Variables and return values
+        - edges (graph_type='data_flow'): Assignment and return relationships
+
+    Stats shown:
+      - Total assignments processed
+      - Assignments with source variables
+      - Edges created
+      - Unique variables tracked
+    """
+    from theauditor.graph.dfg_builder import DFGBuilder
+    from theauditor.graph.store import XGraphStore
+    from pathlib import Path
+
+    try:
+        # Check that repo_index.db exists
+        repo_db_path = Path(repo_db)
+        if not repo_db_path.exists():
+            click.echo(f"ERROR: {repo_db} not found. Run 'aud index' first.", err=True)
+            raise click.Abort()
+
+        # Initialize builder and store
+        click.echo("Initializing DFG builder...")
+        builder = DFGBuilder(db_path=repo_db)
+        store = XGraphStore(db_path=db)
+
+        click.echo("Building data flow graph...")
+
+        # Build unified graph (assignments + returns)
+        graph = builder.build_unified_flow_graph(root)
+
+        # Display stats
+        stats = graph["metadata"]["stats"]
+        click.echo(f"\nData Flow Graph Statistics:")
+        click.echo(f"  Assignment Stats:")
+        click.echo(f"    Total assignments: {stats['assignment_stats']['total_assignments']:,}")
+        click.echo(f"    With source vars:  {stats['assignment_stats']['assignments_with_sources']:,}")
+        click.echo(f"    Edges created:     {stats['assignment_stats']['edges_created']:,}")
+        click.echo(f"  Return Stats:")
+        click.echo(f"    Total returns:     {stats['return_stats']['total_returns']:,}")
+        click.echo(f"    With variables:    {stats['return_stats']['returns_with_vars']:,}")
+        click.echo(f"    Edges created:     {stats['return_stats']['edges_created']:,}")
+        click.echo(f"  Totals:")
+        click.echo(f"    Total nodes:       {stats['total_nodes']:,}")
+        click.echo(f"    Total edges:       {stats['total_edges']:,}")
+
+        # Save to graphs.db
+        click.echo(f"\nSaving to {db}...")
+        store.save_data_flow_graph(graph)
+
+        # Save JSON to .pf/raw/ for immutable record
+        raw_output = Path(".pf/raw/data_flow_graph.json")
+        raw_output.parent.mkdir(parents=True, exist_ok=True)
+        with open(raw_output, 'w') as f:
+            json.dump(graph, f, indent=2)
+
+        click.echo(f"Data flow graph saved to {db}")
+        click.echo(f"Raw JSON saved to {raw_output}")
+
+    except FileNotFoundError as e:
+        click.echo(f"ERROR: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"ERROR: Failed to build DFG: {e}", err=True)
+        raise click.Abort()
 
 
 @graph.command("analyze")
