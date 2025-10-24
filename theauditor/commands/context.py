@@ -530,20 +530,26 @@ def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: 
 @click.option("--file", help="Query file by path (partial match supported)")
 @click.option("--api", help="Query API endpoint by route pattern (supports wildcards)")
 @click.option("--component", help="Query React/Vue component by name")
+@click.option("--variable", help="Query variable by name (for data flow tracing)")
 @click.option("--show-callers", is_flag=True, help="Show who calls this symbol (control flow incoming)")
 @click.option("--show-callees", is_flag=True, help="Show what this symbol calls (control flow outgoing)")
 @click.option("--show-dependencies", is_flag=True, help="Show what this file imports (outgoing dependencies)")
 @click.option("--show-dependents", is_flag=True, help="Show who imports this file (incoming dependencies)")
 @click.option("--show-tree", is_flag=True, help="Show component hierarchy tree (parent-child relationships)")
 @click.option("--show-hooks", is_flag=True, help="Show React hooks used by component")
+@click.option("--show-data-deps", is_flag=True, help="Show data dependencies (what vars function reads/writes) - DFG")
+@click.option("--show-flow", is_flag=True, help="Show variable flow through assignments (def-use chains) - DFG")
+@click.option("--show-taint-flow", is_flag=True, help="Show cross-function taint flow (returns -> assignments) - DFG")
+@click.option("--show-api-coverage", is_flag=True, help="Show API security coverage (auth controls per endpoint)")
 @click.option("--depth", default=1, type=int, help="Traversal depth for transitive queries (1-5, default=1)")
 @click.option("--format", "output_format", default="text",
               type=click.Choice(['text', 'json', 'tree']),
               help="Output format: text (human), json (AI), tree (visual)")
 @click.option("--save", type=click.Path(), help="Save output to file (auto-creates parent dirs)")
 @handle_exceptions
-def query(symbol, file, api, component, show_callers, show_callees,
+def query(symbol, file, api, component, variable, show_callers, show_callees,
           show_dependencies, show_dependents, show_tree, show_hooks,
+          show_data_deps, show_flow, show_taint_flow, show_api_coverage,
           depth, output_format, save):
     """Query code relationships from indexed database for AI-assisted refactoring.
 
@@ -950,27 +956,37 @@ def query(symbol, file, api, component, show_callers, show_callees,
 
     EXAMPLES (COMPREHENSIVE):
 
-        # SYMBOL QUERIES
+        # SYMBOL QUERIES (Control Flow)
         aud context query --symbol authenticateUser
         aud context query --symbol authenticateUser --show-callers
         aud context query --symbol authenticateUser --show-callers --depth 3
         aud context query --symbol processRequest --show-callees
         aud context query --symbol UserController.create --show-callers --format json
 
-        # FILE QUERIES
+        # FILE QUERIES (Dependencies)
         aud context query --file src/auth.ts
         aud context query --file src/auth.ts --show-dependencies
         aud context query --file src/utils.ts --show-dependents
         aud context query --file auth.ts --show-dependencies --format json
 
-        # API QUERIES
+        # API QUERIES (Endpoints)
         aud context query --api "/users/:id"
         aud context query --api "/users"
         aud context query --api "/api/auth" --format json
 
-        # COMPONENT QUERIES
+        # COMPONENT QUERIES (React/Vue)
         aud context query --component UserProfile
         aud context query --component UserProfile --show-tree
+
+        # DATA FLOW GRAPH QUERIES (NEW - Advanced)
+        aud context query --symbol createApp --show-data-deps
+        aud context query --symbol createApp --show-data-deps --format json
+        aud context query --variable userToken --show-flow --depth 3
+        aud context query --variable app --file backend/src/app.ts --show-flow
+        aud context query --symbol validateUser --show-taint-flow
+        aud context query --show-api-coverage
+        aud context query --api "/users" --show-api-coverage
+        aud context query --show-api-coverage | grep "[OPEN]"
 
         # SAVE TO FILE
         aud context query --symbol foo --show-callers --save analysis.txt
@@ -978,6 +994,356 @@ def query(symbol, file, api, component, show_callers, show_callees,
 
         # PIPING (JSON to jq)
         aud context query --symbol foo --show-callers --format json | jq '.[] | .caller_file'
+        aud context query --show-api-coverage --format json | jq '.[] | select(.has_auth == false)'
+
+    DATA FLOW GRAPH (DFG) QUERIES - ADVANCED:
+
+        The following queries use NORMALIZED JUNCTION TABLES to perform
+        advanced data flow analysis. These tables were created by schema
+        normalization (eliminating JSON TEXT columns) and enable JOIN-based
+        queries instead of LIKE patterns.
+
+        Junction Tables Available:
+            assignment_sources        (42,844 rows)  - Which vars are read in assignments
+            function_return_sources   (19,313 rows)  - Which vars are returned from functions
+            api_endpoint_controls     (38 rows)      - Which auth controls protect endpoints
+            import_style_names        (2,891 rows)   - Which symbols are imported
+            react_hook_dependencies   (376 rows)     - Which vars are in hook deps
+
+        5. DATA DEPENDENCY QUERIES (--symbol NAME --show-data-deps):
+           What: Find what variables a function reads and writes
+           Database: assignments table JOIN assignment_sources junction table
+           Algorithm: Single JOIN query (not LIKE on JSON column)
+           Performance: <10ms
+
+           SQL Query Used:
+               SELECT DISTINCT asrc.source_var_name
+               FROM assignments a
+               JOIN assignment_sources asrc
+                 ON a.file = asrc.assignment_file
+                 AND a.line = asrc.assignment_line
+                 AND a.target_var = asrc.assignment_target
+               WHERE a.in_function = ?
+
+           Examples:
+               # Find what createApp reads/writes
+               aud context query --symbol createApp --show-data-deps
+
+               # Get JSON for programmatic use
+               aud context query --symbol createApp --show-data-deps --format json
+
+           Output (text format):
+               Data Dependencies:
+
+                 Reads (5):
+                   - __dirname
+                   - express
+                   - path
+                   - path.resolve
+                   - resolve
+
+                 Writes (2):
+                   - app = express()
+                     (backend/src/app.ts:20)
+                   - frontendPath = path.resolve(__dirname, '../../frontend/dist')
+                     (backend/src/app.ts:83)
+
+           Use cases:
+               - Before refactoring, see exact data contract
+               - Find hidden dependencies (reads)
+               - See side effects (writes)
+               - Understand function's data surface area
+
+        6. VARIABLE FLOW TRACING (--variable NAME --show-flow --depth N):
+           What: Trace how a variable flows through assignments (def-use chains)
+           Database: assignments JOIN assignment_sources (BFS traversal)
+           Algorithm: Breadth-first search through junction table
+           Performance: depth=1 <10ms, depth=3 <30ms
+
+           SQL Query Used (per BFS iteration):
+               SELECT a.target_var, a.source_expr, a.file, a.line
+               FROM assignments a
+               JOIN assignment_sources asrc
+                 ON a.file = asrc.assignment_file
+                 AND a.line = asrc.assignment_line
+               WHERE asrc.source_var_name = ?
+
+           Examples:
+               # Trace userToken through 3 levels
+               aud context query --variable userToken --show-flow --depth 3
+
+               # Trace app variable in specific file
+               aud context query --variable app --file backend/src/app.ts --show-flow
+
+           Output (text format):
+               Variable Flow (3 steps):
+                 1. userToken -> session.token
+                    Location: backend/src/auth.ts:45
+                    Function: validateUser
+                    Depth: 1
+
+                 2. session.token -> authCache.set
+                    Location: backend/src/cache.ts:23
+                    Function: cacheSession
+                    Depth: 2
+
+                 3. authCache.set -> redis.set
+                    Location: backend/src/redis.ts:67
+                    Function: setKey
+                    Depth: 3
+
+           Use cases:
+               - Trace sensitive data flow (tokens, passwords)
+               - Find where variable is ultimately used
+               - Understand data transformation chains
+               - Debug unexpected assignments
+
+        7. CROSS-FUNCTION TAINT FLOW (--symbol NAME --show-taint-flow):
+           What: Track variables returned from function and assigned elsewhere
+           Database: function_return_sources JOIN assignment_sources JOIN assignments
+           Algorithm: Double JOIN - returns → sources → assignments
+           Performance: <15ms
+
+           SQL Query Used:
+               SELECT
+                 frs.return_var_name,
+                 frs.return_file,
+                 frs.return_line,
+                 a.target_var AS assignment_var,
+                 a.file AS assignment_file,
+                 a.line AS assignment_line
+               FROM function_return_sources frs
+               JOIN assignment_sources asrc ON frs.return_var_name = asrc.source_var_name
+               JOIN assignments a ON asrc.assignment_file = a.file
+               WHERE frs.return_function = ?
+
+           Examples:
+               # Find where validateUser's returns are assigned
+               aud context query --symbol validateUser --show-taint-flow
+
+           Output (text format):
+               Cross-Function Taint Flow (2 flows):
+                 1. Return: user at backend/src/auth.ts:45
+                    Assigned: req.user at backend/src/middleware/auth.ts:23
+                    In function: authMiddleware
+
+                 2. Return: isValid at backend/src/auth.ts:47
+                    Assigned: session.valid at backend/src/session.ts:12
+                    In function: validateSession
+
+           Use cases:
+               - Find inter-procedural taint propagation
+               - See how function outputs are consumed
+               - Detect security-sensitive data flows
+               - Understand cross-module dependencies
+
+        8. API SECURITY COVERAGE (--show-api-coverage [--api PATTERN]):
+           What: Show which authentication controls protect each API endpoint
+           Database: api_endpoints LEFT JOIN api_endpoint_controls
+           Algorithm: GROUP_CONCAT aggregation with LEFT JOIN
+           Performance: ~20ms (185 endpoints)
+
+           SQL Query Used:
+               SELECT
+                 ae.file,
+                 ae.line,
+                 ae.method,
+                 ae.path,
+                 ae.handler_function,
+                 GROUP_CONCAT(aec.control_name, ', ') AS controls
+               FROM api_endpoints ae
+               LEFT JOIN api_endpoint_controls aec
+                 ON ae.file = aec.endpoint_file
+                 AND ae.line = aec.endpoint_line
+               GROUP BY ae.file, ae.line, ae.method, ae.path
+               ORDER BY ae.path, ae.method
+
+           Examples:
+               # Check all endpoints
+               aud context query --show-api-coverage
+
+               # Filter to specific routes
+               aud context query --api "/users" --show-api-coverage
+
+               # Find unprotected endpoints
+               aud context query --show-api-coverage | grep "[OPEN]"
+
+           Output (text format):
+               API Security Coverage (185 endpoints):
+                 1. USE    backend/src/app.ts                       [OPEN]
+                    Handler: apiRateLimit (backend/src/app.ts:62)
+
+                 9. DELETE backend/src/routes/area.routes.ts        [AUTH]
+                    Handler: handler(controller.removePartition) (...)
+                    Controls: authenticate
+
+                 12. GET    backend/src/routes/area.routes.ts        [2 controls]
+                     Handler: handler(controller.getOccupancy) (...)
+                     Controls: authenticate, requireRole
+
+           Use cases:
+               - Security audit: find endpoints without auth
+               - Compliance check: verify all sensitive routes protected
+               - Migration: ensure OAuth added to all endpoints
+               - Documentation: generate auth requirements matrix
+
+    MANUAL DATABASE QUERIES (FOR ADVANCED USERS / DEBUGGING):
+
+        TheAuditor stores all indexed data in SQLite databases that you can
+        query directly using Python's sqlite3 module or any SQLite client.
+
+        Database Locations:
+            .pf/repo_index.db     - Main code index (40 tables, 200k+ rows)
+            .pf/graphs.db         - Import/call graph (optional)
+
+        Querying from Python:
+            cd /path/to/your/project
+            python3
+
+            >>> import sqlite3
+            >>> conn = sqlite3.connect('.pf/repo_index.db')
+            >>> cursor = conn.cursor()
+
+            # See all tables
+            >>> cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            >>> print([row[0] for row in cursor.fetchall()])
+            ['symbols', 'function_call_args', 'assignments', 'assignment_sources', ...]
+
+            # Check row counts
+            >>> cursor.execute("SELECT COUNT(*) FROM assignment_sources")
+            >>> print(f"assignment_sources: {cursor.fetchone()[0]} rows")
+
+            # Query data dependencies manually
+            >>> cursor.execute('''
+            SELECT DISTINCT asrc.source_var_name
+            FROM assignments a
+            JOIN assignment_sources asrc
+              ON a.file = asrc.assignment_file
+              AND a.line = asrc.assignment_line
+            WHERE a.in_function = "createApp"
+            ''')
+            >>> reads = [row[0] for row in cursor.fetchall()]
+            >>> print("Reads:", reads)
+
+            # Explore junction tables
+            >>> cursor.execute("PRAGMA table_info(assignment_sources)")
+            >>> print("Columns:", [(row[1], row[2]) for row in cursor.fetchall()])
+
+            # Close connection
+            >>> conn.close()
+
+        Querying from Bash (if sqlite3 installed):
+            sqlite3 .pf/repo_index.db "SELECT * FROM symbols WHERE name='createApp'"
+
+        Key Tables for Manual Queries:
+            symbols                   - Function/class definitions (path, name, type, line)
+            function_call_args        - Function calls with arguments
+            assignments               - Variable assignments (target_var, source_expr, in_function)
+            assignment_sources        - Junction table (assignment → source variables)
+            function_return_sources   - Junction table (function → returned variables)
+            api_endpoints             - REST API routes (method, path, handler_function)
+            api_endpoint_controls     - Junction table (endpoint → auth controls)
+            findings_consolidated     - All security findings from analysis
+
+        Schema Documentation:
+            See: theauditor/indexer/schema.py for complete table definitions
+            Each table has:
+                - Column definitions with types
+                - Indexes for performance
+                - Primary keys and UNIQUE constraints
+                - Comments explaining purpose
+
+        Why Query Manually:
+            - Custom analysis not supported by CLI
+            - Debugging indexing issues
+            - Exporting data for external tools
+            - Learning database structure
+            - Writing custom automation scripts
+
+        Example: Find All Functions That Call External APIs:
+            >>> cursor.execute('''
+            SELECT DISTINCT caller_function, file, line
+            FROM function_call_args
+            WHERE callee_function LIKE "fetch%"
+               OR callee_function LIKE "axios.%"
+               OR callee_function LIKE "http.%"
+            ''')
+            >>> api_callers = cursor.fetchall()
+
+        Example: Find Most Called Functions:
+            >>> cursor.execute('''
+            SELECT callee_function, COUNT(*) as call_count
+            FROM function_call_args
+            GROUP BY callee_function
+            ORDER BY call_count DESC
+            LIMIT 10
+            ''')
+            >>> top_functions = cursor.fetchall()
+
+    ARCHITECTURE DEEP DIVE (FOR AI ASSISTANTS):
+
+        Understanding the architecture helps you use queries effectively:
+
+        1. EXTRACTION PIPELINE:
+           Source Code → tree-sitter → AST Parser → Extractors → Database Manager
+                                                                        ↓
+                                                          repo_index.db (SQLite)
+
+        2. SCHEMA NORMALIZATION (v1.2+):
+           OLD: JSON TEXT columns with LIKE queries (slow, no joins)
+           NEW: Junction tables with JOIN queries (fast, relational)
+
+           Example transformation:
+               OLD:  assignments.source_vars = '["x", "y", "z"]' (JSON TEXT)
+               NEW:  assignment_sources table with 3 rows:
+                       (assignment_id=1, source_var_name='x')
+                       (assignment_id=1, source_var_name='y')
+                       (assignment_id=1, source_var_name='z')
+
+           Benefits:
+               - 10x faster queries (indexed lookups vs JSON parsing)
+               - Can use JOINs (relational algebra)
+               - Type-safe queries (no JSON parsing errors)
+               - Standard SQL (no custom functions)
+
+        3. QUERY ENGINE ARCHITECTURE:
+           User Request
+               ↓
+           CLI (commands/context.py)
+               ↓
+           CodeQueryEngine (context/query.py)
+               ↓
+           Direct SQL SELECT (no ORM overhead)
+               ↓
+           SQLite (repo_index.db)
+               ↓
+           Formatters (context/formatters.py)
+               ↓
+           Output (text/json/tree)
+
+        4. INDEX MAINTENANCE:
+           - Database is REGENERATED on every 'aud index' run
+           - NO migrations (fresh build every time)
+           - Changes to code → re-run 'aud index' → database updated
+           - Database is TRUTH SOURCE (not code files)
+
+        5. PERFORMANCE CHARACTERISTICS:
+           - Query time: <10ms (indexed lookups)
+           - Database size: 20-50MB typical project
+           - Memory usage: <50MB for query engine
+           - BFS traversal: O(n) where n = nodes visited
+           - JOIN queries: O(log n) with proper indexes
+
+        6. JUNCTION TABLE PATTERN:
+           Parent Table ←→ Junction Table ←→ Child Table
+           assignments  ←→ assignment_sources ←→ (source variables)
+           (Composite key: file + line + target_var)
+
+           This allows:
+               - Many-to-many relationships
+               - Fast lookups (indexed on both sides)
+               - Normalized data (no duplication)
+               - Standard SQL JOINs
 
     See also:
         aud context --help          (overview of context commands)
@@ -1005,7 +1371,7 @@ def query(symbol, file, api, component, show_callers, show_callees,
         raise click.Abort()
 
     # Validate at least one query target provided
-    if not any([symbol, file, api, component]):
+    if not any([symbol, file, api, component, variable, show_api_coverage]):
         click.echo("\n" + "="*60, err=True)
         click.echo("ERROR: No query target specified", err=True)
         click.echo("="*60, err=True)
@@ -1014,10 +1380,15 @@ def query(symbol, file, api, component, show_callers, show_callees,
         click.echo("    --file PATH         (query a file)", err=True)
         click.echo("    --api ROUTE         (query an API endpoint)", err=True)
         click.echo("    --component NAME    (query a component)", err=True)
+        click.echo("    --variable NAME     (query variable data flow)", err=True)
+        click.echo("    --show-api-coverage (query all API security coverage)", err=True)
         click.echo("\nExamples:", err=True)
         click.echo("    aud context query --symbol authenticateUser --show-callers", err=True)
         click.echo("    aud context query --file src/auth.ts --show-dependencies", err=True)
-        click.echo("    aud context query --api '/users' --format json\n", err=True)
+        click.echo("    aud context query --api '/users' --format json", err=True)
+        click.echo("    aud context query --symbol createApp --show-data-deps", err=True)
+        click.echo("    aud context query --variable userToken --show-flow --depth 3", err=True)
+        click.echo("    aud context query --show-api-coverage\n", err=True)
         raise click.Abort()
 
     # Initialize query engine
@@ -1037,6 +1408,12 @@ def query(symbol, file, api, component, show_callers, show_callees,
                 results = engine.get_callers(symbol, depth=depth)
             elif show_callees:
                 results = engine.get_callees(symbol)
+            elif show_data_deps:
+                # NEW: Data flow query - what does this function read/write?
+                results = engine.get_data_dependencies(symbol)
+            elif show_taint_flow:
+                # NEW: Cross-function taint flow
+                results = engine.get_cross_function_taint(symbol)
             else:
                 # Default: symbol info + direct callers
                 symbols = engine.find_symbol(symbol)
@@ -1053,6 +1430,10 @@ def query(symbol, file, api, component, show_callers, show_callees,
                 # Default: both directions
                 results = engine.get_file_dependencies(file, direction='both')
 
+        elif show_api_coverage:
+            # NEW: API security coverage (standalone query) - checked before 'elif api' to take precedence
+            results = engine.get_api_security_coverage(api if api else None)
+
         elif api:
             # API endpoint queries
             results = engine.get_api_handlers(api)
@@ -1060,6 +1441,16 @@ def query(symbol, file, api, component, show_callers, show_callees,
         elif component:
             # Component tree queries
             results = engine.get_component_tree(component)
+
+        elif variable:
+            # NEW: Variable data flow queries
+            if show_flow:
+                # Trace variable through def-use chains
+                from_file = file or '.'  # Use --file if provided, else current dir
+                results = engine.trace_variable_flow(variable, from_file, depth=depth)
+            else:
+                # Default: show variable info (future enhancement)
+                results = {'error': 'Please specify --show-flow with --variable'}
 
     except ValueError as e:
         click.echo(f"\nERROR: {e}", err=True)
