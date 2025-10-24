@@ -58,69 +58,17 @@ function extractCFG(sourceFile, ts) {
         // Try to get name from parent context for arrow functions
         if (parent) {
             const parentKind = ts.SyntaxKind[parent.kind];
-
-            // Case 1: const foo = () => {}
             if (parentKind === 'VariableDeclaration' && parent.name) {
                 const varName = parent.name.text || parent.name.escapedText || 'anonymous';
                 return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + varName : varName;
             }
-
-            // Case 2: { foo: () => {} }
             if (parentKind === 'PropertyAssignment' && parent.name) {
                 const propName = parent.name.text || parent.name.escapedText || 'anonymous';
                 return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + propName : propName;
             }
-
-            // Case 3: foo = () => {}
             if (parentKind === 'BinaryExpression' && parent.left) {
                 const leftText = parent.left.getText ? parent.left.getText(sourceFile) : '';
                 if (leftText) return leftText;
-            }
-
-            // COVERAGE FIX: Case 4: asyncHandler(() => {}) or .map(() => {})
-            // Root cause: 48% function loss due to unnamed callbacks
-            // Patterns: list = this.asyncHandler(async () => {}), array.map(x => x)
-            if (parentKind === 'CallExpression') {
-                // Get the function/method being called
-                let calleeName = '';
-                if (parent.expression) {
-                    const exprKind = ts.SyntaxKind[parent.expression.kind];
-
-                    // Method call: obj.method(callback)
-                    if (exprKind === 'PropertyAccessExpression' && parent.expression.name) {
-                        calleeName = parent.expression.name.text || parent.expression.name.escapedText || '';
-                    }
-                    // Function call: func(callback)
-                    else if (parent.expression.getText) {
-                        calleeName = parent.expression.getText(sourceFile).substring(0, 50);
-                    }
-                }
-
-                // Find argument position
-                let argPosition = 0;
-                if (parent.arguments) {
-                    for (let i = 0; i < parent.arguments.length; i++) {
-                        if (parent.arguments[i] === node) {
-                            argPosition = i;
-                            break;
-                        }
-                    }
-                }
-
-                // Generate name: methodName_callback or methodName_arg0
-                if (calleeName) {
-                    const baseName = calleeName.includes('.') ? calleeName.split('.').pop() : calleeName;
-                    const suffix = argPosition === 0 ? 'callback' : `arg${argPosition}`;
-                    const generatedName = `${baseName}_${suffix}`;
-                    return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + generatedName : generatedName;
-                }
-            }
-
-            // COVERAGE FIX: Case 5: class Foo { method = () => {} }
-            // PropertyDeclaration with arrow function initializer
-            if (parentKind === 'PropertyDeclaration' && parent.name) {
-                const propName = parent.name.text || parent.name.escapedText || 'anonymous';
-                return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + propName : propName;
             }
         }
 
@@ -160,11 +108,7 @@ function extractCFG(sourceFile, ts) {
         });
 
         function processNode(node, currentId, depth = 0) {
-            // COVERAGE FIX: Increased from 50 to 500 for deep React component nesting
-            // Evidence: buildHumanNarrative (146 blocks) hitting limit in 610-line file
-            // Modern React: hooks → callbacks → JSX → inline handlers = 100+ depth
-            // 500 = 10x safety margin for deterministic SAST (target 99%+ coverage)
-            if (depth > 500 || !node) {
+            if (depth > 50 || !node) {
                 return currentId;
             }
 
@@ -180,7 +124,7 @@ function extractCFG(sourceFile, ts) {
                     start_line: line + 1,
                     end_line: line + 1,
                     condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'condition',
-                    statements: [{type: 'if', line: line + 1, text: node.getText(sourceFile).substring(0, 200)}]
+                    statements: []
                 });
                 edges.push({source: currentId, target: condId, type: 'normal'});
 
@@ -219,7 +163,7 @@ function extractCFG(sourceFile, ts) {
                 blocks.push({
                     id: loopCondId, type: 'loop_condition', start_line: line + 1, end_line: line + 1,
                     condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'loop',
-                    statements: [{type: 'loop', line: line + 1, text: node.getText(sourceFile).substring(0, 200)}]
+                    statements: []
                 });
                 edges.push({source: currentId, target: loopCondId, type: 'normal'});
 
@@ -254,7 +198,7 @@ function extractCFG(sourceFile, ts) {
             }
             else if (kind === 'TryStatement') {
                 const tryId = getNextBlockId();
-                blocks.push({id: tryId, type: 'try', start_line: line + 1, end_line: line + 1, statements: [{type: 'try', line: line + 1, text: 'try'}]});
+                blocks.push({id: tryId, type: 'try', start_line: line + 1, end_line: line + 1, statements: []});
                 edges.push({source: currentId, target: tryId, type: 'normal'});
 
                 let tryBodyExitId = tryId;
@@ -275,7 +219,7 @@ function extractCFG(sourceFile, ts) {
 
                 if (node.catchClause) {
                     const catchId = getNextBlockId();
-                    blocks.push({id: catchId, type: 'except', start_line: line + 1, end_line: line + 1, statements: [{type: 'catch', line: line + 1, text: 'catch'}]});
+                    blocks.push({id: catchId, type: 'except', start_line: line + 1, end_line: line + 1, statements: []});
                     edges.push({source: tryId, target: catchId, type: 'exception'});
 
                     let catchBodyExitId = catchId;
@@ -310,111 +254,6 @@ function extractCFG(sourceFile, ts) {
 
                 return mergeId;
             }
-            else if (kind === 'SwitchStatement') {
-                // COVERAGE FIX: Add switch statement handler
-                // Evidence: 43 SwitchStatements detected but treated as generic statements
-                // Impact: ~300 missing blocks (43 × ~7 blocks per switch)
-                const switchId = getNextBlockId();
-                blocks.push({
-                    id: switchId,
-                    type: 'condition',
-                    start_line: line + 1,
-                    end_line: line + 1,
-                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'switch',
-                    statements: [{type: 'switch', line: line + 1, text: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'switch'}]
-                });
-                edges.push({source: currentId, target: switchId, type: 'normal'});
-
-                const mergeId = getNextBlockId();
-                blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1, statements: []});
-
-                if (node.caseBlock && node.caseBlock.clauses) {
-                    let lastCaseExitId = null;
-
-                    for (const clause of node.caseBlock.clauses) {
-                        const clauseKind = ts.SyntaxKind[clause.kind];
-                        const isDefault = clauseKind === 'DefaultClause';
-
-                        const caseBlockId = getNextBlockId();
-                        blocks.push({
-                            id: caseBlockId,
-                            type: 'basic',
-                            start_line: line + 1,
-                            end_line: line + 1,
-                            statements: []
-                        });
-
-                        // Edge from switch to case (or from previous case for fallthrough)
-                        if (lastCaseExitId) {
-                            // Fallthrough from previous case
-                            edges.push({source: lastCaseExitId, target: caseBlockId, type: 'fallthrough'});
-                        }
-                        edges.push({source: switchId, target: caseBlockId, type: isDefault ? 'default' : 'case'});
-
-                        // Process case body
-                        let caseExitId = caseBlockId;
-                        if (clause.statements && clause.statements.length > 0) {
-                            for (const stmt of clause.statements) {
-                                if (caseExitId) {
-                                    caseExitId = processNode(stmt, caseExitId, depth + 1);
-                                }
-                            }
-                        }
-
-                        // Check if case has break (terminal) or falls through
-                        const hasBreak = clause.statements && clause.statements.some(
-                            s => ts.SyntaxKind[s.kind] === 'BreakStatement'
-                        );
-
-                        if (hasBreak) {
-                            // Break jumps to merge (handled by BreakStatement handler below)
-                            lastCaseExitId = null;
-                        } else {
-                            // Fallthrough to next case
-                            lastCaseExitId = caseExitId;
-                        }
-                    }
-
-                    // If last case doesn't have break, connect to merge
-                    if (lastCaseExitId) {
-                        edges.push({source: lastCaseExitId, target: mergeId, type: 'normal'});
-                    }
-                }
-
-                return mergeId;
-            }
-            else if (kind === 'BreakStatement') {
-                // COVERAGE FIX: Add break statement handler
-                // Evidence: 66 BreakStatements detected
-                // Creates proper exit edges from loops/switches
-                const breakId = getNextBlockId();
-                blocks.push({
-                    id: breakId,
-                    type: 'basic',
-                    start_line: line + 1,
-                    end_line: line + 1,
-                    statements: [{type: 'break', line: line + 1, text: 'break'}]
-                });
-                edges.push({source: currentId, target: breakId, type: 'normal'});
-                // Note: Edge to merge block should be added by enclosing loop/switch
-                return null; // Terminal for this path
-            }
-            else if (kind === 'ThrowStatement') {
-                // COVERAGE FIX: Add throw statement handler
-                // Evidence: 290 ThrowStatements detected
-                // Impact: ~290 missing blocks
-                const throwId = getNextBlockId();
-                blocks.push({
-                    id: throwId,
-                    type: 'basic',
-                    start_line: line + 1,
-                    end_line: line + 1,
-                    statements: [{type: 'throw', line: line + 1, text: node.getText(sourceFile).substring(0, 200)}]
-                });
-                edges.push({source: currentId, target: throwId, type: 'normal'});
-                edges.push({source: throwId, target: exitId, type: 'exception'});
-                return null; // Terminal block
-            }
             // JSX nodes - treat as normal statements (NOT control flow)
             else if (kind.startsWith('Jsx')) {
                 // FIX 4: Add JSX statement to current block
@@ -448,20 +287,20 @@ function extractCFG(sourceFile, ts) {
                 });
                 return lastId;
             }
-            // DATA QUALITY FIX: DELETED Default case that extracted every AST node
-            // Bug: Was recording Identifier, PropertyAccess, etc. as "statements"
-            // Result: 139,234 nodes vs historical 4,994 control flow statements (2788% garbage)
-            //
-            // Evidence from block 191 (one function):
-            //   - Actual statements: 13
-            //   - Database claimed: 380 (29x over-extraction)
-            //   - Single line "const x = y" became 11 database entries
-            //
-            // Historical implementation: Only extracted control flow statements (if, return, try, loop, switch)
-            // Current fix: ONLY extract control flow nodes explicitly (handled above), IGNORE everything else
-            //
-            // If this node is not control flow, simply traverse children without recording:
+            // Default: This is a statement
             else {
+                // FIX 4: Add statement to current basic block
+                const currentBlock = blocks.find(b => b.id === currentId);
+                if (currentBlock && (currentBlock.type === 'basic' || currentBlock.type === 'loop_body' || currentBlock.type === 'try' || currentBlock.type === 'except' || currentBlock.type === 'finally' || currentBlock.type === 'entry')) {
+                    currentBlock.statements = currentBlock.statements || [];
+                    currentBlock.statements.push({
+                        type: kind,
+                        line: line + 1,
+                        text: node.getText(sourceFile).substring(0, 200)
+                    });
+                }
+
+                // Continue traversal for nested structures
                 let lastId = currentId;
                 ts.forEachChild(node, child => {
                     if (lastId) {
@@ -501,10 +340,7 @@ function extractCFG(sourceFile, ts) {
     }
 
     function visit(node, depth = 0, parent = null) {
-        // COVERAGE FIX: Increased from 100 to 500 to match processNode() depth limit
-        // Root cause: 48% function loss (1414/2720) due to nested callbacks/methods beyond depth 100
-        // Must match processNode() limit to discover ALL functions before building their CFGs
-        if (depth > 500 || !node) return;
+        if (depth > 100 || !node) return;
 
         const kind = ts.SyntaxKind[node.kind];
 
@@ -523,11 +359,7 @@ function extractCFG(sourceFile, ts) {
             kind === 'Constructor' || kind === 'GetAccessor' || kind === 'SetAccessor') {
 
             const cfg = buildFunctionCFG(node, class_stack, parent);
-            // COVERAGE FIX: Removed anonymous filter - name generation now handles callbacks
-            // Historical: Had 2,720 functions with generated names (asyncHandler_callback, map_callback)
-            // Current: Was rejecting 1,306 functions (48% loss) due to 'anonymous' filter
-            // With enhanced getFunctionName(), callbacks now get generated names
-            if (cfg) {
+            if (cfg && cfg.function_name !== 'anonymous') {
                 cfgs.push(cfg);
             }
             // FIX 1: REMOVED return statement - allows nested function detection
@@ -538,8 +370,7 @@ function extractCFG(sourceFile, ts) {
             const initKind = ts.SyntaxKind[node.initializer.kind];
             if (initKind === 'ArrowFunction' || initKind === 'FunctionExpression') {
                 const cfg = buildFunctionCFG(node.initializer, class_stack, node);
-                // COVERAGE FIX: Removed anonymous filter (same reason as above)
-                if (cfg) {
+                if (cfg && cfg.function_name !== 'anonymous') {
                     cfgs.push(cfg);
                 }
                 // FIX 1: REMOVED return statement
