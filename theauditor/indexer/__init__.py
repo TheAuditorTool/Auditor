@@ -482,7 +482,7 @@ class IndexerOrchestrator:
                     continue
 
                 # DEBUG: Check if AST is present in tree
-                import os
+
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     has_ast = False
                     if isinstance(tree, dict):
@@ -632,7 +632,7 @@ class IndexerOrchestrator:
             js_ts_cache: Cache of pre-parsed JS/TS ASTs
         """
         # DEBUG: Trace file processing
-        import os, sys
+        import sys
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             print(f"[TRACE] _process_file() called for: {file_info['path']}", file=sys.stderr)
 
@@ -681,7 +681,7 @@ class IndexerOrchestrator:
             return  # No extractor for this file type
 
         # DEBUG: Track file processing
-        import os
+
         if os.getenv("THEAUDITOR_DEBUG"):
             print(f"[DEBUG ORCHESTRATOR] _process_file called for: {file_info['path']}")
 
@@ -694,7 +694,7 @@ class IndexerOrchestrator:
             return
         
         # Store extracted data in database
-        import os, sys
+        import sys
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             num_assignments = len(extracted.get('assignments', []))
             print(f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments", file=sys.stderr)
@@ -762,7 +762,7 @@ class IndexerOrchestrator:
         """
         # Store imports/references
         if 'imports' in extracted:
-            import os
+
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Processing {len(extracted['imports'])} imports for {file_path}")
             for import_tuple in extracted['imports']:
