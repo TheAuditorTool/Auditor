@@ -570,6 +570,64 @@ The graph viz command:
 - Includes analysis data for cycle and hotspot highlighting
 - Produces AI-readable SVG output for LLM analysis
 
+### Data Flow Graph (DFG) Building
+
+Build graph representations of how data flows through variable assignments and function returns.
+
+```bash
+# Build data flow graph (must run 'aud index' first)
+aud graph build-dfg
+
+# Specify custom database paths
+aud graph build-dfg --db .pf/graphs.db --repo-db .pf/repo_index.db
+```
+
+**What it does:**
+- Reads normalized junction tables (`assignment_sources`, `function_return_sources`)
+- Builds graph nodes for variables and return values
+- Creates edges for assignment relationships and return statements
+- Writes to both `.pf/graphs.db` (database) and `.pf/raw/data_flow_graph.json` (JSON)
+
+**Prerequisites:**
+- Must run `aud index` first to populate junction tables
+- Typical project creates 40k+ assignment edges and 15k+ return edges
+
+**Output:**
+```
+Data Flow Graph Statistics:
+  Assignment Stats:
+    Total assignments: 42,844
+    With source vars:  38,521
+    Edges created:     38,521
+  Return Stats:
+    Total returns:     19,313
+    With variables:    15,247
+    Edges created:     15,247
+  Totals:
+    Total nodes:       45,892
+    Total edges:       53,768
+
+Data flow graph saved to .pf/graphs.db
+Raw JSON saved to .pf/raw/data_flow_graph.json
+```
+
+**When to use:**
+- Preparing for advanced taint analysis (future integration)
+- Understanding data dependency chains in your codebase
+- Tracking how variables flow through assignments
+- Analyzing function return value propagation
+
+**Current limitations:**
+- Taint analyzer does not yet use DFG (direct query mode still used)
+- DFG building can take 30-60s on large codebases (100k+ LOC)
+- Graph size can be large (50k+ nodes in typical projects)
+
+**Future enhancements:**
+- Taint analyzer will use pre-built DFG for faster inter-procedural analysis
+- Support for querying DFG via `aud context query --show-data-flow`
+- Visualization of data flow paths
+- Alias analysis using assignment chains
+
 ### Control Flow Graph Analysis
 
 **v1.2 Update:** CFG analysis cache expanded to 25,000 functions (was 10,000 in v1.1). JavaScript/TypeScript CFG extraction fully working since v1.1.

@@ -428,13 +428,30 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
 
         cursor.execute("""
-            SELECT file, line, method, pattern, path, controls, has_auth, handler_function
-            FROM api_endpoints
-            WHERE path LIKE ? OR pattern LIKE ?
-            ORDER BY path, method
+            SELECT ae.file, ae.line, ae.method, ae.pattern, ae.path, ae.handler_function,
+                   GROUP_CONCAT(aec.control_name, ', ') AS controls,
+                   CASE WHEN COUNT(aec.control_name) > 0 THEN 1 ELSE 0 END AS has_auth,
+                   COUNT(aec.control_name) AS control_count
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+              ON ae.file = aec.endpoint_file
+              AND ae.line = aec.endpoint_line
+            WHERE ae.path LIKE ? OR ae.pattern LIKE ?
+            GROUP BY ae.file, ae.line, ae.method, ae.path
+            ORDER BY ae.path, ae.method
         """, (f'%{route_pattern}%', f'%{route_pattern}%'))
 
-        return [dict(row) for row in cursor.fetchall()]
+        results = []
+        for row in cursor.fetchall():
+            row_dict = dict(row)
+            # Parse controls from GROUP_CONCAT string to list
+            controls_str = row_dict.get('controls')
+            if controls_str:
+                row_dict['controls'] = [c.strip() for c in controls_str.split(',')]
+            else:
+                row_dict['controls'] = []
+            results.append(row_dict)
+        return results
 
     def get_component_tree(self, component_name: str) -> Dict:
         """Get React component hierarchy.
@@ -573,6 +590,272 @@ class CodeQueryEngine:
                 return {
                     'error': 'assignments table not found. Run: aud index'
                 }
+            raise  # Re-raise unexpected errors
+
+    def trace_variable_flow(
+        self,
+        var_name: str,
+        from_file: str,
+        depth: int = 3
+    ) -> List[Dict]:
+        """Trace variable through def-use chains using assignment_sources.
+
+        Uses BFS traversal through assignment_sources junction table to find
+        how variables flow through assignments (X = Y → Z = X → A = Z).
+
+        This is PURE DATA FLOW analysis (what data moves where), complementing
+        get_callers() which is CONTROL FLOW analysis (who calls what).
+
+        Args:
+            var_name: Variable name to trace
+            from_file: Starting file path (can be partial)
+            depth: Traversal depth (1-5, default=3)
+
+        Returns:
+            List of flow step dicts with from_var, to_var, expression, file, line, depth
+
+        Example:
+            # Trace how userToken flows through code
+            flow = engine.trace_variable_flow("userToken", "auth.ts", depth=3)
+            for step in flow:
+                print(f"{step['from_var']} -> {step['to_var']} at {step['file']}:{step['line']}")
+
+        Raises:
+            ValueError: If depth < 1 or depth > 5 or var_name empty
+        """
+        if not var_name:
+            raise ValueError("var_name cannot be empty")
+        if depth < 1 or depth > 5:
+            raise ValueError("Depth must be between 1 and 5")
+
+        cursor = self.repo_db.cursor()
+        flows = []
+        queue = deque([(var_name, from_file, 0)])
+        visited = set()
+
+        try:
+            while queue:
+                current_var, current_file, current_depth = queue.popleft()
+
+                if current_depth >= depth:
+                    continue
+
+                # Create visited key
+                visit_key = (current_var, current_file)
+                if visit_key in visited:
+                    continue
+                visited.add(visit_key)
+
+                # Find assignments that USE this variable (via junction table)
+                # assignment_sources tells us which variables are read in an assignment
+                cursor.execute("""
+                    SELECT
+                        a.target_var,
+                        a.source_expr,
+                        a.file,
+                        a.line,
+                        a.in_function,
+                        asrc.source_var_name
+                    FROM assignments a
+                    JOIN assignment_sources asrc
+                        ON a.file = asrc.assignment_file
+                        AND a.line = asrc.assignment_line
+                        AND a.target_var = asrc.assignment_target
+                    WHERE asrc.source_var_name = ?
+                        AND a.file LIKE ?
+                """, (current_var, f'%{current_file}%'))
+
+                for row in cursor.fetchall():
+                    flow_step = {
+                        'from_var': current_var,
+                        'to_var': row['target_var'],
+                        'expression': row['source_expr'],
+                        'file': row['file'],
+                        'line': row['line'],
+                        'function': row['in_function'] or 'global',
+                        'depth': current_depth + 1
+                    }
+                    flows.append(flow_step)
+
+                    # Continue BFS to next depth
+                    if current_depth + 1 < depth:
+                        queue.append((row['target_var'], row['file'], current_depth + 1))
+
+            return flows
+
+        except sqlite3.OperationalError as e:
+            if 'no such table' in str(e):
+                return [{
+                    'error': 'assignment_sources table not found',
+                    'message': 'Junction table missing - run "aud index" to rebuild database',
+                    'hint': 'Schema normalization may not be complete'
+                }]
+            raise  # Re-raise unexpected errors
+
+    def get_cross_function_taint(self, function_name: str) -> List[Dict]:
+        """Track variables returned from function and assigned elsewhere.
+
+        This is ADVANCED DATA FLOW: combines function_return_sources with assignment_sources
+        to find cross-function taint propagation (function A returns X → function B assigns X to Y).
+
+        One of the 7 advanced query capabilities unlocked by schema normalization.
+
+        Args:
+            function_name: Function whose return values to trace
+
+        Returns:
+            List of cross-function flow dicts with return_var, assignment_var, files, lines
+
+        Example:
+            # Track how validateUser's returns propagate
+            flows = engine.get_cross_function_taint("validateUser")
+            for flow in flows:
+                print(f"Returns {flow['return_var']} -> Assigned to {flow['assignment_var']}")
+
+        Raises:
+            ValueError: If function_name is empty
+        """
+        if not function_name:
+            raise ValueError("function_name cannot be empty")
+
+        cursor = self.repo_db.cursor()
+
+        try:
+            # Find variables returned by this function, then where they're assigned
+            cursor.execute("""
+                SELECT
+                    frs.return_var_name,
+                    frs.return_file,
+                    frs.return_line,
+                    a.target_var AS assignment_var,
+                    a.file AS assignment_file,
+                    a.line AS assignment_line,
+                    a.in_function AS assigned_in_function
+                FROM function_return_sources frs
+                JOIN assignment_sources asrc
+                    ON frs.return_var_name = asrc.source_var_name
+                JOIN assignments a
+                    ON asrc.assignment_file = a.file
+                    AND asrc.assignment_line = a.line
+                    AND asrc.assignment_target = a.target_var
+                WHERE frs.return_function = ?
+                ORDER BY frs.return_line, a.line
+            """, (function_name,))
+
+            flows = []
+            for row in cursor.fetchall():
+                flows.append({
+                    'return_var': row['return_var_name'],
+                    'return_file': row['return_file'],
+                    'return_line': row['return_line'],
+                    'assignment_var': row['assignment_var'],
+                    'assignment_file': row['assignment_file'],
+                    'assignment_line': row['assignment_line'],
+                    'assigned_in_function': row['assigned_in_function'] or 'global',
+                    'flow_type': 'cross_function_taint'
+                })
+
+            return flows
+
+        except sqlite3.OperationalError as e:
+            if 'no such table' in str(e):
+                return [{
+                    'error': 'function_return_sources table not found',
+                    'message': 'Junction table missing - run "aud index" to rebuild database',
+                    'hint': 'Schema normalization may not be complete'
+                }]
+            raise  # Re-raise unexpected errors
+
+    def get_api_security_coverage(self, route_pattern: Optional[str] = None) -> List[Dict]:
+        """Find API endpoints and their authentication controls via junction table.
+
+        Uses api_endpoint_controls junction table to show which auth mechanisms
+        protect each endpoint (JWT, session, API key, etc.).
+
+        One of the 7 advanced query capabilities unlocked by schema normalization.
+
+        Args:
+            route_pattern: Optional route pattern to filter (partial match)
+
+        Returns:
+            List of endpoint dicts with route, method, and controls list
+
+        Example:
+            # Check auth coverage for /users endpoints
+            coverage = engine.get_api_security_coverage("/users")
+            for ep in coverage:
+                print(f"{ep['method']} {ep['route']}: {len(ep['controls'])} controls")
+
+        Raises:
+            None - gracefully returns empty list if tables missing
+        """
+        cursor = self.repo_db.cursor()
+
+        try:
+            if route_pattern:
+                # Query with filter (check both pattern and path for flexibility)
+                cursor.execute("""
+                    SELECT
+                        ae.file,
+                        ae.line,
+                        ae.method,
+                        ae.pattern,
+                        ae.path,
+                        ae.handler_function,
+                        GROUP_CONCAT(aec.control_name, ', ') AS controls
+                    FROM api_endpoints ae
+                    LEFT JOIN api_endpoint_controls aec
+                        ON ae.file = aec.endpoint_file
+                        AND ae.line = aec.endpoint_line
+                    WHERE ae.pattern LIKE ? OR ae.path LIKE ?
+                    GROUP BY ae.file, ae.line, ae.method, ae.path
+                    ORDER BY ae.path, ae.method
+                """, (f'%{route_pattern}%', f'%{route_pattern}%'))
+            else:
+                # Query all
+                cursor.execute("""
+                    SELECT
+                        ae.file,
+                        ae.line,
+                        ae.method,
+                        ae.pattern,
+                        ae.path,
+                        ae.handler_function,
+                        GROUP_CONCAT(aec.control_name, ', ') AS controls
+                    FROM api_endpoints ae
+                    LEFT JOIN api_endpoint_controls aec
+                        ON ae.file = aec.endpoint_file
+                        AND ae.line = aec.endpoint_line
+                    GROUP BY ae.file, ae.line, ae.method, ae.path
+                    ORDER BY ae.path, ae.method
+                """)
+
+            endpoints = []
+            for row in cursor.fetchall():
+                controls_str = row['controls'] or ''
+                controls_list = [c.strip() for c in controls_str.split(',') if c.strip()]
+
+                endpoints.append({
+                    'file': row['file'],
+                    'line': row['line'],
+                    'method': row['method'],
+                    'pattern': row['pattern'],
+                    'path': row['path'],
+                    'handler_function': row['handler_function'],
+                    'controls': controls_list,
+                    'control_count': len(controls_list),
+                    'has_auth': len(controls_list) > 0
+                })
+
+            return endpoints
+
+        except sqlite3.OperationalError as e:
+            if 'no such table' in str(e):
+                return [{
+                    'error': 'api_endpoints or api_endpoint_controls table not found',
+                    'message': 'Run "aud index" to build API endpoint data',
+                    'hint': 'API analysis requires REST framework detection'
+                }]
             raise  # Re-raise unexpected errors
 
     def get_findings(
