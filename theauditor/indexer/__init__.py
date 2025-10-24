@@ -580,8 +580,8 @@ class IndexerOrchestrator:
 
                         # Store statements for this block
                         for stmt in block.get('statements', []):
-                            self.db_manager.add_cfg_block_statement(
-                                file_path_str, real_id,
+                            self.db_manager.add_cfg_statement(
+                                real_id,
                                 stmt['type'],
                                 stmt['line'],
                                 stmt.get('text')
