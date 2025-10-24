@@ -2498,9 +2498,16 @@ async function main() {{
                     const apiEndpoints = extractAPIEndpoints(functionCallArgs);
 
                     // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
-                    console.error(`[DEBUG JS BATCH] Extracting CFG for ${{fileInfo.original}}`);
-                    const cfg = extractCFG(sourceFile, ts);
-                    console.error(`[DEBUG JS BATCH] Extracted ${{cfg.length}} CFGs from ${{fileInfo.original}}`);
+                    // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
+                    // The 'preserved' batch is for JSX-specific symbol extraction only
+                    let cfg = [];
+                    if (jsxMode !== 'preserved') {{
+                        console.error(`[DEBUG JS BATCH] Extracting CFG for ${{fileInfo.original}} (jsxMode=${{jsxMode}})`);
+                        cfg = extractCFG(sourceFile, ts);
+                        console.error(`[DEBUG JS BATCH] Extracted ${{cfg.length}} CFGs from ${{fileInfo.original}}`);
+                    }} else {{
+                        console.error(`[DEBUG JS BATCH] Skipping CFG for ${{fileInfo.original}} (jsxMode=preserved, CFG already extracted in first batch)`);
+                    }}
 
                     // Count nodes for complexity metrics
                     const nodeCount = countNodes(sourceFile, ts);
@@ -2834,7 +2841,15 @@ try {{
                 const apiEndpoints = extractAPIEndpoints(functionCallArgs);
 
                 // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
-                const cfg = extractCFG(sourceFile, ts);
+                // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
+                // The 'preserved' batch is for JSX-specific symbol extraction only
+                let cfg = [];
+                if (jsxMode !== 'preserved') {{
+                    cfg = extractCFG(sourceFile, ts);
+                }} else {{
+                    // CFG already extracted in first batch, skip to avoid duplicates
+                    cfg = [];
+                }}
 
                 // Count nodes for complexity metrics
                 const nodeCount = countNodes(sourceFile, ts);
