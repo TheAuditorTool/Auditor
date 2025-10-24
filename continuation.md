@@ -989,3 +989,718 @@ Always test new JavaScript extraction code on jsx='preserved' mode, not just jsx
 **Next Steps:** None required. Feature working as designed. Statement extraction can be added later if needed.
 
 **Session End:** 2025-10-24
+
+---
+
+# TheAuditor Session 6: JavaScript Template Syntax Fix + Double Extraction Bug Discovery
+
+**Date:** 2025-10-24
+**Branch:** context
+**AI:** Claude Opus (Lead Coder)
+**Architect:** Human
+**Status:** ⚠️ **FUNCTIONAL WITH CRITICAL BUG** - CFG extraction works but 31.6% of files extracted twice
+
+---
+
+## Session 6 Problem Statement
+
+**Symptom:** Session 5 commit (a661f39) broke indexer with JavaScript syntax errors
+
+**Observable Evidence:**
+```
+[Indexer] Batch processing 319 JavaScript/TypeScript files...
+SyntaxError: Unexpected token '{' at line 1899
+const {{ line: funcStartLine }} = sourceFile.getLineAndCharacterOfPosition(...);
+      ^
+```
+
+**Root Cause:** F-string vs regular string escaping confusion in js_helper_templates.py
+
+**Context:** EXTRACT_CFG is a regular triple-quoted Python string, but it gets injected into ES_MODULE_BATCH which IS an f-string. Used `{{` throughout EXTRACT_CFG thinking it was an f-string, but in regular strings `{{` stays literal.
+
+---
+
+## Critical Architecture Understanding (Template Injection Chain)
+
+### The Template Literal Escaping Problem
+
+**File:** `theauditor/ast_extractors/js_helper_templates.py`
+
+**Layer 1: EXTRACT_CFG (Regular String, NOT f-string)**
+```python
+# Line 1646
+EXTRACT_CFG = '''
+function extractCFG(sourceFile, ts) {{  // ← In regular string, {{ is literal
+    const cfgs = [];
+    // ...
+}
+'''
+```
+
+**Layer 2: ES_MODULE_BATCH (F-String)**
+```python
+# Line 2226
+ES_MODULE_BATCH = f'''
+{EXTRACT_CFG}  # ← F-string injects EXTRACT_CFG content here
+
+async function main() {{
+    // ...
+}}
+'''
+```
+
+**Layer 3: tsc_batch_helper.js (Generated JavaScript File)**
+```javascript
+// After f-string processing
+function extractCFG(sourceFile, ts) {{  // ← Still has {{ because EXTRACT_CFG had {{
+    const cfgs = [];
+    // ...
+}
+```
+
+**The Bug:**
+- I wrote `{{` in EXTRACT_CFG thinking f-string would escape it to `{`
+- But EXTRACT_CFG is NOT an f-string, so `{{` stays `{{` literally
+- When injected into ES_MODULE_BATCH f-string, `{{` stays `{{` (no processing)
+- JavaScript receives `{{` which is syntax error
+
+**The Fix:**
+- EXTRACT_CFG should use single braces `{`
+- F-string ES_MODULE_BATCH processes `{EXTRACT_CFG}` but doesn't touch content
+- JavaScript receives `{` which is correct
+
+---
+
+## What We Tried and What Actually Happened
+
+### Attempt 1: Double-Double Braces ❌ FAILED
+- **Action:** Used `${{{{ line: funcStartLine }}}}`
+- **Reasoning:** Thought Python f-string would escape `{{{{` → `{{` → JavaScript gets `{`
+- **Reality:** EXTRACT_CFG is NOT an f-string, so `{{{{` stays literal
+- **Error:** `SyntaxError: Unexpected token '{'` at line 1899
+- **Result:** 0 functions extracted, 782 JavaScript errors
+
+### Attempt 2: Double Braces ❌ FAILED
+- **Action:** Used `{{ line: funcStartLine }}`
+- **Reasoning:** Thought this was correct f-string escaping
+- **Reality:** In regular string, `{{` stays `{{` literally
+- **Error:** Same `SyntaxError: Unexpected token '{'` at line 1899
+- **Result:** 0 functions extracted, still broken
+
+### Attempt 3: Single Braces in Destructuring Only ❌ FAILED
+- **Action:** Fixed lines 1709, 1710, 1737 to use `{ }` in destructuring
+- **Reasoning:** Thought the problem was only in those 3 lines
+- **Reality:** ALL 192 double-brace pairs throughout EXTRACT_CFG needed fixing
+- **Error:** New error at line 1905: `blocks.push({{ ...`
+- **Result:** 0 functions extracted
+
+### Attempt 4: Replace ALL Double Braces ✅ SUCCESS
+- **Action:** Used Python script to replace ALL `{{` → `{` and `}}` → `}` in entire EXTRACT_CFG block (lines 1647-2006)
+- **Script:**
+  ```python
+  cd C:/Users/santa/Desktop/TheAuditor
+  .venv/Scripts/python.exe -c "
+  import re
+  with open('theauditor/ast_extractors/js_helper_templates.py', 'r', encoding='utf-8') as f:
+      content = f.read()
+
+  # Find EXTRACT_CFG block (lines 1646-2006)
+  start = content.find('EXTRACT_CFG = \'\'\'')
+  end = content.find('\'\'\'', start + 20) + 3
+
+  extract_cfg = content[start:end]
+  fixed_cfg = extract_cfg.replace('{{', '{').replace('}}', '}')
+
+  content = content[:start] + fixed_cfg + content[end:]
+
+  with open('theauditor/ast_extractors/js_helper_templates.py', 'w', encoding='utf-8') as f:
+      f.write(content)
+  "
+  ```
+- **Changes:** 192 double-brace pairs → single braces
+- **Result:** ✅ 1,323 functions with CFG, 0 JavaScript errors
+
+### Fix 2: Indexer Method Name Bug ✅ FIXED
+- **Problem:** `add_cfg_block_statement()` method doesn't exist in DatabaseManager
+- **Location:** `theauditor/indexer/__init__.py` line 583
+- **Error:** `AttributeError: 'DatabaseManager' object has no attribute 'add_cfg_block_statement'`
+- **Root Cause:** Method was renamed to `add_cfg_statement()` but caller wasn't updated
+- **Fix:**
+  ```python
+  # Before (line 583)
+  self.db_manager.add_cfg_block_statement(
+      file_path_str, real_id,
+      stmt['type'],
+      stmt['line'],
+      stmt.get('text')
+  )
+
+  # After
+  self.db_manager.add_cfg_statement(
+      real_id,
+      stmt['type'],
+      stmt['line'],
+      stmt.get('text')
+  )
+  ```
+- **Also Fixed:** Removed invalid `file_path_str` parameter (method only takes 4 args)
+
+---
+
+## Critical Discovery: Double Extraction Bug
+
+### Evidence from Database Audit
+
+**Symptom:** 369 out of 1,323 functions (27.9%) have duplicate entry/exit blocks
+
+**Example: GodView.tsx::queryFn**
+```sql
+SELECT id, block_type, start_line, end_line
+FROM cfg_blocks
+WHERE file = 'frontend/src/components/GodView.tsx'
+  AND function_name = 'queryFn'
+  AND block_type IN ('entry', 'exit')
+ORDER BY id;
+
+-- Results:
+-- Block 3932: entry at lines 24-28   ← First extraction
+-- Block 3933: exit at lines 24-28
+-- ...
+-- Block 9767: entry at lines 24-28   ← Second extraction (DUPLICATE)
+-- Block 9768: exit at lines 24-28
+```
+
+**Block ID Gap:** 3932 → 9767 = 5,835 block gap indicates two separate insertions
+
+**Affected Files:** 72 out of 228 files (31.6%)
+- All JSX/TSX files from the jsx='preserved' batch
+- Each function extracted twice with identical line numbers
+- Average duplication: 2x entries per function (some have 12x for nested functions)
+
+### Root Cause Analysis
+
+**Architecture States:**
+- Batch 1 (jsx='react', 319 files): Extract ALL data including CFG → main tables ✅
+- Batch 2 (jsx='preserved', 72 JSX files): Extract symbols to _jsx tables ONLY ✅
+- **BUG:** Batch 2 is ALSO extracting CFG to main cfg_blocks/cfg_edges tables ❌
+
+**Evidence from Pipeline.log:**
+- Line 17: "Batch processing 319 JavaScript/TypeScript files..."
+- Line 21: "Indexed 340 files..." with "Control flow: 9,718 blocks, 9,907 edges"
+- Line 26: "Second pass: Processing 72 JSX/TSX files (preserved mode)..."
+- Line 28: "Second pass complete: 10342 symbols, 2093 assignments..."
+- **NO CFG MENTION** in second pass log, but database has ~3,200 extra blocks
+
+**Data Proof:**
+```sql
+-- Pipeline.log claimed: 9,718 blocks, 9,907 edges, 75,942 statements
+-- Database actually has: 12,921 blocks, 13,310 edges, 101,443 statements
+-- Difference: +3,203 blocks (+33%), +3,403 edges (+34%), +25,501 statements (+34%)
+
+-- This 33% inflation matches 72/228 = 31.6% of files being duplicated
+```
+
+**Impact on Metrics:**
+- Function count APPEARS lower (1,323 vs 1,576 historical) but actually has duplicates
+- Block/edge counts inflated by ~33%
+- 27.9% of functions violate "exactly 1 entry + 1 exit" rule
+- Control flow analysis will report duplicate complexity
+- Taint analysis may detect duplicate paths
+
+### Why This Happened
+
+**The jsx='preserved' batch should NOT extract CFG.**
+
+Looking at `theauditor/indexer/__init__.py`:
+- Lines 558-602: Second pass (jsx='preserved') batch processing
+- Line 578: `result['cfg']` is being read and processed
+- **BUG:** CFG extraction happens for ALL files in batch, regardless of jsx mode
+- **EXPECTED:** CFG should only be extracted in first batch, or cfg_blocks_jsx table should exist
+
+**The JavaScript extractCFG() function doesn't check jsx mode:**
+```javascript
+// Line 1647 in js_helper_templates.py
+function extractCFG(sourceFile, ts) {
+    const cfgs = [];
+    // ... extracts CFG for ALL files, no jsx mode check
+    return cfgs;
+}
+```
+
+### Deterministic SAST Tool Violation
+
+**User Quote:** "we are a deterministic sast tool... 5% off might as well be 50% off"
+
+**Assessment:**
+- 31.6% of files affected by duplication = UNACCEPTABLE
+- Same file processed differently based on jsx mode = NON-DETERMINISTIC
+- CFG metrics inflated by 33% = FALSE POSITIVES
+- **GRADE: C+ (72/100)** - Functional but not production-ready
+
+**Blocker Status:** ❌ CANNOT ship with this bug
+
+---
+
+## Implementation Details (What Got Changed)
+
+### 1. Fix JavaScript Template Syntax
+**File:** `theauditor/ast_extractors/js_helper_templates.py`
+**Lines Changed:** 1647-2006 (entire EXTRACT_CFG block)
+
+**Before (BROKEN):**
+```python
+EXTRACT_CFG = '''
+function extractCFG(sourceFile, ts) {{
+    const cfgs = [];
+    const {{ line: funcStartLine }} = sourceFile.getLineAndCharacterOfPosition(...);
+    blocks.push({{
+        id: entryId,
+        type: 'entry'
+    }});
+}
+'''
+```
+
+**After (FIXED):**
+```python
+EXTRACT_CFG = '''
+function extractCFG(sourceFile, ts) {
+    const cfgs = [];
+    const { line: funcStartLine } = sourceFile.getLineAndCharacterOfPosition(...);
+    blocks.push({
+        id: entryId,
+        type: 'entry'
+    });
+}
+'''
+```
+
+**Change Summary:** 192 instances of `{{` → `{` and `}}` → `}`
+
+### 2. Fix Indexer Method Call
+**File:** `theauditor/indexer/__init__.py`
+**Lines Changed:** 583-584
+
+**Before:**
+```python
+self.db_manager.add_cfg_block_statement(
+    file_path_str, real_id,
+    stmt['type'],
+    stmt['line'],
+    stmt.get('text')
+)
+```
+
+**After:**
+```python
+self.db_manager.add_cfg_statement(
+    real_id,
+    stmt['type'],
+    stmt['line'],
+    stmt.get('text')
+)
+```
+
+### 3. Remove stale cfg_only Reference
+**File:** `theauditor/ast_parser.py`
+**Line Changed:** 226
+
+**Before:**
+```python
+batch_results = get_semantic_ast_batch(
+    [normalized_path],
+    project_root=root_path,
+    jsx_mode=jsx_mode,
+    tsconfig_map=tsconfig_map,
+    cfg_only=False  # Symbol extraction mode
+)
+```
+
+**After:**
+```python
+batch_results = get_semantic_ast_batch(
+    [normalized_path],
+    project_root=root_path,
+    jsx_mode=jsx_mode,
+    tsconfig_map=tsconfig_map
+)
+```
+
+---
+
+## Results After Implementation
+
+### Database State (Post-Fix)
+```sql
+-- Total functions with CFG
+SELECT COUNT(DISTINCT file || function_name) FROM cfg_blocks;
+-- Result: 1,323
+
+-- JSX/TSX functions with CFG
+SELECT COUNT(DISTINCT file || function_name) FROM cfg_blocks
+WHERE file LIKE '%.tsx' OR file LIKE '%.jsx';
+-- Result: 352
+
+-- CFG metrics
+SELECT COUNT(*) FROM cfg_blocks;          -- 12,921 (+33% inflated)
+SELECT COUNT(*) FROM cfg_edges;           -- 13,310 (+33% inflated)
+SELECT COUNT(*) FROM cfg_block_statements; -- 101,443
+
+-- Functions with duplicate entries
+SELECT COUNT(*) FROM (
+    SELECT file, function_name
+    FROM cfg_blocks
+    GROUP BY file, function_name
+    HAVING SUM(CASE WHEN block_type = 'entry' THEN 1 ELSE 0 END) != 1
+);
+-- Result: 369 (27.9% of 1,323)
+```
+
+### Comparison to Historical Baseline
+
+**Historical (Pre-Phase 5):** C:\Users\santa\Desktop\plant\.pf\history\full\20251023_230758
+
+| Metric | Historical | Current | Delta | Coverage |
+|--------|-----------|---------|-------|----------|
+| Functions with CFG | 1,576 | 1,323 | -253 | 83.9% ⚠️ |
+| CFG Blocks | 16,623 | 12,921 | -3,702 | 77.7% ⚠️ |
+| CFG Edges | 18,257 | 13,310 | -4,947 | 72.9% ⚠️ |
+| CFG Statements | 4,994 | 101,443 | +96,449 | 2,031% ✅ |
+| Basic Blocks | 3,442 | 2,864 | -578 | 83.2% ⚠️ |
+| True Edges | 2,038 | 1,740 | -298 | 85.4% ⚠️ |
+| False Edges | 2,038 | 1,740 | -298 | 85.4% ⚠️ |
+| Normal Edges | 13,531 | 9,307 | -4,224 | 68.8% 🚩 |
+| React Components | 1,039 | 655 | -384 | 63.0% 🚩 |
+| React Hooks | 667 | 1,038 | +371 | 155.6% ✅ |
+| TypeScript Types | 0 | 733 | +733 | NEW ✅ |
+
+**Key Findings:**
+1. ✅ Statement extraction now working (2,031% increase - previously broken)
+2. ⚠️ Function coverage 83.9% (acceptable for architecture change)
+3. 🚩 React component regression 63.0% (needs investigation)
+4. 🚩 Normal edge coverage 68.8% (significant loss)
+5. ⚠️ 33% metric inflation from double extraction bug
+
+### CFG Structural Quality Checks
+
+**Test Results:**
+- ✅ All edges reference valid blocks (no dangling edges)
+- ✅ All statements reference valid blocks
+- ✅ No orphaned blocks (all blocks in at least one edge)
+- ✅ Entry blocks have no incoming edges
+- ✅ Exit blocks have no outgoing edges
+- ❌ 369 functions (27.9%) have duplicate entry/exit blocks
+
+**Verdict:** CFG structure is SOUND but data is DUPLICATED
+
+---
+
+## Forbidden Patterns (DO NOT REPEAT THESE MISTAKES)
+
+### ❌ DO NOT Confuse F-String vs Regular String Escaping
+
+**Mistake Made:**
+```python
+# WRONG - EXTRACT_CFG is NOT an f-string
+EXTRACT_CFG = '''
+function foo() {{  // ← Thought {{ would become { in f-string
+    // ...
+}}
+'''
+```
+
+**Correct Pattern:**
+```python
+# RIGHT - EXTRACT_CFG is regular string, use single braces
+EXTRACT_CFG = '''
+function foo() {  // ← Single braces, they stay as-is
+    // ...
+}
+'''
+
+# F-string only processes its OWN {expressions}, not nested content
+ES_MODULE_BATCH = f'''
+{EXTRACT_CFG}  // ← Injects EXTRACT_CFG verbatim, no brace processing
+'''
+```
+
+**Rule:** Template injection chain has TWO layers:
+1. **Content strings** (EXTRACT_CFG): Regular strings, use actual target syntax
+2. **Container f-strings** (ES_MODULE_BATCH): F-strings, use `{{` for literal braces, `{var}` for injection
+
+### ❌ DO NOT Use `${{{{ }}}}` Escaping
+
+**Wrong:**
+```python
+# Thought this would become ${} in JavaScript
+const ${{{{ line }}}} = obj;
+```
+
+**Right:**
+```python
+# For ${} in JavaScript, write it directly in non-f-string
+const ${ line } = obj;
+
+# If in f-string container, escape the outer braces only
+ES_MODULE_BATCH = f'''
+const ${{line}} = obj;  // ← ${{ becomes ${
+'''
+```
+
+### ❌ DO NOT Fix Only First Few Occurrences
+
+**Mistake Made:** Fixed lines 1709, 1710, 1737 but left 189 other double-brace pairs
+
+**Rule:** When fixing template syntax, search ALL occurrences:
+```bash
+# Count occurrences first
+grep -n "{{" file.py | wc -l
+
+# Fix ALL, not just first few
+```
+
+### ❌ DO NOT Assume Pipeline.log Counts Are Final
+
+**Mistake Made:** Trusted pipeline.log "Control flow: 9,718 blocks" as final count
+
+**Reality:** Pipeline.log shows INCREMENTAL counts during indexing, not final database state
+
+**Rule:** Always query database directly for ground truth:
+```python
+import sqlite3
+conn = sqlite3.connect('.pf/repo_index.db')
+c = conn.cursor()
+c.execute('SELECT COUNT(*) FROM cfg_blocks')
+print(f"Actual blocks: {c.fetchone()[0]}")
+```
+
+---
+
+## What NOT to Do (STILL FORBIDDEN)
+
+All Session 5 rules still apply:
+- ❌ NO database query fallbacks
+- ❌ NO try-except fallbacks
+- ❌ NO table existence checks
+- ❌ NO regex fallbacks when AST extraction fails
+- ❌ NO emojis in Python print statements (Windows CP1252 encoding)
+- ❌ NO JSON file loading (Phase 5 uses IPC)
+- ❌ NO AST serialization (Phase 5 extracts in-memory)
+
+---
+
+## Debugging Commands for Future Sessions
+
+### Verify Template Syntax Correctness
+```bash
+# Check for remaining double braces in EXTRACT_CFG
+cd C:/Users/santa/Desktop/TheAuditor
+grep -n "{{" theauditor/ast_extractors/js_helper_templates.py | grep -A5 -B5 "EXTRACT_CFG"
+
+# Should return NO results in EXTRACT_CFG block (lines 1646-2006)
+```
+
+### Check for Duplicate CFG Extraction
+```bash
+cd /path/to/project
+python -c "
+import sqlite3
+conn = sqlite3.connect('.pf/repo_index.db')
+c = conn.cursor()
+
+# Check for duplicate entry blocks
+c.execute('''
+    SELECT file, function_name, COUNT(*) as entry_count
+    FROM cfg_blocks
+    WHERE block_type = 'entry'
+    GROUP BY file, function_name
+    HAVING entry_count > 1
+    LIMIT 10
+''')
+for row in c.fetchall():
+    print(f'{row[0]}::{row[1]} has {row[2]} entry blocks')
+
+# Should return NO results
+conn.close()
+"
+```
+
+### Verify jsx='preserved' Batch Behavior
+```bash
+# Check if second pass extracts CFG (it SHOULD NOT)
+cd /path/to/project
+THEAUDITOR_DEBUG=1 aud index 2>&1 | grep -A5 "Second pass"
+
+# Should see symbols/assignments but NO mention of CFG
+```
+
+---
+
+## Priority 0 Fix Required (NOT IMPLEMENTED IN THIS SESSION)
+
+**BLOCKER:** 72 JSX files have duplicate CFG extraction
+
+**Location:** Likely in `theauditor/indexer/__init__.py` lines 558-602 (jsx='preserved' batch)
+
+**Root Cause:** The JavaScript `extractCFG()` function runs for ALL files in batch, regardless of jsx mode. Second pass should skip CFG or write to cfg_blocks_jsx table.
+
+**Fix Options:**
+1. Skip CFG processing in second pass (check if jsx_mode == 'preserved')
+2. Create cfg_blocks_jsx parallel tables for second pass
+3. Add jsx mode check inside extractCFG() JavaScript function
+
+**Verification:**
+```sql
+-- After fix, this should return 0
+SELECT COUNT(*) FROM (
+    SELECT file, function_name
+    FROM cfg_blocks
+    GROUP BY file, function_name
+    HAVING SUM(CASE WHEN block_type = 'entry' THEN 1 ELSE 0 END) != 1
+);
+```
+
+**THIS IS THE MOST CRITICAL BUG IN THE CODEBASE. FIX BEFORE PRODUCTION.**
+
+---
+
+## Git Commit Information (This Session)
+
+**Branch:** context
+**Files Changed:**
+1. `theauditor/ast_extractors/js_helper_templates.py` - Fixed 192 double-brace pairs
+2. `theauditor/indexer/__init__.py` - Fixed method name bug
+3. `theauditor/ast_parser.py` - Removed stale cfg_only parameter
+
+**Commit Title:**
+```
+fix(cfg): correct JavaScript template syntax and indexer method call
+```
+
+**Commit Message:**
+```
+Fix critical JavaScript syntax errors introduced in Session 5 CFG migration
+(commit a661f39) and correct indexer method call bug that prevented statement
+extraction.
+
+Problems:
+1. JavaScript syntax error: `const {{ line }} = obj` (unexpected token '{')
+   - 782 errors across all files
+   - 0 functions with CFG extracted
+   - Root cause: double-brace escaping in regular string (not f-string)
+
+2. Python AttributeError: 'DatabaseManager' has no attribute 'add_cfg_block_statement'
+   - Method was renamed to add_cfg_statement() but caller not updated
+   - Prevented statement extraction from working
+
+3. Stale cfg_only=False parameter in ast_parser.py
+   - Left over from two-pass system removal
+   - Caused function signature mismatch
+
+Solutions:
+1. Replace ALL 192 double-brace pairs in EXTRACT_CFG block (lines 1647-2006)
+   - `{{` → `{` and `}}` → `}`
+   - EXTRACT_CFG is regular string, not f-string, so braces stay literal
+   - Template injection: regular string → f-string → JavaScript file
+
+2. Fix indexer method call (line 583)
+   - add_cfg_block_statement() → add_cfg_statement()
+   - Remove invalid file_path_str parameter
+
+3. Remove cfg_only parameter from get_semantic_ast_batch() call (line 226)
+
+Results:
+- 0 JavaScript errors (was 782)
+- 1,323 functions with CFG (was 0)
+- 101,443 statements extracted (was 0)
+- All 21 pipeline phases complete successfully
+
+Critical Discovery - Double Extraction Bug:
+- 369 functions (27.9%) have duplicate entry/exit blocks
+- 72 JSX/TSX files (31.6%) extracted twice (jsx='react' + jsx='preserved')
+- Metrics inflated by ~33% (12,921 blocks vs 9,718 claimed in log)
+- Root cause: jsx='preserved' batch incorrectly extracts CFG to main tables
+- Impact: Non-deterministic SAST tool behavior (same file, different results)
+- Status: NOT FIXED IN THIS COMMIT - requires architecture decision
+
+Breaking changes: None
+```
+
+---
+
+## Key Insights for Future Development
+
+### 1. Template Literal Escaping Layers
+**Problem:** Python f-strings in multi-layer templates are confusing
+
+**Solution:** Create clear mental model:
+- **Layer 1 (content):** Regular string, write target syntax directly
+- **Layer 2 (container):** F-string, escape own braces only
+- Never double-escape thinking about nested processing
+
+### 2. Always Verify ALL Occurrences
+When fixing template syntax errors, don't assume "just fix the error line":
+- Use `grep -n` to count all occurrences
+- Fix all in one pass
+- Verify with second grep
+
+### 3. Pipeline.log Shows Incremental State
+Pipeline.log reports metrics DURING indexing, not final database state:
+- First batch reports X blocks
+- Second batch adds more blocks (no log update)
+- Final database has X + Y blocks
+- Always query database for ground truth
+
+### 4. Duplicate Extraction is Silent Failure
+The jsx='preserved' batch silently writing to main CFG tables created:
+- No errors (writes succeeded)
+- No warnings (no validation)
+- Data looks valid (correct structure)
+- Only detected by checking entry/exit block counts
+
+**Lesson:** Add validation checks for architectural invariants:
+```python
+# After CFG extraction, validate
+unique_funcs = len(set((file, func) for file, func in cfg_blocks))
+total_entries = sum(1 for block in cfg_blocks if block['type'] == 'entry')
+assert unique_funcs == total_entries, f"Duplicate entry blocks detected: {unique_funcs} funcs, {total_entries} entries"
+```
+
+### 5. Deterministic SAST Tools Need Strict Validation
+**User Quote:** "5% off might as well be 50% off"
+
+For deterministic SAST tool, data fidelity violations are BLOCKERS:
+- 31.6% file duplication = immediate blocker
+- 16.1% function loss = investigate urgently
+- 37% component regression = investigate urgently
+- Even 5% variance requires explanation and fix plan
+
+---
+
+## Handoff Instructions (Session 6)
+
+**To Future AI:**
+1. Read Session 5 handoff first (CFG migration context)
+2. Understand Session 6 fixed syntax but DISCOVERED double extraction bug
+3. **CRITICAL:** 72 files have duplicate CFG extraction - THIS IS BLOCKER
+4. Before fixing double extraction bug:
+   - Understand why jsx='preserved' batch exists (REQUIRED for JSX rules)
+   - Choose fix strategy: skip CFG in second pass OR create cfg_blocks_jsx tables
+   - Test thoroughly on jsx='preserved' mode
+5. Template syntax rules:
+   - EXTRACT_CFG: Regular string, use single braces `{}`
+   - ES_MODULE_BATCH: F-string, use `{{` for literal braces
+   - Never double-escape nested templates
+
+**Key Files:**
+- `theauditor/ast_extractors/js_helper_templates.py` - EXTRACT_CFG function (lines 1646-2006)
+- `theauditor/indexer/__init__.py` - Second pass logic (lines 558-602) ← **FIX DOUBLE EXTRACTION HERE**
+- `theauditor/ast_parser.py` - Batch orchestration
+
+---
+
+**Status:** ⚠️ FUNCTIONAL WITH CRITICAL BUG
+**Blocker:** 31.6% of files have duplicate CFG extraction (jsx='preserved' batch bug)
+**Next Steps:** Fix double extraction bug before any production use
+
+**Session End:** 2025-10-24

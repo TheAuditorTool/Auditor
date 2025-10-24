@@ -222,8 +222,7 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                         [normalized_path],
                         project_root=root_path,
                         jsx_mode=jsx_mode,
-                        tsconfig_map=tsconfig_map,
-                        cfg_only=False  # Symbol extraction mode
+                        tsconfig_map=tsconfig_map
                     )
 
                     # Extract single result from batch

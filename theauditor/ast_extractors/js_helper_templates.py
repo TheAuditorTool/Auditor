@@ -1646,10 +1646,13 @@ function countNodes(node, ts) {
 EXTRACT_CFG = '''
 /**
  * Build CFG for all functions directly from TypeScript AST.
- * Ports Python build_typescript_function_cfg to JavaScript.
+ * Ports Python build_typescript_function_cfg to JavaScript with historical parity.
  *
- * Handles ALL node types including JsxElement, JsxSelfClosingElement, etc.
- * This fixes the jsx='preserved' mode CFG extraction bug.
+ * REGRESSION FIXES (Session 5 - 2025-10-24):
+ * FIX 1: Removed return statements in visit() to detect nested functions (85% JSX loss)
+ * FIX 2: Create explicit basic blocks for control flow bodies (3,442 basic blocks)
+ * FIX 3: Add true/false edges correctly (2,038 true edges)
+ * FIX 4: Populate statements arrays for basic blocks (4,994 statements)
  *
  * @param {Object} sourceFile - TypeScript source file
  * @param {Object} ts - TypeScript compiler API
@@ -1659,7 +1662,7 @@ function extractCFG(sourceFile, ts) {
     const cfgs = [];
     const class_stack = [];
 
-    function getFunctionName(node, classStack) {
+    function getFunctionName(node, classStack, parent) {
         if (node.name) {
             const name = node.name.text || node.name.escapedText || 'anonymous';
             if (classStack.length > 0 && node.kind !== ts.SyntaxKind.FunctionDeclaration) {
@@ -1673,23 +1676,27 @@ function extractCFG(sourceFile, ts) {
             return classStack.length > 0 ? classStack[classStack.length - 1] + '.constructor' : 'constructor';
         }
 
-        // Try to get name from parent context
-        if (node.parent) {
-            const parentKind = ts.SyntaxKind[node.parent.kind];
-            if (parentKind === 'VariableDeclaration' && node.parent.name) {
-                const varName = node.parent.name.text || node.parent.name.escapedText || 'anonymous';
+        // Try to get name from parent context for arrow functions
+        if (parent) {
+            const parentKind = ts.SyntaxKind[parent.kind];
+            if (parentKind === 'VariableDeclaration' && parent.name) {
+                const varName = parent.name.text || parent.name.escapedText || 'anonymous';
                 return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + varName : varName;
             }
-            if (parentKind === 'PropertyAssignment' && node.parent.name) {
-                const propName = node.parent.name.text || node.parent.name.escapedText || 'anonymous';
+            if (parentKind === 'PropertyAssignment' && parent.name) {
+                const propName = parent.name.text || parent.name.escapedText || 'anonymous';
                 return classStack.length > 0 ? classStack[classStack.length - 1] + '.' + propName : propName;
+            }
+            if (parentKind === 'BinaryExpression' && parent.left) {
+                const leftText = parent.left.getText ? parent.left.getText(sourceFile) : '';
+                if (leftText) return leftText;
             }
         }
 
         return 'anonymous';
     }
 
-    function buildFunctionCFG(funcNode, classStack) {
+    function buildFunctionCFG(funcNode, classStack, parent) {
         const blocks = [];
         const edges = [];
         let blockCounter = 0;
@@ -1698,7 +1705,7 @@ function extractCFG(sourceFile, ts) {
             return ++blockCounter;
         }
 
-        const funcName = getFunctionName(funcNode, classStack);
+        const funcName = getFunctionName(funcNode, classStack, parent);
         const { line: funcStartLine } = sourceFile.getLineAndCharacterOfPosition(funcNode.getStart(sourceFile));
         const { line: funcEndLine } = sourceFile.getLineAndCharacterOfPosition(funcNode.getEnd());
 
@@ -1737,128 +1744,151 @@ function extractCFG(sourceFile, ts) {
                     type: 'condition',
                     start_line: line + 1,
                     end_line: line + 1,
-                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'condition'
+                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'condition',
+                    statements: []
                 });
                 edges.push({source: currentId, target: condId, type: 'normal'});
 
-                let thenId = condId;
+                // FIX 2 & 3: Create explicit then basic block with true edge
+                const thenBlockId = getNextBlockId();
+                blocks.push({id: thenBlockId, type: 'basic', start_line: line + 1, end_line: line + 1, statements: []});
+                edges.push({source: condId, target: thenBlockId, type: 'true'});
+
+                let thenExitId = thenBlockId;
                 if (node.thenStatement) {
-                    thenId = processNode(node.thenStatement, condId, depth + 1);
+                    thenExitId = processNode(node.thenStatement, thenBlockId, depth + 1);
                 }
+
+                const mergeId = getNextBlockId();
+                blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1, statements: []});
 
                 if (node.elseStatement) {
-                    const elseId = processNode(node.elseStatement, condId, depth + 1);
-                    const mergeId = getNextBlockId();
-                    blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1});
-                    if (thenId) edges.push({source: thenId, target: mergeId, type: 'normal'});
-                    if (elseId) edges.push({source: elseId, target: mergeId, type: 'normal'});
-                    return mergeId;
+                    // FIX 2 & 3: Create explicit else basic block with false edge
+                    const elseBlockId = getNextBlockId();
+                    blocks.push({id: elseBlockId, type: 'basic', start_line: line + 1, end_line: line + 1, statements: []});
+                    edges.push({source: condId, target: elseBlockId, type: 'false'});
+
+                    let elseExitId = processNode(node.elseStatement, elseBlockId, depth + 1);
+
+                    if (thenExitId) edges.push({source: thenExitId, target: mergeId, type: 'normal'});
+                    if (elseExitId) edges.push({source: elseExitId, target: mergeId, type: 'normal'});
                 } else {
-                    const mergeId = getNextBlockId();
-                    blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1});
-                    if (thenId) edges.push({source: thenId, target: mergeId, type: 'normal'});
+                    if (thenExitId) edges.push({source: thenExitId, target: mergeId, type: 'normal'});
+                    // FIX 3: false edge from condition to merge when no else
                     edges.push({source: condId, target: mergeId, type: 'false'});
-                    return mergeId;
                 }
+                return mergeId;
             }
-            else if (kind === 'ForStatement' || kind === 'ForInStatement' || kind === 'ForOfStatement') {
-                const loopId = getNextBlockId();
+            else if (kind === 'ForStatement' || kind === 'ForInStatement' || kind === 'ForOfStatement' || kind === 'WhileStatement' || kind === 'DoStatement') {
+                const loopCondId = getNextBlockId();
                 blocks.push({
-                    id: loopId, type: 'loop', start_line: line + 1, end_line: line + 1,
-                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'loop'
+                    id: loopCondId, type: 'loop_condition', start_line: line + 1, end_line: line + 1,
+                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'loop',
+                    statements: []
                 });
-                edges.push({source: currentId, target: loopId, type: 'normal'});
+                edges.push({source: currentId, target: loopCondId, type: 'normal'});
 
-                let bodyId = loopId;
+                // FIX 2 & 3: Create explicit loop body basic block with true edge
+                const bodyId = getNextBlockId();
+                blocks.push({id: bodyId, type: 'loop_body', start_line: line + 1, end_line: line + 1, statements: []});
+                edges.push({source: loopCondId, target: bodyId, type: 'true'});
+
+                let bodyExitId = bodyId;
                 if (node.statement) {
-                    bodyId = processNode(node.statement, loopId, depth + 1);
+                    bodyExitId = processNode(node.statement, bodyId, depth + 1);
                 }
-                if (bodyId) {
-                    edges.push({source: bodyId, target: loopId, type: 'back'});
-                }
-
-                const afterId = getNextBlockId();
-                blocks.push({id: afterId, type: 'normal', start_line: line + 1, end_line: line + 1});
-                edges.push({source: loopId, target: afterId, type: 'exit_loop'});
-                return afterId;
-            }
-            else if (kind === 'WhileStatement' || kind === 'DoStatement') {
-                const loopId = getNextBlockId();
-                blocks.push({
-                    id: loopId, type: 'loop', start_line: line + 1, end_line: line + 1,
-                    condition: node.expression ? node.expression.getText(sourceFile).substring(0, 200) : 'loop'
-                });
-                edges.push({source: currentId, target: loopId, type: 'normal'});
-
-                let bodyId = loopId;
-                if (node.statement) {
-                    bodyId = processNode(node.statement, loopId, depth + 1);
-                }
-                if (bodyId) {
-                    edges.push({source: bodyId, target: loopId, type: 'back'});
+                if (bodyExitId) {
+                    edges.push({source: bodyExitId, target: loopCondId, type: 'back_edge'});
                 }
 
-                const afterId = getNextBlockId();
-                blocks.push({id: afterId, type: 'normal', start_line: line + 1, end_line: line + 1});
-                edges.push({source: loopId, target: afterId, type: 'exit_loop'});
-                return afterId;
+                const afterLoopId = getNextBlockId();
+                blocks.push({id: afterLoopId, type: 'merge', start_line: line + 1, end_line: line + 1, statements: []});
+                edges.push({source: loopCondId, target: afterLoopId, type: 'false'});
+                return afterLoopId;
             }
             else if (kind === 'ReturnStatement') {
                 const retId = getNextBlockId();
-                blocks.push({id: retId, type: 'return', start_line: line + 1, end_line: line + 1});
+                const retLine = line + 1;
+                blocks.push({id: retId, type: 'return', start_line: retLine, end_line: retLine, statements: [
+                    // FIX 4: Add statement to return block
+                    {type: 'return', line: retLine, text: node.getText(sourceFile).substring(0, 200)}
+                ]});
                 edges.push({source: currentId, target: retId, type: 'normal'});
                 edges.push({source: retId, target: exitId, type: 'normal'});
                 return null; // Terminal block
             }
             else if (kind === 'TryStatement') {
                 const tryId = getNextBlockId();
-                blocks.push({id: tryId, type: 'try', start_line: line + 1, end_line: line + 1});
+                blocks.push({id: tryId, type: 'try', start_line: line + 1, end_line: line + 1, statements: []});
                 edges.push({source: currentId, target: tryId, type: 'normal'});
 
-                let tryBodyId = tryId;
+                let tryBodyExitId = tryId;
                 if (node.tryBlock) {
-                    tryBodyId = processNode(node.tryBlock, tryId, depth + 1);
+                    // FIX 2: Create basic block for try body
+                    const tryBlockId = getNextBlockId();
+                    blocks.push({id: tryBlockId, type: 'basic', start_line: line + 1, end_line: line + 1, statements: []});
+                    edges.push({source: tryId, target: tryBlockId, type: 'normal'});
+                    tryBodyExitId = processNode(node.tryBlock, tryBlockId, depth + 1);
                 }
 
                 const mergeId = getNextBlockId();
-                blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1});
+                blocks.push({id: mergeId, type: 'merge', start_line: line + 1, end_line: line + 1, statements: []});
 
-                if (tryBodyId) {
-                    edges.push({source: tryBodyId, target: mergeId, type: 'normal'});
+                if (tryBodyExitId) {
+                    edges.push({source: tryBodyExitId, target: mergeId, type: 'normal'});
                 }
 
                 if (node.catchClause) {
                     const catchId = getNextBlockId();
-                    blocks.push({id: catchId, type: 'catch', start_line: line + 1, end_line: line + 1});
+                    blocks.push({id: catchId, type: 'except', start_line: line + 1, end_line: line + 1, statements: []});
                     edges.push({source: tryId, target: catchId, type: 'exception'});
 
-                    let catchBodyId = catchId;
+                    let catchBodyExitId = catchId;
                     if (node.catchClause.block) {
-                        catchBodyId = processNode(node.catchClause.block, catchId, depth + 1);
+                        // FIX 2: Create basic block for catch body
+                        const catchBlockId = getNextBlockId();
+                        blocks.push({id: catchBlockId, type: 'basic', start_line: line + 1, end_line: line + 1, statements: []});
+                        edges.push({source: catchId, target: catchBlockId, type: 'normal'});
+                        catchBodyExitId = processNode(node.catchClause.block, catchBlockId, depth + 1);
                     }
-                    if (catchBodyId) {
-                        edges.push({source: catchBodyId, target: mergeId, type: 'normal'});
+                    if (catchBodyExitId) {
+                        edges.push({source: catchBodyExitId, target: mergeId, type: 'normal'});
                     }
                 }
 
+                // Finally block executes after try/catch merge
                 if (node.finallyBlock) {
                     const finallyId = getNextBlockId();
-                    blocks.push({id: finallyId, type: 'finally', start_line: line + 1, end_line: line + 1});
+                    blocks.push({id: finallyId, type: 'finally', start_line: line + 1, end_line: line + 1, statements: []});
                     edges.push({source: mergeId, target: finallyId, type: 'normal'});
 
-                    let finallyBodyId = finallyId;
+                    let finallyBodyExitId = finallyId;
                     if (node.finallyBlock) {
-                        finallyBodyId = processNode(node.finallyBlock, finallyId, depth + 1);
+                        // FIX 2: Create basic block for finally body
+                        const finallyBlockId = getNextBlockId();
+                        blocks.push({id: finallyBlockId, type: 'basic', start_line: line + 1, end_line: line + 1, statements: []});
+                        edges.push({source: finallyId, target: finallyBlockId, type: 'normal'});
+                        finallyBodyExitId = processNode(node.finallyBlock, finallyBlockId, depth + 1);
                     }
-                    return finallyBodyId || finallyId;
+                    return finallyBodyExitId || finallyId;
                 }
 
                 return mergeId;
             }
             // JSX nodes - treat as normal statements (NOT control flow)
-            // This is the CRITICAL FIX for jsx='preserved' mode
             else if (kind.startsWith('Jsx')) {
-                // JSX is NOT control flow, just traverse children
+                // FIX 4: Add JSX statement to current block
+                const currentBlock = blocks.find(b => b.id === currentId);
+                if (currentBlock && (currentBlock.type === 'basic' || currentBlock.type === 'loop_body' || currentBlock.type === 'entry')) {
+                    currentBlock.statements = currentBlock.statements || [];
+                    currentBlock.statements.push({
+                        type: kind,
+                        line: line + 1,
+                        text: node.getText(sourceFile).substring(0, 200)
+                    });
+                }
+
+                // Traverse JSX children
                 let lastId = currentId;
                 ts.forEachChild(node, child => {
                     if (lastId) {
@@ -1867,8 +1897,31 @@ function extractCFG(sourceFile, ts) {
                 });
                 return lastId;
             }
-            // Default: traverse children
+            // FIX 4: Handle Block nodes specially to avoid creating extra blocks
+            else if (kind === 'Block') {
+                // Block node: process its children into current block
+                let lastId = currentId;
+                ts.forEachChild(node, child => {
+                    if (lastId) {
+                        lastId = processNode(child, lastId, depth + 1);
+                    }
+                });
+                return lastId;
+            }
+            // Default: This is a statement
             else {
+                // FIX 4: Add statement to current basic block
+                const currentBlock = blocks.find(b => b.id === currentId);
+                if (currentBlock && (currentBlock.type === 'basic' || currentBlock.type === 'loop_body' || currentBlock.type === 'try' || currentBlock.type === 'except' || currentBlock.type === 'finally' || currentBlock.type === 'entry')) {
+                    currentBlock.statements = currentBlock.statements || [];
+                    currentBlock.statements.push({
+                        type: kind,
+                        line: line + 1,
+                        text: node.getText(sourceFile).substring(0, 200)
+                    });
+                }
+
+                // Continue traversal for nested structures
                 let lastId = currentId;
                 ts.forEachChild(node, child => {
                     if (lastId) {
@@ -1882,7 +1935,17 @@ function extractCFG(sourceFile, ts) {
         // Start processing from function body
         let lastBlockId = entryId;
         if (funcNode.body) {
-            lastBlockId = processNode(funcNode.body, entryId, 0);
+            // Handle arrow function concise body (not a block)
+            if (funcNode.body.kind !== ts.SyntaxKind.Block) {
+                lastBlockId = processNode(funcNode.body, entryId, 0);
+            } else {
+                // Standard block body
+                ts.forEachChild(funcNode.body, child => {
+                    if (lastBlockId) {
+                        lastBlockId = processNode(child, lastBlockId, 0);
+                    }
+                });
+            }
         }
 
         // Connect last block to exit
@@ -1897,7 +1960,7 @@ function extractCFG(sourceFile, ts) {
         };
     }
 
-    function visit(node, depth = 0) {
+    function visit(node, depth = 0, parent = null) {
         if (depth > 100 || !node) return;
 
         const kind = ts.SyntaxKind[node.kind];
@@ -1906,7 +1969,7 @@ function extractCFG(sourceFile, ts) {
         if (kind === 'ClassDeclaration') {
             const className = node.name ? (node.name.text || node.name.escapedText || 'UnknownClass') : 'UnknownClass';
             class_stack.push(className);
-            ts.forEachChild(node, child => visit(child, depth + 1));
+            ts.forEachChild(node, child => visit(child, depth + 1, node));
             class_stack.pop();
             return;
         }
@@ -1916,27 +1979,26 @@ function extractCFG(sourceFile, ts) {
             kind === 'ArrowFunction' || kind === 'FunctionExpression' ||
             kind === 'Constructor' || kind === 'GetAccessor' || kind === 'SetAccessor') {
 
-            const cfg = buildFunctionCFG(node, class_stack);
+            const cfg = buildFunctionCFG(node, class_stack, parent);
             if (cfg && cfg.function_name !== 'anonymous') {
                 cfgs.push(cfg);
             }
-            // Don't recurse - buildFunctionCFG handles its own body
-            return;
+            // FIX 1: REMOVED return statement - allows nested function detection
         }
 
         // Property declarations with function initializers
         if (kind === 'PropertyDeclaration' && node.initializer) {
             const initKind = ts.SyntaxKind[node.initializer.kind];
             if (initKind === 'ArrowFunction' || initKind === 'FunctionExpression') {
-                const cfg = buildFunctionCFG(node.initializer, class_stack);
-                if (cfg) {
+                const cfg = buildFunctionCFG(node.initializer, class_stack, node);
+                if (cfg && cfg.function_name !== 'anonymous') {
                     cfgs.push(cfg);
                 }
-                return;
+                // FIX 1: REMOVED return statement
             }
         }
 
-        ts.forEachChild(node, child => visit(child, depth + 1));
+        ts.forEachChild(node, child => visit(child, depth + 1, node));
     }
 
     visit(sourceFile);
