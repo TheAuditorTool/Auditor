@@ -101,7 +101,7 @@ class JavaScriptExtractor(BaseExtractor):
                     print(f"[DEBUG]   Calls: {len(extracted_data.get('calls', []))}")
 
                 # Map keys that match between JS and orchestrator
-                for key in ['assignments', 'returns', 'object_literals', 'variable_usage', 'cfg']:
+                for key in ['assignments', 'returns', 'object_literals', 'variable_usage']:
                     if key in extracted_data:
                         result[key] = extracted_data[key]
 
@@ -310,31 +310,94 @@ class JavaScriptExtractor(BaseExtractor):
             # NEW: Extract import styles for bundle analysis
             result['import_styles'] = self._analyze_import_styles(imports_data, file_info['path'])
 
-        # ============================================================================
-        # PHASE 5 ARCHITECTURE: ZERO PYTHON AST EXTRACTION FOR JAVASCRIPT/TYPESCRIPT
-        # ============================================================================
-        # ALL JavaScript/TypeScript extraction happens in JavaScript (.js files) using
-        # TypeScript Compiler API. Python NEVER touches JavaScript ASTs.
-        #
-        # extracted_data is loaded at lines 78-189 and contains:
-        #   - functions, classes, calls (from extractFunctions/Classes/Calls in JS)
-        #   - assignments, returns, object_literals (from respective JS extractors)
-        #   - cfg (from extractCFG in cfg_extractor.js)
-        #
-        # The block below (lines 313-400 in original) was DELETED because:
-        #   1. It re-extracted data already in extracted_data (duplication)
-        #   2. It used Python AST traversal on JavaScript (architectural violation)
-        #   3. The conditional "if not used_phase5_symbols" should NEVER execute
-        #   4. If it executes, it means batch processing FAILED (bug, not feature)
-        #
-        # Framework analysis below (lines 518+) uses PRE-EXTRACTED data from
-        # extracted_data (loaded at lines 78-189), not AST traversal.
-        # ============================================================================
+        # Extract symbols (functions, classes, calls, properties)
+        # PHASE 5: Only extract if Phase 5 data was NOT used
+        if not used_phase5_symbols:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] {file_info['path']}: NO Phase 5 data - using Python extractors")
+            functions = self.ast_parser.extract_functions(tree)
+        else:
+            functions = []
 
-        # For framework analysis below, we need function list
-        # Reconstruct from result['symbols'] which was populated from extracted_data
-        functions = [s for s in result['symbols'] if s.get('type') == 'function']
-        classes = [s for s in result['symbols'] if s.get('type') == 'class']
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            if functions:
+                sample = functions[0]
+                print(f"[DEBUG JS extractor] Sample function keys: {list(sample.keys())}")
+                if 'type_annotation' in sample:
+                    print(f"[DEBUG JS extractor] Has type_annotation: {sample['type_annotation'][:50] if sample['type_annotation'] else 'None'}")
+                if 'return_type' in sample:
+                    print(f"[DEBUG JS extractor] Has return_type: {sample['return_type'][:50] if sample['return_type'] else 'None'}")
+
+        for func in functions:
+            # CRITICAL: Create type_annotation records FIRST (before adding to symbols)
+            # Symbols table only has basic info, type_annotations table has full type metadata
+            if func.get('type_annotation') or func.get('return_type'):
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    print(f"[DEBUG JS extractor] Creating type_annotation for {func.get('name')}")
+                result['type_annotations'].append({
+                    'line': func.get('line', 0),
+                    'column': func.get('col', func.get('column', 0)),
+                    'symbol_name': func.get('name', ''),
+                    'symbol_kind': 'function',
+                    'type_annotation': func.get('type_annotation'),
+                    'is_any': func.get('is_any', False),
+                    'is_unknown': func.get('is_unknown', False),
+                    'is_generic': func.get('is_generic', False),
+                    'has_type_params': func.get('has_type_params', False),
+                    'type_params': func.get('type_params'),
+                    'return_type': func.get('return_type'),
+                    'extends_type': func.get('extends_type')
+                })
+
+            symbol_entry = {
+                'name': func.get('name', ''),
+                'type': 'function',
+                'line': func.get('line', 0),
+                'col': func.get('col', func.get('column', 0)),
+                'column': func.get('column', func.get('col', 0)),
+            }
+
+            # REMOVED: No longer copying type info to symbol_entry
+            # Type info goes to type_annotations table, not symbols table
+            for key in (
+                'type_annotation',  # Still check for is_typed flag
+                'return_type',
+                'type_params',
+                'has_type_params',
+                'is_any',
+                'is_unknown',
+                'is_generic',
+                'extends_type',
+            ):
+                if key in func:
+                    symbol_entry[key] = func.get(key)
+
+            result['symbols'].append(symbol_entry)
+
+        if not used_phase5_symbols:
+            classes = self.ast_parser.extract_classes(tree)
+        else:
+            classes = []
+
+        for cls in classes:
+            symbol_entry = {
+                'name': cls.get('name', ''),
+                'type': 'class',
+                'line': cls.get('line', 0),
+                'col': cls.get('col', cls.get('column', 0)),
+                'column': cls.get('column', cls.get('col', 0)),
+            }
+
+            for key in (
+                'type_annotation',
+                'extends_type',
+                'type_params',
+                'has_type_params',
+            ):
+                if key in cls:
+                    symbol_entry[key] = cls.get(key)
+
+            result['symbols'].append(symbol_entry)
 
         # ============================================================================
         # DATABASE CONTRACT: Symbols Table Schema
@@ -358,42 +421,92 @@ class JavaScriptExtractor(BaseExtractor):
         # This is a DATABASE CONTRACT, not a design opinion.
         # ============================================================================
 
-        # ============================================================================
-        # CRITICAL VIOLATION DELETED (Lines 361-446 in original)
-        # ============================================================================
-        # These lines were re-extracting data using Python AST methods:
-        #   - calls: self.ast_parser.extract_calls() (CONDITIONAL but wrong)
-        #   - assignments: self.ast_parser.extract_assignments() (UNCONDITIONAL overwrite)
-        #   - object_literals: self.ast_parser.extract_object_literals() (UNCONDITIONAL overwrite)
-        #   - function_calls: self.ast_parser.extract_function_calls_with_args() (UNCONDITIONAL overwrite)
-        #   - returns: self.ast_parser.extract_returns() (UNCONDITIONAL overwrite)
-        #   - cfg: self.ast_parser.extract_cfg() (UNCONDITIONAL overwrite)
-        #
-        # ALL of these were already loaded from extracted_data at lines 78-189:
-        #   - Line 104: assignments, returns, object_literals, variable_usage
-        #   - Line 109: function_call_args → function_calls
-        #   - Line 164-171: calls (loaded into symbols from extracted_data['calls'])
-        #   - CFG: Loaded by typescript_impl.py from extracted_data['cfg']
-        #
-        # IMPACT OF DELETION:
-        #   ✅ Assignments: NO LONGER OVERWRITES JavaScript extraction
-        #   ✅ Object literals: NO LONGER OVERWRITES TypeScript Compiler API extraction
-        #   ✅ Function calls: NO LONGER OVERWRITES semantic extraction
-        #   ✅ Returns: NO LONGER OVERWRITES JSX-aware extraction
-        #   ✅ CFG: NO LONGER OVERWRITES cfg_extractor.js
-        #   ✅ Calls: NO LONGER OVERWRITES extracted_data['calls']
-        #
-        # These Python AST extractions were ACTIVE DATA CORRUPTION.
-        # They executed AFTER Phase 5 data loading and OVERWROTE superior JavaScript extraction
-        # with inferior Python AST traversal.
-        #
-        # If you're seeing missing data:
-        #   1. Check batch processing populated extracted_data (bug in .js files)
-        #   2. Check key mapping (bug in lines 104-124)
-        #   3. FIX THE ROOT CAUSE - DO NOT add fallbacks
-        #
-        # ZERO FALLBACK POLICY is non-negotiable (CLAUDE.md line 14).
-        # ============================================================================
+        # PHASE 5: Only run Python extractors if Phase 5 data was NOT used
+        # This maintains backward compatibility for individual file parsing
+        if not used_phase5_symbols:
+            # Extract call symbols for taint analysis
+            calls = self.ast_parser.extract_calls(tree)
+        else:
+            calls = []
+
+        if calls:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                # Check for duplicates in extracted calls
+                call_keys = [(c.get('name'), c.get('line'), c.get('col', c.get('column', 0))) for c in calls]
+                unique_keys = set(call_keys)
+                if len(call_keys) != len(unique_keys):
+                    print(f"[DEBUG] JS extractor: DUPLICATE CALLS DETECTED in extract_calls() output for {file_info['path']}")
+                    from collections import Counter
+                    counts = Counter(call_keys)
+                    for key, count in counts.items():
+                        if count > 1:
+                            print(f"[DEBUG]   {key[0]} at line {key[1]}, col {key[2]}: appears {count} times")
+
+            for call in calls:
+                result['symbols'].append({
+                    'name': call.get('name', ''),
+                    'type': call.get('type', 'call'),  # Preserve original type (property/call/function)
+                    'line': call.get('line', 0),
+                    'col': call.get('col', call.get('column', 0))
+                })
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] JS extractor: Found {len(calls)} call symbols")
+
+        # OPTIMIZATION: extract_properties() call removed (Phase 2 deduplication)
+        # Reason: After type-preservation fix at line 275, extract_calls() already
+        # returns property-typed symbols via extract_semantic_ast_symbols().
+        # Calling extract_properties() duplicated this extraction, causing 2x-4x
+        # redundant database entries for property accesses like req.body.
+        # This removal reduces database size by ~50% with zero functional impact.
+
+        # Extract assignments for data flow analysis
+        assignments = self.ast_parser.extract_assignments(tree)
+        if assignments:
+            result['assignments'] = assignments
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] JS extractor: Found {len(assignments)} assignments")
+
+        # === PHASE 3: OBJECT LITERAL EXTRACTION ===
+        # Extract object literals using the centralized, semantic-aware parser
+        result['object_literals'] = self.ast_parser.extract_object_literals(tree)
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] JS extractor: Found {len(result['object_literals'])} object literal properties (AST-based)")
+
+        # Extract function calls with arguments for taint analysis
+        function_calls = self.ast_parser.extract_function_calls_with_args(tree)
+        if function_calls:
+            result['function_calls'] = function_calls
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] JS extractor: Found {len(function_calls)} function calls with args")
+
+        # Extract return statements
+        returns = self.ast_parser.extract_returns(tree)
+        if returns:
+            result['returns'] = returns
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] JS extractor: Found {len(returns)} returns")
+
+        # Extract control flow graphs
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            # Check if tree has AST for CFG extraction
+            has_ast = False
+            ast_location = "none"
+            if isinstance(tree, dict):
+                if tree.get('ast'):
+                    has_ast = True
+                    ast_location = "tree.ast"
+                elif isinstance(tree.get('tree'), dict) and tree['tree'].get('ast'):
+                    has_ast = True
+                    ast_location = "tree.tree.ast"
+            print(f"[DEBUG CFG] {file_info['path']}: has_ast={has_ast}, location={ast_location}, tree_type={tree.get('type') if isinstance(tree, dict) else 'not_dict'}")
+
+        cfg = self.ast_parser.extract_cfg(tree)
+        if cfg:
+            result['cfg'] = cfg
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG CFG] {file_info['path']}: Extracted {len(cfg)} CFG functions")
+        elif os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG CFG] {file_info['path']}: extract_cfg returned empty")
 
         # Extract routes from AST function calls (Express/Fastify patterns)
         # This provides complete metadata: line, auth middleware, handler names
