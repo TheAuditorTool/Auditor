@@ -212,6 +212,109 @@ def _format_text(results: Any) -> str:
 
         return "\n".join(lines)
 
+    # Data dependencies (reads/writes) - DFG
+    if isinstance(results, dict) and 'reads' in results and 'writes' in results:
+        lines = []
+
+        reads = results['reads']
+        writes = results['writes']
+
+        lines.append(f"Data Dependencies:")
+        lines.append("")
+        lines.append(f"  Reads ({len(reads)}):")
+        if reads:
+            for read in reads:
+                var = read['variable']
+                lines.append(f"    - {var}")
+        else:
+            lines.append("    (none)")
+
+        lines.append("")
+        lines.append(f"  Writes ({len(writes)}):")
+        if writes:
+            for write in writes:
+                var = write['variable']
+                expr = write['expression']
+                loc = f"{write['file']}:{write['line']}"
+                if len(expr) > 50:
+                    expr = expr[:47] + "..."
+                lines.append(f"    - {var} = {expr}")
+                lines.append(f"      ({loc})")
+        else:
+            lines.append("    (none)")
+
+        return "\n".join(lines)
+
+    # Variable flow tracing (def-use chains) - DFG
+    if isinstance(results, list) and results and isinstance(results[0], dict) and 'from_var' in results[0]:
+        lines = [f"Variable Flow ({len(results)} steps):"]
+        if results:
+            for i, step in enumerate(results, 1):
+                from_var = step['from_var']
+                to_var = step['to_var']
+                loc = f"{step['file']}:{step['line']}"
+                depth_level = step.get('depth', 1)
+                func = step.get('function', 'global')
+
+                lines.append(f"  {i}. {from_var} -> {to_var}")
+                lines.append(f"     Location: {loc}")
+                lines.append(f"     Function: {func}")
+                lines.append(f"     Depth: {depth_level}")
+
+                expr = step.get('expression', '')
+                if expr and len(expr) <= 60:
+                    lines.append(f"     Expression: {expr}")
+                lines.append("")
+        else:
+            lines.append("  (no flow found)")
+        return "\n".join(lines)
+
+    # Cross-function taint flow - DFG
+    if isinstance(results, list) and results and isinstance(results[0], dict) and 'flow_type' in results[0] and results[0]['flow_type'] == 'cross_function_taint':
+        lines = [f"Cross-Function Taint Flow ({len(results)} flows):"]
+        if results:
+            for i, flow in enumerate(results, 1):
+                return_var = flow['return_var']
+                return_loc = f"{flow['return_file']}:{flow['return_line']}"
+                assign_var = flow['assignment_var']
+                assign_loc = f"{flow['assignment_file']}:{flow['assignment_line']}"
+                assign_func = flow['assigned_in_function']
+
+                lines.append(f"  {i}. Return: {return_var} at {return_loc}")
+                lines.append(f"     Assigned: {assign_var} at {assign_loc}")
+                lines.append(f"     In function: {assign_func}")
+                lines.append("")
+        else:
+            lines.append("  (no cross-function flows found)")
+        return "\n".join(lines)
+
+    # API security coverage - DFG
+    if isinstance(results, list) and results and isinstance(results[0], dict) and 'controls' in results[0] and 'has_auth' in results[0]:
+        lines = [f"API Security Coverage ({len(results)} endpoints):"]
+        if results:
+            for i, ep in enumerate(results, 1):
+                method = ep.get('method', 'UNKNOWN')
+                path = ep.get('path', '(unknown)')
+                controls = ep.get('controls', [])
+                control_count = ep.get('control_count', 0)
+                has_auth = ep.get('has_auth', False)
+
+                auth_status = f"{control_count} controls" if has_auth else "NO AUTH"
+                lines.append(f"  {i}. {method:6s} {path:40s} [{auth_status}]")
+
+                if controls:
+                    controls_str = ", ".join(controls)
+                    lines.append(f"     Controls: {controls_str}")
+
+                handler = ep.get('handler_function', '')
+                if handler:
+                    loc = f"{ep.get('file', '')}:{ep.get('line', '')}"
+                    lines.append(f"     Handler: {handler} ({loc})")
+                lines.append("")
+        else:
+            lines.append("  (no endpoints found)")
+        return "\n".join(lines)
+
     # Fallback: JSON dump for unknown types
     return json.dumps(_to_dict(results), indent=2, default=str)
 

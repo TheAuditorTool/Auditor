@@ -805,9 +805,79 @@ Previously a monolithic file, the taint analysis system has been refactored into
 ### Graph Analysis (`theauditor/graph/`)
 - **builder.py**: Constructs dependency graph from codebase
 - **analyzer.py**: Detects cycles, measures complexity, identifies hotspots
+- **dfg_builder.py**: Builds data flow graphs from indexed assignments and returns
+- **store.py**: Persists graphs to `.pf/graphs.db` SQLite database
 - Uses NetworkX for graph algorithms
 
+**Graph Types:**
+1. **Import Graph** (`graph build`): Module/file import dependencies
+2. **Call Graph** (`graph build`): Function call relationships
+3. **Data Flow Graph** (`graph build-dfg`): Variable assignment and return value flows
+
 **Note**: The optional health scoring and recommendations are provided by `theauditor/insights/graph.py` (Insights module)
+
+#### Data Flow Graph (DFG) Architecture
+
+The DFG builder constructs graph representations of how data flows through variable assignments and function returns. This enables more accurate inter-procedural taint analysis and data dependency tracking.
+
+**Data Source:**
+- `assignment_sources` junction table (42,844 rows in typical project)
+- `function_return_sources` junction table (19,313 rows in typical project)
+- Both tables populated during indexing (`aud index`)
+
+**Graph Construction:**
+```python
+# DFGBuilder reads normalized junction tables
+builder = DFGBuilder(db_path=".pf/repo_index.db")
+graph = builder.build_unified_flow_graph(root=".")
+
+# Graph structure:
+{
+    "nodes": [
+        {"id": "file::function::variable", "file": "...", "type": "variable"},
+        {"id": "file::function::return", "file": "...", "type": "return_value"}
+    ],
+    "edges": [
+        {"source": "var1_id", "target": "var2_id", "type": "assignment", "line": 42},
+        {"source": "var_id", "target": "return_id", "type": "return", "line": 58}
+    ],
+    "metadata": {
+        "stats": {
+            "total_assignments": 42844,
+            "assignments_with_sources": 38521,
+            "total_nodes": 45892,
+            "total_edges": 53768
+        }
+    }
+}
+```
+
+**Storage (Dual-Write Pattern):**
+1. **Database**: `.pf/graphs.db` via `XGraphStore.save_data_flow_graph()`
+   - Nodes table with `graph_type='data_flow'`
+   - Edges table with `graph_type='data_flow'`
+   - Queryable via SQL for fast lookups
+
+2. **JSON**: `.pf/raw/data_flow_graph.json`
+   - Immutable record for human/AI consumption
+   - Contains complete graph with metadata
+
+**Pipeline Integration:**
+- Runs in Stage 2 (Data Preparation) after `graph build`
+- Command: `aud graph build-dfg`
+- Prerequisite: `aud index` (to populate junction tables)
+
+**Current Status:**
+- ✅ Graph building working (reads junction tables, builds nodes/edges)
+- ✅ Dual-write to database + JSON
+- ⚠️ Taint analyzer integration pending (future work)
+
+**Future Integration:**
+Taint analyzer will use DFG for:
+- Inter-procedural flow tracking (follow assignments across functions)
+- Return value propagation (track tainted returns to call sites)
+- Alias analysis (detect variable aliasing through assignments)
+- Faster traversals (pre-built graph vs on-the-fly queries)
 
 ### Framework Detection (`theauditor/framework_detector.py`)
 - Auto-detects Django, Flask, React, Vue, Angular, etc.

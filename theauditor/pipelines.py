@@ -424,6 +424,7 @@ def run_full_pipeline(
         ("lint", ["--workset"]),
         ("detect-patterns", []),
         ("graph", ["build"]),
+        ("graph", ["build-dfg"]),  # DFG builder - MUST run after graph build
         ("graph", ["analyze"]),
         ("graph", ["viz", "--view", "full", "--include-analysis"]),
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
@@ -475,6 +476,8 @@ def run_full_pipeline(
                     extra_args = extra_args + ["--exclude-self"]
             elif cmd_name == "graph" and "build" in extra_args:
                 description = f"{phase_num}. Build graph"
+            elif cmd_name == "graph" and "build-dfg" in extra_args:
+                description = f"{phase_num}. Build data flow graph"
             elif cmd_name == "graph" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze graph"
             elif cmd_name == "graph" and "viz" in extra_args:
@@ -585,6 +588,9 @@ def run_full_pipeline(
         
         # Stage 2: Data Preparation (sequential, enables parallel work)
         elif "workset" in cmd_str:
+            data_prep_commands.append((phase_name, cmd))
+        elif "graph build-dfg" in cmd_str:
+            # DFG builder must run AFTER graph build (needs repo_index.db)
             data_prep_commands.append((phase_name, cmd))
         elif "graph build" in cmd_str:
             data_prep_commands.append((phase_name, cmd))

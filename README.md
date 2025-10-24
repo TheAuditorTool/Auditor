@@ -159,7 +159,12 @@ aud graph viz --view hotspots --top-hotspots 5
 
 # Show the impact of changing a file
 aud graph viz --view impact --impact-target "src/api/auth.js"
+
+# Build data flow graph (tracks variable assignments and returns)
+aud graph build-dfg
 ```
+
+Data flow graphs track how variables flow through assignments and function returns, stored in `.pf/graphs.db` and `.pf/raw/data_flow_graph.json`. Used by taint analysis for more accurate inter-procedural tracking.
 
 ### Code Context Queries
 

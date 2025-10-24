@@ -177,7 +177,60 @@ class XGraphStore:
                 )
             
             conn.commit()
-    
+
+    def save_data_flow_graph(self, graph: dict[str, Any]) -> None:
+        """
+        Save data flow graph to database.
+
+        Args:
+            graph: Data flow graph with nodes (variables, return values) and edges (assignments, returns)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Clear existing data flow graph
+            conn.execute("DELETE FROM nodes WHERE graph_type = 'data_flow'")
+            conn.execute("DELETE FROM edges WHERE graph_type = 'data_flow'")
+
+            # Insert nodes (variables and return values)
+            for node in graph.get("nodes", []):
+                metadata_json = json.dumps(node.get("metadata", {})) if node.get("metadata") else None
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO nodes
+                    (id, file, lang, loc, churn, type, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, 'data_flow', ?)
+                    """,
+                    (
+                        node["id"],
+                        node["file"],
+                        None,  # lang not applicable for DFG
+                        0,     # loc not applicable for DFG
+                        None,  # churn not applicable for DFG
+                        node.get("type", "variable"),
+                        metadata_json,
+                    ),
+                )
+
+            # Insert edges (assignments and returns)
+            for edge in graph.get("edges", []):
+                metadata_json = json.dumps(edge.get("metadata", {})) if edge.get("metadata") else None
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO edges
+                    (source, target, type, file, line, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, 'data_flow', ?)
+                    """,
+                    (
+                        edge["source"],
+                        edge["target"],
+                        edge.get("type", "assignment"),
+                        edge.get("file"),
+                        edge.get("line"),
+                        metadata_json,
+                    ),
+                )
+
+            conn.commit()
+
     def load_import_graph(self) -> dict[str, Any]:
         """
         Load import graph from database.
