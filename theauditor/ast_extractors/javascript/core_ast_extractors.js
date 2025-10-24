@@ -1050,6 +1050,16 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
             const right = node.name ? (node.name.text || node.name.escapedText || '') : '';
             return left && right ? left + '.' + right : left || right;
         }
+        // CRITICAL FIX: Handle CallExpression for method chaining
+        // Example: res.status().json → builds "res.status().json"
+        // This enables complete taint flow tracking for chained calls
+        if (kind === 'CallExpression') {
+            const callee = buildDottedName(node.expression, ts);
+            if (callee) {
+                return callee + '()';  // Append () to show it's a call result
+            }
+            return '';
+        }
         return '';
     }
 
@@ -1058,6 +1068,30 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
 
         const nodeId = node.pos + '-' + node.kind;
         if (visited.has(nodeId)) return;
+
+        // CRITICAL FIX: For chained CallExpressions, process intermediate calls BEFORE marking this node as visited
+        // This ensures: res.status(404).json({}) captures BOTH res.status(404) AND res.status().json({})
+        // Without this, ts.forEachChild visits inner CallExpression first, marks it visited, then outer call can't re-process it
+        if (node.kind === ts.SyntaxKind.CallExpression && node.expression) {
+            const exprKind = ts.SyntaxKind[node.expression.kind];
+            if (exprKind === 'PropertyAccessExpression' && node.expression.expression) {
+                const innerExprKind = ts.SyntaxKind[node.expression.expression.kind];
+                if (innerExprKind === 'CallExpression') {
+                    const innerNodeId = node.expression.expression.pos + '-' + node.expression.expression.kind;
+                    // Process intermediate call FIRST, before we add THIS node to visited
+                    if (!visited.has(innerNodeId)) {
+                        traverse(node.expression.expression, depth + 1);
+                    }
+                }
+            } else if (exprKind === 'CallExpression') {
+                const innerNodeId = node.expression.pos + '-' + node.expression.kind;
+                if (!visited.has(innerNodeId)) {
+                    traverse(node.expression, depth + 1);
+                }
+            }
+        }
+
+        // NOW mark this node as visited AFTER processing intermediate calls
         visited.add(nodeId);
 
         if (node.kind === ts.SyntaxKind.CallExpression) {
@@ -1071,6 +1105,9 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
                 if (exprKind === 'Identifier') {
                     calleeName = node.expression.text || node.expression.escapedText || '';
                 } else if (exprKind === 'PropertyAccessExpression') {
+                    calleeName = buildDottedName(node.expression, ts);
+                } else if (exprKind === 'CallExpression') {
+                    // Handle chained calls: (res.status()).json becomes "res.status().json"
                     calleeName = buildDottedName(node.expression, ts);
                 }
             }
