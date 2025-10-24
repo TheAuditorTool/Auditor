@@ -485,12 +485,14 @@ ASSIGNMENTS = TableSchema(
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
         Column("in_function", "TEXT", nullable=False),
+        Column("property_path", "TEXT", nullable=True),  # Full path for destructured assignments (e.g., req.params.id)
     ],
     primary_key=["file", "line", "target_var"],
     indexes=[
         ("idx_assignments_file", ["file"]),
         ("idx_assignments_function", ["in_function"]),
         ("idx_assignments_target", ["target_var"]),
+        ("idx_assignments_property_path", ["property_path"]),  # Index for taint analysis queries
     ]
 )
 
@@ -502,6 +504,7 @@ ASSIGNMENTS_JSX = TableSchema(
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
         Column("in_function", "TEXT", nullable=False),
+        Column("property_path", "TEXT", nullable=True),  # Full path for destructured assignments (e.g., req.params.id)
         Column("jsx_mode", "TEXT", nullable=False, default="'preserved'"),
         Column("extraction_pass", "INTEGER", default="1"),
     ],
@@ -509,6 +512,7 @@ ASSIGNMENTS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_assignments_file", ["file"]),
         ("idx_jsx_assignments_function", ["in_function"]),
+        ("idx_jsx_assignments_property_path", ["property_path"]),  # Index for taint analysis queries
     ]
 )
 

@@ -954,41 +954,73 @@ function extractAssignments(sourceFile, ts, scopeMap) {
                             source_expr: initializer.getText(sourceFile).substring(0, 500),
                             line: line + 1,
                             in_function: inFunction,
-                            source_vars: extractVarsFromNode(initializer, sourceFile, ts)
+                            source_vars: extractVarsFromNode(initializer, sourceFile, ts),
+                            property_path: null  // NULL for non-destructured assignments
                         });
                     }
                 }
-                // Handle destructuring: const {x, y} = obj
+                // Handle object destructuring: const {x, y} = obj
+                // CRITICAL FOR TAINT: Preserve property paths for destructured variables
+                // Example: const { id, batchId } = req.params
+                //   - target_var: id, property_path: req.params.id
+                //   - target_var: batchId, property_path: req.params.batchId
                 else if (name.kind === ts.SyntaxKind.ObjectBindingPattern && name.elements) {
+                    const sourceExprText = initializer.getText(sourceFile).substring(0, 500);
+
                     name.elements.forEach(elem => {
                         if (elem.name && elem.name.kind === ts.SyntaxKind.Identifier) {
-                            const elemName = elem.name.text || elem.name.escapedText;
-                            if (elemName) {
-                                assignments.push({
-                                    target_var: elemName,
-                                    source_expr: initializer.getText(sourceFile).substring(0, 500),
-                                    line: line + 1,
-                                    in_function: inFunction,
-                                    source_vars: extractVarsFromNode(initializer, sourceFile, ts)
-                                });
+                            const targetVar = elem.name.text || elem.name.escapedText;
+                            if (!targetVar) return;
+
+                            // Determine the property name being destructured
+                            // Case 1: { id } - property name is 'id'
+                            // Case 2: { id: userId } - property name is 'id', target is 'userId'
+                            let propertyName = targetVar;  // Default: same as target
+                            if (elem.propertyName && elem.propertyName.kind === ts.SyntaxKind.Identifier) {
+                                // Renamed destructuring: { id: userId }
+                                propertyName = elem.propertyName.text || elem.propertyName.escapedText;
                             }
+
+                            // Build property path: sourceExpr.propertyName
+                            // Example: req.params + .id = req.params.id
+                            const propertyPath = sourceExprText + '.' + propertyName;
+
+                            assignments.push({
+                                target_var: targetVar,
+                                source_expr: sourceExprText,
+                                line: line + 1,
+                                in_function: inFunction,
+                                source_vars: extractVarsFromNode(initializer, sourceFile, ts),
+                                property_path: propertyPath  // NEW: Full path for taint tracking
+                            });
                         }
                     });
                 }
                 // Handle array destructuring: const [x, y] = arr
+                // CRITICAL FOR TAINT: Preserve array index paths
+                // Example: const [first, second] = array
+                //   - target_var: first, property_path: array[0]
+                //   - target_var: second, property_path: array[1]
                 else if (name.kind === ts.SyntaxKind.ArrayBindingPattern && name.elements) {
-                    name.elements.forEach(elem => {
+                    const sourceExprText = initializer.getText(sourceFile).substring(0, 500);
+
+                    name.elements.forEach((elem, index) => {
                         if (elem.kind === ts.SyntaxKind.BindingElement && elem.name && elem.name.kind === ts.SyntaxKind.Identifier) {
-                            const elemName = elem.name.text || elem.name.escapedText;
-                            if (elemName) {
-                                assignments.push({
-                                    target_var: elemName,
-                                    source_expr: initializer.getText(sourceFile).substring(0, 500),
-                                    line: line + 1,
-                                    in_function: inFunction,
-                                    source_vars: extractVarsFromNode(initializer, sourceFile, ts)
-                                });
-                            }
+                            const targetVar = elem.name.text || elem.name.escapedText;
+                            if (!targetVar) return;
+
+                            // Build property path with array index: sourceExpr[index]
+                            // Example: array + [0] = array[0]
+                            const propertyPath = sourceExprText + '[' + index + ']';
+
+                            assignments.push({
+                                target_var: targetVar,
+                                source_expr: sourceExprText,
+                                line: line + 1,
+                                in_function: inFunction,
+                                source_vars: extractVarsFromNode(initializer, sourceFile, ts),
+                                property_path: propertyPath  // NEW: Array index path for taint tracking
+                            });
                         }
                     });
                 }
@@ -1011,7 +1043,8 @@ function extractAssignments(sourceFile, ts, scopeMap) {
                     source_expr: sourceExpr,
                     line: line + 1,
                     in_function: inFunction,
-                    source_vars: extractVarsFromNode(right, sourceFile, ts)
+                    source_vars: extractVarsFromNode(right, sourceFile, ts),
+                    property_path: null  // NULL for non-destructured assignments
                 });
             }
         }

@@ -529,7 +529,7 @@ class IndexerOrchestrator:
                     self.db_manager.add_assignment_jsx(
                         file_path_str, assign['line'], assign['target_var'],
                         assign['source_expr'], assign['source_vars'],
-                        assign['in_function'],
+                        assign['in_function'], assign.get('property_path'),  # Pass destructuring property path
                         jsx_mode='preserved', extraction_pass=2
                     )
                     jsx_counts['assignments'] += 1
@@ -868,7 +868,7 @@ class IndexerOrchestrator:
                 self.db_manager.add_assignment(
                     file_path, assignment['line'], assignment['target_var'],
                     assignment['source_expr'], assignment['source_vars'],
-                    assignment['in_function']
+                    assignment['in_function'], assignment.get('property_path')  # Pass destructuring property path
                 )
                 self.counts['assignments'] += 1
         

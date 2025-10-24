@@ -524,12 +524,16 @@ class DatabaseManager:
                                                       args_json, user, has_healthcheck))
 
     def add_assignment(self, file_path: str, line: int, target_var: str, source_expr: str,
-                      source_vars: List[str], in_function: str):
+                      source_vars: List[str], in_function: str, property_path: Optional[str] = None):
         """Add a variable assignment record to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
         - Phase 1: Batch assignment record (without source_vars column)
         - Phase 2: Batch junction records for each source variable
+
+        Args:
+            property_path: Full property path for destructured assignments (e.g., 'req.params.id')
+                          NULL for non-destructured assignments (e.g., 'const x = y')
 
         NO FALLBACKS. If source_vars is malformed, hard fail.
         """
@@ -540,8 +544,8 @@ class DatabaseManager:
             import sys
             print(f"[TRACE] add_assignment() call #{batch_idx}: {file_path}:{line} {target_var} in {in_function}", file=sys.stderr)
 
-        # Phase 1: Add assignment record (5 params, no source_vars column)
-        self.generic_batches['assignments'].append((file_path, line, target_var, source_expr, in_function))
+        # Phase 1: Add assignment record (6 params including property_path)
+        self.generic_batches['assignments'].append((file_path, line, target_var, source_expr, in_function, property_path))
 
         # Phase 2: Add junction records for each source variable
         if source_vars:
@@ -834,19 +838,23 @@ class DatabaseManager:
         self.generic_batches['symbols_jsx'].append((path, name, symbol_type, line, col, jsx_mode, extraction_pass))
 
     def add_assignment_jsx(self, file_path: str, line: int, target_var: str, source_expr: str,
-                          source_vars: List[str], in_function: str, jsx_mode: str = 'preserved',
-                          extraction_pass: int = 1):
+                          source_vars: List[str], in_function: str, property_path: Optional[str] = None,
+                          jsx_mode: str = 'preserved', extraction_pass: int = 1):
         """Add a JSX assignment record for preserved JSX extraction.
 
         ARCHITECTURE: Normalized many-to-many relationship (JSX variant).
         - Phase 1: Batch JSX assignment record (without source_vars column)
         - Phase 2: Batch JSX junction records for each source variable
 
+        Args:
+            property_path: Full property path for destructured assignments (e.g., 'req.params.id')
+                          NULL for non-destructured assignments (e.g., 'const x = y')
+
         NO FALLBACKS. If source_vars is malformed, hard fail.
         """
-        # Phase 1: Add JSX assignment record (6 params, no source_vars column)
+        # Phase 1: Add JSX assignment record (8 params including property_path)
         self.generic_batches['assignments_jsx'].append((file_path, line, target_var, source_expr,
-                                                        in_function, jsx_mode, extraction_pass))
+                                                        in_function, property_path, jsx_mode, extraction_pass))
 
         # Phase 2: Add JSX junction records for each source variable
         if source_vars:
