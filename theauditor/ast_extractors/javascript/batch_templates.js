@@ -260,7 +260,7 @@ async function main() {
                     const variableUsage = extractVariableUsage(assignments, functionCallArgs);
                     const importStyles = extractImportStyles(imports);
                     const refs = extractRefs(imports);
-                    const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs);
+                    const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                     const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                     const ormQueries = extractORMQueries(functionCallArgs);
                     const apiEndpoints = extractAPIEndpoints(functionCallArgs);
@@ -566,7 +566,7 @@ try {
                 const variableUsage = extractVariableUsage(assignments, functionCallArgs);
                 const importStyles = extractImportStyles(imports);
                 const refs = extractRefs(imports);
-                const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs);
+                const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                 const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                 const ormQueries = extractORMQueries(functionCallArgs);
                 const apiEndpoints = extractAPIEndpoints(functionCallArgs);
