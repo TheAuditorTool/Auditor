@@ -514,6 +514,11 @@ class IndexerOrchestrator:
                     continue
 
                 # Extract data from preserved AST
+                # Check for batch processing failures before extraction
+                if isinstance(tree, dict) and tree.get('success') is False:
+                    print(f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}", file=sys.stderr)
+                    continue  # Skip this file
+
                 try:
                     extracted = extractor.extract(file_info, content, tree)
                 except Exception as e:
@@ -627,6 +632,12 @@ class IndexerOrchestrator:
             print(f"[Indexer] Second pass complete: {jsx_counts['symbols']} symbols, "
                   f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
                   f"{jsx_counts['returns']} returns stored to _jsx tables")
+
+        # Flush all generic batches (validation_framework_usage, etc.)
+        for table_name in self.db_manager.generic_batches.keys():
+            if self.db_manager.generic_batches[table_name]:  # Only flush if non-empty
+                self.db_manager.flush_generic_batch(table_name)
+        self.db_manager.commit()
 
         # Cleanup extractor resources (LSP sessions, temp directories, etc.)
         self._cleanup_extractors()
@@ -876,6 +887,12 @@ class IndexerOrchestrator:
                 self.counts['orm'] += 1
 
         # Store validation framework usage (for taint analysis sanitizer detection)
+        # DEBUG: Check if validation_framework_usage key exists
+        if os.environ.get("THEAUDITOR_VALIDATION_DEBUG") and file_path.endswith('validate.ts'):
+            print(f"[PY-DEBUG] Extracted keys for {file_path}: {list(extracted.keys())}", file=sys.stderr)
+            if 'validation_framework_usage' in extracted:
+                print(f"[PY-DEBUG] validation_framework_usage has {len(extracted['validation_framework_usage'])} items", file=sys.stderr)
+
         if 'validation_framework_usage' in extracted:
             for usage in extracted['validation_framework_usage']:
                 self.db_manager.generic_batches['validation_framework_usage'].append((

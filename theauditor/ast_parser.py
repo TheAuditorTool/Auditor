@@ -125,7 +125,18 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                     "Please try: pip install --force-reinstall tree-sitter-language-pack\n"
                     "Or install with AST support: pip install -e '.[ast]'"
                 )
-                
+
+            # HCL/Terraform parser (optional - non-critical)
+            try:
+                hcl_lang = get_language("hcl")
+                hcl_parser = get_parser("hcl")
+                self.parsers["hcl"] = hcl_parser
+                self.languages["hcl"] = hcl_lang
+            except Exception as e:
+                # Non-critical: Terraform can work without tree-sitter (though no line numbers)
+                print(f"[INFO] HCL tree-sitter not available: {e}")
+                print("[INFO] Terraform files will be parsed with python-hcl2 fallback (no line numbers)")
+
         except ImportError as e:
             # If tree-sitter is installed but language pack is not, this is a critical error
             # The user clearly intends to use tree-sitter, so we should fail loudly
@@ -281,6 +292,18 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                 if python_ast:
                     return {"type": "python_ast", "tree": python_ast, "language": language, "content": decoded}
 
+            # TREE-SITTER PARSER - For HCL, Rust, and other tree-sitter languages
+            if language in self.parsers:
+                parser = self.parsers[language]
+                tree = parser.parse(content)
+                if tree:
+                    return {
+                        "type": "tree_sitter",
+                        "tree": tree,
+                        "language": language,
+                        "content": content.decode("utf-8", errors="ignore")
+                    }
+
             # Return None for unsupported languages
             return None
 
@@ -299,6 +322,8 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             ".mjs": "javascript",
             ".cjs": "javascript",
             ".vue": "javascript",  # Vue SFCs contain JavaScript/TypeScript
+            ".tf": "hcl",
+            ".tfvars": "hcl",
         }
         return ext_map.get(file_path.suffix.lower(), "")  # Empty not unknown
 
