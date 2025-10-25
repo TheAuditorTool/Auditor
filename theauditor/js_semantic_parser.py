@@ -417,6 +417,10 @@ class JSSemanticParser:
                             "symbols": []
                         }
                 else:
+                    # Print stderr in debug mode (contains console.error() output from JavaScript)
+                    if os.environ.get("THEAUDITOR_DEBUG") and result.stderr:
+                        print(f"[DEBUG JS STDERR] {result.stderr}")
+
                     # Read batch results
                     if Path(output_path).exists():
                         with open(output_path, 'r', encoding='utf-8') as f:

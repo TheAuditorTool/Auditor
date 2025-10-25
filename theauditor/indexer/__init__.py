@@ -317,7 +317,16 @@ class IndexerOrchestrator:
         
         # Final commit
         self.db_manager.commit()
-        
+
+        # PHASE 6: Resolve cross-file parameter names
+        # After all files indexed, update function_call_args.param_name with actual parameter names
+        # from symbols table (fixes file-scoped limitation in JavaScript extraction)
+        from theauditor.indexer.extractors.javascript import JavaScriptExtractor
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[INDEXER] PHASE 6: Resolving cross-file parameter names...", file=sys.stderr)
+        JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
+        self.db_manager.commit()
+
         # Report results with database location
         base_msg = (f"[Indexer] Indexed {self.counts['files']} files, "
                    f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
@@ -819,10 +828,18 @@ class IndexerOrchestrator:
         
         # Store symbols
         if 'symbols' in extracted:
+            import json
             for symbol in extracted['symbols']:
+                # Serialize parameters array to JSON if present
+                parameters_json = None
+                if 'parameters' in symbol and symbol['parameters']:
+                    parameters_json = json.dumps(symbol['parameters'])
+
                 self.db_manager.add_symbol(
                     file_path, symbol['name'], symbol['type'],
-                    symbol['line'], symbol['col'], symbol.get('end_line')
+                    symbol['line'], symbol['col'], symbol.get('end_line'),
+                    symbol.get('type_annotation'),  # Pass type_annotation if present
+                    parameters_json  # Pass JSON-serialized parameters
                 )
                 self.counts['symbols'] += 1
 
@@ -993,6 +1010,65 @@ class IndexerOrchestrator:
                     component.get('props_type')
                 )
                 self.counts['react_components'] += 1
+
+        # Store class property declarations (TypeScript/JavaScript ES2022+)
+        if 'class_properties' in extracted:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG INDEXER] Found {len(extracted['class_properties'])} class_properties for {file_path}")
+            for prop in extracted['class_properties']:
+                if os.environ.get("THEAUDITOR_DEBUG") and len(extracted['class_properties']) > 0:
+                    print(f"[DEBUG INDEXER]   Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}")
+                self.db_manager.add_class_property(
+                    file_path,
+                    prop['line'],
+                    prop['class_name'],
+                    prop['property_name'],
+                    prop.get('property_type'),
+                    prop.get('is_optional', False),
+                    prop.get('is_readonly', False),
+                    prop.get('access_modifier'),
+                    prop.get('has_declare', False),
+                    prop.get('initializer')
+                )
+                if 'class_properties' not in self.counts:
+                    self.counts['class_properties'] = 0
+                self.counts['class_properties'] += 1
+
+        # Store environment variable usage (process.env.X)
+        if 'env_var_usage' in extracted:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG INDEXER] Found {len(extracted['env_var_usage'])} env_var_usage for {file_path}")
+            for usage in extracted['env_var_usage']:
+                self.db_manager.add_env_var_usage(
+                    file_path,
+                    usage['line'],
+                    usage['var_name'],
+                    usage['access_type'],
+                    usage.get('in_function'),
+                    usage.get('property_access')
+                )
+                if 'env_var_usage' not in self.counts:
+                    self.counts['env_var_usage'] = 0
+                self.counts['env_var_usage'] += 1
+
+        # Store ORM relationship declarations (hasMany, belongsTo, etc.)
+        if 'orm_relationships' in extracted:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG INDEXER] Found {len(extracted['orm_relationships'])} orm_relationships for {file_path}")
+            for rel in extracted['orm_relationships']:
+                self.db_manager.add_orm_relationship(
+                    file_path,
+                    rel['line'],
+                    rel['source_model'],
+                    rel['target_model'],
+                    rel['relationship_type'],
+                    rel.get('foreign_key'),
+                    rel.get('cascade_delete', False),
+                    rel.get('as_name')
+                )
+                if 'orm_relationships' not in self.counts:
+                    self.counts['orm_relationships'] = 0
+                self.counts['orm_relationships'] += 1
 
         if 'react_hooks' in extracted:
             for hook in extracted['react_hooks']:

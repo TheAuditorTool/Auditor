@@ -253,6 +253,10 @@ async function main() {
                     // Step 3: Extract all other data types
                     const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
                     const classes = extractClasses(sourceFile, checker, ts);
+                    const classProperties = extractClassProperties(sourceFile, ts);
+                    console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${fileInfo.original}`);
+                    const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
+                    const ormRelationships = extractORMRelationships(sourceFile, ts);
                     const assignments = extractAssignments(sourceFile, ts, scopeMap);
                     const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
                     const returns = extractReturns(sourceFile, ts, scopeMap);
@@ -294,6 +298,9 @@ async function main() {
                             // PHASE 5: All data types extracted in JavaScript (including CFG)
                             functions: functions,
                             classes: classes,
+                            class_properties: classProperties,
+                            env_var_usage: envVarUsage,
+                            orm_relationships: ormRelationships,
                             calls: calls,
                             imports: imports,
                             assignments: assignments,
@@ -559,6 +566,10 @@ try {
                 // Step 3: Extract all other data types
                 const calls = extractCalls(sourceFile, checker, ts, resolvedProjectRoot);
                 const classes = extractClasses(sourceFile, checker, ts);
+                const classProperties = extractClassProperties(sourceFile, ts);
+                console.error(`[DEBUG JS BATCH] Extracted ${classProperties.length} class properties from ${fileInfo.original}`);
+                const envVarUsage = extractEnvVarUsage(sourceFile, ts, scopeMap);
+                const ormRelationships = extractORMRelationships(sourceFile, ts);
                 const assignments = extractAssignments(sourceFile, ts, scopeMap);
                 const functionCallArgs = extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionParams, resolvedProjectRoot);
                 const returns = extractReturns(sourceFile, ts, scopeMap);
@@ -599,6 +610,9 @@ try {
                         // PHASE 5: All data types extracted in JavaScript (including CFG)
                         functions: functions,
                         classes: classes,
+                        class_properties: classProperties,
+                        env_var_usage: envVarUsage,
+                        orm_relationships: ormRelationships,
                         calls: calls,
                         imports: imports,
                         assignments: assignments,

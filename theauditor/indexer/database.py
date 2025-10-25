@@ -258,6 +258,9 @@ class DatabaseManager:
                 # Code structure tables (depend on files)
                 ('refs', 'INSERT'),
                 ('symbols', 'INSERT'),
+                ('class_properties', 'INSERT'),  # TypeScript/JavaScript class property declarations
+                ('env_var_usage', 'INSERT'),  # Environment variable usage (process.env.X)
+                ('orm_relationships', 'INSERT'),  # ORM relationship declarations (hasMany, belongsTo, etc.)
                 ('sql_objects', 'INSERT'),
                 ('sql_queries', 'INSERT'),
                 ('orm_queries', 'INSERT'),
@@ -498,8 +501,20 @@ class DatabaseManager:
                     continue
                 self.generic_batches['sql_query_tables'].append((file_path, line, table_name))
 
-    def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int, end_line: Optional[int] = None):
-        """Add a symbol record to the batch."""
+    def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int, end_line: Optional[int] = None,
+                   type_annotation: Optional[str] = None, parameters: Optional[str] = None):
+        """Add a symbol record to the batch.
+
+        Args:
+            path: File path containing the symbol
+            name: Symbol name
+            symbol_type: Type of symbol ('function', 'class', 'variable', etc.)
+            line: Line number where symbol is defined
+            col: Column number where symbol is defined
+            end_line: Last line of symbol definition (optional)
+            type_annotation: TypeScript/type annotation (optional)
+            parameters: JSON array of parameter names for functions (optional, e.g., '["data", "_createdBy"]')
+        """
         import os
         if os.getenv("THEAUDITOR_DEBUG"):
             # Check if this exact symbol already exists in batch
@@ -507,7 +522,72 @@ class DatabaseManager:
             existing = [s for s in self.generic_batches['symbols'] if (s[0], s[1], s[2], s[3], s[4]) == symbol_key]
             if existing:
                 print(f"[DEBUG] add_symbol: DUPLICATE detected! {name} ({symbol_type}) at {path}:{line}:{col}")
-        self.generic_batches['symbols'].append((path, name, symbol_type, line, col, end_line))
+            if parameters and os.getenv("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] add_symbol: {name} ({symbol_type}) has parameters: {parameters}")
+        self.generic_batches['symbols'].append((path, name, symbol_type, line, col, end_line, type_annotation, parameters))
+
+    def add_class_property(self, file: str, line: int, class_name: str, property_name: str,
+                          property_type: Optional[str] = None, is_optional: bool = False,
+                          is_readonly: bool = False, access_modifier: Optional[str] = None,
+                          has_declare: bool = False, initializer: Optional[str] = None):
+        """Add a class property declaration record to the batch.
+
+        Args:
+            file: File containing the class
+            line: Line number of property declaration
+            class_name: Name of the containing class
+            property_name: Name of the property
+            property_type: TypeScript type annotation (e.g., "string", "number | null")
+            is_optional: Whether property has ? modifier
+            is_readonly: Whether property has readonly keyword
+            access_modifier: "private", "protected", or "public" (None = public by default)
+            has_declare: Whether property has declare keyword (TypeScript ambient declaration)
+            initializer: Default value expression if present
+        """
+        self.generic_batches['class_properties'].append((
+            file, line, class_name, property_name, property_type,
+            1 if is_optional else 0,
+            1 if is_readonly else 0,
+            access_modifier,
+            1 if has_declare else 0,
+            initializer
+        ))
+
+    def add_env_var_usage(self, file: str, line: int, var_name: str, access_type: str,
+                         in_function: Optional[str] = None, property_access: Optional[str] = None):
+        """Add an environment variable usage record to the batch.
+
+        Args:
+            file: File containing the env var access
+            line: Line number of the access
+            var_name: Name of the environment variable (e.g., "NODE_ENV", "DATABASE_URL")
+            access_type: Type of access - "read", "write", or "check"
+            in_function: Name of the function containing this access
+            property_access: Full property access expression (e.g., "process.env.NODE_ENV")
+        """
+        self.generic_batches['env_var_usage'].append((
+            file, line, var_name, access_type, in_function, property_access
+        ))
+
+    def add_orm_relationship(self, file: str, line: int, source_model: str, target_model: str,
+                            relationship_type: str, foreign_key: Optional[str] = None,
+                            cascade_delete: bool = False, as_name: Optional[str] = None):
+        """Add an ORM relationship record to the batch.
+
+        Args:
+            file: File containing the relationship definition
+            line: Line number of the relationship
+            source_model: Source model name (e.g., "User")
+            target_model: Target model name (e.g., "Account")
+            relationship_type: Type of relationship - "hasMany", "belongsTo", "hasOne", etc.
+            foreign_key: Foreign key column name (e.g., "account_id")
+            cascade_delete: Whether CASCADE delete is enabled
+            as_name: Association alias (e.g., "owner")
+        """
+        self.generic_batches['orm_relationships'].append((
+            file, line, source_model, target_model, relationship_type,
+            foreign_key, 1 if cascade_delete else 0, as_name
+        ))
 
     def add_orm_query(self, file_path: str, line: int, query_type: str, includes: Optional[str],
                       has_limit: bool, has_transaction: bool):

@@ -293,6 +293,7 @@ SYMBOLS = TableSchema(
         Column("col", "INTEGER", nullable=False),
         Column("end_line", "INTEGER"),
         Column("type_annotation", "TEXT"),
+        Column("parameters", "TEXT"),  # JSON array of parameter names: ['data', '_createdBy']
         Column("is_typed", "BOOLEAN", default="0"),
     ],
     primary_key=["path", "name", "line", "type", "col"],
@@ -318,6 +319,67 @@ SYMBOLS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_symbols_path", ["path"]),
         ("idx_jsx_symbols_type", ["type"]),
+    ]
+)
+
+CLASS_PROPERTIES = TableSchema(
+    name="class_properties",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("property_name", "TEXT", nullable=False),
+        Column("property_type", "TEXT", nullable=True),  # TypeScript type annotation
+        Column("is_optional", "BOOLEAN", default="0"),    # ? modifier
+        Column("is_readonly", "BOOLEAN", default="0"),    # readonly keyword
+        Column("access_modifier", "TEXT", nullable=True), # "private", "protected", "public"
+        Column("has_declare", "BOOLEAN", default="0"),    # declare keyword (TypeScript)
+        Column("initializer", "TEXT", nullable=True),     # Default value if present
+    ],
+    primary_key=["file", "class_name", "property_name", "line"],
+    indexes=[
+        ("idx_class_properties_file", ["file"]),
+        ("idx_class_properties_class", ["class_name"]),
+        ("idx_class_properties_name", ["property_name"]),
+    ]
+)
+
+ENV_VAR_USAGE = TableSchema(
+    name="env_var_usage",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("var_name", "TEXT", nullable=False),        # "NODE_ENV", "DATABASE_URL"
+        Column("access_type", "TEXT", nullable=False),     # "read", "write", "check"
+        Column("in_function", "TEXT", nullable=True),      # Function containing this access
+        Column("property_access", "TEXT", nullable=True),  # Full expression: "process.env.NODE_ENV"
+    ],
+    primary_key=["file", "line", "var_name"],
+    indexes=[
+        ("idx_env_var_usage_file", ["file"]),
+        ("idx_env_var_usage_name", ["var_name"]),
+        ("idx_env_var_usage_type", ["access_type"]),
+    ]
+)
+
+ORM_RELATIONSHIPS = TableSchema(
+    name="orm_relationships",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("source_model", "TEXT", nullable=False),      # "User"
+        Column("target_model", "TEXT", nullable=False),      # "Account"
+        Column("relationship_type", "TEXT", nullable=False), # "hasMany", "belongsTo", "hasOne"
+        Column("foreign_key", "TEXT", nullable=True),        # "account_id"
+        Column("cascade_delete", "BOOLEAN", default="0"),    # CASCADE delete option
+        Column("as_name", "TEXT", nullable=True),            # Association alias (e.g., "as: 'owner'")
+    ],
+    primary_key=["file", "line", "source_model", "target_model"],
+    indexes=[
+        ("idx_orm_relationships_file", ["file"]),
+        ("idx_orm_relationships_source", ["source_model"]),
+        ("idx_orm_relationships_target", ["target_model"]),
+        ("idx_orm_relationships_type", ["relationship_type"]),
     ]
 )
 
@@ -1210,6 +1272,9 @@ TABLES: Dict[str, TableSchema] = {
     # Symbol tables
     "symbols": SYMBOLS,
     "symbols_jsx": SYMBOLS_JSX,
+    "class_properties": CLASS_PROPERTIES,
+    "env_var_usage": ENV_VAR_USAGE,
+    "orm_relationships": ORM_RELATIONSHIPS,
 
     # API & routing
     "api_endpoints": API_ENDPOINTS,

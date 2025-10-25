@@ -38,9 +38,9 @@ class DFGEdge:
 
     source: str  # Source variable ID
     target: str  # Target variable ID
+    file: str  # File containing this edge (moved before defaults)
+    line: int  # Line number (moved before defaults)
     type: str = "assignment"  # assignment, return, parameter
-    file: str
-    line: int
     expression: str = ""  # The assignment expression
     function: str = ""  # Function context
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -142,7 +142,8 @@ class DFGBuilder:
                         }
                     )
 
-                nodes[target_id].metadata["assignment_count"] += 1
+                # Use .get() with default - node may have been created as source first
+                nodes[target_id].metadata["assignment_count"] = nodes[target_id].metadata.get("assignment_count", 0) + 1
 
                 # If there's a source variable, create edge
                 if source_var_name:

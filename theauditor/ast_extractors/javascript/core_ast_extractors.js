@@ -287,6 +287,31 @@ function extractFunctions(sourceFile, checker, ts) {
             func_entry.name = func_name;
             func_entry.type = 'function';
 
+            // CRITICAL: Extract parameter names for inter-procedural taint tracking
+            // This enables real parameter names (data, _createdBy) instead of generic (arg0, arg1)
+            // Multi-hop taint analysis requires matching actual parameter names to arguments
+            func_entry.parameters = [];
+            if (node.parameters && Array.isArray(node.parameters)) {
+                node.parameters.forEach(param => {
+                    let paramName = '';
+                    if (param.name) {
+                        const nameKind = ts.SyntaxKind[param.name.kind];
+                        if (nameKind === 'Identifier') {
+                            paramName = param.name.text || param.name.escapedText || '';
+                        } else if (nameKind === 'ObjectBindingPattern') {
+                            // Destructured parameter: ({ id, name }) -> extract as 'destructured'
+                            paramName = 'destructured';
+                        } else if (nameKind === 'ArrayBindingPattern') {
+                            // Array destructuring: ([first, second]) -> extract as 'destructured'
+                            paramName = 'destructured';
+                        }
+                    }
+                    if (paramName) {
+                        func_entry.parameters.push(paramName);
+                    }
+                });
+            }
+
             // CRITICAL: Extract type metadata using TypeScript checker
             try {
                 const symbol = checker.getSymbolAtLocation(node.name || node);
@@ -335,7 +360,10 @@ function extractFunctions(sourceFile, checker, ts) {
     if (process.env.THEAUDITOR_DEBUG) {
         console.error(`[DEBUG JS] extractFunctions: Extracted ${functions.length} functions from ${sourceFile.fileName}`);
         if (functions.length > 0 && functions.length <= 5) {
-            functions.forEach(f => console.error(`[DEBUG JS]   - ${f.name} at line ${f.line}`));
+            functions.forEach(f => {
+                const params = f.parameters ? f.parameters.join(', ') : 'NONE';
+                console.error(`[DEBUG JS]   - ${f.name}(${params}) at line ${f.line}`);
+            });
         }
     }
 
@@ -504,6 +532,429 @@ function extractClasses(sourceFile, checker, ts) {
 
     traverse(sourceFile);
     return classes;
+}
+
+/**
+ * Extract class property declarations (TypeScript/JavaScript ES2022+).
+ * Captures class fields with type annotations, modifiers, and initializers.
+ * Critical for ORM model understanding and sensitive field tracking.
+ *
+ * Examples:
+ *   - declare username: string;              → has_declare=true, property_type="string"
+ *   - private password_hash: string;         → access_modifier="private"
+ *   - email: string | null;                  → property_type="string | null"
+ *   - readonly id: number = 1;               → is_readonly=true, initializer="1"
+ *   - account?: Account;                     → is_optional=true, property_type="Account"
+ *
+ * @param {Object} sourceFile - TypeScript source file node
+ * @param {Object} ts - TypeScript compiler API
+ * @returns {Array} - List of class property objects
+ */
+function extractClassProperties(sourceFile, ts) {
+    const properties = [];
+    let currentClass = null;
+
+    function traverse(node) {
+        if (!node) return;
+        const kind = ts.SyntaxKind[node.kind];
+
+        // Track current class context
+        if (kind === 'ClassDeclaration' || kind === 'ClassExpression') {
+            const previousClass = currentClass;
+            currentClass = node.name ? (node.name.text || node.name.escapedText || 'UnknownClass') : 'UnknownClass';
+
+            // If ClassExpression assigned to variable, use variable name
+            if (currentClass === 'UnknownClass' && node.parent) {
+                const parentKind = ts.SyntaxKind[node.parent.kind];
+                if (parentKind === 'VariableDeclaration' && node.parent.name) {
+                    currentClass = node.parent.name.text || node.parent.name.escapedText;
+                }
+            }
+
+            ts.forEachChild(node, traverse);
+
+            currentClass = previousClass;
+            return;
+        }
+
+        // PropertyDeclaration: class members
+        if (kind === 'PropertyDeclaration' && currentClass) {
+            const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+            const propertyName = node.name ? (node.name.text || node.name.escapedText || '') : '';
+
+            if (!propertyName) {
+                ts.forEachChild(node, traverse);
+                return;
+            }
+
+            const property = {
+                line: line + 1,
+                class_name: currentClass,
+                property_name: propertyName,
+                property_type: null,
+                is_optional: false,
+                is_readonly: false,
+                access_modifier: null,
+                has_declare: false,
+                initializer: null
+            };
+
+            // Type annotation
+            if (node.type) {
+                property.property_type = node.type.getText(sourceFile);
+            }
+
+            // Optional modifier (?)
+            if (node.questionToken) {
+                property.is_optional = true;
+            }
+
+            // Modifiers: readonly, private, protected, public, declare
+            if (node.modifiers) {
+                for (const modifier of node.modifiers) {
+                    const modifierKind = ts.SyntaxKind[modifier.kind];
+                    if (modifierKind === 'ReadonlyKeyword') {
+                        property.is_readonly = true;
+                    } else if (modifierKind === 'PrivateKeyword') {
+                        property.access_modifier = 'private';
+                    } else if (modifierKind === 'ProtectedKeyword') {
+                        property.access_modifier = 'protected';
+                    } else if (modifierKind === 'PublicKeyword') {
+                        property.access_modifier = 'public';
+                    } else if (modifierKind === 'DeclareKeyword') {
+                        property.has_declare = true;
+                    }
+                }
+            }
+
+            // Initializer (default value)
+            if (node.initializer) {
+                property.initializer = node.initializer.getText(sourceFile).substring(0, 500);
+            }
+
+            properties.push(property);
+        }
+
+        ts.forEachChild(node, traverse);
+    }
+
+    traverse(sourceFile);
+    return properties;
+}
+
+/**
+ * Extract environment variable usage patterns (process.env.X).
+ * Detects reads, writes, and existence checks of environment variables.
+ * Critical for secret detection and configuration analysis.
+ *
+ * Examples:
+ *   - process.env.NODE_ENV                    → read: "NODE_ENV"
+ *   - process.env['DATABASE_URL']             → read: "DATABASE_URL"
+ *   - process.env.SECRET = 'hardcoded'        → write: "SECRET"
+ *   - if (process.env.API_KEY)                → check: "API_KEY"
+ *   - const { PORT } = process.env            → read: "PORT"
+ *
+ * @param {Object} sourceFile - TypeScript source file node
+ * @param {Object} ts - TypeScript compiler API
+ * @param {Map} scopeMap - Line → function mapping
+ * @returns {Array} - List of env var usage records
+ */
+function extractEnvVarUsage(sourceFile, ts, scopeMap) {
+    const usages = [];
+
+    function traverse(node) {
+        if (!node) return;
+        const kind = ts.SyntaxKind[node.kind];
+
+        // Detect: process.env.VAR_NAME (PropertyAccessExpression)
+        if (kind === 'PropertyAccessExpression') {
+            // Check if this is process.env.X pattern
+            if (node.expression && node.name) {
+                const exprKind = ts.SyntaxKind[node.expression.kind];
+
+                // process.env.VAR_NAME
+                if (exprKind === 'PropertyAccessExpression' &&
+                    node.expression.expression &&
+                    node.expression.name) {
+                    const objName = node.expression.expression.text || node.expression.expression.escapedText;
+                    const propName = node.expression.name.text || node.expression.name.escapedText;
+
+                    if (objName === 'process' && propName === 'env') {
+                        const varName = node.name.text || node.name.escapedText;
+                        const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+                        const inFunction = scopeMap.get(line + 1) || null;
+
+                        // Determine access type based on parent node
+                        let accessType = 'read';  // Default
+                        if (node.parent) {
+                            const parentKind = ts.SyntaxKind[node.parent.kind];
+                            // Write: process.env.FOO = 'value'
+                            if (parentKind === 'BinaryExpression' &&
+                                node.parent.operatorToken &&
+                                ts.SyntaxKind[node.parent.operatorToken.kind] === 'EqualsToken' &&
+                                node.parent.left === node) {
+                                accessType = 'write';
+                            }
+                            // Check: if (process.env.FOO) or !process.env.FOO
+                            else if (parentKind === 'IfStatement' ||
+                                     parentKind === 'ConditionalExpression' ||
+                                     parentKind === 'PrefixUnaryExpression') {
+                                accessType = 'check';
+                            }
+                        }
+
+                        usages.push({
+                            line: line + 1,
+                            var_name: varName,
+                            access_type: accessType,
+                            in_function: inFunction,
+                            property_access: `process.env.${varName}`
+                        });
+                    }
+                }
+            }
+        }
+
+        // Detect: process.env['VAR_NAME'] (ElementAccessExpression)
+        if (kind === 'ElementAccessExpression') {
+            if (node.expression && node.argumentExpression) {
+                const exprKind = ts.SyntaxKind[node.expression.kind];
+
+                // process.env['VAR_NAME']
+                if (exprKind === 'PropertyAccessExpression' &&
+                    node.expression.expression &&
+                    node.expression.name) {
+                    const objName = node.expression.expression.text || node.expression.expression.escapedText;
+                    const propName = node.expression.name.text || node.expression.name.escapedText;
+
+                    if (objName === 'process' && propName === 'env') {
+                        // Get variable name from bracket access
+                        let varName = null;
+                        const argKind = ts.SyntaxKind[node.argumentExpression.kind];
+                        if (argKind === 'StringLiteral') {
+                            varName = node.argumentExpression.text;
+                        } else if (argKind === 'Identifier') {
+                            // process.env[variable] - dynamic access
+                            varName = `[${node.argumentExpression.text || node.argumentExpression.escapedText}]`;
+                        }
+
+                        if (varName) {
+                            const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+                            const inFunction = scopeMap.get(line + 1) || null;
+
+                            let accessType = 'read';
+                            if (node.parent) {
+                                const parentKind = ts.SyntaxKind[node.parent.kind];
+                                if (parentKind === 'BinaryExpression' &&
+                                    node.parent.operatorToken &&
+                                    ts.SyntaxKind[node.parent.operatorToken.kind] === 'EqualsToken' &&
+                                    node.parent.left === node) {
+                                    accessType = 'write';
+                                }
+                            }
+
+                            usages.push({
+                                line: line + 1,
+                                var_name: varName,
+                                access_type: accessType,
+                                in_function: inFunction,
+                                property_access: `process.env['${varName}']`
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Detect: const { VAR1, VAR2 } = process.env (ObjectBindingPattern)
+        if (kind === 'VariableDeclaration') {
+            if (node.name && node.initializer) {
+                const nameKind = ts.SyntaxKind[node.name.kind];
+                const initKind = ts.SyntaxKind[node.initializer.kind];
+
+                // Destructuring: const { ... } = process.env
+                if (nameKind === 'ObjectBindingPattern' && initKind === 'PropertyAccessExpression') {
+                    const initExpr = node.initializer.expression;
+                    const initName = node.initializer.name;
+
+                    if (initExpr && initName) {
+                        const objName = initExpr.text || initExpr.escapedText;
+                        const propName = initName.text || initName.escapedText;
+
+                        if (objName === 'process' && propName === 'env') {
+                            // Extract each destructured variable
+                            if (node.name.elements) {
+                                for (const element of node.name.elements) {
+                                    if (element.name) {
+                                        const varName = element.name.text || element.name.escapedText;
+                                        const { line } = sourceFile.getLineAndCharacterOfPosition(element.getStart(sourceFile));
+                                        const inFunction = scopeMap.get(line + 1) || null;
+
+                                        usages.push({
+                                            line: line + 1,
+                                            var_name: varName,
+                                            access_type: 'read',
+                                            in_function: inFunction,
+                                            property_access: `process.env.${varName} (destructured)`
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        ts.forEachChild(node, traverse);
+    }
+
+    traverse(sourceFile);
+    return usages;
+}
+
+/**
+ * Extract ORM relationship declarations (Sequelize/Prisma/TypeORM).
+ * Detects hasMany, belongsTo, hasOne, and other relationship methods.
+ * Critical for graph analysis, N+1 query detection, and IDOR vulnerabilities.
+ *
+ * Examples:
+ *   - User.hasMany(Operation)                           → hasMany: User → Operation
+ *   - User.belongsTo(Account, { foreignKey: 'acct' })  → belongsTo: User → Account (FK: acct)
+ *   - User.hasOne(Profile, { onDelete: 'CASCADE' })    → hasOne: User → Profile (cascade: true)
+ *   - User.hasMany(Post, { as: 'articles' })           → hasMany: User → Post (as: articles)
+ *
+ * @param {Object} sourceFile - TypeScript source file node
+ * @param {Object} ts - TypeScript compiler API
+ * @returns {Array} - List of ORM relationship records
+ */
+function extractORMRelationships(sourceFile, ts) {
+    const relationships = [];
+
+    // Sequelize relationship methods
+    const relationshipMethods = new Set([
+        'hasMany', 'belongsTo', 'hasOne', 'hasAndBelongsToMany',
+        'belongsToMany'  // Sequelize many-to-many
+    ]);
+
+    function traverse(node) {
+        if (!node) return;
+        const kind = ts.SyntaxKind[node.kind];
+
+        // Detect: Model.hasMany(Target, { options })
+        if (kind === 'CallExpression') {
+            if (node.expression && node.arguments && node.arguments.length > 0) {
+                const exprKind = ts.SyntaxKind[node.expression.kind];
+
+                // Check if this is a PropertyAccessExpression (Model.method)
+                if (exprKind === 'PropertyAccessExpression') {
+                    const methodName = node.expression.name.text || node.expression.name.escapedText;
+
+                    // Check if this is a relationship method
+                    if (relationshipMethods.has(methodName)) {
+                        // Extract source model (the object before the method)
+                        let sourceModel = null;
+                        if (node.expression.expression) {
+                            const exprExpr = node.expression.expression;
+                            const exprExprKind = ts.SyntaxKind[exprExpr.kind];
+
+                            // Handle: model.hasMany() (simple identifier)
+                            if (exprExprKind === 'Identifier') {
+                                sourceModel = exprExpr.text || exprExpr.escapedText;
+                            }
+                            // Handle: models.Account.hasMany() (property access)
+                            else if (exprExprKind === 'PropertyAccessExpression') {
+                                sourceModel = exprExpr.name.text || exprExpr.name.escapedText;
+                            }
+                        }
+
+                        // Extract target model (first argument)
+                        let targetModel = null;
+                        const firstArg = node.arguments[0];
+                        if (firstArg) {
+                            const argKind = ts.SyntaxKind[firstArg.kind];
+                            if (argKind === 'Identifier') {
+                                targetModel = firstArg.text || firstArg.escapedText;
+                            }
+                            // Handle: hasMany(models.User)
+                            else if (argKind === 'PropertyAccessExpression') {
+                                targetModel = firstArg.name.text || firstArg.name.escapedText;
+                            }
+                        }
+
+                        // Parse options object (second argument)
+                        let foreignKey = null;
+                        let cascadeDelete = false;
+                        let asName = null;
+
+                        if (node.arguments.length > 1) {
+                            const optionsArg = node.arguments[1];
+                            const optionsKind = ts.SyntaxKind[optionsArg.kind];
+
+                            if (optionsKind === 'ObjectLiteralExpression') {
+                                if (optionsArg.properties) {
+                                    for (const prop of optionsArg.properties) {
+                                        const propKind = ts.SyntaxKind[prop.kind];
+
+                                        if (propKind === 'PropertyAssignment') {
+                                            const propName = prop.name.text || prop.name.escapedText;
+
+                                            // Extract foreignKey
+                                            if (propName === 'foreignKey') {
+                                                const initKind = ts.SyntaxKind[prop.initializer.kind];
+                                                if (initKind === 'StringLiteral') {
+                                                    foreignKey = prop.initializer.text;
+                                                }
+                                            }
+
+                                            // Extract onDelete: 'CASCADE'
+                                            if (propName === 'onDelete') {
+                                                const initKind = ts.SyntaxKind[prop.initializer.kind];
+                                                if (initKind === 'StringLiteral') {
+                                                    const value = prop.initializer.text;
+                                                    if (value.toUpperCase() === 'CASCADE') {
+                                                        cascadeDelete = true;
+                                                    }
+                                                }
+                                            }
+
+                                            // Extract as: 'alias'
+                                            if (propName === 'as') {
+                                                const initKind = ts.SyntaxKind[prop.initializer.kind];
+                                                if (initKind === 'StringLiteral') {
+                                                    asName = prop.initializer.text;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Only record if we have both source and target
+                        if (sourceModel && targetModel) {
+                            const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+
+                            relationships.push({
+                                line: line + 1,
+                                source_model: sourceModel,
+                                target_model: targetModel,
+                                relationship_type: methodName,
+                                foreign_key: foreignKey,
+                                cascade_delete: cascadeDelete,
+                                as_name: asName
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        ts.forEachChild(node, traverse);
+    }
+
+    traverse(sourceFile);
+    return relationships;
 }
 
 /**
