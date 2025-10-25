@@ -133,6 +133,8 @@ SUPPORTED_AST_EXTENSIONS: List[str] = [
     ".tsx",     # React TypeScript
     ".mjs",     # ES Module JavaScript
     ".cjs",     # CommonJS JavaScript
+    ".tf",      # Terraform/HCL
+    ".tfvars",  # Terraform variables
 ]
 
 # SQL file extensions

@@ -580,26 +580,27 @@ def trace_inter_procedural_flow_cfg(
                             row[0] for row in cursor.fetchall() if row and row[0]
                         }
 
-                        alias_query = build_query(
-                            'assignments',
-                            ['target_var', 'source_vars'],
-                            where="file = ? AND line >= ? AND line <= ?"
-                        )
-                        cursor.execute(alias_query, (current_file, cb_start, cb_end))
+                        # Query assignments with normalized junction table (NO JSON PARSING)
+                        cursor.execute("""
+                            SELECT DISTINCT a.target_var, asrc.source_var_name
+                            FROM assignments a
+                            LEFT JOIN assignment_sources asrc
+                                ON a.file = asrc.assignment_file
+                                AND a.line = asrc.assignment_line
+                                AND a.target_var = asrc.assignment_target
+                            WHERE a.file = ? AND a.line >= ? AND a.line <= ?
+                        """, (current_file, cb_start, cb_end))
+
                         known_taints = set(tainted_vars)
-                        for target_var, source_vars_json in cursor.fetchall():
+                        for target_var, source_var in cursor.fetchall():
                             if not target_var:
                                 continue
-                            try:
-                                source_vars = json.loads(source_vars_json or "[]")
-                            except (TypeError, json.JSONDecodeError):
+                            if not source_var:  # Assignment with no source vars (LEFT JOIN null)
                                 continue
-                            for source_var in source_vars:
-                                base_name = source_var.split('.', 1)[0]
-                                if source_var in known_taints or base_name in known_taints:
-                                    seeded_aliases.add(target_var)
-                                    known_taints.add(target_var)
-                                    break
+                            base_name = source_var.split('.', 1)[0]
+                            if source_var in known_taints or base_name in known_taints:
+                                seeded_aliases.add(target_var)
+                                known_taints.add(target_var)
 
                     captured_taint: Set[str] = set()
                     if vars_used_in_callback:

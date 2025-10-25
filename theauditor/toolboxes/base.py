@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Optional
 import urllib.request
 import urllib.error
+from theauditor import __version__
 
 
 def download_file(url: str, dest: Path, timeout: int = 30) -> None:
@@ -25,7 +26,7 @@ def download_file(url: str, dest: Path, timeout: int = 30) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     req = urllib.request.Request(url)
-    req.add_header('User-Agent', 'TheAuditor/0.1.0')
+    req.add_header('User-Agent', f'TheAuditor/{__version__}')
 
     with urllib.request.urlopen(req, timeout=timeout) as response:
         with open(dest, 'wb') as f:

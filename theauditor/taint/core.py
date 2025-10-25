@@ -291,7 +291,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
             "medium_count": 0,
             "low_count": 0
         }
-        
+
         return {
             "success": True,
             "taint_paths": path_dicts,  # Keep original key for backward compatibility

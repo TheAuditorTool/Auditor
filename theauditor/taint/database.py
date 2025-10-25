@@ -276,18 +276,19 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
     nosql_sinks = frozenset(sinks_to_use.get('nosql', []))
 
     # STRATEGY 1: Query sql_queries table for SQL sinks (P2 ENHANCED)
-    # Schema: file_path, line_number, query_text, command, tables, extraction_source
+    # Schema: file_path, line_number, query_text, command, extraction_source
     # Analyzes query structure to detect SQL injection risk factors
     # Schema Contract: sql_queries table guaranteed to exist
+    # NORMALIZATION FIX: 'tables' column removed, use sql_query_tables junction table
     if sql_sinks:
         query = build_query('sql_queries',
-            ['file_path', 'line_number', 'query_text', 'command', 'tables', 'extraction_source'],
+            ['file_path', 'line_number', 'query_text', 'command', 'extraction_source'],
             where="query_text IS NOT NULL AND query_text != '' AND command != 'UNKNOWN'",
             order_by="file_path, line_number"
         )
         cursor.execute(query)
 
-        for file_path, line_number, query_text, command, tables, extraction_source in cursor.fetchall():
+        for file_path, line_number, query_text, command, extraction_source in cursor.fetchall():
             # Analyze query for SQL injection risk factors
             risk_factors = []
             risk_level = "low"
@@ -324,6 +325,17 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     break
 
             if matched_pattern:
+                # NORMALIZATION FIX: Query sql_query_tables junction table to get list of tables
+                # Schema Contract: sql_query_tables table guaranteed to exist
+                tables_query = build_query('sql_query_tables',
+                    ['table_name'],
+                    where="query_file = ? AND query_line = ?",
+                    order_by="table_name"
+                )
+                cursor.execute(tables_query, (file_path, line_number))
+                table_rows = cursor.fetchall()
+                tables_list = [row[0] for row in table_rows] if table_rows else []
+
                 sinks.append({
                     "file": file_path.replace("\\", "/"),
                     "name": func_name,
@@ -335,7 +347,7 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     "metadata": {
                         "query_text": query_text[:200],  # Truncate for readability
                         "command": command,
-                        "tables": tables,
+                        "tables": tables_list,  # Now a proper list from junction table
                         "risk_level": risk_level,
                         "risk_factors": risk_factors,
                         "extraction_source": extraction_source,
@@ -418,19 +430,18 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 })
 
     # STRATEGY 4: Query react_hooks for XSS vulnerabilities (P2 ENHANCED)
-    # Schema: file, line, component_name, hook_name, dependency_array, dependency_vars, callback_body
+    # Schema: file, line, component_name, hook_name, dependency_array, callback_body
     # Detects DOM manipulation in hooks with external dependencies
     # Schema Contract: react_hooks table guaranteed to exist
+    # NORMALIZATION FIX: dependency_vars removed, use react_hook_dependencies junction table
     if xss_sinks:
-        # Query hooks that depend on external data (potential XSS vectors)
+        # Query hooks that depend on external data OR have dangerous DOM manipulation
+        # We can't filter by dependency names in the main query anymore (requires JOIN),
+        # so we query all relevant hooks and check dependencies separately
         query = build_query('react_hooks',
-            ['file', 'line', 'component_name', 'hook_name', 'dependency_vars', 'callback_body'],
+            ['file', 'line', 'component_name', 'hook_name', 'callback_body'],
             where="""hook_name IN ('useEffect', 'useLayoutEffect', 'useMemo', 'useCallback')
             AND (
-                dependency_vars LIKE '%props%' OR
-                dependency_vars LIKE '%state%' OR
-                dependency_vars LIKE '%data%' OR
-                dependency_vars LIKE '%response%' OR
                 callback_body LIKE '%innerHTML%' OR
                 callback_body LIKE '%dangerouslySetInnerHTML%' OR
                 callback_body LIKE '%document.write%'
@@ -439,7 +450,7 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
         )
         cursor.execute(query)
 
-        for file, line, component, hook, deps, body in cursor.fetchall():
+        for file, line, component, hook, body in cursor.fetchall():
             # Detect DOM manipulation in hook callbacks
             xss_risk = False
             risk_reason = []
@@ -457,6 +468,17 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                 risk_reason.append('document.write')
 
             if xss_risk:
+                # NORMALIZATION FIX: Query react_hook_dependencies junction table for dependency list
+                # Schema Contract: react_hook_dependencies table guaranteed to exist
+                deps_query = build_query('react_hook_dependencies',
+                    ['dependency_name'],
+                    where="hook_file = ? AND hook_line = ? AND hook_component = ?",
+                    order_by="dependency_name"
+                )
+                cursor.execute(deps_query, (file, line, component))
+                dep_rows = cursor.fetchall()
+                deps_list = [row[0] for row in dep_rows] if dep_rows else []
+
                 sinks.append({
                     "file": file.replace("\\", "/"),
                     "name": f"{hook} in {component}",
@@ -468,7 +490,7 @@ def find_security_sinks(cursor: sqlite3.Cursor, sinks_dict: Optional[Dict[str, L
                     "metadata": {
                         "hook": hook,
                         "component": component,
-                        "dependencies": deps,
+                        "dependencies": deps_list,  # Now a proper list from junction table
                         "risk_factors": risk_reason,
                         "table": "react_hooks"
                     }

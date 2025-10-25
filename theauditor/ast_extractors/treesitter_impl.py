@@ -87,7 +87,18 @@ def _extract_tree_sitter_functions(node: Any, language: str) -> List[Dict]:
     for child in node.children:
         functions.extend(_extract_tree_sitter_functions(child, language))
 
-    return functions
+    # CRITICAL FIX: Deduplicate functions by (name, line, type)
+    # WHY: Recursive AST traversal visits same nodes multiple times
+    # NOTE: Matches symbols PRIMARY KEY (path, name, line, type, col) minus path/col
+    seen = set()
+    deduped = []
+    for f in functions:
+        key = (f['name'], f['line'], f['type'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(f)
+
+    return deduped
 
 
 def extract_treesitter_classes(tree: Dict, parser_self, language: str) -> List[Dict]:
@@ -139,7 +150,18 @@ def _extract_tree_sitter_classes(node: Any, language: str) -> List[Dict]:
     for child in node.children:
         classes.extend(_extract_tree_sitter_classes(child, language))
 
-    return classes
+    # CRITICAL FIX: Deduplicate classes by (name, line, type, column)
+    # WHY: Recursive AST traversal visits same nodes multiple times
+    # NOTE: Matches symbols PRIMARY KEY (path, name, line, type, col) minus path
+    seen = set()
+    deduped = []
+    for c in classes:
+        key = (c['name'], c['line'], c['type'], c['column'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(c)
+
+    return deduped
 
 
 def extract_treesitter_calls(tree: Dict, parser_self, language: str) -> List[Dict]:
@@ -522,8 +544,20 @@ def _extract_tree_sitter_assignments(node: Any, language: str, content: str) -> 
     # Recursively search children
     for child in node.children:
         assignments.extend(_extract_tree_sitter_assignments(child, language, content))
-    
-    return assignments
+
+    # CRITICAL FIX: Deduplicate assignments by (line, target_var, in_function)
+    # WHY: Recursive AST traversal visits same nodes multiple times
+    # NOTE: PRIMARY KEY is (file, line, target_var) but file is added by orchestrator
+    #       Using in_function for additional safety (same as TypeScript extractor)
+    seen = set()
+    deduped = []
+    for a in assignments:
+        key = (a['line'], a['target_var'], a['in_function'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(a)
+
+    return deduped
 
 
 def extract_treesitter_function_params(tree: Dict, parser_self, language: str) -> Dict[str, List[str]]:
@@ -789,7 +823,18 @@ def _extract_tree_sitter_returns(node: Any, language: str, content: str) -> List
     for child in node.children:
         returns.extend(_extract_tree_sitter_returns(child, language, content))
 
-    return returns
+    # CRITICAL FIX: Deduplicate returns by (line, function_name)
+    # WHY: Recursive AST traversal visits same nodes multiple times
+    # NOTE: PRIMARY KEY is (file, line, function_name) but file is added by orchestrator
+    seen = set()
+    deduped = []
+    for r in returns:
+        key = (r['line'], r['function_name'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+
+    return deduped
 
 
 def extract_treesitter_cfg(tree: Dict, parser_self, language: str) -> List[Dict[str, Any]]:

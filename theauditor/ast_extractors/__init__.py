@@ -199,19 +199,26 @@ class ASTExtractorMixin:
         """Extract variable assignments for data flow analysis."""
         if not tree:
             return []
-        
+
         if isinstance(tree, dict):
             tree_type = tree.get("type")
             language = tree.get("language", language)
-            
+
+            import os, sys
+            if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
+                print(f"[TRACE] extract_assignments() tree_type={tree_type}, language={language}", file=sys.stderr)
+
             if tree_type == "python_ast":
                 return python_impl.extract_python_assignments(tree, self)
             elif tree_type == "semantic_ast":
                 # The semantic result is nested in tree["tree"]
-                return typescript_impl.extract_typescript_assignments(tree.get("tree", {}), self)
+                result = typescript_impl.extract_typescript_assignments(tree.get("tree", {}), self)
+                if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
+                    print(f"[TRACE] extract_typescript_assignments returned {len(result)} assignments", file=sys.stderr)
+                return result
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_assignments(tree, self, language)
-        
+
         return []
 
     def extract_function_calls_with_args(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:

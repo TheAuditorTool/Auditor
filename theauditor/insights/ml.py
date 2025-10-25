@@ -199,41 +199,15 @@ def load_journal_stats(
         else:  # run_type == "all"
             journal_files = list(history_dir.glob("*/*/journal.ndjson"))
 
-        # If no journal files found, fallback to FCE data
+        # NO FALLBACK - Hard fail if journal missing
+        # Per CLAUDE.md ZERO FALLBACK POLICY: Fallbacks hide bugs
         if not journal_files:
-            print(
-                "Warning: No journal.ndjson files found. "
-                "Using FCE and AST failure data as fallback for training."
+            raise FileNotFoundError(
+                f"No journal.ndjson files found in {history_dir}. "
+                "ML model training requires execution history from journal files. "
+                "Run 'aud full' at least once to generate journal data before training. "
+                f"Searched for: {run_type}/*/journal.ndjson"
             )
-
-            # Load from FCE files instead
-            if run_type == "full":
-                fce_files = list(history_dir.glob("full/*/raw/fce.json"))
-            elif run_type == "diff":
-                fce_files = list(history_dir.glob("diff/*/raw/fce.json"))
-            else:  # run_type == "all"
-                fce_files = list(history_dir.glob("*/*/raw/fce.json"))
-
-            # Process FCE files as proxy for journal data
-            for fce_path in fce_files:
-                try:
-                    with open(fce_path) as f:
-                        data = json.load(f)
-
-                    # Treat each finding as a "touch" and errors/criticals as "failures"
-                    for finding in data.get("all_findings", []):
-                        file = finding.get("file", "")
-                        if file:
-                            stats[file]["touches"] += 1
-                            severity = finding.get("severity", "")
-                            if severity in ["error", "critical"]:
-                                stats[file]["failures"] += 1
-                            else:
-                                stats[file]["successes"] += 1
-                except Exception:
-                    continue  # Skip files that can't be read
-
-            return dict(stats)
 
         for journal_path in journal_files:
             try:

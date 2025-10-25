@@ -25,19 +25,19 @@ dev = [
     "pytest==8.4.2",
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
-    "ruff==0.14.0",
+    "ruff==0.14.2",
     "black==25.9.0",
 ]
 linters = [
-    "ruff==0.14.0",
+    "ruff==0.14.2",
     "mypy==1.18.2",
     "black==25.9.0",
     "bandit==1.8.6",
-    "pylint==3.3.9",
+    "pylint==4.0.2",
 ]
 ml = [
     "scikit-learn==1.7.2",
-    "numpy==2.3.3",
+    "numpy==2.3.4",
     "scipy==1.16.2", 
     "joblib==1.5.2",
 ]
@@ -53,14 +53,14 @@ all = [
     "pytest-cov>=4.0.0",
     "pytest-xdist>=3.0.0",
     # Linters
-    "ruff==0.14.0",
+    "ruff==0.14.2",
     "mypy==1.18.2",
     "black==25.9.0",
     "bandit==1.8.6",
-    "pylint==3.3.9",
+    "pylint==4.0.2",
     # ML features
     "scikit-learn==1.7.2",
-    "numpy==2.3.3",
+    "numpy==2.3.4",
     "scipy==1.16.2",
     "joblib==1.5.2",
     # AST parsing

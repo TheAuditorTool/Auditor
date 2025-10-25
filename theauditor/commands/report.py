@@ -50,6 +50,7 @@ def report(
       - Dependency analysis (.pf/raw/deps*.json)
       - Graph analysis (.pf/raw/graph*.json)
       - FCE correlations (.pf/raw/fce.json)
+      - Terraform security findings (.pf/raw/terraform_findings.json)
       - Control flow analysis (.pf/raw/cfg*.json)
 
     Output Structure:
@@ -57,6 +58,7 @@ def report(
       ├── summary.json           # Executive summary with counts
       ├── patterns_chunk01.json  # Security pattern findings
       ├── taint_chunk01.json     # Taint flow vulnerabilities
+      ├── terraform_chunk01.json  # Infrastructure security issues
       ├── lint_chunk01.json      # Code quality issues
       └── *_chunk*.json          # Other findings (<65KB each)
 
@@ -79,6 +81,7 @@ def report(
       - Security vulnerabilities with severity
       - Code quality issues with locations
       - Dependency problems
+      - Infrastructure security (Terraform)
       - Architectural issues
       - Cross-referenced findings from FCE
 

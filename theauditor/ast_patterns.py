@@ -132,14 +132,10 @@ class ASTPatternMixin:
 
         if not tree:
             return matches
-        
-        # Try to get cached results if file hash is provided
-        if file_hash:
-            cache = self._get_pattern_cache()
-            cached_results = cache.get(file_hash, {})
-            if cached_results is not None:
-                # Convert cached dicts back to ASTMatch objects
-                return [ASTMatch(**match_dict) for match_dict in cached_results]
+
+        # NOTE: Pattern caching removed (lines 136-142) - called non-existent _get_pattern_cache()
+        # method. Feature was never fully implemented and file_hash parameter was never used in
+        # production. Removed to prevent AttributeError if this code path is ever activated.
 
         # Handle wrapped tree objects
         if isinstance(tree, dict):
@@ -162,23 +158,8 @@ class ASTPatternMixin:
         elif isinstance(tree, ast.AST):
             matches.extend(self._find_python_ast_matches(tree, ast_pattern))
 
-        # Cache the results if file hash is provided
-        if file_hash and matches:
-            cache = self._get_pattern_cache()
-            # Convert ASTMatch objects to dicts for caching
-            match_dicts = []
-            for match in matches:
-                match_dict = {
-                    'node_type': match.node_type,
-                    'start_line': match.start_line,
-                    'end_line': match.end_line,
-                    'start_col': match.start_col,
-                    'snippet': match.snippet
-                }
-                if match.metadata:
-                    match_dict['metadata'] = match.metadata
-                match_dicts.append(match_dict)
-            cache.set(file_hash, match_dicts, {})
+        # NOTE: Pattern caching removed (lines 165-181) - storage logic called non-existent
+        # _get_pattern_cache() method and cache.set(). See note at line 136 for full context.
 
         return matches
 
