@@ -52,7 +52,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(content)
                 size = output_path.stat().st_size
-                print(f"  [COPIED] {raw_path.name} → {output_path.name} ({size:,} bytes)")
+                print(f"  [COPIED] {raw_path.name} -> {output_path.name} ({size:,} bytes)")
                 return [(output_path, size)]
             else:
                 # Need to chunk text file
@@ -72,7 +72,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                         f.write(chunk_content)
                     size = output_path.stat().st_size
                     chunks.append((output_path, size))
-                    print(f"  [CHUNKED] {raw_path.name} → {output_path.name} ({size:,} bytes)")
+                    print(f"  [CHUNKED] {raw_path.name} -> {output_path.name} ({size:,} bytes)")
                     
                     position = chunk_end
                 
@@ -124,7 +124,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(full_json)
             size = output_path.stat().st_size
-            print(f"  [COPIED] {raw_path.name} → {output_path.name} ({size:,} bytes)")
+            print(f"  [COPIED] {raw_path.name} -> {output_path.name} ({size:,} bytes)")
             return [(output_path, size)]
         
         # File needs chunking
@@ -156,7 +156,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                         json.dump(current_chunk, f, indent=2)
                     size = output_path.stat().st_size
                     chunks.append((output_path, size))
-                    print(f"  [CHUNKED] {raw_path.name} → {output_path.name} ({size:,} bytes)")
+                    print(f"  [CHUNKED] {raw_path.name} -> {output_path.name} ({size:,} bytes)")
                     
                     # Start new chunk
                     current_chunk = [item]
@@ -173,7 +173,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                     json.dump(current_chunk, f, indent=2)
                 size = output_path.stat().st_size
                 chunks.append((output_path, size))
-                print(f"  [CHUNKED] {raw_path.name} → {output_path.name} ({size:,} bytes)")
+                print(f"  [CHUNKED] {raw_path.name} -> {output_path.name} ({size:,} bytes)")
                 
         elif isinstance(data, dict):
             # For dicts with lists (like findings, paths), chunk the lists
@@ -316,7 +316,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                             json.dump(chunk_data, f, indent=2)
                         size = output_path.stat().st_size
                         chunks.append((output_path, size))
-                        print(f"  [CHUNKED] {raw_path.name} → {output_path.name} ({len(chunk_items)} items, {size:,} bytes)")
+                        print(f"  [CHUNKED] {raw_path.name} -> {output_path.name} ({len(chunk_items)} items, {size:,} bytes)")
                         
                         # Start new chunk
                         chunk_items = [item]
@@ -343,7 +343,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                         json.dump(chunk_data, f, indent=2)
                     size = output_path.stat().st_size
                     chunks.append((output_path, size))
-                    print(f"  [CHUNKED] {raw_path.name} → {output_path.name} ({len(chunk_items)} items, {size:,} bytes)")
+                    print(f"  [CHUNKED] {raw_path.name} -> {output_path.name} ({len(chunk_items)} items, {size:,} bytes)")
             else:
                 # No recognized list key - shouldn't happen now with expanded list
                 # Log warning and copy as-is
@@ -354,7 +354,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                     json.dump(data, f, indent=2)
                 size = output_path.stat().st_size
                 chunks.append((output_path, size))
-                print(f"  [COPIED] {raw_path.name} → {output_path.name} ({size:,} bytes)")
+                print(f"  [COPIED] {raw_path.name} -> {output_path.name} ({size:,} bytes)")
         
         return chunks
         
@@ -521,10 +521,10 @@ def extract_all_to_readthis(root_path_str: str, budget_kb: int = 1500) -> bool:
             print(f"  {filename}")
     
     print("\n[KEY INSIGHTS]")
-    print("  ✓ All findings preserved - no filtering")
-    print("  ✓ Pure courier model - no interpretation")
-    print("  ✓ Files chunked only if >65KB")
-    print("  ✓ Complete data for AI consumption")
+    print("  [OK] All findings preserved - no filtering")
+    print("  [OK] Pure courier model - no interpretation")
+    print("  [OK] Files chunked only if >65KB")
+    print("  [OK] Complete data for AI consumption")
     print("="*60)
     
     # Return False if any files failed, True only if all succeeded

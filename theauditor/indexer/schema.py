@@ -1114,6 +1114,142 @@ NGINX_CONFIGS = TableSchema(
 )
 
 # ============================================================================
+# TERRAFORM TABLES (Infrastructure as Code)
+# ============================================================================
+
+TERRAFORM_FILES = TableSchema(
+    name="terraform_files",
+    columns=[
+        Column("file_path", "TEXT", nullable=False, primary_key=True),
+        Column("module_name", "TEXT"),  # e.g., "vpc", "database", "networking"
+        Column("stack_name", "TEXT"),   # e.g., "prod", "staging", "dev"
+        Column("backend_type", "TEXT"), # e.g., "s3", "local", "remote"
+        Column("providers_json", "TEXT"), # JSON array of provider configs
+        Column("is_module", "BOOLEAN", default="0"),
+        Column("module_source", "TEXT"), # For module blocks
+    ],
+    indexes=[
+        ("idx_terraform_files_module", ["module_name"]),
+        ("idx_terraform_files_stack", ["stack_name"]),
+    ]
+)
+
+TERRAFORM_RESOURCES = TableSchema(
+    name="terraform_resources",
+    columns=[
+        Column("resource_id", "TEXT", nullable=False, primary_key=True),  # Format: "file::type.name"
+        Column("file_path", "TEXT", nullable=False),
+        Column("resource_type", "TEXT", nullable=False),  # e.g., "aws_db_instance", "aws_security_group"
+        Column("resource_name", "TEXT", nullable=False),  # e.g., "main_db", "web_sg"
+        Column("module_path", "TEXT"),  # Hierarchical path for nested modules
+        Column("properties_json", "TEXT"),  # Full resource properties
+        Column("depends_on_json", "TEXT"),  # Explicit depends_on declarations
+        Column("sensitive_flags_json", "TEXT"),  # Which properties are sensitive
+        Column("has_public_exposure", "BOOLEAN", default="0"),  # Flagged during analysis
+        Column("line", "INTEGER"),  # Start line in file
+    ],
+    indexes=[
+        ("idx_terraform_resources_file", ["file_path"]),
+        ("idx_terraform_resources_type", ["resource_type"]),
+        ("idx_terraform_resources_name", ["resource_name"]),
+        ("idx_terraform_resources_public", ["has_public_exposure"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        )
+    ]
+)
+
+TERRAFORM_VARIABLES = TableSchema(
+    name="terraform_variables",
+    columns=[
+        Column("variable_id", "TEXT", nullable=False, primary_key=True),  # Format: "file::var_name"
+        Column("file_path", "TEXT", nullable=False),
+        Column("variable_name", "TEXT", nullable=False),
+        Column("variable_type", "TEXT"),  # string, number, list, map, object, etc.
+        Column("default_json", "TEXT"),  # Default value if provided
+        Column("is_sensitive", "BOOLEAN", default="0"),
+        Column("description", "TEXT"),
+        Column("source_file", "TEXT"),  # .tfvars file if value sourced externally
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_terraform_variables_file", ["file_path"]),
+        ("idx_terraform_variables_name", ["variable_name"]),
+        ("idx_terraform_variables_sensitive", ["is_sensitive"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        )
+    ]
+)
+
+TERRAFORM_OUTPUTS = TableSchema(
+    name="terraform_outputs",
+    columns=[
+        Column("output_id", "TEXT", nullable=False, primary_key=True),  # Format: "file::output_name"
+        Column("file_path", "TEXT", nullable=False),
+        Column("output_name", "TEXT", nullable=False),
+        Column("value_json", "TEXT"),  # The output expression
+        Column("is_sensitive", "BOOLEAN", default="0"),
+        Column("description", "TEXT"),
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_terraform_outputs_file", ["file_path"]),
+        ("idx_terraform_outputs_name", ["output_name"]),
+        ("idx_terraform_outputs_sensitive", ["is_sensitive"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        )
+    ]
+)
+
+TERRAFORM_FINDINGS = TableSchema(
+    name="terraform_findings",
+    columns=[
+        Column("finding_id", "TEXT", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("resource_id", "TEXT"),  # FK to terraform_resources
+        Column("category", "TEXT", nullable=False),  # "public_exposure", "iam_wildcard", "secret_propagation"
+        Column("severity", "TEXT", nullable=False),  # "critical", "high", "medium", "low"
+        Column("title", "TEXT", nullable=False),
+        Column("description", "TEXT"),
+        Column("graph_context_json", "TEXT"),  # Path nodes for blast radius
+        Column("remediation", "TEXT"),
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_terraform_findings_file", ["file_path"]),
+        ("idx_terraform_findings_resource", ["resource_id"]),
+        ("idx_terraform_findings_severity", ["severity"]),
+        ("idx_terraform_findings_category", ["category"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        ),
+        ForeignKey(
+            local_columns=["resource_id"],
+            foreign_table="terraform_resources",
+            foreign_columns=["resource_id"]
+        )
+    ]
+)
+
+# ============================================================================
 # BUILD ANALYSIS TABLES
 # ============================================================================
 
@@ -1227,6 +1363,24 @@ FRAMEWORK_SAFE_SINKS = TableSchema(
     indexes=[]
 )
 
+VALIDATION_FRAMEWORK_USAGE = TableSchema(
+    name="validation_framework_usage",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("framework", "TEXT", nullable=False),  # 'zod', 'joi', 'yup'
+        Column("method", "TEXT", nullable=False),  # 'parse', 'parseAsync', 'validate'
+        Column("variable_name", "TEXT"),  # 'schema', 'userSchema' or NULL for direct calls
+        Column("is_validator", "BOOLEAN", default="1"),  # True for validators, False for schema builders
+        Column("argument_expr", "TEXT"),  # Expression being validated (e.g., 'req.body')
+    ],
+    indexes=[
+        ("idx_validation_framework_file_line", ["file_path", "line"]),
+        ("idx_validation_framework_method", ["framework", "method"]),
+        ("idx_validation_is_validator", ["is_validator"]),
+    ]
+)
+
 # ============================================================================
 # FINDINGS TABLE (Dual-write pattern for FCE)
 # ============================================================================
@@ -1327,6 +1481,13 @@ TABLES: Dict[str, TableSchema] = {
     "compose_services": COMPOSE_SERVICES,
     "nginx_configs": NGINX_CONFIGS,
 
+    # Terraform (Infrastructure as Code)
+    "terraform_files": TERRAFORM_FILES,
+    "terraform_resources": TERRAFORM_RESOURCES,
+    "terraform_variables": TERRAFORM_VARIABLES,
+    "terraform_outputs": TERRAFORM_OUTPUTS,
+    "terraform_findings": TERRAFORM_FINDINGS,
+
     # Build analysis
     "package_configs": PACKAGE_CONFIGS,
     "lock_analysis": LOCK_ANALYSIS,
@@ -1336,6 +1497,7 @@ TABLES: Dict[str, TableSchema] = {
     # Framework detection
     "frameworks": FRAMEWORKS,
     "framework_safe_sinks": FRAMEWORK_SAFE_SINKS,
+    "validation_framework_usage": VALIDATION_FRAMEWORK_USAGE,
 
     # Findings
     "findings_consolidated": FINDINGS_CONSOLIDATED,

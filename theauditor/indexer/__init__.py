@@ -769,6 +769,8 @@ class IndexerOrchestrator:
             file_path: Path to the source file
             extracted: Dictionary of extracted data
         """
+        import json  # Ensure json is available for all code paths
+
         # Store imports/references
         if 'imports' in extracted:
 
@@ -872,6 +874,22 @@ class IndexerOrchestrator:
                     query.get('has_transaction', False)
                 )
                 self.counts['orm'] += 1
+
+        # Store validation framework usage (for taint analysis sanitizer detection)
+        if 'validation_framework_usage' in extracted:
+            for usage in extracted['validation_framework_usage']:
+                self.db_manager.generic_batches['validation_framework_usage'].append((
+                    file_path,
+                    usage['line'],
+                    usage['framework'],
+                    usage['method'],
+                    usage.get('variable_name'),
+                    1 if usage.get('is_validator', True) else 0,
+                    usage.get('argument_expr', '')
+                ))
+            # Flush if batch is full
+            if len(self.db_manager.generic_batches['validation_framework_usage']) >= self.db_manager.batch_size:
+                self.db_manager.flush_generic_batch('validation_framework_usage')
 
         # Store data flow information for taint analysis
         if 'assignments' in extracted:
