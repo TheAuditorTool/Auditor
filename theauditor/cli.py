@@ -156,7 +156,17 @@ class VerboseGroup(click.Group):
             
             formatter.write_text("aud init-js                 # Create/merge package.json")
             formatter.write_text("aud init-config             # Initialize configuration")
-        
+
+        formatter.write_paragraph()
+        formatter.write_text("UTILITIES:")
+        with formatter.indentation():
+            formatter.write_text("aud explain                 # Learn TheAuditor concepts (taint, workset, fce, etc.)")
+            formatter.write_text("  --list                    # List all available concepts")
+            formatter.write_paragraph()
+
+            formatter.write_text("aud detect-frameworks       # Display detected frameworks from database")
+            formatter.write_text("  --output-json             # Custom output path")
+
         formatter.write_paragraph()
         formatter.write_text("For detailed help on any command: aud <command> --help")
 
