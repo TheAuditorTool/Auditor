@@ -540,25 +540,26 @@ class InterProceduralCFGAnalyzer:
             min_line = 0
             max_line = 10**9
 
+        # NORMALIZATION FIX: return_vars column removed, use function_return_sources junction table
+        # Schema Contract: function_returns and function_return_sources tables guaranteed to exist
         query = build_query(
             'function_returns',
-            ['return_expr', 'return_vars', 'line'],
+            ['return_expr', 'line'],
             where="file = ? AND function_name = ? AND line >= ? AND line <= ?",
             order_by="line"
         )
         self.cursor.execute(query, (file_path, function_name, min_line, max_line))
 
-        for return_expr, return_vars_json, ret_line in self.cursor.fetchall():
-            return_vars: List[str] = []
-            if return_vars_json:
-                try:
-                    parsed = json.loads(return_vars_json)
-                    if isinstance(parsed, list):
-                        return_vars = [str(item) for item in parsed]
-                    elif isinstance(parsed, str):
-                        return_vars = [parsed]
-                except (TypeError, json.JSONDecodeError):
-                    return_vars = []
+        for return_expr, ret_line in self.cursor.fetchall():
+            # Query junction table for return variables at this line
+            vars_query = build_query('function_return_sources',
+                ['return_var_name'],
+                where="return_file = ? AND return_line = ? AND return_function = ?",
+                order_by="return_var_name"
+            )
+            self.cursor.execute(vars_query, (file_path, ret_line, function_name))
+            var_rows = self.cursor.fetchall()
+            return_vars = [row[0] for row in var_rows] if var_rows else []
 
             expr_text = return_expr or ""
 
@@ -759,7 +760,8 @@ class InterProceduralCFGAnalyzer:
             self.registry = TaintRegistry()
 
         for callee, arg_expr in self.cursor.fetchall():
-            if var_name in arg_expr and self.registry.is_sanitizer(callee):
+            # CRITICAL FIX: arg_expr can be NULL in database - check before 'in' operation
+            if arg_expr and var_name in arg_expr and self.registry.is_sanitizer(callee):
                 return True
 
         return False

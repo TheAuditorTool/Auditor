@@ -17,6 +17,3 @@ from .ast_cache import ASTCache
 __all__ = [
     'ASTCache',
 ]
-
-# Version for cache compatibility checks
-__version__ = '1.0.0'

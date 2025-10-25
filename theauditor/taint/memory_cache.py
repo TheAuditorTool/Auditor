@@ -17,7 +17,7 @@ from collections import defaultdict
 from typing import Dict, List, Set, Any, Optional, Tuple
 import sqlite3
 
-from theauditor.indexer.schema import build_query, TABLES
+from theauditor.indexer.schema import build_query, build_join_query, TABLES
 from theauditor.utils.memory import get_recommended_memory_limit, get_available_memory
 
 class MemoryCache:
@@ -188,23 +188,34 @@ class MemoryCache:
             print(f"[MEMORY] Loaded {len(self.symbols)} symbols", file=sys.stderr)
 
             # Step 2: Load assignments with function indexing
-            # SCHEMA CONTRACT: Use build_query for correct columns
-            query = build_query('assignments', [
-                'file', 'line', 'target_var', 'source_expr', 'source_vars', 'in_function'
-            ])
-            cursor.execute(query)
+            # NORMALIZED QUERY: Reconstruct source_vars list from junction table using GROUP_CONCAT
+            # NO JSON PARSING - database provides the list directly
+            cursor.execute("""
+                SELECT
+                    a.file, a.line, a.target_var, a.source_expr, a.in_function,
+                    GROUP_CONCAT(asrc.source_var_name, '|') as source_vars_concat
+                FROM assignments a
+                LEFT JOIN assignment_sources asrc
+                    ON a.file = asrc.assignment_file
+                    AND a.line = asrc.assignment_line
+                    AND a.target_var = asrc.assignment_target
+                GROUP BY a.file, a.line, a.target_var
+            """)
             assignments_data = cursor.fetchall()
 
-            for file, line, target, source_expr, source_vars, func in assignments_data:
+            for file, line, target, source_expr, func, source_vars_concat in assignments_data:
                 # Normalize path
                 file = file.replace("\\", "/") if file else ""
+
+                # Reconstruct source_vars list from concatenated string
+                source_vars_list = source_vars_concat.split('|') if source_vars_concat else []
 
                 assignment = {
                     "file": file,
                     "line": line or 0,
                     "target_var": target or "",
                     "source_expr": source_expr or "",
-                    "source_vars": source_vars or "",
+                    "source_vars": source_vars_list,  # Now a real Python list, not JSON string
                     "in_function": func or "global"
                 }
 
@@ -249,22 +260,33 @@ class MemoryCache:
             print(f"[MEMORY] Loaded {len(self.function_call_args)} function call args", file=sys.stderr)
 
             # Step 4: Load function returns
-            # SCHEMA CONTRACT: Use build_query for correct columns
-            query = build_query('function_returns', [
-                'file', 'line', 'function_name', 'return_expr', 'return_vars'
-            ])
-            cursor.execute(query)
+            # NORMALIZED QUERY: Reconstruct return_vars list from junction table using GROUP_CONCAT
+            # NO JSON PARSING - database provides the list directly
+            cursor.execute("""
+                SELECT
+                    fr.file, fr.line, fr.function_name, fr.return_expr,
+                    GROUP_CONCAT(frsrc.return_var_name, '|') as return_vars_concat
+                FROM function_returns fr
+                LEFT JOIN function_return_sources frsrc
+                    ON fr.file = frsrc.return_file
+                    AND fr.line = frsrc.return_line
+                    AND fr.function_name = frsrc.return_function
+                GROUP BY fr.file, fr.line, fr.function_name
+            """)
             returns_data = cursor.fetchall()
 
-            for file, line, func_name, return_expr, return_vars in returns_data:
+            for file, line, func_name, return_expr, return_vars_concat in returns_data:
                 # Normalize path
                 file = file.replace("\\", "/") if file else ""
+
+                # Reconstruct return_vars list from concatenated string
+                return_vars_list = return_vars_concat.split('|') if return_vars_concat else []
 
                 ret = {
                     "file": file,
                     "function_name": func_name or "",
                     "return_expr": return_expr or "",
-                    "return_vars": return_vars or "",
+                    "return_vars": return_vars_list,  # Now a real Python list, not JSON string
                     "line": line or 0
                 }
 
@@ -324,21 +346,28 @@ class MemoryCache:
 
             print(f"[MEMORY] Loaded {len(self.orm_queries)} ORM queries", file=sys.stderr)
 
-            # SCHEMA CONTRACT: Use build_query for correct columns
-            query = build_query('react_hooks', [
-                'file', 'line', 'hook_name', 'dependency_vars'
-            ])
+            # SCHEMA-DRIVEN JOIN: Auto-discovers foreign key, validates columns, generates SQL
+            query = build_join_query(
+                base_table='react_hooks',
+                base_columns=['file', 'line', 'hook_name'],
+                join_table='react_hook_dependencies',
+                join_columns=['dependency_name'],
+                aggregate={'dependency_name': 'GROUP_CONCAT'},
+                group_by=['file', 'line', 'hook_name']
+            )
             cursor.execute(query)
             react_hooks_data = cursor.fetchall()
 
-            for file, line, hook_name, deps in react_hooks_data:
+            for file, line, hook_name, deps_concat in react_hooks_data:
                 file = file.replace("\\", "/") if file else ""
+                # Reconstruct dependencies list from concatenated string
+                deps_list = deps_concat.split('|') if deps_concat else []
 
                 hook = {
                     "file": file,
                     "line": line or 0,
                     "hook_name": hook_name or "",
-                    "dependencies": deps or ""
+                    "dependencies": deps_list  # Now a real Python list
                 }
 
                 self.react_hooks.append(hook)
@@ -457,14 +486,22 @@ class MemoryCache:
             # Step 7: Load Phase 3.4 security tables (jwt_patterns, api_endpoints)
 
             # Load api_endpoints
-            query = build_query('api_endpoints', [
-                'file', 'line', 'method', 'pattern', 'path', 'controls', 'has_auth', 'handler_function'
-            ])
+            # SCHEMA-DRIVEN JOIN: Auto-discovers foreign key, validates columns, generates SQL
+            query = build_join_query(
+                base_table='api_endpoints',
+                base_columns=['file', 'line', 'method', 'pattern', 'path', 'has_auth', 'handler_function'],
+                join_table='api_endpoint_controls',
+                join_columns=['control_name'],
+                aggregate={'control_name': 'GROUP_CONCAT'},
+                group_by=['file', 'line', 'method', 'pattern', 'path', 'has_auth', 'handler_function']
+            )
             cursor.execute(query)
             api_endpoints_data = cursor.fetchall()
 
-            for file, line, method, pattern, path, controls, has_auth, handler_func in api_endpoints_data:
+            for file, line, method, pattern, path, has_auth, handler_func, controls_concat in api_endpoints_data:
                 file = file.replace("\\", "/") if file else ""
+                # Reconstruct controls list from concatenated string
+                controls_list = controls_concat.split('|') if controls_concat else []
 
                 endpoint = {
                     "file": file,
@@ -472,7 +509,7 @@ class MemoryCache:
                     "method": method or "",
                     "pattern": pattern or "",
                     "path": path or "",
-                    "controls": controls or "",
+                    "controls": controls_list,  # Now a real Python list
                     "has_auth": bool(has_auth),
                     "handler_function": handler_func or ""
                 }

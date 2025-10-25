@@ -238,7 +238,77 @@ FRAMEWORK_REGISTRY = {
         "import_patterns": ["vite"],
         "config_files": ["vite.config.js", "vite.config.ts"],
     },
-    
+
+    # Validation/Schema libraries (JavaScript/TypeScript)
+    # These are sanitizers that reduce false positives in taint analysis
+    "zod": {
+        "language": "javascript",
+        "detection_sources": {
+            "package.json": [
+                ["dependencies"],
+                ["devDependencies"],
+            ],
+        },
+        "import_patterns": ["from 'zod'", "import { z }", "import * as z from 'zod'"],
+        "category": "validation",
+    },
+    "joi": {
+        "language": "javascript",
+        "detection_sources": {
+            "package.json": [
+                ["dependencies"],
+                ["devDependencies"],
+            ],
+        },
+        "package_pattern": "joi",  # Matches both 'joi' and '@hapi/joi'
+        "import_patterns": ["require('joi')", "from 'joi'", "import Joi", "import * as Joi"],
+        "category": "validation",
+    },
+    "yup": {
+        "language": "javascript",
+        "detection_sources": {
+            "package.json": [
+                ["dependencies"],
+                ["devDependencies"],
+            ],
+        },
+        "import_patterns": ["from 'yup'", "import * as yup", "import yup"],
+        "category": "validation",
+    },
+    "ajv": {
+        "language": "javascript",
+        "detection_sources": {
+            "package.json": [
+                ["dependencies"],
+                ["devDependencies"],
+            ],
+        },
+        "import_patterns": ["require('ajv')", "from 'ajv'", "new Ajv", "import Ajv"],
+        "category": "validation",
+    },
+    "class-validator": {
+        "language": "javascript",
+        "detection_sources": {
+            "package.json": [
+                ["dependencies"],
+                ["devDependencies"],
+            ],
+        },
+        "import_patterns": ["from 'class-validator'", "import { validate }"],
+        "category": "validation",
+    },
+    "express-validator": {
+        "language": "javascript",
+        "detection_sources": {
+            "package.json": [
+                ["dependencies"],
+                ["devDependencies"],
+            ],
+        },
+        "import_patterns": ["from 'express-validator'", "require('express-validator')"],
+        "category": "validation",
+    },
+
     # PHP frameworks
     "laravel": {
         "language": "php",

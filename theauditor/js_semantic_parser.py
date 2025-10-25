@@ -95,10 +95,11 @@ class JSSemanticParser:
                 break
         
         # If not found, will trigger proper error messages
-        
+
         self.tsc_available = self._check_tsc_availability()
-        self.helper_script = self._create_helper_script()
-        self.batch_helper_script = self._create_batch_helper_script()  # NEW: Batch processing helper
+        # PHASE 5: Single-file mode removed (512MB crash). Use batch mode for all files.
+        self.helper_script = None  # Deprecated - do not use
+        self.batch_helper_script = self._create_batch_helper_script()  # All parsing uses batch mode
 
     def _detect_module_type(self) -> str:
         """Detect the project's module type from package.json.
@@ -244,35 +245,15 @@ class JSSemanticParser:
         return script_content, template_content
     
     def _create_helper_script(self) -> Path:
-        """Create a Node.js helper script for TypeScript AST extraction.
+        """DEPRECATED: Single-file mode removed in Phase 5.
 
-        Returns:
-            Path to the created helper script
+        Raises:
+            RuntimeError: Always - single-file mode causes 512MB crash
         """
-        # CRITICAL: Create helper script with relative path resolution
-        # Always create in project root's .pf directory
-        pf_dir = self.project_root / ".pf"
-        pf_dir.mkdir(exist_ok=True)
-
-        helper_path = pf_dir / "tsc_ast_helper.js"
-
-        # Check if TypeScript module exists in our sandbox
-        typescript_exists = False
-        if self.node_modules_path:
-            # The TypeScript module is at node_modules/typescript/lib/typescript.js
-            ts_path = self.node_modules_path / "typescript" / "lib" / "typescript.js"
-            typescript_exists = ts_path.exists()
-
-        # Generate appropriate helper content based on module type
-        if self.project_module_type == "module":
-            # Use the ES Module helper from templates
-            helper_content = js_helper_templates.get_single_file_helper("module")
-        else:
-            # Use the CommonJS helper from templates
-            helper_content = js_helper_templates.get_single_file_helper("commonjs")
-
-        helper_path.write_text(helper_content, encoding='utf-8')
-        return helper_path
+        raise RuntimeError(
+            "Single-file mode removed in Phase 5. Single-file templates serialize full AST (512MB crash). "
+            "Use _create_batch_helper_script() instead (sets ast: null)."
+        )
     
     def _create_batch_helper_script(self) -> Path:
         """Create a Node.js helper script for batch TypeScript AST extraction.
@@ -306,13 +287,19 @@ class JSSemanticParser:
         tsconfig_map: Optional[Dict[str, str]] = None
     ) -> Dict[str, Dict[str, Any]]:
         """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
-        
+
         This dramatically improves performance by reusing the TypeScript program
         and dependency cache across multiple files.
-        
+
+        PHASE 5: UNIFIED SINGLE-PASS ARCHITECTURE
+        All data (symbols, calls, CFG, etc.) extracted in one call.
+        No more two-pass system with cfg_only flag.
+
         Args:
             file_paths: List of paths to JavaScript or TypeScript files to parse
-            
+            jsx_mode: JSX transformation mode ('transformed' or 'preserved')
+            tsconfig_map: Optional mapping of file paths to tsconfig paths
+
         Returns:
             Dictionary mapping file paths to their AST results
         """
@@ -371,6 +358,7 @@ class JSSemanticParser:
                 "projectRoot": str(self.project_root),
                 "jsxMode": jsx_mode,
                 "configMap": normalized_tsconfig_map
+                # PHASE 5: No cfgOnly flag - single-pass extraction includes CFG
             }
             
             # Write batch request to temp file
@@ -429,6 +417,10 @@ class JSSemanticParser:
                             "symbols": []
                         }
                 else:
+                    # Print stderr in debug mode (contains console.error() output from JavaScript)
+                    if os.environ.get("THEAUDITOR_DEBUG") and result.stderr:
+                        print(f"[DEBUG JS STDERR] {result.stderr}")
+
                     # Read batch results
                     if Path(output_path).exists():
                         with open(output_path, 'r', encoding='utf-8') as f:
@@ -1001,9 +993,15 @@ def get_semantic_ast_batch(
     This is a convenience function that creates or reuses a cached parser instance
     and calls its get_semantic_ast_batch method.
 
+    PHASE 5: UNIFIED SINGLE-PASS ARCHITECTURE
+    All data (symbols, calls, CFG, etc.) extracted in one call.
+    No more two-pass system with cfg_only flag.
+
     Args:
         file_paths: List of paths to JavaScript or TypeScript files to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
+        jsx_mode: JSX transformation mode ('transformed' or 'preserved')
+        tsconfig_map: Optional mapping of file paths to tsconfig paths
 
     Returns:
         Dictionary mapping file paths to their AST results

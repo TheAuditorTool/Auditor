@@ -45,18 +45,18 @@ This isn’t hypothetical. **It works today.** It’s 100% offline, language-agn
 
 A multi-stage pipeline that orchestrates best-in-class tools plus proprietary engines to build a complete, **queryable** model of your repo.
 
-* **Polyglot:** Python, JavaScript/TypeScript, and Rust ecosystems.
+* **Polyglot:** Python, JavaScript/TypeScript, Rust ecosystems, and Terraform/HCL Infrastructure as Code.
 * **100% Offline:** Your code never leaves your machine. 🔒
 * **Performance-Obsessed:** Medium projects finish in minutes thanks to in-memory architecture and O(1) lookups. CI/CD-ready.
 
 | Stage                              | What it Does                                                                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. |
-| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit**, **pip-audit**, and **Google’s osv-scanner**—cross-referenced for accuracy.                       |
+| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. Extracts Terraform IaC resources. |
+| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit**, **pip-audit**, and **Google's osv-scanner**—cross-referenced for accuracy.                       |
 | **3. Industry-Standard Linting**   | Correlates **ESLint**, **Ruff**, **MyPy**, **Clippy** with project-aware configs.                                                                               |
 | **4. Multi-Hop Taint Analysis**    | True inter-procedural (cross-file) taint analysis with CFG validation to surface complex vulns (SQLi, XSS) with near-zero false positives.                      |
-| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the “blast radius” of code changes.                                                               |
-| **6. Factual Correlation Engine**  | The “brain” that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
+| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the "blast radius" of code changes. Terraform provisioning flow graphs for infrastructure analysis. |
+| **6. Factual Correlation Engine**  | The "brain" that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
 | **7. AI-Centric Output**           | Raw outputs preserved in `.pf/raw/` for humans; concise, chunked reports for AI in `.pf/readthis/`.                                                             |
 
 ---
@@ -159,7 +159,64 @@ aud graph viz --view hotspots --top-hotspots 5
 
 # Show the impact of changing a file
 aud graph viz --view impact --impact-target "src/api/auth.js"
+
+# Build data flow graph (tracks variable assignments and returns)
+aud graph build-dfg
 ```
+
+Data flow graphs track how variables flow through assignments and function returns, stored in `.pf/graphs.db` and `.pf/raw/data_flow_graph.json`. Used by taint analysis for more accurate inter-procedural tracking.
+
+### Architectural Intelligence & Code Queries
+
+**NEW (v1.3)**: Blueprint visualization and direct database queries for surgical refactoring.
+
+AI assistants waste 5-10k tokens per refactoring iteration reading files to understand code relationships. TheAuditor's intelligence layer gives them instant access to indexed relationships and architectural overview.
+
+#### Blueprint: Architectural Overview
+
+Get a top-level view of your codebase structure, dependencies, security surface, and data flows - all in one command.
+
+```bash
+# Top-level overview (tree structure with key metrics)
+aud blueprint
+
+# Drill down into specific areas:
+aud blueprint --structure   # Scope, monorepo detection, token estimates
+aud blueprint --graph       # Gateway files, circular deps, bottlenecks
+aud blueprint --security    # Unprotected endpoints, auth patterns, SQL risk
+aud blueprint --taint       # Vulnerable data flows, sanitization coverage
+
+# Export everything for AI consumption
+aud blueprint --all --format json
+```
+
+**Each drill-down shows**: Exact file:line locations, impact analysis, actionable data. No recommendations - just facts about what exists and where.
+
+#### Query: Code Relationship Lookups
+
+Direct SQL queries over indexed code relationships for precise, token-efficient analysis.
+
+```bash
+# Who calls this function? (transitive, 3 levels deep)
+aud query --symbol authenticateUser --show-callers --depth 3
+
+# What does this function call?
+aud query --symbol handleRequest --show-callees
+
+# What files import this module?
+aud query --file src/auth.ts --show-dependents
+
+# Find API endpoint handler
+aud query --api "/users/:id"
+
+# Check API security coverage
+aud query --show-api-coverage
+```
+
+**Performance**: <10ms indexed lookups, zero file reads. Query entire call chains across 100k LOC projects instantly.
+**Formats**: Human-readable text, AI-consumable JSON.
+
+See [HOWTOUSE.md](HOWTOUSE.md#code-queries) for complete usage guide.
 
 ---
 
