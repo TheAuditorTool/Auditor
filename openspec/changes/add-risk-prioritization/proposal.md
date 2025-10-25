@@ -13,21 +13,27 @@
   - `summary_lint.json` - Lint findings by severity + file hotspots (≤50 KB)
   - `summary_rules.json` - Security rules grouped by category + critical issues (≤50 KB)
   - `summary_dependencies.json` - Vulnerable packages + outdated deps (≤50 KB)
-  - `summary_cfg.json` - CFG complexity metrics + problematic functions (≤50 KB)
-  - `summary_imports.json` - Import analysis + circular deps (≤50 KB)
+  - `summary_fce.json` - Correlated findings + meta-findings (≤50 KB)
   - Each summary: Top N findings + key metrics + references to `.pf/raw/` for full data
+  - Each summary mentions: "This domain can also be queried with: aud query --{domain}"
 
-- **Add "full summary of all problems"**: Create a single `summary_full.json` that combines insights from ALL domains:
+- **Add "The Auditor Summary"**: Create a single `The_Auditor_Summary.json` that combines insights from ALL domains:
   - Lists top 20-30 findings across ALL analyzers (severity-sorted)
   - Shows which domains found issues (e.g., "taint + rules both flag auth.py:45")
   - Provides metrics per domain (X graph cycles, Y taint paths, Z lint issues)
   - Cross-links to per-domain summaries for drill-down
-  - Output location: `.pf/readthis/summary_full.json` (≤100 KB)
+  - Output location: `.pf/raw/The_Auditor_Summary.json` (any size, can be chunked by extraction)
 
 - **Reorganize `.pf/readthis/` structure**: Replace 24-27 chunked files with ~7-8 focused summaries:
   - **Before**: 24-27 chunked JSONs (2-3 per file) - nobody reads this
-  - **After**: 7-8 summary files (6-7 per-domain + 1 full summary) - human-readable
-  - Chunked raw data still available in `.pf/raw/` if needed
+  - **After**: 7-8 summary files (6-7 per-domain + 1 master summary) - human-readable
+  - Raw data files stay in `.pf/raw/` only (NOT copied to /readthis/)
+  - Summaries stored in `.pf/raw/` first, then extraction chunks them to `.pf/readthis/` if needed
+
+- **Modify extraction behavior**: Update `extraction.py` to ONLY chunk summary files:
+  - Raw files (taint_analysis.json, graph_analysis.json, etc.) → stay in /raw/ only
+  - Summary files (summary_*.json, The_Auditor_Summary.json) → chunked to /readthis/ if >65KB
+  - Users read summaries in /readthis/, query database via `aud blueprint` / `aud query` for details
 
 - **Keep FCE as-is**: FCE continues doing factual correlation (detecting when multiple tools flag the same location). This change is about SUMMARIZATION, not correlation.
 
@@ -36,11 +42,13 @@
 ## Impact
 - **Fixes information overload**: Replace 24-27 chunked files with 7-8 focused summaries (50 KB each) - actually human-readable
 - **Restores old functionality**: Per-domain summaries used to exist, bringing them back gives operators the overview they need
-- **Enables quick sync**: Humans can read `summary_full.json` (100 KB) to understand "what matters" across ALL domains in 30 seconds
-- **Better AI integration**: AI agents get a lightweight sync point (`summary_full.json`) without parsing 24-27 files, PLUS structured queries via `aud blueprint` / `aud query`
+- **Enables quick sync**: Humans can read `The_Auditor_Summary.json` (≤100 KB) to understand "what matters" across ALL domains in 30 seconds
+- **Better AI integration**: AI agents get a lightweight sync point (`The_Auditor_Summary.json`) without parsing 24-27 files, PLUS structured queries via `aud blueprint` / `aud query`
 - **Preserves full fidelity**: `.pf/raw/` still has everything for archival/debugging, chunking system still works, nothing breaks
 - **FCE unchanged**: FCE continues doing correlation (its actual job), summaries are a separate concern
+- **Backward compatible**: Legacy `aud summary` still generates `audit_summary.json`, new flow enabled by `--generate-domain-summaries` flag
 
 ## Verification Alignment
 - Hypotheses, evidence, and discrepancies captured in `openspec/changes/add-risk-prioritization/verification.md` per SOP v4.20.
-- Task list front-loads schema verification and requires regression coverage for pipeline, FCE, and summary flows before completion.
+- Task list focuses on summary generation, extraction modification, and pipeline integration.
+- Implementation details in `implementation.md` with line-by-line changes anchored in actual code.
