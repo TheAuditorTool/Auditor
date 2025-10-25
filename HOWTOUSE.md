@@ -624,7 +624,7 @@ Raw JSON saved to .pf/raw/data_flow_graph.json
 
 **Future enhancements:**
 - Taint analyzer will use pre-built DFG for faster inter-procedural analysis
-- Support for querying DFG via `aud context query --show-data-flow`
+- Support for querying DFG via `aud query --show-data-flow`
 - Visualization of data flow paths
 - Alias analysis using assignment chains
 
@@ -673,21 +673,51 @@ The CFG commands help identify:
 - High-risk functions with many execution paths
 - Code quality issues before they become bugs
 
-### Code Context Queries
+### Architectural Intelligence & Code Queries
 
-**NEW in v1.3**: Direct database queries for AI-assisted refactoring and code navigation.
+**NEW in v1.3**: Blueprint visualization and direct database queries for surgical refactoring.
 
 AI assistants waste 5-10k tokens per refactoring iteration reading files to understand:
+- "What's the architecture? Where are boundaries?"
 - "Who calls this function?"
-- "What does this function call?"
-- "Which files depend on this module?"
-- "Where is this API endpoint implemented?"
+- "What files depend on this module?"
+- "Which endpoints are unprotected?"
 
-TheAuditor's query interface provides instant answers by querying the indexed database - **zero file reads, <10ms response time**.
+TheAuditor's intelligence layer provides instant answers via indexed database - **zero file reads, <10ms response time**.
 
-#### When to Use Code Context Queries
+#### Blueprint: Architectural Overview
 
-Use `aud context query` when you need to:
+Use `aud blueprint` to get a top-level view of your codebase before diving into detailed queries. Each drill-down shows exact file:line locations and actionable data.
+
+**Top-level overview:**
+```bash
+# Get architectural overview with tree structure
+aud blueprint
+```
+
+**Drill-downs for surgical analysis:**
+```bash
+# Scope understanding (monorepo detection, token estimates, migration paths)
+aud blueprint --structure
+
+# Dependency mapping (gateway files, circular deps, bottlenecks)
+aud blueprint --graph
+
+# Attack surface (unprotected endpoints, auth patterns, SQL injection risk)
+aud blueprint --security
+
+# Data flow (vulnerable flows, sanitization coverage, dynamic dispatch)
+aud blueprint --taint
+
+# Export everything for AI consumption
+aud blueprint --all --format json
+```
+
+Each drill-down shows facts about what exists and where - no recommendations, just ground truth for surgical refactoring.
+
+#### Code Queries: Relationship Lookups
+
+Use `aud query` when you need to:
 - Understand code relationships without reading files
 - Trace function call chains (who calls what)
 - Map file dependencies (import/export relationships)
@@ -701,52 +731,55 @@ Use `aud context query` when you need to:
 
 ```bash
 # Find symbol definition
-aud context query --symbol authenticateUser
+aud query --symbol authenticateUser
 
 # Find who calls this function (direct callers)
-aud context query --symbol validateInput --show-callers
+aud query --symbol validateInput --show-callers
 
 # Find transitive callers (3 levels deep)
-aud context query --symbol sanitizeHtml --show-callers --depth 3
+aud query --symbol sanitizeHtml --show-callers --depth 3
 
 # Find what this function calls
-aud context query --symbol handleRequest --show-callees
+aud query --symbol handleRequest --show-callees
 ```
 
 **2. File Dependency Queries** - Map import/export relationships:
 
 ```bash
 # Show all dependencies for a file (both incoming and outgoing)
-aud context query --file src/auth.ts
+aud query --file src/auth.ts
 
 # Show only files that import this module (dependents)
-aud context query --file src/utils.ts --show-dependents
+aud query --file src/utils.ts --show-dependents
 
 # Show only files this module imports (dependencies)
-aud context query --file src/api.ts --show-dependencies
+aud query --file src/api.ts --show-dependencies
 ```
 
-**3. API Endpoint Queries** - Find route handlers:
+**3. API Endpoint Queries** - Find route handlers and security coverage:
 
 ```bash
 # Find handler for specific route
-aud context query --api "/users/:id"
+aud query --api "/users/:id"
 
 # Find all user-related endpoints
-aud context query --api "/users"
+aud query --api "/users"
 
-# Find authentication endpoints
-aud context query --api "/auth"
+# Check API security coverage (which endpoints are protected)
+aud query --show-api-coverage
+
+# Find unprotected endpoints
+aud query --show-api-coverage | grep "[OPEN]"
 ```
 
 **4. Component Tree Queries** - React/Vue component hierarchies:
 
 ```bash
 # Get component information, hooks used, and child components
-aud context query --component UserProfile
+aud query --component UserProfile
 
 # Explore component tree
-aud context query --component Dashboard
+aud query --component Dashboard
 ```
 
 #### Output Formats
@@ -755,16 +788,16 @@ Control output format for different use cases:
 
 ```bash
 # Human-readable text (default)
-aud context query --symbol authenticateUser --show-callers
+aud query --symbol authenticateUser --show-callers
 
 # AI-consumable JSON
-aud context query --symbol validateInput --show-callers --format json
+aud query --symbol validateInput --show-callers --format json
 
 # Visual tree (for transitive queries)
-aud context query --symbol handleRequest --show-callers --depth 3 --format tree
+aud query --symbol handleRequest --show-callers --depth 3 --format tree
 
 # Save to file
-aud context query --file src/auth.ts --format json --save analysis.json
+aud query --file src/auth.ts --format json --save analysis.json
 ```
 
 #### Transitive Queries
@@ -773,16 +806,16 @@ Follow call chains through multiple levels:
 
 ```bash
 # Direct callers only (depth=1, default)
-aud context query --symbol validateInput --show-callers
+aud query --symbol validateInput --show-callers
 
 # Callers of callers (depth=2)
-aud context query --symbol sanitizeHtml --show-callers --depth 2
+aud query --symbol sanitizeHtml --show-callers --depth 2
 
 # 3 levels deep (callers → callers → callers)
-aud context query --symbol executeQuery --show-callers --depth 3
+aud query --symbol executeQuery --show-callers --depth 3
 
 # Maximum depth (depth=5)
-aud context query --symbol logEvent --show-callers --depth 5
+aud query --symbol logEvent --show-callers --depth 5
 ```
 
 #### Example Workflows
@@ -790,37 +823,37 @@ aud context query --symbol logEvent --show-callers --depth 5
 **Refactoring a Function:**
 ```bash
 # 1. Find all callers
-aud context query --symbol processPayment --show-callers --depth 2
+aud query --symbol processPayment --show-callers --depth 2
 
 # 2. Understand what it calls
-aud context query --symbol processPayment --show-callees
+aud query --symbol processPayment --show-callees
 
 # 3. Save complete context
-aud context query --symbol processPayment --show-callers --depth 3 --format json --save payment_context.json
+aud query --symbol processPayment --show-callers --depth 3 --format json --save payment_context.json
 ```
 
 **Understanding File Impact:**
 ```bash
 # 1. Find all files that import this module
-aud context query --file src/database.ts --show-dependents
+aud query --file src/database.ts --show-dependents
 
 # 2. Find what this file imports
-aud context query --file src/database.ts --show-dependencies
+aud query --file src/database.ts --show-dependencies
 
 # 3. Save dependency map
-aud context query --file src/database.ts --format json --save db_deps.json
+aud query --file src/database.ts --format json --save db_deps.json
 ```
 
 **API Endpoint Investigation:**
 ```bash
 # 1. Find endpoint handler
-aud context query --api "/api/users"
+aud query --api "/api/users"
 
 # 2. Find what the handler calls
-aud context query --symbol createUser --show-callees
+aud query --symbol createUser --show-callees
 
 # 3. Trace authentication chain
-aud context query --symbol authenticateRequest --show-callers --depth 2
+aud query --symbol authenticateRequest --show-callers --depth 2
 ```
 
 #### Performance Characteristics
@@ -847,7 +880,7 @@ aud index
 aud graph build
 
 # 3. Run queries
-aud context query --symbol myFunction --show-callers
+aud query --symbol myFunction --show-callers
 ```
 
 #### Troubleshooting
@@ -882,7 +915,7 @@ Code context queries complement other TheAuditor commands:
 aud cfg analyze --complexity-threshold 15
 
 # Understand its call graph
-aud context query --symbol complexFunction --show-callers --depth 3
+aud query --symbol complexFunction --show-callers --depth 3
 
 # Check impact radius
 aud impact --file src/payment.py --line 42

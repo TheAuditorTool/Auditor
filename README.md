@@ -166,31 +166,57 @@ aud graph build-dfg
 
 Data flow graphs track how variables flow through assignments and function returns, stored in `.pf/graphs.db` and `.pf/raw/data_flow_graph.json`. Used by taint analysis for more accurate inter-procedural tracking.
 
-### Code Context Queries
+### Architectural Intelligence & Code Queries
 
-**NEW**: Direct database queries for AI-assisted refactoring - stop burning tokens on file reads.
+**NEW (v1.3)**: Blueprint visualization and direct database queries for surgical refactoring.
 
-AI assistants waste 5-10k tokens per refactoring iteration reading files to understand code relationships. TheAuditor's query interface gives them instant access to indexed relationships.
+AI assistants waste 5-10k tokens per refactoring iteration reading files to understand code relationships. TheAuditor's intelligence layer gives them instant access to indexed relationships and architectural overview.
+
+#### Blueprint: Architectural Overview
+
+Get a top-level view of your codebase structure, dependencies, security surface, and data flows - all in one command.
+
+```bash
+# Top-level overview (tree structure with key metrics)
+aud blueprint
+
+# Drill down into specific areas:
+aud blueprint --structure   # Scope, monorepo detection, token estimates
+aud blueprint --graph       # Gateway files, circular deps, bottlenecks
+aud blueprint --security    # Unprotected endpoints, auth patterns, SQL risk
+aud blueprint --taint       # Vulnerable data flows, sanitization coverage
+
+# Export everything for AI consumption
+aud blueprint --all --format json
+```
+
+**Each drill-down shows**: Exact file:line locations, impact analysis, actionable data. No recommendations - just facts about what exists and where.
+
+#### Query: Code Relationship Lookups
+
+Direct SQL queries over indexed code relationships for precise, token-efficient analysis.
 
 ```bash
 # Who calls this function? (transitive, 3 levels deep)
-aud context query --symbol authenticateUser --show-callers --depth 3
+aud query --symbol authenticateUser --show-callers --depth 3
 
 # What does this function call?
-aud context query --symbol handleRequest --show-callees
+aud query --symbol handleRequest --show-callees
 
 # What files import this module?
-aud context query --file src/auth.ts --show-dependents
+aud query --file src/auth.ts --show-dependents
 
 # Find API endpoint handler
-aud context query --api "/users/:id"
+aud query --api "/users/:id"
+
+# Check API security coverage
+aud query --show-api-coverage
 ```
 
-**Query types**: Symbol lookup, call graphs, file dependencies, API handlers, React component trees.
-**Performance**: <10ms indexed lookups, zero file reads.
-**Formats**: Human-readable text, AI-consumable JSON, visual tree.
+**Performance**: <10ms indexed lookups, zero file reads. Query entire call chains across 100k LOC projects instantly.
+**Formats**: Human-readable text, AI-consumable JSON.
 
-See [HOWTOUSE.md](HOWTOUSE.md#code-context-queries) for complete usage guide.
+See [HOWTOUSE.md](HOWTOUSE.md#code-queries) for complete usage guide.
 
 ---
 
