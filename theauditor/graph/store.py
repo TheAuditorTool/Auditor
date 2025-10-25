@@ -231,6 +231,72 @@ class XGraphStore:
 
             conn.commit()
 
+    def save_custom_graph(self, graph: dict[str, Any], graph_type: str) -> None:
+        """Save custom graph type to database.
+
+        Generic method for saving any graph type beyond import/call/data_flow.
+        Enables extensibility for new graph types (e.g., terraform_provisioning).
+
+        Args:
+            graph: Graph dict with 'nodes' and 'edges' keys
+            graph_type: Custom type identifier (e.g., 'terraform_provisioning')
+
+        Example:
+            >>> store = XGraphStore()
+            >>> terraform_graph = {
+            ...     'nodes': [{'id': 'vpc', 'file': 'main.tf', ...}],
+            ...     'edges': [{'source': 'var.region', 'target': 'vpc', ...}]
+            ... }
+            >>> store.save_custom_graph(terraform_graph, 'terraform_provisioning')
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            # Clear existing graph of this type
+            conn.execute("DELETE FROM nodes WHERE graph_type = ?", (graph_type,))
+            conn.execute("DELETE FROM edges WHERE graph_type = ?", (graph_type,))
+
+            # Insert nodes
+            for node in graph.get("nodes", []):
+                metadata_json = json.dumps(node.get("metadata", {})) if node.get("metadata") else None
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO nodes
+                    (id, file, lang, loc, churn, type, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        node["id"],
+                        node["file"],
+                        node.get("lang"),
+                        node.get("loc", 0),
+                        node.get("churn"),
+                        node.get("type", "resource"),
+                        graph_type,
+                        metadata_json,
+                    ),
+                )
+
+            # Insert edges
+            for edge in graph.get("edges", []):
+                metadata_json = json.dumps(edge.get("metadata", {})) if edge.get("metadata") else None
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO edges
+                    (source, target, type, file, line, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        edge["source"],
+                        edge["target"],
+                        edge.get("type"),
+                        edge.get("file"),
+                        edge.get("line"),
+                        graph_type,
+                        metadata_json,
+                    ),
+                )
+
+            conn.commit()
+
     def load_import_graph(self) -> dict[str, Any]:
         """
         Load import graph from database.

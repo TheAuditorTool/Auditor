@@ -166,7 +166,33 @@ def summary(root, raw_dir, out):
         for sev, count in taint_by_severity.items():
             if sev in audit_summary["total_findings_by_severity"]:
                 audit_summary["total_findings_by_severity"][sev] += count
-    
+
+    # Phase 11.5: Terraform Infrastructure Security
+    terraform_findings = load_json(raw_path / "terraform_findings.json")
+    if terraform_findings:
+        terraform_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        terraform_by_category = {}
+
+        for finding in terraform_findings:
+            severity = finding.get("severity", "info").lower()
+            if severity in terraform_by_severity:
+                terraform_by_severity[severity] += 1
+
+            category = finding.get("category", "unknown")
+            terraform_by_category[category] = terraform_by_category.get(category, 0) + 1
+
+        audit_summary["metrics_by_phase"]["terraform"] = {
+            "total_findings": len(terraform_findings),
+            "by_severity": terraform_by_severity,
+            "by_category": terraform_by_category,
+            "resources_analyzed": len(set(f.get("resource_id", "") for f in terraform_findings if f.get("resource_id")))
+        }
+
+        # Add to total
+        for sev, count in terraform_by_severity.items():
+            if sev in audit_summary["total_findings_by_severity"]:
+                audit_summary["total_findings_by_severity"][sev] += count
+
     # Phase 12: FCE (Factual Correlation Engine)
     fce = load_json(raw_path / "fce.json")
     if fce:

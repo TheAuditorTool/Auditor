@@ -36,6 +36,7 @@ COMMAND_TIMEOUTS = {
     "lint": 900,                # 15 minutes - ESLint/ruff on large codebases
     "detect-patterns": 36000,   # 10 hours - 100+ security patterns on enterprise codebases (140K+ symbols)
     "graph": 600,               # 10 minutes - Building dependency graphs
+    "terraform": 600,           # 10 minutes - Building Terraform provisioning graphs
     "taint-analyze": 36000,     # 10 hours - Data flow analysis on enterprise codebases (140K+ symbols)
     "taint": 36000,             # 10 hours - Alias for taint-analyze
     "fce": 1800,                # 30 minutes - Correlation analysis
@@ -425,6 +426,7 @@ def run_full_pipeline(
         ("detect-patterns", []),
         ("graph", ["build"]),
         ("graph", ["build-dfg"]),  # DFG builder - MUST run after graph build
+        ("terraform", ["provision"]),  # Terraform provisioning graph - MUST run after graph build-dfg
         ("graph", ["analyze"]),
         ("graph", ["viz", "--view", "full", "--include-analysis"]),
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
@@ -444,7 +446,7 @@ def run_full_pipeline(
     
     for cmd_name, extra_args in command_order:
         # Check if command exists (dynamic discovery)
-        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands):
+        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands):
             phase_num += 1
             # Generate human-readable description from command name
             if cmd_name == "index":
@@ -478,6 +480,8 @@ def run_full_pipeline(
                 description = f"{phase_num}. Build graph"
             elif cmd_name == "graph" and "build-dfg" in extra_args:
                 description = f"{phase_num}. Build data flow graph"
+            elif cmd_name == "terraform" and "provision" in extra_args:
+                description = f"{phase_num}. Build Terraform provisioning graph"
             elif cmd_name == "graph" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze graph"
             elif cmd_name == "graph" and "viz" in extra_args:
@@ -591,6 +595,9 @@ def run_full_pipeline(
             data_prep_commands.append((phase_name, cmd))
         elif "graph build-dfg" in cmd_str:
             # DFG builder must run AFTER graph build (needs repo_index.db)
+            data_prep_commands.append((phase_name, cmd))
+        elif "terraform provision" in cmd_str:
+            # Terraform provisioning graph must run AFTER graph build-dfg
             data_prep_commands.append((phase_name, cmd))
         elif "graph build" in cmd_str:
             data_prep_commands.append((phase_name, cmd))
