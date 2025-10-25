@@ -1222,6 +1222,72 @@ class IndexerOrchestrator:
                     self.counts['import_styles'] = 0
                 self.counts['import_styles'] += 1
 
+        # Store Terraform infrastructure definitions
+        if 'terraform_file' in extracted:
+            file_record = extracted['terraform_file']
+            self.db_manager.add_terraform_file(
+                file_path=file_record['file_path'],
+                module_name=file_record.get('module_name'),
+                stack_name=file_record.get('stack_name'),
+                backend_type=file_record.get('backend_type'),
+                providers_json=file_record.get('providers_json'),
+                is_module=file_record.get('is_module', False),
+                module_source=file_record.get('module_source')
+            )
+            if 'terraform_files' not in self.counts:
+                self.counts['terraform_files'] = 0
+            self.counts['terraform_files'] += 1
+
+        if 'terraform_resources' in extracted:
+            for resource in extracted['terraform_resources']:
+                self.db_manager.add_terraform_resource(
+                    resource_id=resource['resource_id'],
+                    file_path=resource['file_path'],
+                    resource_type=resource['resource_type'],
+                    resource_name=resource['resource_name'],
+                    module_path=resource.get('module_path'),
+                    properties_json=json.dumps(resource.get('properties', {})),
+                    depends_on_json=json.dumps(resource.get('depends_on', [])),
+                    sensitive_flags_json=json.dumps(resource.get('sensitive_properties', [])),
+                    has_public_exposure=resource.get('has_public_exposure', False),
+                    line=resource.get('line')
+                )
+                if 'terraform_resources' not in self.counts:
+                    self.counts['terraform_resources'] = 0
+                self.counts['terraform_resources'] += 1
+
+        if 'terraform_variables' in extracted:
+            for variable in extracted['terraform_variables']:
+                self.db_manager.add_terraform_variable(
+                    variable_id=variable['variable_id'],
+                    file_path=variable['file_path'],
+                    variable_name=variable['variable_name'],
+                    variable_type=variable.get('variable_type'),
+                    default_json=json.dumps(variable.get('default')) if variable.get('default') is not None else None,
+                    is_sensitive=variable.get('is_sensitive', False),
+                    description=variable.get('description', ''),
+                    source_file=variable.get('source_file'),
+                    line=variable.get('line')
+                )
+                if 'terraform_variables' not in self.counts:
+                    self.counts['terraform_variables'] = 0
+                self.counts['terraform_variables'] += 1
+
+        if 'terraform_outputs' in extracted:
+            for output in extracted['terraform_outputs']:
+                self.db_manager.add_terraform_output(
+                    output_id=output['output_id'],
+                    file_path=output['file_path'],
+                    output_name=output['output_name'],
+                    value_json=json.dumps(output.get('value')) if output.get('value') is not None else None,
+                    is_sensitive=output.get('is_sensitive', False),
+                    description=output.get('description', ''),
+                    line=output.get('line')
+                )
+                if 'terraform_outputs' not in self.counts:
+                    self.counts['terraform_outputs'] = 0
+                self.counts['terraform_outputs'] += 1
+
     def _cleanup_extractors(self):
         """Call cleanup() on all registered extractors.
 
