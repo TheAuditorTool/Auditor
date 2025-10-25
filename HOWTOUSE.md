@@ -628,6 +628,145 @@ Raw JSON saved to .pf/raw/data_flow_graph.json
 - Visualization of data flow paths
 - Alias analysis using assignment chains
 
+### Terraform Infrastructure Analysis
+
+Analyze Terraform/HCL configurations for infrastructure security issues and build provisioning flow graphs.
+
+**Prerequisites:**
+```bash
+# Terraform files are automatically indexed
+aud index
+```
+
+**Build Provisioning Flow Graph:**
+```bash
+# Build complete provisioning graph
+aud terraform provision
+
+# Build graph for changed files only
+aud terraform provision --workset
+
+# Custom output location
+aud terraform provision --output ./infrastructure_graph.json
+```
+
+The provisioning graph shows:
+- **Variables** (source nodes) → **Resources** (processing nodes) → **Outputs** (sink nodes)
+- Variable references (var.X used in resource properties)
+- Resource dependencies (explicit depends_on)
+- Output references (outputs referencing resources)
+- Sensitive data propagation paths
+- Public exposure blast radius
+
+**Security Analysis:**
+```bash
+# Detect all security issues
+aud terraform analyze
+
+# Filter by severity
+aud terraform analyze --severity critical
+
+# Check specific categories
+aud terraform analyze --categories public_exposure
+aud terraform analyze --categories iam_wildcard --categories hardcoded_secret
+
+# Save findings to JSON
+aud terraform analyze --output terraform_issues.json
+```
+
+**Security Checks:**
+
+1. **Public S3 Buckets**
+   - Public ACLs (public-read, public-read-write)
+   - Website hosting configuration
+   - Severity: HIGH/MEDIUM
+
+2. **Unencrypted Storage**
+   - RDS/Aurora databases (storage_encrypted=false)
+   - EBS volumes (encrypted=false)
+   - Severity: HIGH/MEDIUM
+
+3. **IAM Wildcards**
+   - Policies with Action="*" and Resource="*"
+   - Overly permissive permissions
+   - Severity: CRITICAL
+
+4. **Hardcoded Secrets**
+   - Sensitive properties with literal values
+   - Passwords, keys, tokens not using variables
+   - Severity: CRITICAL
+
+5. **Missing Encryption**
+   - SNS topics without KMS encryption
+   - Resources lacking encryption configuration
+   - Severity: LOW
+
+6. **Security Groups**
+   - Ingress rules from 0.0.0.0/0
+   - Open ports (non-HTTP/HTTPS = HIGH, HTTP/HTTPS = MEDIUM)
+   - Severity: HIGH/MEDIUM
+
+**Example Output:**
+```
+Terraform Security Analysis Complete:
+  Total findings: 12
+  Critical: 3
+  High: 6
+  Medium: 2
+  Low: 1
+
+Findings by category:
+  public_exposure: 4
+  hardcoded_secret: 3
+  iam_wildcard: 2
+  missing_encryption: 2
+  unencrypted_storage: 1
+
+Sample findings (first 3):
+
+  [CRITICAL] IAM policy 'admin-policy' uses wildcard for actions and resources
+  File: vulnerable.tf:26
+  Policy grants full access (*) to all resources (*). This violates principle of least privilege.
+
+  [CRITICAL] Hardcoded secret in 'hardcoded_secret.password'
+  File: vulnerable.tf:22
+  Property 'password' contains a hardcoded value. Secrets should never be committed to version control.
+
+  [HIGH] S3 bucket 'public_data' has public ACL
+  File: vulnerable.tf:6
+  Bucket configured with ACL 'public-read' allowing public access. This exposes data to anyone on the internet.
+```
+
+**Integration with Full Pipeline:**
+
+Terraform analysis is automatically included in `aud full`:
+```bash
+aud full  # Includes terraform provision and analyze
+```
+
+**Workset Support:**
+```bash
+# Create workset from git diff
+aud workset
+
+# Analyze only changed Terraform files
+aud terraform provision --workset
+aud terraform analyze
+```
+
+**Output Locations:**
+- `.pf/graphs.db` - Provisioning flow graph (queryable)
+- `.pf/raw/terraform_graph.json` - Graph export (JSON)
+- `.pf/raw/terraform_findings.json` - Security findings (JSON)
+- `terraform_findings` table - Database findings for FCE correlation
+
+**When to Use:**
+- Infrastructure security audits
+- Cloud resource provisioning reviews
+- Sensitive data flow tracking in IaC
+- Public exposure blast radius assessment
+- Terraform security best practices validation
+
 ### Control Flow Graph Analysis
 
 **v1.2 Update:** CFG analysis cache expanded to 25,000 functions (was 10,000 in v1.1). JavaScript/TypeScript CFG extraction fully working since v1.1.

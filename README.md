@@ -45,18 +45,18 @@ This isn’t hypothetical. **It works today.** It’s 100% offline, language-agn
 
 A multi-stage pipeline that orchestrates best-in-class tools plus proprietary engines to build a complete, **queryable** model of your repo.
 
-* **Polyglot:** Python, JavaScript/TypeScript, and Rust ecosystems.
+* **Polyglot:** Python, JavaScript/TypeScript, Rust ecosystems, and Terraform/HCL Infrastructure as Code.
 * **100% Offline:** Your code never leaves your machine. 🔒
 * **Performance-Obsessed:** Medium projects finish in minutes thanks to in-memory architecture and O(1) lookups. CI/CD-ready.
 
 | Stage                              | What it Does                                                                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. |
-| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit**, **pip-audit**, and **Google’s osv-scanner**—cross-referenced for accuracy.                       |
+| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. Extracts Terraform IaC resources. |
+| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit**, **pip-audit**, and **Google's osv-scanner**—cross-referenced for accuracy.                       |
 | **3. Industry-Standard Linting**   | Correlates **ESLint**, **Ruff**, **MyPy**, **Clippy** with project-aware configs.                                                                               |
 | **4. Multi-Hop Taint Analysis**    | True inter-procedural (cross-file) taint analysis with CFG validation to surface complex vulns (SQLi, XSS) with near-zero false positives.                      |
-| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the “blast radius” of code changes.                                                               |
-| **6. Factual Correlation Engine**  | The “brain” that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
+| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the "blast radius" of code changes. Terraform provisioning flow graphs for infrastructure analysis. |
+| **6. Factual Correlation Engine**  | The "brain" that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
 | **7. AI-Centric Output**           | Raw outputs preserved in `.pf/raw/` for humans; concise, chunked reports for AI in `.pf/readthis/`.                                                             |
 
 ---
