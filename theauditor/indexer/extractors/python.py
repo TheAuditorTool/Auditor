@@ -375,6 +375,73 @@ class PythonExtractor(BaseExtractor):
         # Default: direct database execution
         return 'code_execute'
 
+    def _resolve_sql_literal(self, node: ast.AST) -> Optional[str]:
+        """Resolve AST node to static SQL string.
+
+        Handles:
+        - ast.Constant / ast.Str: Plain strings
+        - ast.JoinedStr: F-strings (if all parts are static)
+        - ast.BinOp(Add): String concatenation
+        - ast.Call(.format): Format strings
+
+        Returns:
+            Static SQL string if resolvable, None if dynamic
+        """
+        # Plain string literal
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        elif isinstance(node, ast.Str):  # Python 3.7
+            return node.s
+
+        # F-string: f"SELECT * FROM {table}"
+        elif isinstance(node, ast.JoinedStr):
+            parts = []
+            for value in node.values:
+                if isinstance(value, ast.Constant):
+                    parts.append(str(value.value))
+                elif isinstance(value, ast.FormattedValue):
+                    # Dynamic expression - can't resolve statically
+                    # BUT: If it's a simple constant, we can resolve
+                    if isinstance(value.value, ast.Constant):
+                        parts.append(str(value.value.value))
+                    else:
+                        # Dynamic variable/expression - return None (can't analyze)
+                        return None
+                else:
+                    return None
+            return ''.join(parts)
+
+        # String concatenation: "SELECT * " + "FROM users"
+        elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left = self._resolve_sql_literal(node.left)
+            right = self._resolve_sql_literal(node.right)
+            if left is not None and right is not None:
+                return left + right
+            return None
+
+        # .format() call: "SELECT * FROM {}".format("users")
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr == 'format':
+                # Get base string
+                base = self._resolve_sql_literal(node.func.value)
+                if base is None:
+                    return None
+
+                # Check if all format arguments are constants
+                args = []
+                for arg in node.args:
+                    if isinstance(arg, ast.Constant):
+                        args.append(str(arg.value))
+                    else:
+                        return None  # Dynamic argument
+
+                try:
+                    return base.format(*args)
+                except (IndexError, KeyError):
+                    return None  # Malformed format string
+
+        return None
+
     def _extract_sql_queries_ast(self, tree: Dict[str, Any], content: str, file_path: str = '') -> List[Dict]:
         """Extract SQL queries from database execution calls using AST.
 
@@ -431,16 +498,17 @@ class PythonExtractor(BaseExtractor):
                 continue
 
             first_arg = node.args[0]
-            query_text = None
 
-            # Extract string literal
-            if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                query_text = first_arg.value
-            elif isinstance(first_arg, ast.Str):  # Python 3.7 compatibility
-                query_text = first_arg.s
+            # Resolve SQL literal (handles plain strings, f-strings, concatenations, .format())
+            query_text = self._resolve_sql_literal(first_arg)
 
             if not query_text:
-                continue  # Not a string literal (variable, f-string, etc.)
+                # DEBUG: Log skipped queries
+                import os
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    node_type = type(first_arg).__name__
+                    print(f"[SQL EXTRACT] Skipped dynamic query at {file_path}:{node.lineno} (type: {node_type})")
+                continue  # Not a string literal (variable, complex f-string, etc.)
 
             # Parse SQL to extract metadata
             try:

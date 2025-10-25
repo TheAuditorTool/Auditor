@@ -136,27 +136,9 @@ function extractValidationFrameworkUsage(functionCallArgs, assignments, imports)
         imports_count: imports.length
     });
 
-    // ALWAYS log when called (for debugging) - use console.error instead of file
-    console.error(`[VALIDATION-L2-EXTRACT] extractValidationFrameworkUsage called with ${imports.length} imports, ${assignments.length} assignments, ${functionCallArgs.length} calls`);
-
-    // DEBUG: Log first import to see structure
-    if (imports.length > 0) {
-        console.error(`[VALIDATION-L2-EXTRACT] Sample import structure: ${JSON.stringify(imports[0])}`);
-    }
-
     // Step 1: Detect which validation frameworks are imported
     const frameworks = detectValidationFrameworks(imports, debugLog);
-    console.error(`[VALIDATION-L2-EXTRACT] detectValidationFrameworks returned ${frameworks.length} frameworks`);
     debugLog(`Detected ${frameworks.length} validation frameworks in imports`, frameworks);
-
-    // ALWAYS log framework detection result
-    if (frameworks.length > 0) {
-        console.error(`[VALIDATION-L2-EXTRACT] Found ${frameworks.length} validation frameworks: ${frameworks.map(f => f.name).join(', ')}`);
-    } else if (imports.length > 0) {
-        // Log sample imports to debug why no frameworks detected
-        const sample = imports.slice(0, 2).map(imp => `module=${imp.module||imp.module_ref||imp.value||'?'}`).join(', ');
-        console.error(`[VALIDATION-L2-EXTRACT] No frameworks detected. Sample imports: ${sample}`);
-    }
 
     if (frameworks.length === 0) {
         debugLog('No validation frameworks found, skipping extraction');
@@ -370,9 +352,6 @@ function getVariableName(callee) {
  * @returns {Array} - SQL query records
  */
 function extractSQLQueries(functionCallArgs) {
-    // ALWAYS log when called (for debugging)
-    console.error(`[SQL EXTRACT] extractSQLQueries called with ${functionCallArgs.length} function calls`);
-
     const SQL_METHODS = new Set([
         'execute', 'query', 'raw', 'exec', 'run',
         'executeSql', 'executeQuery', 'execSQL', 'select',
@@ -403,13 +382,7 @@ function extractSQLQueries(functionCallArgs) {
 
         // Resolve query text from argument expression
         const queryText = resolveSQLLiteral(argExpr);
-        if (!queryText) {
-            // DEBUG: Log skipped queries
-            if (process.env.THEAUDITOR_DEBUG === '1') {
-                console.error(`[SQL EXTRACT] Skipped dynamic query at line ${call.line} (${argExpr.substring(0, 50)})`);
-            }
-            continue;
-        }
+        if (!queryText) continue;
 
         // Build query record (Python will parse with sqlparse)
         queries.push({
@@ -420,7 +393,6 @@ function extractSQLQueries(functionCallArgs) {
         });
     }
 
-    console.error(`[SQL EXTRACT] Extracted ${queries.length} SQL queries`);
     return queries;
 }
 

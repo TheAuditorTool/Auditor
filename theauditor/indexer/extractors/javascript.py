@@ -122,11 +122,67 @@ class JavaScriptExtractor(BaseExtractor):
                     'react_hooks': 'react_hooks',
                     'orm_queries': 'orm_queries',
                     'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
+                    'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
                 }
 
                 for js_key, python_key in KEY_MAPPINGS.items():
                     if js_key in extracted_data:
                         result[python_key] = extracted_data[js_key]
+
+                # Parse SQL queries extracted by JavaScript
+                # JavaScript extracts raw query text, Python parses with sqlparse
+                if 'sql_queries' in extracted_data:
+                    parsed_queries = []
+                    try:
+                        import sqlparse
+                        HAS_SQLPARSE = True
+                    except ImportError:
+                        HAS_SQLPARSE = False
+                        result['sql_queries'] = []  # Skip if no sqlparse
+
+                    if HAS_SQLPARSE:
+                        for query in extracted_data['sql_queries']:
+                            try:
+                                parsed = sqlparse.parse(query['query_text'])
+                                if not parsed:
+                                    continue
+
+                                statement = parsed[0]
+                                command = statement.get_type()
+
+                                if not command or command == 'UNKNOWN':
+                                    continue
+
+                                # Extract tables (same logic as python.py:458-473)
+                                tables = []
+                                tokens = list(statement.flatten())
+                                for i, token in enumerate(tokens):
+                                    if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
+                                        for j in range(i + 1, len(tokens)):
+                                            next_token = tokens[j]
+                                            if not next_token.is_whitespace:
+                                                if next_token.ttype in [None, sqlparse.tokens.Name]:
+                                                    table_name = next_token.value.strip('"\'`')
+                                                    if '.' in table_name:
+                                                        table_name = table_name.split('.')[-1]
+                                                    if table_name and table_name.upper() not in ['SELECT', 'WHERE', 'SET', 'VALUES']:
+                                                        tables.append(table_name)
+                                                break
+
+                                # Determine extraction source
+                                extraction_source = self._determine_sql_source(file_info['path'], 'query')
+
+                                parsed_queries.append({
+                                    'line': query['line'],
+                                    'query_text': query['query_text'],
+                                    'command': command,
+                                    'tables': tables,
+                                    'extraction_source': extraction_source
+                                })
+                            except Exception:
+                                continue
+
+                        result['sql_queries'] = parsed_queries
 
                 # CRITICAL FIX: Use pre-extracted functions/calls for symbols table
                 # Phase 5 sets ast: null, so extract_functions/extract_calls/extract_classes
