@@ -1176,8 +1176,8 @@ function buildScopeMap(sourceFile, ts) {
         if (depth > 100 || !node) return;
 
         const kind = ts.SyntaxKind[node.kind];
-        const { line: startLine } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-        const { line: endLine } = sourceFile.getLineAndCharacterOfPosition(node.end);
+        let startLine = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line;
+        let endLine = sourceFile.getLineAndCharacterOfPosition(node.end).line;
 
         // Track class context
         if (kind === 'ClassDeclaration') {
@@ -1190,6 +1190,7 @@ function buildScopeMap(sourceFile, ts) {
 
         // Collect function-like nodes
         let funcName = null;
+        let actualFunctionNode = node;  // Track the actual function node for line calculation
 
         if (kind === 'FunctionDeclaration') {
             funcName = node.name ? (node.name.text || node.name.escapedText || 'anonymous') : 'anonymous';
@@ -1201,6 +1202,20 @@ function buildScopeMap(sourceFile, ts) {
             if (initKind === 'ArrowFunction' || initKind === 'FunctionExpression') {
                 const propName = node.name ? (node.name.text || node.name.escapedText || 'anonymous') : 'anonymous';
                 funcName = classStack.length > 0 ? classStack[classStack.length - 1] + '.' + propName : propName;
+            }
+            // CRITICAL FIX: Handle wrapped functions like this.asyncHandler(async () => {})
+            // Common pattern in controllers: create = this.asyncHandler(async (req, res) => { ... })
+            else if (initKind === 'CallExpression' && node.initializer.arguments && node.initializer.arguments.length > 0) {
+                const firstArg = node.initializer.arguments[0];
+                const firstArgKind = ts.SyntaxKind[firstArg.kind];
+                if (firstArgKind === 'ArrowFunction' || firstArgKind === 'FunctionExpression') {
+                    const propName = node.name ? (node.name.text || node.name.escapedText || 'anonymous') : 'anonymous';
+                    funcName = classStack.length > 0 ? classStack[classStack.length - 1] + '.' + propName : propName;
+                    // Use the INNER function's range (the actual arrow function), not the outer PropertyDeclaration
+                    actualFunctionNode = firstArg;
+                    startLine = sourceFile.getLineAndCharacterOfPosition(firstArg.getStart(sourceFile)).line;
+                    endLine = sourceFile.getLineAndCharacterOfPosition(firstArg.end).line;
+                }
             }
         } else if (kind === 'Constructor') {
             funcName = classStack.length > 0 ? classStack[classStack.length - 1] + '.constructor' : 'constructor';

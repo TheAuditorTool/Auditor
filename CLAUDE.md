@@ -134,6 +134,22 @@ TheAuditor is an offline-first, AI-centric SAST (Static Application Security Tes
 
 ---
 
+## WHY TWO DATABASES (.pf/repo_index.db + .pf/graphs.db)
+
+**repo_index.db (91MB)**: Raw extracted facts from AST parsing - symbols, calls, assignments, etc.
+- Updated: Every `aud index` (regenerated fresh)
+- Used by: Everything (rules, taint, FCE, context queries)
+
+**graphs.db (79MB)**: Pre-computed graph structures built FROM repo_index.db
+- Updated: Explicit `aud graph build` (opt-in, not needed for core analysis)
+- Used by: Graph commands only (`aud graph query`, `aud graph viz`)
+
+**Why separate?** Different query patterns (point lookups vs graph traversal). Merging would make `aud index` 53% slower to build graphs most users never use. Standard data warehouse design: fact tables vs computed aggregates.
+
+**Key insight**: FCE reads from repo_index.db, NOT graphs.db. Graph database is optional for visualization/exploration only.
+
+---
+
 # ⚠️ CRITICAL ARCHITECTURE RULE - READ FIRST ⚠️
 
 ## ZERO FALLBACK POLICY - ABSOLUTE AND NON-NEGOTIABLE

@@ -281,6 +281,13 @@ class DatabaseManager:
                 ('compose_services', 'INSERT'),
                 ('nginx_configs', 'INSERT'),
 
+                # Terraform tables (Infrastructure as Code)
+                ('terraform_files', 'INSERT'),
+                ('terraform_resources', 'INSERT'),
+                ('terraform_variables', 'INSERT'),
+                ('terraform_outputs', 'INSERT'),
+                ('terraform_findings', 'INSERT'),
+
                 # Data flow tables (before junction tables)
                 ('assignments', 'INSERT'),
                 ('assignment_sources', 'INSERT'),  # Junction table
@@ -1143,6 +1150,74 @@ class DatabaseManager:
         # Debug logging if enabled
         if hasattr(self, '_debug') and self._debug:
             print(f"[DB] Wrote {len(findings)} findings from {tool_name} to findings_consolidated")
+
+    # ========================================================
+    # TERRAFORM BATCH METHODS
+    # ========================================================
+
+    def add_terraform_file(self, file_path: str, module_name: Optional[str] = None,
+                          stack_name: Optional[str] = None, backend_type: Optional[str] = None,
+                          providers_json: Optional[str] = None, is_module: bool = False,
+                          module_source: Optional[str] = None):
+        """Add a Terraform file record to the batch."""
+        self.generic_batches['terraform_files'].append((
+            file_path, module_name, stack_name, backend_type,
+            providers_json, is_module, module_source
+        ))
+
+    def add_terraform_resource(self, resource_id: str, file_path: str, resource_type: str,
+                               resource_name: str, module_path: Optional[str] = None,
+                               properties_json: Optional[str] = None,
+                               depends_on_json: Optional[str] = None,
+                               sensitive_flags_json: Optional[str] = None,
+                               has_public_exposure: bool = False,
+                               line: Optional[int] = None):
+        """Add a Terraform resource record to the batch."""
+        self.generic_batches['terraform_resources'].append((
+            resource_id, file_path, resource_type, resource_name,
+            module_path, properties_json, depends_on_json,
+            sensitive_flags_json, has_public_exposure, line
+        ))
+
+    def add_terraform_variable(self, variable_id: str, file_path: str, variable_name: str,
+                               variable_type: Optional[str] = None,
+                               default_json: Optional[str] = None,
+                               is_sensitive: bool = False,
+                               description: str = '',
+                               source_file: Optional[str] = None,
+                               line: Optional[int] = None):
+        """Add a Terraform variable record to the batch."""
+        self.generic_batches['terraform_variables'].append((
+            variable_id, file_path, variable_name, variable_type,
+            default_json, is_sensitive, description, source_file, line
+        ))
+
+    def add_terraform_output(self, output_id: str, file_path: str, output_name: str,
+                            value_json: Optional[str] = None,
+                            is_sensitive: bool = False,
+                            description: str = '',
+                            line: Optional[int] = None):
+        """Add a Terraform output record to the batch."""
+        self.generic_batches['terraform_outputs'].append((
+            output_id, file_path, output_name, value_json,
+            is_sensitive, description, line
+        ))
+
+    def add_terraform_finding(self, finding_id: str, file_path: str,
+                             resource_id: Optional[str] = None,
+                             category: str = '',
+                             severity: str = 'medium',
+                             title: str = '',
+                             description: str = '',
+                             graph_context_json: Optional[str] = None,
+                             remediation: str = '',
+                             line: Optional[int] = None):
+        """Add a Terraform finding record to the batch."""
+        self.generic_batches['terraform_findings'].append((
+            finding_id, file_path, resource_id, category,
+            severity, title, description, graph_context_json,
+            remediation, line
+        ))
 
     def get_framework_id(self, name, language):
         """Get framework ID from database."""

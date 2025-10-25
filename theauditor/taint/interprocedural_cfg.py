@@ -760,7 +760,8 @@ class InterProceduralCFGAnalyzer:
             self.registry = TaintRegistry()
 
         for callee, arg_expr in self.cursor.fetchall():
-            if var_name in arg_expr and self.registry.is_sanitizer(callee):
+            # CRITICAL FIX: arg_expr can be NULL in database - check before 'in' operation
+            if arg_expr and var_name in arg_expr and self.registry.is_sanitizer(callee):
                 return True
 
         return False
