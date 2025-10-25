@@ -6,9 +6,69 @@ Handles extraction of SQL-specific elements including:
 """
 
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from . import BaseExtractor
+
+
+def parse_sql_query(query_text: str) -> Optional[Tuple[str, List[str]]]:
+    """Parse SQL query to extract command type and table names.
+
+    Shared helper used by Python and JavaScript extractors to maintain
+    consistent SQL parsing logic across languages.
+
+    Args:
+        query_text: Raw SQL query string
+
+    Returns:
+        Tuple of (command, tables) if parseable, None if unparseable
+        - command: SQL command type (SELECT, INSERT, UPDATE, etc.)
+        - tables: List of table names referenced in query
+
+    Raises:
+        ImportError: If sqlparse is not installed (hard failure)
+    """
+    try:
+        import sqlparse
+    except ImportError:
+        raise ImportError(
+            "sqlparse is required for SQL query parsing. "
+            "Install with: pip install sqlparse"
+        )
+
+    try:
+        parsed = sqlparse.parse(query_text)
+        if not parsed:
+            return None
+
+        statement = parsed[0]
+        command = statement.get_type()
+
+        # Skip UNKNOWN commands
+        if not command or command == 'UNKNOWN':
+            return None
+
+        # Extract table names
+        tables = []
+        tokens = list(statement.flatten())
+        for i, token in enumerate(tokens):
+            if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
+                # Look for next non-whitespace token
+                for j in range(i + 1, len(tokens)):
+                    next_token = tokens[j]
+                    if not next_token.is_whitespace:
+                        if next_token.ttype in [None, sqlparse.tokens.Name]:
+                            table_name = next_token.value.strip('"\'`')
+                            if '.' in table_name:
+                                table_name = table_name.split('.')[-1]
+                            if table_name and table_name.upper() not in ['SELECT', 'WHERE', 'SET', 'VALUES']:
+                                tables.append(table_name)
+                        break
+
+        return (command, tables)
+
+    except Exception:
+        return None
 
 
 class SQLExtractor(BaseExtractor):
