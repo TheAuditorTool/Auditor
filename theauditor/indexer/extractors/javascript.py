@@ -23,6 +23,7 @@ from typing import Dict, Any, List, Optional
 import os
 
 from . import BaseExtractor
+from .sql import parse_sql_query
 
 
 class JavaScriptExtractor(BaseExtractor):
@@ -130,59 +131,29 @@ class JavaScriptExtractor(BaseExtractor):
                         result[python_key] = extracted_data[js_key]
 
                 # Parse SQL queries extracted by JavaScript
-                # JavaScript extracts raw query text, Python parses with sqlparse
+                # JavaScript extracts raw query text, Python parses with shared helper
                 if 'sql_queries' in extracted_data:
                     parsed_queries = []
-                    try:
-                        import sqlparse
-                        HAS_SQLPARSE = True
-                    except ImportError:
-                        HAS_SQLPARSE = False
-                        result['sql_queries'] = []  # Skip if no sqlparse
+                    for query in extracted_data['sql_queries']:
+                        # Use shared SQL parsing helper
+                        parsed = parse_sql_query(query['query_text'])
+                        if not parsed:
+                            continue  # Unparseable or UNKNOWN command
 
-                    if HAS_SQLPARSE:
-                        for query in extracted_data['sql_queries']:
-                            try:
-                                parsed = sqlparse.parse(query['query_text'])
-                                if not parsed:
-                                    continue
+                        command, tables = parsed
 
-                                statement = parsed[0]
-                                command = statement.get_type()
+                        # Determine extraction source
+                        extraction_source = self._determine_sql_source(file_info['path'], 'query')
 
-                                if not command or command == 'UNKNOWN':
-                                    continue
+                        parsed_queries.append({
+                            'line': query['line'],
+                            'query_text': query['query_text'],
+                            'command': command,
+                            'tables': tables,
+                            'extraction_source': extraction_source
+                        })
 
-                                # Extract tables (same logic as python.py:458-473)
-                                tables = []
-                                tokens = list(statement.flatten())
-                                for i, token in enumerate(tokens):
-                                    if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
-                                        for j in range(i + 1, len(tokens)):
-                                            next_token = tokens[j]
-                                            if not next_token.is_whitespace:
-                                                if next_token.ttype in [None, sqlparse.tokens.Name]:
-                                                    table_name = next_token.value.strip('"\'`')
-                                                    if '.' in table_name:
-                                                        table_name = table_name.split('.')[-1]
-                                                    if table_name and table_name.upper() not in ['SELECT', 'WHERE', 'SET', 'VALUES']:
-                                                        tables.append(table_name)
-                                                break
-
-                                # Determine extraction source
-                                extraction_source = self._determine_sql_source(file_info['path'], 'query')
-
-                                parsed_queries.append({
-                                    'line': query['line'],
-                                    'query_text': query['query_text'],
-                                    'command': command,
-                                    'tables': tables,
-                                    'extraction_source': extraction_source
-                                })
-                            except Exception:
-                                continue
-
-                        result['sql_queries'] = parsed_queries
+                    result['sql_queries'] = parsed_queries
 
                 # CRITICAL FIX: Use pre-extracted functions/calls for symbols table
                 # Phase 5 sets ast: null, so extract_functions/extract_calls/extract_classes
@@ -713,10 +684,12 @@ class JavaScriptExtractor(BaseExtractor):
 
         # Extract SQL queries from database execution calls using already-extracted function_calls
         # This uses the AST data we already have instead of regex
-        result['sql_queries'] = self._extract_sql_from_function_calls(
-            result.get('function_calls', []),
-            file_info.get('path', '')
-        )
+        # CRITICAL: Only run if Phase 5 didn't provide sql_queries
+        if not result.get('sql_queries'):
+            result['sql_queries'] = self._extract_sql_from_function_calls(
+                result.get('function_calls', []),
+                file_info.get('path', '')
+            )
 
         # =================================================================
         # JWT EXTRACTION - AST ONLY, NO REGEX
@@ -919,14 +892,6 @@ class JavaScriptExtractor(BaseExtractor):
             'insert', 'update', 'delete', 'query_raw'
         ])
 
-        # Check sqlparse availability
-        try:
-            import sqlparse
-            HAS_SQLPARSE = True
-        except ImportError:
-            HAS_SQLPARSE = False
-            return queries
-
         for call in function_calls:
             callee = call.get('callee_function', '')
 
@@ -960,49 +925,23 @@ class JavaScriptExtractor(BaseExtractor):
             if '${' in query_text or query_text.startswith('`'):
                 continue
 
-            # Parse SQL to extract metadata
-            try:
-                parsed = sqlparse.parse(query_text)
-                if not parsed:
-                    continue
+            # Parse SQL using shared helper
+            parsed = parse_sql_query(query_text)
+            if not parsed:
+                continue  # Unparseable or UNKNOWN command
 
-                statement = parsed[0]
-                command = statement.get_type()
+            command, tables = parsed
 
-                # Skip UNKNOWN commands (unparseable)
-                if not command or command == 'UNKNOWN':
-                    continue
+            # Determine extraction source for intelligent filtering
+            extraction_source = self._determine_sql_source(file_path, method_name)
 
-                # Extract table names
-                tables = []
-                tokens = list(statement.flatten())
-                for i, token in enumerate(tokens):
-                    if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
-                        for j in range(i + 1, len(tokens)):
-                            next_token = tokens[j]
-                            if not next_token.is_whitespace:
-                                if next_token.ttype in [None, sqlparse.tokens.Name]:
-                                    table_name = next_token.value.strip('"\'`')
-                                    if '.' in table_name:
-                                        table_name = table_name.split('.')[-1]
-                                    if table_name and table_name.upper() not in ['SELECT', 'WHERE', 'SET', 'VALUES']:
-                                        tables.append(table_name)
-                                break
-
-                # Determine extraction source for intelligent filtering
-                extraction_source = self._determine_sql_source(file_path, method_name)
-
-                queries.append({
-                    'line': call.get('line', 0),
-                    'query_text': query_text[:1000],
-                    'command': command,
-                    'tables': tables,
-                    'extraction_source': extraction_source
-                })
-
-            except Exception:
-                # Failed to parse - skip
-                continue
+            queries.append({
+                'line': call.get('line', 0),
+                'query_text': query_text[:1000],
+                'command': command,
+                'tables': tables,
+                'extraction_source': extraction_source
+            })
 
         return queries
 

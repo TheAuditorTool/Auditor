@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from . import BaseExtractor
+from .sql import parse_sql_query
 
 
 class PythonExtractor(BaseExtractor):
@@ -474,12 +475,8 @@ class PythonExtractor(BaseExtractor):
             'select', 'insert', 'update', 'delete',  # Query builder methods
         ])
 
-        try:
-            import sqlparse
-            HAS_SQLPARSE = True
-        except ImportError:
-            HAS_SQLPARSE = False
-            return queries  # Can't parse SQL without sqlparse
+        # No sqlparse import check - parse_sql_query() will raise ImportError
+        # if sqlparse is missing, ensuring hard failure instead of silent skip
 
         for node in ast.walk(actual_tree):
             if not isinstance(node, ast.Call):
@@ -510,50 +507,23 @@ class PythonExtractor(BaseExtractor):
                     print(f"[SQL EXTRACT] Skipped dynamic query at {file_path}:{node.lineno} (type: {node_type})")
                 continue  # Not a string literal (variable, complex f-string, etc.)
 
-            # Parse SQL to extract metadata
-            try:
-                parsed = sqlparse.parse(query_text)
-                if not parsed:
-                    continue
+            # Parse SQL using shared helper
+            parsed = parse_sql_query(query_text)
+            if not parsed:
+                continue  # Unparseable or UNKNOWN command
 
-                statement = parsed[0]
-                command = statement.get_type()
+            command, tables = parsed
 
-                # Skip UNKNOWN commands (unparseable)
-                if not command or command == 'UNKNOWN':
-                    continue
+            # Determine extraction source for intelligent filtering
+            extraction_source = self._determine_sql_source(file_path, method_name)
 
-                # Extract table names
-                tables = []
-                tokens = list(statement.flatten())
-                for i, token in enumerate(tokens):
-                    if token.ttype is None and token.value.upper() in ['FROM', 'INTO', 'UPDATE', 'TABLE', 'JOIN']:
-                        # Look for next non-whitespace token
-                        for j in range(i + 1, len(tokens)):
-                            next_token = tokens[j]
-                            if not next_token.is_whitespace:
-                                if next_token.ttype in [None, sqlparse.tokens.Name]:
-                                    table_name = next_token.value.strip('"\'`')
-                                    if '.' in table_name:
-                                        table_name = table_name.split('.')[-1]
-                                    if table_name and table_name.upper() not in ['SELECT', 'WHERE', 'SET', 'VALUES']:
-                                        tables.append(table_name)
-                                break
-
-                # Determine extraction source for intelligent filtering
-                extraction_source = self._determine_sql_source(file_path, method_name)
-
-                queries.append({
-                    'line': node.lineno,
-                    'query_text': query_text[:1000],  # Limit length
-                    'command': command,
-                    'tables': tables,
-                    'extraction_source': extraction_source
-                })
-
-            except Exception:
-                # Failed to parse - skip this query
-                continue
+            queries.append({
+                'line': node.lineno,
+                'query_text': query_text[:1000],  # Limit length
+                'command': command,
+                'tables': tables,
+                'extraction_source': extraction_source
+            })
 
         return queries
 
