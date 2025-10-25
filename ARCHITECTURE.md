@@ -519,28 +519,61 @@ Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** 
 - Categories: Authentication, Injection, Data Exposure, Infrastructure, Code Quality, Framework-Specific
 - **5 architectural meta-findings**: Correlates security issues with graph hotspots, complexity, churn, and test coverage
 
-### Code Context Query Engine (`theauditor/context/`)
+### Architectural Intelligence & Query System
 
-**NEW in v1.3**: Direct database query interface for AI-assisted code navigation and refactoring.
+**NEW in v1.3**: Blueprint visualization and database query interface for surgical refactoring.
 
 #### The Problem It Solves
 
-AI assistants waste 5-10k tokens per refactoring iteration reading files to answer basic questions:
+AI assistants waste 5-10k tokens per refactoring iteration reading files to answer:
+- "What's the architecture? Where are boundaries?"
 - "Who calls this function?"
-- "What does this function call?"
-- "Which files import this module?"
-- "Where is this API endpoint implemented?"
+- "Which endpoints are unprotected?"
+- "Where does user data flow?"
 
-TheAuditor already indexes all this relationship data during `aud index`. The query engine provides instant access via SQL queries - **zero file reads, <10ms response time**.
+TheAuditor already indexes all relationship data during `aud index`. The intelligence layer provides instant access via SQL queries and architectural drill-downs - **zero file reads, <10ms response time**.
 
 #### Architecture Overview
 
+**Three-Command Architecture:**
+
 ```
+theauditor/commands/
+├── blueprint.py     # Architectural overview (4 drill-downs)
+├── query.py         # Code relationship queries (database API)
+└── context.py       # Semantic business logic (YAML-based)
+
 theauditor/context/
-├── __init__.py      # Package exports
-├── query.py         # CodeQueryEngine class (6 query methods)
+├── __init__.py      # Shared query engine
+├── query.py         # CodeQueryEngine class (8 query methods)
 └── formatters.py    # Output formatting (text, json, tree)
 ```
+
+**1. Blueprint Command (`aud blueprint`)**
+
+Provides architectural overview with 4 surgical drill-downs:
+- `--structure`: Scope understanding (monorepo detection, token estimates, migration paths)
+- `--graph`: Dependency mapping (gateway files, circular deps, bottlenecks)
+- `--security`: Attack surface mapping (unprotected endpoints, auth patterns, SQL risk)
+- `--taint`: Data flow mapping (vulnerable flows, sanitization coverage)
+
+Each drill-down shows exact file:line locations with actionable data. No recommendations - just facts.
+
+**2. Query Command (`aud query`)**
+
+Direct database queries for code relationships:
+- Symbol lookups with transitive call chains
+- File dependency tracing
+- API endpoint security coverage
+- React component hierarchies
+- Data flow queries (via junction tables)
+
+**3. Context Command (`aud context`)**
+
+Applies user-defined business logic via YAML:
+- Classifies findings as obsolete/current/transitional
+- Tracks refactoring progress
+- Maps semantic patterns to code
 
 **Design Principles:**
 1. **Database-First**: NO new schema - queries existing tables from `repo_index.db` and `graphs.db`
@@ -548,6 +581,7 @@ theauditor/context/
 3. **Performance-Obsessed**: Indexed lookups with O(1) hash maps and BFS for transitive queries
 4. **Type-Safe Results**: Dataclasses (SymbolInfo, CallSite, Dependency) for structured returns
 5. **Format-Agnostic**: Text (human), JSON (AI), tree (visualization) output modes
+6. **Truth Courier Mode**: Facts only, no recommendations or prescriptive language
 
 #### Database Schema Used
 
@@ -702,26 +736,42 @@ All queries leverage SQLite indexes:
 
 #### CLI Integration
 
-Exposed via `aud context query` command:
+Exposed via three specialized commands:
 
+**Blueprint (Architectural Overview):**
+```bash
+# Top-level overview
+aud blueprint
+
+# Drill-downs for surgical analysis
+aud blueprint --structure  # Scope, monorepo, token estimates
+aud blueprint --graph      # Gateway files, cycles, bottlenecks
+aud blueprint --security   # Unprotected endpoints, auth patterns
+aud blueprint --taint      # Vulnerable flows, sanitization gaps
+
+# Export for AI consumption
+aud blueprint --all --format json
+```
+
+**Query (Code Relationships):**
 ```bash
 # Symbol queries
-aud context query --symbol authenticateUser --show-callers --depth 3
-aud context query --symbol handleRequest --show-callees
+aud query --symbol authenticateUser --show-callers --depth 3
+aud query --symbol handleRequest --show-callees
 
 # File queries
-aud context query --file src/auth.ts --show-dependents
-aud context query --file src/utils.ts --show-dependencies
+aud query --file src/auth.ts --show-dependents
+aud query --file src/utils.ts --show-dependencies
 
 # API queries
-aud context query --api "/users/:id"
+aud query --api "/users/:id"
+aud query --show-api-coverage  # Security coverage for all endpoints
+```
 
-# Component queries
-aud context query --component UserProfile
-
-# Format control
-aud context query --symbol validateInput --show-callers --format json
-aud context query --file src/api.ts --format json --save deps.json
+**Context (Semantic Business Logic):**
+```bash
+# Apply YAML-based refactoring patterns
+aud context --file auth_migration.yaml --verbose
 ```
 
 #### Integration with Existing Systems

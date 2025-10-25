@@ -121,6 +121,13 @@ class VerboseGroup(click.Group):
             formatter.write_text("  --verbose                 # Show detailed findings")
             formatter.write_paragraph()
 
+            formatter.write_text("aud blueprint               # Architectural visualization (NO ML/CUDA)")
+            formatter.write_text("  --format text             # Visual ASCII display (default)")
+            formatter.write_text("  --format json             # Structured JSON export")
+            formatter.write_text("  # Shows: structure, hot files, security, data flow, imports")
+            formatter.write_text("  # Prereq: Run 'aud full' for complete blueprint")
+            formatter.write_paragraph()
+
             formatter.write_text("aud fce                     # Run Factual Correlation Engine")
             formatter.write_text("aud report                  # Generate final report")
             formatter.write_text("aud structure               # Generate project structure report")
@@ -267,6 +274,8 @@ from theauditor.commands.rules import rules_command
 from theauditor.commands.refactor import refactor_command
 from theauditor.commands.insights import insights_command
 from theauditor.commands.context import context_command
+from theauditor.commands.query import query
+from theauditor.commands.blueprint import blueprint
 
 # Import new commands
 from theauditor.commands.docker_analyze import docker_analyze
@@ -312,6 +321,8 @@ cli.add_command(rules_command)
 cli.add_command(refactor_command, name="refactor")
 cli.add_command(insights_command, name="insights")
 cli.add_command(context_command, name="context")
+cli.add_command(query)
+cli.add_command(blueprint)
 
 # Register new commands
 cli.add_command(docker_analyze)
