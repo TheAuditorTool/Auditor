@@ -268,6 +268,8 @@ async function main() {
                     const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                     const ormQueries = extractORMQueries(functionCallArgs);
                     const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+                    const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                    const sqlQueries = extractSQLQueries(functionCallArgs);
 
                     // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
                     // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
@@ -313,7 +315,9 @@ async function main() {
                             react_components: reactComponents,
                             react_hooks: reactHooks,
                             orm_queries: ormQueries,
-                            api_endpoints: apiEndpoints,
+                            routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                            validation_framework_usage: validationUsage,
+                            sql_queries: sqlQueries,
                             scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
                             cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
                         }
@@ -581,6 +585,8 @@ try {
                 const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                 const ormQueries = extractORMQueries(functionCallArgs);
                 const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+                const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                const sqlQueries = extractSQLQueries(functionCallArgs);
 
                 // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
                 // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
@@ -625,7 +631,9 @@ try {
                         react_components: reactComponents,
                         react_hooks: reactHooks,
                         orm_queries: ormQueries,
-                        api_endpoints: apiEndpoints,
+                        routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                        validation_framework_usage: validationUsage,
+                        sql_queries: sqlQueries,
                         scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
                         cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
                     }
