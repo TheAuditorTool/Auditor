@@ -125,7 +125,19 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                     "Please try: pip install --force-reinstall tree-sitter-language-pack\n"
                     "Or install with AST support: pip install -e '.[ast]'"
                 )
-                
+
+            # HCL/Terraform parser (optional - non-critical)
+            try:
+                hcl_lang = get_language("hcl")
+                hcl_parser = get_parser("hcl")
+                self.parsers["hcl"] = hcl_parser
+                self.languages["hcl"] = hcl_lang
+            except Exception as e:
+                # Non-critical: Terraform can work without tree-sitter (though no line numbers)
+                print(f"[INFO] HCL tree-sitter not available: {e}")
+                print("[INFO] Terraform analysis requires the tree-sitter HCL grammar. "
+                      "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
+
         except ImportError as e:
             # If tree-sitter is installed but language pack is not, this is a critical error
             # The user clearly intends to use tree-sitter, so we should fail loudly
@@ -193,6 +205,8 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         try:
             with open(file_path, "rb") as f:
                 content = f.read()
+
+            tsconfig_path = self._find_tsconfig_for_file(file_path, root_path)
             
             # Compute content hash for caching
             content_hash = hashlib.md5(content).hexdigest()
@@ -200,12 +214,45 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             # For JavaScript/TypeScript, semantic parser is MANDATORY
             # NO FALLBACKS. If semantic parser fails, we MUST fail loudly.
             # Silent fallbacks to Tree-sitter produce corrupted databases with "anonymous" function names.
+            # PHASE 5: Always use batch mode (even for single files) - no single-file mode exists
             if language in ["javascript", "typescript"]:
                 # Normalize path for cross-platform compatibility
                 normalized_path = str(file_path).replace("\\", "/")
 
                 try:
-                    semantic_result = get_semantic_ast(normalized_path, jsx_mode=jsx_mode)
+                    # Build tsconfig map for batch processor
+                    tsconfig_map = {}
+                    if tsconfig_path:
+                        tsconfig_map[normalized_path] = str(tsconfig_path).replace("\\", "/")
+
+                    # HYBRID MODE: Two-pass approach for Phase 5
+                    # Pass 1: Extract symbols with ast=null (prevents 512MB crash)
+                    # Pass 2: Extract CFG with lightweight AST serialization
+
+                    # Pass 1: Symbol extraction (current Phase 5 behavior)
+                    batch_results = get_semantic_ast_batch(
+                        [normalized_path],
+                        project_root=root_path,
+                        jsx_mode=jsx_mode,
+                        tsconfig_map=tsconfig_map
+                    )
+
+                    # Extract single result from batch
+                    if normalized_path not in batch_results:
+                        raise RuntimeError(
+                            f"FATAL: Batch processor did not return result for {file_path}\n"
+                            f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                            f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                            f"DO NOT use fallback parsers - they produce corrupted data."
+                        )
+
+                    semantic_result = batch_results[normalized_path]
+
+                    # PHASE 5: Single-pass extraction - CFG included in extracted_data
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        cfg_count = len(semantic_result.get('extracted_data', {}).get('cfg', []))
+                        print(f"[DEBUG] Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data")
+
                 except Exception as e:
                     raise RuntimeError(
                         f"FATAL: TypeScript semantic parser failed for {file_path}\n"
@@ -246,6 +293,18 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
                 if python_ast:
                     return {"type": "python_ast", "tree": python_ast, "language": language, "content": decoded}
 
+            # TREE-SITTER PARSER - For HCL, Rust, and other tree-sitter languages
+            if language in self.parsers:
+                parser = self.parsers[language]
+                tree = parser.parse(content)
+                if tree:
+                    return {
+                        "type": "tree_sitter",
+                        "tree": tree,
+                        "language": language,
+                        "content": content.decode("utf-8", errors="ignore")
+                    }
+
             # Return None for unsupported languages
             return None
 
@@ -264,6 +323,8 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             ".mjs": "javascript",
             ".cjs": "javascript",
             ".vue": "javascript",  # Vue SFCs contain JavaScript/TypeScript
+            ".tf": "hcl",
+            ".tfvars": "hcl",
         }
         return ext_map.get(file_path.suffix.lower(), "")  # Empty not unknown
 
@@ -348,15 +409,34 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         content_hash = hashlib.md5(content_bytes).hexdigest()
         
         # JavaScript/TypeScript REQUIRE semantic parser - NO FALLBACKS
+        # PHASE 5: Always use batch mode (even for single files) - no single-file mode exists
         if language in ["javascript", "typescript"]:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False) as tmp:
                 tmp.write(content)
                 tmp_path = tmp.name
 
             try:
-                # Use semantic parser - MUST succeed
+                # Normalize path for batch processor
+                normalized_path = str(tmp_path).replace("\\", "/")
+
+                # Use batch processor with single file (Phase 5 - only code path)
                 try:
-                    semantic_result = get_semantic_ast(tmp_path, jsx_mode=jsx_mode)
+                    batch_results = get_semantic_ast_batch(
+                        [normalized_path],
+                        jsx_mode=jsx_mode
+                    )
+
+                    # Extract single result from batch
+                    if normalized_path not in batch_results:
+                        raise RuntimeError(
+                            f"FATAL: Batch processor did not return result for {filepath}\n"
+                            f"TypeScript/JavaScript files REQUIRE the semantic parser for correct analysis.\n"
+                            f"Ensure Node.js is installed and run: aud setup-ai --target .\n"
+                            f"DO NOT use fallback parsers - they produce corrupted data."
+                        )
+
+                    semantic_result = batch_results[normalized_path]
+
                 except Exception as e:
                     raise RuntimeError(
                         f"FATAL: TypeScript semantic parser failed for {filepath}\n"
@@ -430,16 +510,36 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
         if js_ts_files and project_type in ["javascript", "polyglot"] and get_semantic_ast_batch:
             try:
                 # Convert paths to strings for the semantic parser with normalized separators
-                js_ts_paths = [str(f).replace("\\", "/") for f in js_ts_files]
+                js_ts_paths = []
+                tsconfig_map: Dict[str, str] = {}
+                for f in js_ts_files:
+                    normalized_path = str(f).replace("\\", "/")
+                    js_ts_paths.append(normalized_path)
+                    tsconfig_for_file = self._find_tsconfig_for_file(f, root_path)
+                    if tsconfig_for_file:
+                        tsconfig_map[normalized_path] = str(tsconfig_for_file).replace("\\", "/")
 
-                # Use batch processing for JS/TS files
-                batch_results = get_semantic_ast_batch(js_ts_paths, jsx_mode=jsx_mode, project_root=root_path)
+                # PHASE 5: UNIFIED SINGLE-PASS BATCH PROCESSING
+                # All data extracted in one call (symbols, calls, CFG, etc.)
+                # No more two-pass system - everything in extracted_data
+                batch_results = get_semantic_ast_batch(
+                    js_ts_paths,
+                    project_root=root_path,
+                    jsx_mode=jsx_mode,
+                    tsconfig_map=tsconfig_map
+                )
 
                 # Process batch results
                 for file_path in js_ts_files:
                     file_str = str(file_path).replace("\\", "/")  # Normalize for matching
                     if file_str in batch_results:
                         semantic_result = batch_results[file_str]
+
+                        # PHASE 5: CFG now in extracted_data (debug logging)
+                        if os.environ.get("THEAUDITOR_DEBUG"):
+                            cfg_count = len(semantic_result.get('extracted_data', {}).get('cfg', []))
+                            print(f"[DEBUG] Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data")
+
                         if semantic_result.get("success"):
                             # Read file content for inclusion
                             try:
@@ -509,3 +609,32 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             languages.extend(self.parsers.keys())
 
         return sorted(set(languages))
+
+    def _find_tsconfig_for_file(self, file_path: Path, root_path: Optional[str]) -> Optional[Path]:
+        """Locate the nearest tsconfig.json for a given file within the project root."""
+        try:
+            resolved_file = file_path.resolve()
+        except OSError:
+            resolved_file = file_path
+
+        search_dir = resolved_file.parent
+        root_dir = Path(root_path).resolve() if root_path else None
+
+        while True:
+            candidate = search_dir / "tsconfig.json"
+            if candidate.exists():
+                return candidate
+
+            if search_dir == search_dir.parent:
+                break
+
+            if root_dir and search_dir == root_dir:
+                # Already checked project root, stop searching
+                break
+
+            if root_dir and not str(search_dir).startswith(str(root_dir)):
+                break
+
+            search_dir = search_dir.parent
+
+        return None

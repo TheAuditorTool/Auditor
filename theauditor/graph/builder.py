@@ -671,12 +671,29 @@ class XGraphBuilder:
                 rel = row['path'].replace('\\', '/')
                 function_defs[row['name']].add(rel)
                 function_lines[(rel, row['name'])] = row['line']
-            cursor.execute("SELECT file, function_name, return_expr, return_vars FROM function_returns")
+            # Query normalized function returns with aggregated return variables
+            # Uses LEFT JOIN on function_return_sources junction table (normalized in context branch)
+            # GROUP_CONCAT aggregates multiple return_var_name values into comma-separated string
+            print("[Graph Builder] Querying function returns from normalized schema...")
+            cursor.execute("""
+                SELECT
+                    fr.file,
+                    fr.function_name,
+                    fr.return_expr,
+                    GROUP_CONCAT(frsrc.return_var_name, ',') as return_vars
+                FROM function_returns fr
+                LEFT JOIN function_return_sources frsrc
+                    ON fr.file = frsrc.return_file
+                    AND fr.line = frsrc.return_line
+                    AND fr.function_name = frsrc.return_function
+                GROUP BY fr.file, fr.function_name, fr.return_expr
+            """)
+            print(f"[Graph Builder] Processing function return data...")
             for row in cursor.fetchall():
                 rel = row['file'].replace('\\', '/')
                 returns_map[(rel, row['function_name'])] = {
                     "return_expr": row['return_expr'],
-                    "return_vars": row['return_vars'],
+                    "return_vars": row['return_vars'],  # Now comma-separated string from GROUP_CONCAT
                 }
         else:
             conn = None
@@ -795,10 +812,28 @@ class XGraphBuilder:
                 conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            cursor.execute(
-                "SELECT file_path, line_number, command, tables, extraction_source, query_text FROM sql_queries"
-            )
-            for row in cursor.fetchall():
+            # Query normalized SQL queries with aggregated table references
+            # Uses LEFT JOIN on sql_query_tables junction table (normalized in context branch)
+            # GROUP_CONCAT aggregates multiple table_name values into comma-separated string
+            print("[Graph Builder] Querying SQL queries from normalized schema...")
+            cursor.execute("""
+                SELECT
+                    sq.file_path,
+                    sq.line_number,
+                    sq.command,
+                    sq.extraction_source,
+                    sq.query_text,
+                    GROUP_CONCAT(sqt.table_name, ',') as tables
+                FROM sql_queries sq
+                LEFT JOIN sql_query_tables sqt
+                    ON sq.file_path = sqt.query_file
+                    AND sq.line_number = sqt.query_line
+                GROUP BY sq.file_path, sq.line_number, sq.command, sq.extraction_source, sq.query_text
+            """)
+            sql_rows = cursor.fetchall()
+            print(f"[Graph Builder] Found {len(sql_rows)} SQL query records")
+
+            for row in sql_rows:
                 rel_file = row["file_path"].replace('\\', '/')
                 module_node = self._ensure_module_node(
                     nodes,
@@ -813,7 +848,7 @@ class XGraphBuilder:
                     metadata = {
                         "status": "sql_query",
                         "command": row["command"],
-                        "tables": row["tables"],
+                        "tables": row["tables"],  # Now comma-separated string from GROUP_CONCAT
                         "source": row["extraction_source"],
                         "snippet": (row["query_text"] or '')[:200],
                     }
@@ -828,7 +863,7 @@ class XGraphBuilder:
                     )
                 edge_metadata = {
                     "command": row["command"],
-                    "tables": row["tables"],
+                    "tables": row["tables"],  # Now comma-separated string from GROUP_CONCAT
                     "source": row["extraction_source"],
                 }
                 edges.append(
@@ -888,10 +923,27 @@ class XGraphBuilder:
                     )
                 )
 
-            cursor.execute(
-                "SELECT file, line, hook_name, dependency_vars FROM react_hooks"
-            )
-            for row in cursor.fetchall():
+            # Query normalized react hooks with aggregated dependency variables
+            # Uses LEFT JOIN on react_hook_dependencies junction table (normalized in context branch)
+            # GROUP_CONCAT aggregates multiple dependency_name values into comma-separated string
+            print("[Graph Builder] Querying React hooks from normalized schema...")
+            cursor.execute("""
+                SELECT
+                    rh.file,
+                    rh.line,
+                    rh.component_name,
+                    rh.hook_name,
+                    GROUP_CONCAT(rhd.dependency_name, ',') as dependency_vars
+                FROM react_hooks rh
+                LEFT JOIN react_hook_dependencies rhd
+                    ON rh.file = rhd.hook_file
+                    AND rh.line = rhd.hook_line
+                    AND rh.component_name = rhd.hook_component
+                GROUP BY rh.file, rh.line, rh.component_name, rh.hook_name
+            """)
+            react_hook_rows = cursor.fetchall()
+            print(f"[Graph Builder] Found {len(react_hook_rows)} React hook records")
+            for row in react_hook_rows:
                 rel_file = row["file"].replace('\\', '/')
                 module_node = self._ensure_module_node(
                     nodes,
@@ -906,7 +958,7 @@ class XGraphBuilder:
                     metadata = {
                         "status": "react_hook",
                         "hook_name": row["hook_name"],
-                        "dependency_vars": row["dependency_vars"],
+                        "dependency_vars": row["dependency_vars"],  # Now comma-separated string from GROUP_CONCAT
                     }
                     nodes[hook_node_id] = GraphNode(
                         id=hook_node_id,

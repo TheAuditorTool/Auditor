@@ -1,7 +1,9 @@
-"""Semantic context command - apply user-defined business logic to findings.
+"""Context command - semantic business logic for findings classification.
 
-This command classifies analysis findings based on user-defined YAML files that
-describe business logic, refactoring contexts, and semantic patterns.
+Apply user-defined YAML rules to classify analysis findings based on your
+business logic, refactoring contexts, and semantic patterns.
+
+Example: During OAuth migration, mark all JWT findings as "obsolete".
 """
 
 import json
@@ -14,7 +16,7 @@ import click
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command(name="context")
+@click.command()
 @click.option("--file", "-f", "context_file", required=True, type=click.Path(exists=True),
               help="Semantic context YAML file")
 @click.option("--output", "-o", type=click.Path(),
@@ -23,7 +25,7 @@ from theauditor.utils.error_handler import handle_exceptions
               help="Show detailed findings in report")
 @handle_exceptions
 def context(context_file: str, output: Optional[str], verbose: bool):
-    """Apply semantic business logic to findings.
+    """Apply semantic business logic to findings (YAML-based classification).
 
     This command classifies findings from analysis tools based on YOUR
     business logic defined in a YAML file. It tells you which findings
@@ -308,6 +310,7 @@ def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: 
             json.dump(chunk, f, indent=2)
 
     return len(chunks)
+
 
 
 # Export for CLI registration

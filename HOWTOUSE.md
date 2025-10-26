@@ -456,6 +456,66 @@ The insights command:
 - Outputs to `.pf/insights/` for separation from facts
 - Provides technical scoring without crossing into semantic interpretation
 
+#### Important: Insights Requirements
+
+**All insights modules follow strict architectural patterns:**
+
+1. **Database-First**: Insights query `repo_index.db`, never read source files
+   - Uses indexed database queries (<50ms response time)
+   - Leverages data already extracted by indexer
+   - Example: Impact analysis queries `function_call_args` table for API calls
+
+2. **Zero Fallback Policy**: Missing data causes hard failure, not silent degradation
+   - Forces correct pipeline execution order
+   - Prevents data corruption and semantic mismatches
+   - Example: ML training fails if `journal.ndjson` missing (won't fall back to FCE data)
+
+3. **Schema Contract Compliance**: All queries validated against schema definitions
+   - Adapts to schema changes (e.g., normalization with junction tables)
+   - Uses `api_endpoint_controls` junction table instead of removed `controls` column
+   - Validated at runtime to prevent stale queries
+
+**Prerequisites for Insights Modules:**
+
+| Module | Prerequisites | Why |
+|--------|---------------|-----|
+| **ml** | `aud full` run at least once | Requires `journal.ndjson` execution history |
+| **impact** | `aud index` + `aud graph build` | Queries symbols + dependency graph |
+| **graph** | `aud graph build` | Analyzes dependency graph structure |
+| **taint** | `aud taint-analyze` | Scores taint findings from analyzer |
+
+**Common Errors and Solutions:**
+
+**Error: "No journal.ndjson files found"**
+```bash
+# Cause: ML training requires execution history
+# Solution: Run full pipeline first
+aud full
+aud insights --mode ml --ml-train
+```
+
+**Error: "Database not found"**
+```bash
+# Cause: Insights need indexed database
+# Solution: Run indexing first
+aud index
+aud insights --mode impact
+```
+
+**Error: "Graph database not found"**
+```bash
+# Cause: Impact analysis needs dependency graph
+# Solution: Build graph first
+aud graph build
+aud insights --mode impact
+```
+
+**Performance Characteristics:**
+- Symbol lookups: <5ms (indexed by name)
+- API call tracing: <10ms (indexed by function name)
+- Cross-file analysis: <50ms (BFS with cycle detection)
+- All insights use **zero file I/O** for code analysis
+
 ### Graph Visualization
 
 Generate rich visual intelligence from dependency graphs:
@@ -510,6 +570,203 @@ The graph viz command:
 - Includes analysis data for cycle and hotspot highlighting
 - Produces AI-readable SVG output for LLM analysis
 
+### Data Flow Graph (DFG) Building
+
+Build graph representations of how data flows through variable assignments and function returns.
+
+```bash
+# Build data flow graph (must run 'aud index' first)
+aud graph build-dfg
+
+# Specify custom database paths
+aud graph build-dfg --db .pf/graphs.db --repo-db .pf/repo_index.db
+```
+
+**What it does:**
+- Reads normalized junction tables (`assignment_sources`, `function_return_sources`)
+- Builds graph nodes for variables and return values
+- Creates edges for assignment relationships and return statements
+- Writes to both `.pf/graphs.db` (database) and `.pf/raw/data_flow_graph.json` (JSON)
+
+**Prerequisites:**
+- Must run `aud index` first to populate junction tables
+- Typical project creates 40k+ assignment edges and 15k+ return edges
+
+**Output:**
+```
+Data Flow Graph Statistics:
+  Assignment Stats:
+    Total assignments: 42,844
+    With source vars:  38,521
+    Edges created:     38,521
+  Return Stats:
+    Total returns:     19,313
+    With variables:    15,247
+    Edges created:     15,247
+  Totals:
+    Total nodes:       45,892
+    Total edges:       53,768
+
+Data flow graph saved to .pf/graphs.db
+Raw JSON saved to .pf/raw/data_flow_graph.json
+```
+
+**When to use:**
+- Preparing for advanced taint analysis (future integration)
+- Understanding data dependency chains in your codebase
+- Tracking how variables flow through assignments
+- Analyzing function return value propagation
+
+**Current limitations:**
+- Taint analyzer does not yet use DFG (direct query mode still used)
+- DFG building can take 30-60s on large codebases (100k+ LOC)
+- Graph size can be large (50k+ nodes in typical projects)
+
+**Future enhancements:**
+- Taint analyzer will use pre-built DFG for faster inter-procedural analysis
+- Support for querying DFG via `aud query --show-data-flow`
+- Visualization of data flow paths
+- Alias analysis using assignment chains
+
+### Terraform Infrastructure Analysis
+
+Analyze Terraform/HCL configurations for infrastructure security issues and build provisioning flow graphs.
+
+**Prerequisites:**
+```bash
+# Terraform files are automatically indexed
+aud index
+```
+
+**Build Provisioning Flow Graph:**
+```bash
+# Build complete provisioning graph
+aud terraform provision
+
+# Build graph for changed files only
+aud terraform provision --workset
+
+# Custom output location
+aud terraform provision --output ./infrastructure_graph.json
+```
+
+The provisioning graph shows:
+- **Variables** (source nodes) → **Resources** (processing nodes) → **Outputs** (sink nodes)
+- Variable references (var.X used in resource properties)
+- Resource dependencies (explicit depends_on)
+- Output references (outputs referencing resources)
+- Sensitive data propagation paths
+- Public exposure blast radius
+
+**Security Analysis:**
+```bash
+# Detect all security issues
+aud terraform analyze
+
+# Filter by severity
+aud terraform analyze --severity critical
+
+# Check specific categories
+aud terraform analyze --categories public_exposure
+aud terraform analyze --categories iam_wildcard --categories hardcoded_secret
+
+# Save findings to JSON
+aud terraform analyze --output terraform_issues.json
+```
+
+**Security Checks:**
+
+1. **Public S3 Buckets**
+   - Public ACLs (public-read, public-read-write)
+   - Website hosting configuration
+   - Severity: HIGH/MEDIUM
+
+2. **Unencrypted Storage**
+   - RDS/Aurora databases (storage_encrypted=false)
+   - EBS volumes (encrypted=false)
+   - Severity: HIGH/MEDIUM
+
+3. **IAM Wildcards**
+   - Policies with Action="*" and Resource="*"
+   - Overly permissive permissions
+   - Severity: CRITICAL
+
+4. **Hardcoded Secrets**
+   - Sensitive properties with literal values
+   - Passwords, keys, tokens not using variables
+   - Severity: CRITICAL
+
+5. **Missing Encryption**
+   - SNS topics without KMS encryption
+   - Resources lacking encryption configuration
+   - Severity: LOW
+
+6. **Security Groups**
+   - Ingress rules from 0.0.0.0/0
+   - Open ports (non-HTTP/HTTPS = HIGH, HTTP/HTTPS = MEDIUM)
+   - Severity: HIGH/MEDIUM
+
+**Example Output:**
+```
+Terraform Security Analysis Complete:
+  Total findings: 12
+  Critical: 3
+  High: 6
+  Medium: 2
+  Low: 1
+
+Findings by category:
+  public_exposure: 4
+  hardcoded_secret: 3
+  iam_wildcard: 2
+  missing_encryption: 2
+  unencrypted_storage: 1
+
+Sample findings (first 3):
+
+  [CRITICAL] IAM policy 'admin-policy' uses wildcard for actions and resources
+  File: vulnerable.tf:26
+  Policy grants full access (*) to all resources (*). This violates principle of least privilege.
+
+  [CRITICAL] Hardcoded secret in 'hardcoded_secret.password'
+  File: vulnerable.tf:22
+  Property 'password' contains a hardcoded value. Secrets should never be committed to version control.
+
+  [HIGH] S3 bucket 'public_data' has public ACL
+  File: vulnerable.tf:6
+  Bucket configured with ACL 'public-read' allowing public access. This exposes data to anyone on the internet.
+```
+
+**Integration with Full Pipeline:**
+
+Terraform analysis is automatically included in `aud full`:
+```bash
+aud full  # Includes terraform provision and analyze
+```
+
+**Workset Support:**
+```bash
+# Create workset from git diff
+aud workset
+
+# Analyze only changed Terraform files
+aud terraform provision --workset
+aud terraform analyze
+```
+
+**Output Locations:**
+- `.pf/graphs.db` - Provisioning flow graph (queryable)
+- `.pf/raw/terraform_graph.json` - Graph export (JSON)
+- `.pf/raw/terraform_findings.json` - Security findings (JSON)
+- `terraform_findings` table - Database findings for FCE correlation
+
+**When to Use:**
+- Infrastructure security audits
+- Cloud resource provisioning reviews
+- Sensitive data flow tracking in IaC
+- Public exposure blast radius assessment
+- Terraform security best practices validation
+
 ### Control Flow Graph Analysis
 
 **v1.2 Update:** CFG analysis cache expanded to 25,000 functions (was 10,000 in v1.1). JavaScript/TypeScript CFG extraction fully working since v1.1.
@@ -554,6 +811,290 @@ The CFG commands help identify:
 - Dead code that can be removed
 - High-risk functions with many execution paths
 - Code quality issues before they become bugs
+
+### Architectural Intelligence & Code Queries
+
+**NEW in v1.4.2-RC1**: Blueprint, Query, and Context commands expose the indexed ground truth as an always-on code context service.
+
+AI assistants waste 5-10k tokens per refactoring iteration reading files to understand:
+- "What's the architecture? Where are boundaries?"
+- "Who calls this function?"
+- "What files depend on this module?"
+- "Which endpoints are unprotected?"
+
+TheAuditor's intelligence layer provides instant answers via indexed database - **zero file reads, <10ms response time**, often cutting refactor loops from ~15k tokens to ~1.5k per iteration.
+
+#### Blueprint: Architectural Overview
+
+Use `aud blueprint` to get a top-level view of your codebase before diving into detailed queries. Each drill-down shows exact file:line locations and actionable data.
+
+**Top-level overview:**
+```bash
+# Get architectural overview with tree structure
+aud blueprint
+```
+
+**Drill-downs for surgical analysis:**
+```bash
+# Scope understanding (monorepo detection, token estimates, migration paths)
+aud blueprint --structure
+
+# Dependency mapping (gateway files, circular deps, bottlenecks)
+aud blueprint --graph
+
+# Attack surface (unprotected endpoints, auth patterns, SQL injection risk)
+aud blueprint --security
+
+# Data flow (vulnerable flows, sanitization coverage, dynamic dispatch)
+aud blueprint --taint
+
+# Export everything for AI consumption
+aud blueprint --all --format json
+```
+
+Each drill-down shows facts about what exists and where - no recommendations, just ground truth for surgical refactoring.
+
+#### Code Queries: Relationship Lookups
+
+Use `aud query` when you need to:
+- Understand code relationships without reading files
+- Trace function call chains (who calls what)
+- Map file dependencies (import/export relationships)
+- Find API endpoint implementations
+- Explore React component hierarchies
+- Save tokens during AI-assisted refactoring
+
+#### Query Types
+
+**1. Symbol Queries** - Find function/class definitions and their relationships:
+
+```bash
+# Find symbol definition
+aud query --symbol authenticateUser
+
+# Find who calls this function (direct callers)
+aud query --symbol validateInput --show-callers
+
+# Find transitive callers (3 levels deep)
+aud query --symbol sanitizeHtml --show-callers --depth 3
+
+# Find what this function calls
+aud query --symbol handleRequest --show-callees
+```
+
+**2. File Dependency Queries** - Map import/export relationships:
+
+```bash
+# Show all dependencies for a file (both incoming and outgoing)
+aud query --file src/auth.ts
+
+# Show only files that import this module (dependents)
+aud query --file src/utils.ts --show-dependents
+
+# Show only files this module imports (dependencies)
+aud query --file src/api.ts --show-dependencies
+```
+
+**3. API Endpoint Queries** - Find route handlers and security coverage:
+
+```bash
+# Find handler for specific route
+aud query --api "/users/:id"
+
+# Find all user-related endpoints
+aud query --api "/users"
+
+# Check API security coverage (which endpoints are protected)
+aud query --show-api-coverage
+
+# Find unprotected endpoints
+aud query --show-api-coverage | grep "[OPEN]"
+```
+
+**4. Component Tree Queries** - React/Vue component hierarchies:
+
+```bash
+# Get component information, hooks used, and child components
+aud query --component UserProfile
+
+# Explore component tree
+aud query --component Dashboard
+```
+
+#### Output Formats
+
+Control output format for different use cases:
+
+```bash
+# Human-readable text (default)
+aud query --symbol authenticateUser --show-callers
+
+# AI-consumable JSON
+aud query --symbol validateInput --show-callers --format json
+
+# Visual tree (for transitive queries)
+aud query --symbol handleRequest --show-callers --depth 3 --format tree
+
+# Save to file
+aud query --file src/auth.ts --format json --save analysis.json
+```
+
+#### Transitive Queries
+
+Follow call chains through multiple levels:
+
+```bash
+# Direct callers only (depth=1, default)
+aud query --symbol validateInput --show-callers
+
+# Callers of callers (depth=2)
+aud query --symbol sanitizeHtml --show-callers --depth 2
+
+# 3 levels deep (callers → callers → callers)
+aud query --symbol executeQuery --show-callers --depth 3
+
+# Maximum depth (depth=5)
+aud query --symbol logEvent --show-callers --depth 5
+```
+
+#### Example Workflows
+
+**Refactoring a Function:**
+```bash
+# 1. Find all callers
+aud query --symbol processPayment --show-callers --depth 2
+
+# 2. Understand what it calls
+aud query --symbol processPayment --show-callees
+
+# 3. Save complete context
+aud query --symbol processPayment --show-callers --depth 3 --format json --save payment_context.json
+```
+
+**Understanding File Impact:**
+```bash
+# 1. Find all files that import this module
+aud query --file src/database.ts --show-dependents
+
+# 2. Find what this file imports
+aud query --file src/database.ts --show-dependencies
+
+# 3. Save dependency map
+aud query --file src/database.ts --format json --save db_deps.json
+```
+
+**API Endpoint Investigation:**
+```bash
+# 1. Find endpoint handler
+aud query --api "/api/users"
+
+# 2. Find what the handler calls
+aud query --symbol createUser --show-callees
+
+# 3. Trace authentication chain
+aud query --symbol authenticateRequest --show-callers --depth 2
+```
+
+#### Context: Semantic Refactor Tracking
+
+`aud context` lets you tag obsolete/current code paths and follow large-scale migrations with the same verifiable evidence the SAST pipeline uses.
+
+1. **Describe the refactor in YAML** (store anywhere in your repo or playbooks):
+
+```yaml
+context_name: "auth_migration"
+patterns:
+  obsolete:
+    - id: legacy_session
+      pattern: "sessionStore\\."
+      replacement: "tokenProvider."
+  current:
+    - id: token_auth
+      pattern: "tokenProvider\\."
+```
+
+2. **Apply the overlay and emit a plan/reports:**
+
+```bash
+aud context --file refactors/auth_migration.yaml --verbose
+```
+
+3. **Run context-aware queries (optional):**
+
+```bash
+# Same switches as aud query, but filtered to the semantic set
+aud context query --symbol authenticateUser --show-callers --depth 2 --format json
+```
+
+Outputs include counts per context, file:line evidence, and JSON payloads your AI assistant can ingest alongside `aud blueprint`/`aud query` results to keep business terminology consistent.
+
+#### Performance Characteristics
+
+All queries use indexed database lookups:
+- **Symbol lookup**: <5ms (indexed by name and type)
+- **Direct callers/callees**: <10ms (indexed by function name)
+- **Transitive queries** (depth=3): <50ms (BFS with cycle detection)
+- **File dependencies**: <10ms (indexed by file path)
+- **API handlers**: <5ms (indexed by route pattern)
+- **Component trees**: <10ms (indexed by component name)
+
+**No file I/O** - all data comes from `.pf/repo_index.db` and `.pf/graphs.db`.
+
+#### Prerequisites
+
+Code context queries require indexed database:
+
+```bash
+# 1. Index the codebase first
+aud index
+
+# 2. Build dependency graph (for file dependency queries)
+aud graph build
+
+# 3. Run queries
+aud query --symbol myFunction --show-callers
+```
+
+#### Troubleshooting
+
+**"Database not found" error:**
+```bash
+# Solution: Run indexing first
+aud index
+```
+
+**"Graph database not found" error (for file dependency queries):**
+```bash
+# Solution: Build dependency graph
+aud graph build
+```
+
+**Empty results:**
+- Verify symbol name is exact match (case-sensitive)
+- Check if file path includes correct directory structure
+- Ensure graph was built for dependency queries
+
+**Slow queries:**
+- Queries should be <50ms on projects up to 100k LOC
+- If slower, check database size and consider upgrading SQLite
+
+#### Integration with Other Commands
+
+Code context queries complement other TheAuditor commands:
+
+```bash
+# Find complex function
+aud cfg analyze --complexity-threshold 15
+
+# Understand its call graph
+aud query --symbol complexFunction --show-callers --depth 3
+
+# Check impact radius
+aud impact --file src/payment.py --line 42
+
+# Visualize dependencies
+aud graph viz --view impact --impact-target "src/payment.py"
+```
 
 ### Dependency Management
 

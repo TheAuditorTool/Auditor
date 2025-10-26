@@ -27,14 +27,16 @@ Schema Contract:
   unambiguous call resolution.
 """
 
+import json
 import os
+import re
 import sys
 import sqlite3
 from collections import defaultdict
 from typing import Dict, List, Any, Optional, Set, TYPE_CHECKING
 
 from theauditor.indexer.schema import build_query
-from .database import get_containing_function, get_code_snippet
+from .database import get_containing_function, get_code_snippet, resolve_function_identity, get_function_boundaries
 
 if TYPE_CHECKING:
     from .core import TaintPath
@@ -61,7 +63,8 @@ def trace_inter_procedural_flow_insensitive(
     source_function: str,
     sinks: List[Dict[str, Any]],
     max_depth: int = 5,
-    cache: Optional['MemoryCache'] = None
+    cache: Optional['MemoryCache'] = None,
+    origin_source: Optional[Dict[str, Any]] = None
 ) -> List['TaintPath']:
     """
     Implements a file-aware, multi-hop, flow-insensitive taint tracking algorithm.
@@ -69,6 +72,21 @@ def trace_inter_procedural_flow_insensitive(
     and return values.
     """
     from .core import TaintPath
+
+    if origin_source is None:
+        origin_source = {
+            "file": source_file,
+            "line": source_line,
+            "pattern": source_var,
+            "name": source_var
+        }
+    else:
+        origin_source = {
+            "file": origin_source.get("file", source_file),
+            "line": origin_source.get("line", source_line),
+            "pattern": origin_source.get("pattern", source_var),
+            "name": origin_source.get("name", origin_source.get("pattern", source_var))
+        }
 
     paths: List[TaintPath] = []
     debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_DEBUG")
@@ -111,26 +129,71 @@ def trace_inter_procedural_flow_insensitive(
 
                 if sink_func_normalized == current_func_normalized:
                     # The sink is in the current function. Check if our tainted var reaches it.
-                    query = build_query('function_call_args', ['argument_expr'],
-                                        where="file = ? AND line = ? AND argument_expr LIKE ?", limit=1)
-                    cursor.execute(query, (current_file, sink["line"], f"%{current_var}%"))
-                    if cursor.fetchone():
+                    sink_query = build_query(
+                        'function_call_args',
+                        ['callee_function', 'argument_expr'],
+                        where="file = ? AND line = ?"
+                    )
+                    cursor.execute(sink_query, (current_file, sink["line"]))
+                    matches = cursor.fetchall()
+
+                    sink_hit = False
+                    for callee_func, argument_expr in matches:
+                        arg_text = argument_expr or ""
+                        if current_var and current_var in arg_text:
+                            sink_hit = True
+                            break
+                        if current_var and callee_func:
+                            callee_text = callee_func.strip()
+                            if callee_text.startswith(f"{current_var}.") or callee_text.endswith(f".{current_var}"):
+                                sink_hit = True
+                                break
+
+                    if sink_hit:
                         if debug:
                             print(f"[INTER-PROCEDURAL-S2] VULNERABILITY FOUND: '{current_var}' reaches sink '{sink['pattern']}'", file=sys.stderr)
                         vuln_path = path + [{"type": "sink_reached", "func": current_func, "var": current_var, "sink": sink["pattern"], "line": sink["line"]}]
-                        paths.append(TaintPath(source={"file": source_file, "line": source_line, "pattern": source_var, "name": source_var}, sink=sink, path=vuln_path))
+                        paths.append(TaintPath(source=origin_source.copy(), sink=sink, path=vuln_path))
 
         # 2. Propagate taint to other functions (cross-file).
         # Find all function calls within the current function that use the tainted variable as an argument.
-        # Handle both normalized and fully-qualified names (single query, not fallback)
+        # Use line boundaries instead of relying on caller_function string (handles comment-prefixed names)
+        canonical_current, resolved_file = resolve_function_identity(cursor, current_func, current_file)
+        lookup_names = [name for name in {current_func, canonical_current} if name]
+        search_file = (resolved_file or current_file).replace("\\", "/")
+
+        func_start = None
+        func_end = None
+        for name in lookup_names:
+            bounds_query = build_query(
+                'symbols',
+                ['line', 'end_line'],
+                where="path = ? AND type = 'function' AND name = ?",
+                limit=1
+            )
+            cursor.execute(bounds_query, (search_file, name))
+            row = cursor.fetchone()
+            if row:
+                func_start = row[0]
+                func_end = row[1] or (row[0] + 200)
+                break
+
+        if func_start is None or func_end is None:
+            # Fallback: cover entire file to avoid missing calls (should be rare)
+            func_start = 0
+            func_end = 10**9
+
         query = build_query(
             'function_call_args',
-            ['callee_function', 'param_name', 'line', 'callee_file_path'],  # CRITICAL: Query the resolved callee path
-            where="file = ? AND (caller_function = ? OR caller_function LIKE ?) AND (argument_expr = ? OR argument_expr LIKE ?)"
+            ['callee_function', 'param_name', 'line', 'callee_file_path', 'argument_expr'],
+            where="file = ? AND line >= ? AND line <= ? AND (argument_expr = ? OR argument_expr LIKE ?)"
         )
-        cursor.execute(query, (current_file, current_func, f"%.{current_func}", current_var, f"%{current_var}%"))
+        cursor.execute(
+            query,
+            (search_file, func_start, func_end, current_var, f"%{current_var}%")
+        )
 
-        for callee_func, param_name, call_line, callee_file_path in cursor.fetchall():
+        for callee_func, param_name, call_line, callee_file_path, argument_expr in cursor.fetchall():
             if not callee_file_path:
                 if debug:
                     print(f"[INTER-PROCEDURAL-S2] WARNING: Could not resolve file for call to '{callee_func}' at {current_file}:{call_line}. Skipping.", file=sys.stderr)
@@ -141,7 +204,26 @@ def trace_inter_procedural_flow_insensitive(
                 print(f"[INTER-PROCEDURAL-S2] Cross-file call: {current_file} -> {callee_file} ({current_func} -> {callee_func})", file=sys.stderr)
 
             new_path = path + [{"type": "argument_pass", "from_file": current_file, "from_func": current_func, "to_file": callee_file, "to_func": callee_func, "var": current_var, "param": param_name, "line": call_line}]
-            worklist.append((param_name, callee_func, callee_file, depth + 1, new_path))
+
+            propagated_names: Set[str] = set()
+            if param_name:
+                propagated_names.add(param_name)
+
+            if argument_expr:
+                candidate = argument_expr.strip()
+                # Handle TypeScript non-null assertions like userId!
+                if candidate.endswith("!"):
+                    candidate = candidate[:-1]
+
+                # Only use simple identifiers (avoid complex expressions)
+                if candidate and re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", candidate):
+                    propagated_names.add(candidate)
+
+            if not propagated_names:
+                propagated_names.add(param_name or current_var)
+
+            for propagated_var in propagated_names:
+                worklist.append((propagated_var, callee_func, callee_file, depth + 1, new_path))
 
         # 3. Propagate taint through return values.
         # Find if the current tainted variable is returned by the current function.
@@ -184,7 +266,8 @@ def trace_inter_procedural_flow_cfg(
     source_function: str,
     sinks: List[Dict[str, Any]],
     max_depth: int = 5,
-    cache: Optional['MemoryCache'] = None
+    cache: Optional['MemoryCache'] = None,
+    origin_source: Optional[Dict[str, Any]] = None
 ) -> List['TaintPath']:
     """
     Implements a file-aware, multi-hop, CFG-based (flow-sensitive) taint analysis.
@@ -196,12 +279,49 @@ def trace_inter_procedural_flow_cfg(
     """
     from .core import TaintPath
 
+    if origin_source:
+        source_info = {
+            "file": origin_source.get("file", source_file),
+            "line": origin_source.get("line", source_line),
+            "pattern": origin_source.get("pattern", next(iter(source_vars), "unknown_source")),
+            "name": origin_source.get("name", origin_source.get("pattern", next(iter(source_vars), "unknown_source")))
+        }
+    else:
+        default_pattern = next(iter(source_vars), "unknown_source")
+        source_info = {
+            "file": source_file,
+            "line": source_line,
+            "pattern": default_pattern,
+            "name": default_pattern
+        }
+
     paths: List[TaintPath] = []
     debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
 
     if debug:
         print(f"[INTER-CFG-S3] Starting Stage 3 unified analysis", file=sys.stderr)
         print(f"  Source vars {list(source_vars)} in {source_function} at {source_file}:{source_line}", file=sys.stderr)
+
+    generic_param_regex = re.compile(r"^arg\d*$", re.IGNORECASE)
+
+    def _is_generic_param(name: Optional[str]) -> bool:
+        if not name:
+            return True
+        lowered = name.lower()
+        return (
+            lowered in {"req", "res", "next", "callback", "cb", "_"}
+            or generic_param_regex.match(lowered) is not None
+        )
+
+    def _extract_simple_identifier(expr: Optional[str]) -> Optional[str]:
+        if not expr:
+            return None
+        candidate = expr.strip()
+        if candidate.endswith("!"):
+            candidate = candidate[:-1]
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", candidate):
+            return candidate
+        return None
 
     # Worklist stores the state:
     # (current_file, current_function, tainted_vars_set, depth, call_path)
@@ -217,6 +337,25 @@ def trace_inter_procedural_flow_cfg(
         if depth > max_depth:
             continue
 
+        raw_file = current_file
+        raw_func_name = current_func
+
+        callback_override = None
+        for entry in reversed(call_path):
+            if entry.get("type") == "cfg_callback" and entry.get("callback_func") == raw_func_name:
+                callback_override = entry
+                break
+
+        if callback_override:
+            current_file = callback_override.get("from_file", current_file)
+            current_func = callback_override.get("from_func", current_func)
+
+        original_func_name = current_func
+        normalized_file = current_file.replace("\\", "/")
+        canonical_current_func, resolved_file_hint = resolve_function_identity(cursor, original_func_name, normalized_file)
+        current_func = canonical_current_func or original_func_name
+        current_file = (resolved_file_hint or normalized_file).replace("\\", "/")
+
         state_key = (current_file, current_func, tainted_vars)
         if state_key in visited:
             continue
@@ -224,6 +363,26 @@ def trace_inter_procedural_flow_cfg(
 
         if debug:
             print(f"[INTER-CFG-S3] Depth {depth}: Analyzing {current_func} ({current_file}) with tainted vars {list(tainted_vars)}", file=sys.stderr)
+
+        lookup_names = [name for name in {current_func, original_func_name} if name]
+        func_start_line = None
+        func_end_line = None
+        for name in lookup_names:
+            bounds_query = build_query(
+                'symbols',
+                ['line', 'end_line'],
+                where="path = ? AND type = 'function' AND name = ?",
+                limit=1
+            )
+            cursor.execute(bounds_query, (current_file, name))
+            row = cursor.fetchone()
+            if row:
+                func_start_line = row[0]
+                func_end_line = row[1] or (row[0] + 200)
+                break
+        if func_start_line is None or func_end_line is None:
+            func_start_line = 0
+            func_end_line = 10**9
 
         # 1. Check for sinks in the current context using PathAnalyzer for intra-procedural flow.
         from .cfg_integration import PathAnalyzer
@@ -247,51 +406,31 @@ def trace_inter_procedural_flow_cfg(
                     try:
                         path_analyzer = PathAnalyzer(cursor, current_file, current_func)
 
-                        # Get function start line for taint origin
-                        func_def_query = build_query('symbols', ['line'],
-                                                     where="path = ? AND name = ? AND type = 'function'", limit=1)
-                        cursor.execute(func_def_query, (current_file, current_func))
-                        func_def_res = cursor.fetchone()
-
-                        if func_def_res:
-                            func_start_line = func_def_res[0]
-
-                            # Check each tainted var for paths to sink
-                            for tainted_var in tainted_vars:
-                                vulnerable_paths_info = path_analyzer.find_vulnerable_paths(
-                                    source_line=func_start_line,
-                                    sink_line=sink["line"],
-                                    initial_tainted_var=tainted_var
-                                )
-
-                                if vulnerable_paths_info:
-                                    if debug:
-                                        print(f"[INTER-CFG-S3] VULNERABILITY FOUND: '{tainted_var}' reaches sink '{sink['pattern']}' via intra-procedural flow", file=sys.stderr)
-
-                                    vuln_path = call_path + [
-                                        {"type": "intra_procedural_flow", "func": current_func, "var": tainted_var},
-                                        {"type": "sink_reached", "func": current_func, "var": tainted_var, "sink": sink["pattern"], "line": sink["line"]}
-                                    ]
-
-                                    original_pattern = next(iter(source_vars), "unknown_source")
-                                    paths.append(TaintPath(source={"file": source_file, "line": source_line, "pattern": original_pattern, "name": original_pattern}, sink=sink, path=vuln_path))
-                                    break  # Found path for this sink, stop checking other vars
-                    except Exception as e:
-                        # If PathAnalyzer fails (e.g., no CFG data), fall back to simple check
-                        if debug:
-                            print(f"[INTER-CFG-S3] PathAnalyzer failed: {e}, using fallback", file=sys.stderr)
-
+                        # Check each tainted var for paths to sink
                         for tainted_var in tainted_vars:
-                            query = build_query('function_call_args', ['argument_expr'],
-                                                where="file = ? AND line = ? AND argument_expr LIKE ?", limit=1)
-                            cursor.execute(query, (current_file, sink["line"], f"%{tainted_var}%"))
-                            if cursor.fetchone():
+                            vulnerable_paths_info = path_analyzer.find_vulnerable_paths(
+                                source_line=func_start_line,
+                                sink_line=sink["line"],
+                                initial_tainted_var=tainted_var
+                            )
+
+                            if vulnerable_paths_info:
                                 if debug:
-                                    print(f"[INTER-CFG-S3] VULNERABILITY FOUND (fallback): '{tainted_var}' reaches sink '{sink['pattern']}'", file=sys.stderr)
-                                vuln_path = call_path + [{"type": "sink_reached", "func": current_func, "var": tainted_var, "sink": sink["pattern"], "line": sink["line"]}]
-                                original_pattern = next(iter(source_vars), "unknown_source")
-                                paths.append(TaintPath(source={"file": source_file, "line": source_line, "pattern": original_pattern, "name": original_pattern}, sink=sink, path=vuln_path))
-                                break
+                                    print(f"[INTER-CFG-S3] VULNERABILITY FOUND: '{tainted_var}' reaches sink '{sink['pattern']}' via intra-procedural flow", file=sys.stderr)
+
+                                vuln_path = call_path + [
+                                    {"type": "intra_procedural_flow", "func": current_func, "var": tainted_var},
+                                    {"type": "sink_reached", "func": current_func, "var": tainted_var, "sink": sink["pattern"], "line": sink["line"]}
+                                ]
+
+                                path_obj = TaintPath(source=source_info.copy(), sink=sink, path=vuln_path)
+                                path_obj.flow_sensitive = True
+                                paths.append(path_obj)
+                                break  # Found path for this sink, stop checking other vars
+                    except Exception as e:
+                        if debug:
+                            print(f"[INTER-CFG-S3] PathAnalyzer failed: {e}", file=sys.stderr)
+                        raise
 
         # 2. Propagate taint to other functions using CFG-based analysis.
         # Use the InterProceduralCFGAnalyzer to understand how callees modify data.
@@ -302,9 +441,9 @@ def trace_inter_procedural_flow_cfg(
         query = build_query(
             'function_call_args',
             ['callee_function', 'param_name', 'argument_expr', 'line', 'callee_file_path'],
-            where="file = ? AND (caller_function = ? OR caller_function LIKE ?)"
+            where="file = ? AND line >= ? AND line <= ?"
         )
-        cursor.execute(query, (current_file, current_func, f"%.{current_func}"))
+        cursor.execute(query, (current_file, func_start_line, func_end_line))
         call_args_data = cursor.fetchall()
 
         # CRITICAL FIX (BUG #11): Group function_call_args by call site BEFORE building args_mapping
@@ -336,25 +475,182 @@ def trace_inter_procedural_flow_cfg(
             callee_file_path = call_info["callee_file_path"]
 
             # Build args_mapping for the ENTIRE call (all parameters processed together)
-            args_mapping = {}
+            args_mapping: Dict[str, str] = {}
+            alias_params: Set[str] = set()
             for param_info in params:
-                param_name = param_info["name"]
-                arg_expr = param_info["expr"]
-                # Check against ALL tainted vars for this function scope
-                for tainted_var in tainted_vars:
-                    if tainted_var in arg_expr:
-                        # Map the caller's tainted var to the callee's parameter name
-                        args_mapping[tainted_var] = param_name
-                        if debug:
-                            print(f"[INTER-CFG-S3]   Mapping: {tainted_var} -> {param_name} via '{arg_expr[:50]}'", file=sys.stderr)
+                param_name = (param_info["name"] or "").strip()
+                arg_expr = param_info["expr"] or ""
+
+                # Identify tainted vars that flow into this argument
+                relevant_tainted = [tv for tv in tainted_vars if tv and tv in arg_expr]
+                if not relevant_tainted:
+                    simple_identifier = _extract_simple_identifier(arg_expr)
+                    if simple_identifier:
+                        # Attempt to resolve alias via assignments within current function scope
+                        for lookup_name in lookup_names:
+                            alias_query = build_query(
+                                'assignments',
+                                ['source_expr'],
+                                where="file = ? AND in_function = ? AND target_var = ?",
+                                limit=5
+                            )
+                            cursor.execute(alias_query, (current_file, lookup_name, simple_identifier))
+                            alias_rows = cursor.fetchall()
+                            alias_sources = [row[0] for row in alias_rows if row and row[0]]
+                            if any(tv and any(tv in source for source in alias_sources) for tv in tainted_vars):
+                                relevant_tainted = [
+                                    tv for tv in tainted_vars
+                                    if any(tv in source for source in alias_sources)
+                                ]
+                                break
+                    if not relevant_tainted:
+                        continue
+
+                simple_identifier = _extract_simple_identifier(arg_expr)
+                if simple_identifier:
+                    alias_params.add(simple_identifier)
+
+                for tainted_var in relevant_tainted:
+                    mapped_name = param_name or simple_identifier or tainted_var
+
+                    if simple_identifier and _is_generic_param(param_name):
+                        mapped_name = simple_identifier
+
+                    args_mapping[tainted_var] = mapped_name
+                    alias_params.add(mapped_name)
+                    if debug:
+                        print(f"[INTER-CFG-S3]   Mapping: {tainted_var} -> {mapped_name} via '{arg_expr[:50]}'", file=sys.stderr)
 
             # If NO tainted variables map to any parameters for this specific call, skip it
             if not args_mapping:
+                # Attempt to traverse into inline callbacks (e.g., runWithTenant_arg1) that capture tainted vars
+                callback_query = build_query(
+                    'cfg_blocks',
+                    ['function_name'],
+                    where="file = ? AND start_line = ?"
+                )
+                cursor.execute(callback_query, (current_file, call_line))
+                callback_functions = [
+                    row[0] for row in cursor.fetchall()
+                    if row and row[0] and row[0] != canonical_current_func and row[0] != current_func and row[0] != raw_func_name
+                ]
+
+                if callback_functions and debug:
+                    print(f"[INTER-CFG-S3]   No direct taint mapping; traversing captured callbacks at line {call_line}: {callback_functions}", file=sys.stderr)
+
+                for cb_name in callback_functions:
+                    callback_taints = set(tainted_vars)
+                    cb_start = call_line
+                    cb_end = call_line
+                    vars_used_in_callback: Set[str] = set()
+                    seeded_aliases: Set[str] = set()
+
+                    bounds = None
+                    scoped_bounds_query = build_query(
+                        'cfg_blocks',
+                        ['start_line', 'end_line'],
+                        where="file = ? AND function_name = ? AND start_line = ?",
+                        limit=1
+                    )
+                    cursor.execute(scoped_bounds_query, (current_file, cb_name, call_line))
+                    bounds = cursor.fetchone()
+                    if not bounds:
+                        fallback_bounds_query = build_query(
+                            'cfg_blocks',
+                            ['start_line', 'end_line'],
+                            where="file = ? AND function_name = ?",
+                            order_by="(end_line - start_line) ASC",
+                            limit=1
+                        )
+                        cursor.execute(fallback_bounds_query, (current_file, cb_name))
+                        bounds = cursor.fetchone()
+                    if bounds:
+                        cb_start = bounds[0] or cb_start
+                        cb_end = bounds[1] or cb_start
+                        if cb_end < cb_start:
+                            cb_end = cb_start
+
+                        usage_query = build_query(
+                            'variable_usage',
+                            ['variable_name'],
+                            where="file = ? AND line >= ? AND line <= ?"
+                        )
+                        cursor.execute(usage_query, (current_file, cb_start, cb_end))
+                        vars_used_in_callback = {
+                            row[0] for row in cursor.fetchall() if row and row[0]
+                        }
+
+                        # Query assignments with normalized junction table (NO JSON PARSING)
+                        cursor.execute("""
+                            SELECT DISTINCT a.target_var, asrc.source_var_name
+                            FROM assignments a
+                            LEFT JOIN assignment_sources asrc
+                                ON a.file = asrc.assignment_file
+                                AND a.line = asrc.assignment_line
+                                AND a.target_var = asrc.assignment_target
+                            WHERE a.file = ? AND a.line >= ? AND a.line <= ?
+                        """, (current_file, cb_start, cb_end))
+
+                        known_taints = set(tainted_vars)
+                        for target_var, source_var in cursor.fetchall():
+                            if not target_var:
+                                continue
+                            if not source_var:  # Assignment with no source vars (LEFT JOIN null)
+                                continue
+                            base_name = source_var.split('.', 1)[0]
+                            if source_var in known_taints or base_name in known_taints:
+                                seeded_aliases.add(target_var)
+                                known_taints.add(target_var)
+
+                    captured_taint: Set[str] = set()
+                    if vars_used_in_callback:
+                        for outer_var in tainted_vars:
+                            base_outer = outer_var.split('.', 1)[0]
+                            if outer_var in vars_used_in_callback or base_outer in vars_used_in_callback:
+                                captured_taint.add(outer_var)
+                        if debug and captured_taint:
+                            print(f"[INTER-CFG-S3]   Callback {cb_name} captured tainted vars: {sorted(captured_taint)}", file=sys.stderr)
+
+                    final_callback_taint = set(callback_taints)
+                    if captured_taint:
+                        final_callback_taint.update(captured_taint)
+                    if bounds:
+                        final_callback_taint.update(seeded_aliases)
+
+                    callback_path = call_path + [
+                        {
+                            "type": "cfg_callback",
+                            "from_file": current_file,
+                            "from_func": current_func,
+                            "callback_func": cb_name,
+                            "line": call_line,
+                            "captured_vars": sorted(captured_taint),
+                            "seeded_aliases": sorted(seeded_aliases),
+                            "taint_state": sorted(final_callback_taint)
+                        }
+                    ]
+                    callback_state = frozenset(final_callback_taint)
+                    if debug and final_callback_taint != set(tainted_vars):
+                        delta = sorted(final_callback_taint - set(tainted_vars))
+                        if delta:
+                            print(f"[INTER-CFG-S3]   Seeding callback '{cb_name}' with {delta}", file=sys.stderr)
+
+                    worklist.append((current_file, cb_name, callback_state, depth + 1, callback_path))
+
                 if debug:
                     print(f"[INTER-CFG-S3]   No relevant taint mapping for call to {callee_func} at line {call_line}, skipping traversal", file=sys.stderr)
                 continue
 
             callee_file = callee_file_path.replace('\\', '/')
+
+            canonical_callee, resolved_callee_file = resolve_function_identity(
+                cursor,
+                callee_func,
+                callee_file
+            )
+            effective_callee = canonical_callee or callee_func
+            if resolved_callee_file:
+                callee_file = resolved_callee_file.replace("\\", "/")
 
             # Build taint_state: var -> is_tainted
             taint_state = {var: True for var in tainted_vars}
@@ -364,7 +660,7 @@ def trace_inter_procedural_flow_cfg(
                 caller_file=current_file,
                 caller_func=current_func,
                 callee_file=callee_file,
-                callee_func=callee_func,
+                callee_func=effective_callee,
                 args_mapping=args_mapping,
                 taint_state=taint_state
             )
@@ -373,15 +669,16 @@ def trace_inter_procedural_flow_cfg(
             # args_mapping.values() = callee parameters that receive tainted caller values
             # This is what we need to START analysis in the callee, not effect.param_effects (exit state)
             propagated_params = set(args_mapping.values())
+            propagated_params.update(alias_params)
 
             if propagated_params:
-                new_path = call_path + [{"type": "cfg_call", "from_file": current_file, "from_func": current_func, "to_file": callee_file, "to_func": callee_func, "line": call_line, "params": list(propagated_params)}]
+                new_path = call_path + [{"type": "cfg_call", "from_file": current_file, "from_func": current_func, "to_file": callee_file, "to_func": effective_callee, "line": call_line, "params": list(propagated_params)}]
 
                 # THIS IS THE LINE THAT ENABLES MULTI-HOP TRAVERSAL
-                worklist.append((callee_file, callee_func, frozenset(propagated_params), depth + 1, new_path))
+                worklist.append((callee_file, effective_callee, frozenset(propagated_params), depth + 1, new_path))
 
                 if debug:
-                    print(f"[INTER-CFG-S3] TRAVERSING INTO CALLEE: {callee_func} ({callee_file}) with tainted params {list(propagated_params)}", file=sys.stderr)
+                    print(f"[INTER-CFG-S3] TRAVERSING INTO CALLEE: {effective_callee} ({callee_file}) with tainted params {list(propagated_params)}", file=sys.stderr)
             elif debug:
                 print(f"[INTER-CFG-S3] No tainted params to propagate to {callee_func}", file=sys.stderr)
 
@@ -389,12 +686,26 @@ def trace_inter_procedural_flow_cfg(
             if effect.return_tainted:
                 # Find the assignment that captures this call's return value
                 # Handle both normalized and fully-qualified function names in assignments.in_function
+                in_conditions: List[str] = []
+                in_params: List[str] = []
+                for name in {current_func, original_func_name}:
+                    if not name:
+                        continue
+                    in_conditions.append("in_function = ?")
+                    in_params.append(name)
+                    in_conditions.append("in_function LIKE ?")
+                    in_params.append(f"%.{name}")
+                if not in_conditions:
+                    in_conditions.append("1=0")
+
+                where_clause = "file = ? AND line = ? AND source_expr LIKE ? AND (" + " OR ".join(in_conditions) + ")"
                 assignment_query = build_query(
                     'assignments',
                     ['target_var'],
-                    where="file = ? AND (in_function = ? OR in_function LIKE ?) AND line = ? AND source_expr LIKE ?"
+                    where=where_clause
                 )
-                cursor.execute(assignment_query, (current_file, current_func, f"%.{current_func}", call_line, f"%{callee_func}%"))
+                params: List[Any] = [current_file, call_line, f"%{callee_func}%"] + in_params
+                cursor.execute(assignment_query, params)
 
                 result = cursor.fetchone()
                 if result:

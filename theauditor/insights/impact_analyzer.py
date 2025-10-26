@@ -416,159 +416,149 @@ def trace_frontend_to_backend(
 ) -> Optional[Dict[str, Any]]:
     """
     Trace a frontend API call to its corresponding backend endpoint.
-    
+
+    Uses function_call_args table to find axios/fetch calls instead of
+    parsing source code with regex. This follows the database-first
+    architecture principle.
+
     Args:
         cursor: Database cursor
         target_file: Frontend file containing API call
         target_line: Line number of the API call
-        
+
     Returns:
         Dictionary with cross-stack trace information or None if not found
     """
     import re
-    from pathlib import Path
-    
-    # Read the target file to extract API call details
-    try:
-        file = Path(target_file)
-        if not file_path.exists():
-            # Try relative path
-            file = Path(".") / target_file
-            if not file_path.exists():
-                return None
-                
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-            
-        # Get context around the target line (5 lines before and after)
-        start_idx = max(0, target_line - 6)  # -6 because line numbers are 1-based
-        end_idx = min(len(lines), target_line + 5)
-        context_lines = lines[start_idx:end_idx]
-        context = ''.join(context_lines)
-        
-        # Extract API call patterns
-        # Common patterns: axios.get('/api/users'), fetch('/api/users'), http.post('/api/items')
-        api_patterns = [
-            # axios patterns
-            r'axios\.(get|post|put|patch|delete)\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
-            # fetch patterns
-            r'fetch\s*\(\s*[\'"`]([^\'"`]+)[\'"`].*method:\s*[\'"`](GET|POST|PUT|PATCH|DELETE)[\'"`]',
-            # fetch with default GET
-            r'fetch\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
-            # http/request patterns
-            r'(http|request)\.(get|post|put|patch|delete)\s*\(\s*[\'"`]([^\'"`]+)[\'"`]',
-            # jQuery ajax
-            r'\$\.(ajax|get|post)\s*\(\s*\{[^}]*url:\s*[\'"`]([^\'"`]+)[\'"`]',
-        ]
-        
-        method = None
-        url_path = None
-        
-        for pattern in api_patterns:
-            match = re.search(pattern, context, re.IGNORECASE | re.MULTILINE)
-            if match:
-                groups = match.groups()
-                if 'fetch' in pattern and len(groups) == 2:
-                    # fetch with explicit method
-                    url_path = groups[0]
-                    method = groups[1].upper()
-                elif 'fetch' in pattern and len(groups) == 1:
-                    # fetch defaults to GET
-                    url_path = groups[0]
-                    method = 'GET'
-                elif len(groups) >= 2:
-                    # axios, http, request patterns
-                    if pattern.startswith(r'axios'):
-                        method = groups[0].upper()
-                        url_path = groups[1]
-                    elif pattern.startswith(r'(http|request)'):
-                        method = groups[1].upper()
-                        url_path = groups[2]
-                    elif pattern.startswith(r'\$'):
-                        # jQuery
-                        url_path = groups[1]
-                        if groups[0] == 'ajax':
-                            # Look for method in context
-                            method_match = re.search(r'type:\s*[\'"`](GET|POST|PUT|PATCH|DELETE)[\'"`]', context)
-                            method = method_match.group(1).upper() if method_match else 'GET'
-                        elif groups[0] == 'get':
-                            method = 'GET'
-                        elif groups[0] == 'post':
-                            method = 'POST'
-                break
-        
-        if not url_path or not method:
-            return None
-            
-        # Clean up the URL path
-        # Remove query parameters and fragments
-        url_path = url_path.split('?')[0].split('#')[0]
-        # Remove any template literals (${...})
-        url_path = re.sub(r'\$\{[^}]+\}', '*', url_path)
-        
-        # Query the api_endpoints table to find matching backend endpoint
-        # Try exact match first
+
+    # Query database for API calls at target location
+    # Look for common HTTP client function calls
+    cursor.execute("""
+        SELECT callee_function, argument_expr
+        FROM function_call_args
+        WHERE file = ?
+        AND line = ?
+        AND (
+            callee_function LIKE 'axios.%'
+            OR callee_function = 'fetch'
+            OR callee_function LIKE 'http.%'
+            OR callee_function LIKE '$.%'
+            OR callee_function LIKE 'request.%'
+        )
+        LIMIT 1
+    """, (target_file, target_line))
+
+    call_match = cursor.fetchone()
+    if not call_match:
+        return None  # No API call at this location
+
+    callee_function, argument_expr = call_match
+
+    # Extract method from callee_function
+    # axios.get → GET, fetch → GET (default), axios.post → POST
+    method = None
+    if callee_function.startswith('axios.'):
+        method = callee_function.split('.')[1].upper()
+    elif callee_function == 'fetch':
+        # Check if method is specified in argument_expr
+        # Example: "'/api/users', { method: 'POST' }"
+        method_match = re.search(r'method:\s*[\'"`](GET|POST|PUT|PATCH|DELETE)[\'"`]', argument_expr, re.IGNORECASE)
+        method = method_match.group(1).upper() if method_match else 'GET'
+    elif callee_function.startswith('http.') or callee_function.startswith('request.'):
+        method = callee_function.split('.')[1].upper()
+    elif callee_function.startswith('$.'):
+        # jQuery: $.get, $.post, $.ajax
+        func_name = callee_function.split('.')[1]
+        if func_name == 'ajax':
+            # Look for type in arguments
+            type_match = re.search(r'type:\s*[\'"`](GET|POST|PUT|PATCH|DELETE)[\'"`]', argument_expr, re.IGNORECASE)
+            method = type_match.group(1).upper() if type_match else 'GET'
+        elif func_name == 'get':
+            method = 'GET'
+        elif func_name == 'post':
+            method = 'POST'
+        else:
+            method = 'GET'
+    else:
+        method = 'GET'  # Default fallback
+
+    # Extract URL from argument_expr (first positional argument)
+    # argument_expr format examples:
+    #   "'/api/users', { headers: ... }"
+    #   "'/api/users'"
+    #   "`/api/users/${id}`"
+    # Extract first quoted string
+    url_match = re.search(r'[\'"`]([^\'"`]+)[\'"`]', argument_expr)
+    if not url_match:
+        return None
+
+    url_path = url_match.group(1)
+
+    if not url_path or not method:
+        return None
+
+    # Clean up the URL path
+    # Remove query parameters and fragments
+    url_path = url_path.split('?')[0].split('#')[0]
+    # Remove any template literals (${...})
+    url_path = re.sub(r'\$\{[^}]+\}', '*', url_path)
+
+    # Query the api_endpoints table to find matching backend endpoint
+    # Try exact match first
+    cursor.execute("""
+        SELECT file, line, method, pattern
+        FROM api_endpoints
+        WHERE pattern = ? AND method = ?
+        LIMIT 1
+    """, (url_path, method))
+
+    backend_match = cursor.fetchone()
+
+    if not backend_match:
+        # Try pattern matching (e.g., /api/users/* matches /api/users/:id)
+        # Convert URL to SQL LIKE pattern
+        like_pattern = url_path.replace('*', '%')
+
         cursor.execute("""
-            SELECT file, method, pattern, controls
+            SELECT file, line, method, pattern
             FROM api_endpoints
-            WHERE pattern = ? AND method = ?
+            WHERE ? LIKE REPLACE(REPLACE(pattern, ':id', '%'), ':{param}', '%')
+            AND method = ?
             LIMIT 1
         """, (url_path, method))
-        
+
         backend_match = cursor.fetchone()
-        
-        if not backend_match:
-            # Try pattern matching (e.g., /api/users/* matches /api/users/:id)
-            # Convert URL to SQL LIKE pattern
-            like_pattern = url_path.replace('*', '%')
-            
-            cursor.execute("""
-                SELECT file, method, pattern, controls
-                FROM api_endpoints
-                WHERE ? LIKE REPLACE(REPLACE(pattern, ':id', '%'), ':{param}', '%')
-                AND method = ?
-                LIMIT 1
-            """, (url_path, method))
-            
-            backend_match = cursor.fetchone()
-        
-        if not backend_match:
-            # No matching backend endpoint found
-            return None
-            
-        backend_file, backend_method, backend_pattern, backend_controls = backend_match
-        
-        # Find the exact line number of the backend endpoint
-        cursor.execute("""
-            SELECT line
-            FROM symbols
-            WHERE path = ? AND type = 'function'
-            ORDER BY line
-            LIMIT 1
-        """, (backend_file,))
-        
-        line_result = cursor.fetchone()
-        backend_line = line_result[0] if line_result else 1
-        
-        return {
-            "frontend": {
-                "file": target_file,
-                "line": target_line,
-                "method": method,
-                "url": url_path
-            },
-            "backend": {
-                "file": backend_file,
-                "line": backend_line,
-                "method": backend_method,
-                "pattern": backend_pattern,
-                "controls": backend_controls
-            }
-        }
-            
-    except Exception as e:
-        # Error reading file or parsing
+
+    if not backend_match:
+        # No matching backend endpoint found
         return None
+
+    backend_file, backend_line, backend_method, backend_pattern = backend_match
+
+    # Query junction table for controls
+    cursor.execute("""
+        SELECT control_name
+        FROM api_endpoint_controls
+        WHERE file = ? AND line = ?
+    """, (backend_file, backend_line))
+
+    backend_controls = [row[0] for row in cursor.fetchall()]
+
+    return {
+        "frontend": {
+            "file": target_file,
+            "line": target_line,
+            "method": method,
+            "url": url_path
+        },
+        "backend": {
+            "file": backend_file,
+            "line": backend_line,
+            "method": backend_method,
+            "pattern": backend_pattern,
+            "controls": backend_controls
+        }
+    }
 
 
 def format_impact_report(impact_data: Dict[str, Any]) -> str:

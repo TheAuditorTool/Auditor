@@ -121,6 +121,13 @@ class VerboseGroup(click.Group):
             formatter.write_text("  --verbose                 # Show detailed findings")
             formatter.write_paragraph()
 
+            formatter.write_text("aud blueprint               # Architectural visualization (NO ML/CUDA)")
+            formatter.write_text("  --format text             # Visual ASCII display (default)")
+            formatter.write_text("  --format json             # Structured JSON export")
+            formatter.write_text("  # Shows: structure, hot files, security, data flow, imports")
+            formatter.write_text("  # Prereq: Run 'aud full' for complete blueprint")
+            formatter.write_paragraph()
+
             formatter.write_text("aud fce                     # Run Factual Correlation Engine")
             formatter.write_text("aud report                  # Generate final report")
             formatter.write_text("aud structure               # Generate project structure report")
@@ -149,7 +156,17 @@ class VerboseGroup(click.Group):
             
             formatter.write_text("aud init-js                 # Create/merge package.json")
             formatter.write_text("aud init-config             # Initialize configuration")
-        
+
+        formatter.write_paragraph()
+        formatter.write_text("UTILITIES:")
+        with formatter.indentation():
+            formatter.write_text("aud explain                 # Learn TheAuditor concepts (taint, workset, fce, etc.)")
+            formatter.write_text("  --list                    # List all available concepts")
+            formatter.write_paragraph()
+
+            formatter.write_text("aud detect-frameworks       # Display detected frameworks from database")
+            formatter.write_text("  --output-json             # Custom output path")
+
         formatter.write_paragraph()
         formatter.write_text("For detailed help on any command: aud <command> --help")
 
@@ -267,11 +284,14 @@ from theauditor.commands.rules import rules_command
 from theauditor.commands.refactor import refactor_command
 from theauditor.commands.insights import insights_command
 from theauditor.commands.context import context_command
+from theauditor.commands.query import query
+from theauditor.commands.blueprint import blueprint
 
 # Import new commands
 from theauditor.commands.docker_analyze import docker_analyze
 from theauditor.commands.structure import structure
 from theauditor.commands.metadata import metadata
+from theauditor.commands.terraform import terraform
 
 # Register simple commands
 cli.add_command(init)
@@ -312,6 +332,8 @@ cli.add_command(rules_command)
 cli.add_command(refactor_command, name="refactor")
 cli.add_command(insights_command, name="insights")
 cli.add_command(context_command, name="context")
+cli.add_command(query)
+cli.add_command(blueprint)
 
 # Register new commands
 cli.add_command(docker_analyze)
@@ -321,6 +343,7 @@ cli.add_command(structure)
 cli.add_command(graph)
 cli.add_command(cfg)
 cli.add_command(metadata)
+cli.add_command(terraform)
 
 # All commands have been migrated to separate modules
 

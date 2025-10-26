@@ -6,6 +6,8 @@ This document provides a comprehensive technical overview of TheAuditor's archit
 
 TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform. It orchestrates industry-standard tools to provide ground truth about code quality and security, producing AI-consumable reports optimized for LLM context windows.
 
+With **v1.4.2-RC1** the platform now exposes that ground truth through three dedicated intelligence commands—`aud blueprint`, `aud query`, and `aud context`. They sit directly on top of `repo_index.db`/`graphs.db`, closing the AI code-context gap while preserving the same verifiable facts that power the SAST + code-quality pipeline.
+
 ### Core Design Principles
 
 1. **Offline-First Operation** - All analysis runs without network access, ensuring data privacy and reproducible results
@@ -35,15 +37,19 @@ These are **optional packages** that consume Truth Courier data to add scoring a
 
 ```
 theauditor/insights/
-├── __init__.py      # Package exports
-├── ml.py           # Machine learning predictions (requires pip install -e ".[ml]")
-├── graph.py        # Graph health scoring and recommendations
-└── taint.py        # Vulnerability severity classification
+├── __init__.py              # Package exports
+├── ml.py                    # Machine learning predictions (requires pip install -e ".[ml]")
+├── graph.py                 # Graph health scoring and recommendations
+├── taint.py                 # Vulnerability severity classification
+├── impact_analyzer.py       # Change impact assessment and risk scoring
+└── semantic_context.py      # User-defined business logic (YAML-based)
 ```
 
 - **insights/taint.py**: Adds "This flow is XSS with HIGH severity"
 - **insights/graph.py**: Adds "Health score: 70/100, Grade: B"
 - **insights/ml.py** (requires `pip install -e ".[ml]"`): Adds "80% probability of bugs based on historical patterns"
+- **insights/impact_analyzer.py**: Adds "Change affects 47 files with HIGH risk score"
+- **insights/semantic_context.py**: Applies user-defined refactoring patterns (e.g., "product.price moved to variant.price")
 
 **Important**: Insights modules are:
 - Not installed by default (ML requires explicit opt-in)
@@ -51,6 +57,258 @@ theauditor/insights/
 - Still based on technical patterns, not business logic interpretation
 - Designed for teams that want actionable scores alongside raw facts
 - All consolidated in `/insights` package for consistency
+
+### Insights Architecture Principles (CRITICAL)
+
+All insights modules **MUST** follow these architectural patterns to maintain system integrity:
+
+#### 1. Database-First Pattern (MANDATORY)
+
+**Rule**: Insights modules query the database, NEVER read source files directly.
+
+**Why**: TheAuditor indexer already extracted all code structure into `repo_index.db`. Reading files duplicates work and violates separation of concerns.
+
+✅ **CORRECT - Database-first:**
+```python
+# insights/impact_analyzer.py - Frontend-to-backend tracing
+cursor.execute("""
+    SELECT callee_function, argument_expr
+    FROM function_call_args
+    WHERE file = ? AND line = ?
+    AND callee_function LIKE 'axios.%'
+""", (target_file, target_line))
+```
+
+❌ **WRONG - File I/O:**
+```python
+# This violates database-first principle
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+    # ... regex patterns to find API calls
+```
+
+**Enforcement**: All insights modules must query existing tables (`function_call_args`, `symbols`, `api_endpoints`, etc.) instead of parsing source code.
+
+#### 2. Zero Fallback Policy (ABSOLUTE)
+
+**Rule**: NO fallback logic, NO alternative code paths, NO graceful degradation. If data is missing, FAIL LOUDLY.
+
+**Why**: TheAuditor regenerates the database FRESH on every `aud full` run. Missing data indicates a pipeline bug that MUST be fixed, not hidden.
+
+✅ **CORRECT - Hard fail:**
+```python
+# insights/ml.py - Journal data required for training
+journal_files = list(history_dir.glob("full/*/journal.ndjson"))
+if not journal_files:
+    raise FileNotFoundError(
+        f"No journal.ndjson files found. "
+        "Run 'aud full' to generate journal data before training."
+    )
+```
+
+❌ **WRONG - Fallback logic:**
+```python
+# This hides bugs and corrupts ML training data
+if not journal_files:
+    print("Warning: Using FCE data as fallback")
+    fce_files = list(history_dir.glob("full/*/raw/fce.json"))
+    # ... process FCE data (SEMANTIC MISMATCH - journal ≠ FCE)
+```
+
+**Violation Categories**:
+- ❌ Try-except fallbacks (catch exception → use alternative logic)
+- ❌ Conditional fallbacks (if X missing, use Y instead)
+- ❌ Table existence checks (if table exists then query, else skip)
+- ❌ Regex fallbacks (query fails → fall back to regex on source)
+
+**Enforcement**: All insights modules must raise exceptions on missing data with clear remediation messages.
+
+#### 3. Schema Contract Compliance
+
+**Rule**: All database queries MUST use schema contract system for validation.
+
+**Why**: Schema changes (like normalization) break queries that hardcode column names. Schema contract validates queries at runtime.
+
+✅ **CORRECT - Schema-aware:**
+```python
+# insights/ml.py - Schema validation at module init
+from theauditor.indexer.schema import get_table_schema
+
+def validate_ml_schema():
+    refs_schema = get_table_schema("refs")
+    assert "src" in refs_schema.column_names()
+    assert "value" in refs_schema.column_names()
+```
+
+✅ **CORRECT - Junction table queries:**
+```python
+# insights/impact_analyzer.py - Uses normalized schema
+cursor.execute("""
+    SELECT file, line, method, pattern
+    FROM api_endpoints
+    WHERE pattern = ? AND method = ?
+""")
+# Then query junction table for controls
+cursor.execute("""
+    SELECT control_name
+    FROM api_endpoint_controls
+    WHERE file = ? AND line = ?
+""")
+```
+
+❌ **WRONG - Hardcoded removed columns:**
+```python
+# This queries a column that was removed during normalization
+cursor.execute("""
+    SELECT file, method, pattern, controls  # ← 'controls' removed!
+    FROM api_endpoints
+""")
+```
+
+**Enforcement**: Query existing schema, never assume column structure.
+
+#### 4. Delegation to Truth Couriers
+
+**Rule**: Insights interpret facts, they don't gather them. Delegate data extraction to core modules.
+
+**Why**: Separation of concerns - indexer extracts, insights interpret.
+
+✅ **CORRECT - Delegates to indexer:**
+```python
+# insights/graph.py - Uses XGraphAnalyzer (truth courier)
+from theauditor.graph.analyzer import XGraphAnalyzer
+analyzer = XGraphAnalyzer()
+cycles = analyzer.detect_cycles(import_graph)  # Courier provides facts
+health_score = _calculate_health(cycles)       # Insight interprets
+```
+
+❌ **WRONG - Duplicates courier work:**
+```python
+# This duplicates what the indexer already did
+def _extract_api_calls(file_path):
+    with open(file_path) as f:
+        content = f.read()
+    # ... regex to find axios/fetch calls (indexer already did this!)
+```
+
+**Enforcement**: Import and use existing analysis results, don't re-analyze.
+
+#### 5. Real-World Examples from Recent Fixes
+
+**Example 1: impact_analyzer.py - Frontend-to-Backend Tracing**
+
+**Before (BROKEN - 3 violations):**
+```python
+# ❌ File I/O violation
+with open(file_path, 'r') as f:
+    lines = f.readlines()
+
+# ❌ Undefined variable bug
+if not file_path.exists():  # 'file_path' undefined
+
+# ❌ Schema violation
+cursor.execute("""
+    SELECT file, method, pattern, controls  # 'controls' column removed
+    FROM api_endpoints
+""")
+```
+
+**After (FIXED - database-first):**
+```python
+# ✅ Query function_call_args instead of reading files
+cursor.execute("""
+    SELECT callee_function, argument_expr
+    FROM function_call_args
+    WHERE file = ? AND line = ?
+    AND (callee_function LIKE 'axios.%' OR callee_function = 'fetch')
+""")
+
+# ✅ Use normalized schema with junction tables
+cursor.execute("""
+    SELECT file, line, method, pattern
+    FROM api_endpoints
+""")
+cursor.execute("""
+    SELECT control_name
+    FROM api_endpoint_controls
+    WHERE file = ? AND line = ?
+""")
+```
+
+**Impact**: 50 lines removed, zero file I/O, schema-compliant.
+
+**Example 2: ml.py - Zero Fallback Policy**
+
+**Before (BROKEN - semantic mismatch):**
+```python
+# ❌ Fallback hides missing pipeline data
+if not journal_files:
+    print("Warning: Using FCE data as fallback")
+    fce_files = list(history_dir.glob("full/*/raw/fce.json"))
+    # Treats FCE findings as journal events (WRONG - different semantics)
+    for finding in fce_data['all_findings']:
+        stats[file]["touches"] += 1  # FCE findings ≠ journal touches
+```
+
+**After (FIXED - hard fail):**
+```python
+# ✅ Hard fail with clear remediation
+if not journal_files:
+    raise FileNotFoundError(
+        f"No journal.ndjson files found in {history_dir}. "
+        "ML model training requires execution history from journal files. "
+        "Run 'aud full' at least once to generate journal data."
+    )
+```
+
+**Impact**: 36 lines removed, prevents ML model corruption, enforces correct pipeline usage.
+
+#### 6. Performance Characteristics
+
+Insights modules leverage indexed database queries:
+
+| Operation | Time | Database Table |
+|-----------|------|----------------|
+| API call lookup | <10ms | function_call_args (indexed) |
+| Symbol resolution | <5ms | symbols (indexed by name) |
+| Endpoint matching | <10ms | api_endpoints (indexed by pattern) |
+| Control lookup | <5ms | api_endpoint_controls (junction) |
+| Historical data | <50ms | journal.ndjson (file I/O acceptable here) |
+
+**No file I/O for code analysis** - all data from `.pf/repo_index.db` with indexed lookups.
+
+#### 7. Testing Requirements
+
+All insights modules must include:
+- **Unit tests**: Verify database queries return expected structure
+- **Schema validation**: Assert required columns exist
+- **Error handling**: Test missing database/table scenarios
+- **Integration tests**: Verify with real project data
+
+**Example Test Pattern:**
+```python
+def test_impact_analyzer_database_first():
+    # Verify NO file I/O
+    with patch('builtins.open') as mock_open:
+        result = trace_frontend_to_backend(cursor, "src/api.ts", 42)
+        mock_open.assert_not_called()  # ✅ No file reads
+
+def test_ml_hard_fail_on_missing_journal():
+    with pytest.raises(FileNotFoundError, match="journal.ndjson"):
+        load_journal_stats(empty_history_dir)  # ✅ Fails loud
+```
+
+#### Summary: Insights Architecture Checklist
+
+Before adding new insights modules, verify:
+- ✅ Queries database, never reads source files
+- ✅ No fallback logic (hard fail on missing data)
+- ✅ Uses schema contract for validation
+- ✅ Delegates to truth couriers for facts
+- ✅ Includes error handling with remediation
+- ✅ Has comprehensive tests
+- ✅ Documents database tables used
+- ✅ Performance: <50ms for indexed queries
 
 ### The FCE: Factual Correlation Engine
 The FCE correlates facts from multiple tools without interpreting them:
@@ -263,6 +521,316 @@ Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** 
 - Categories: Authentication, Injection, Data Exposure, Infrastructure, Code Quality, Framework-Specific
 - **5 architectural meta-findings**: Correlates security issues with graph hotspots, complexity, churn, and test coverage
 
+### Architectural Intelligence & Query System
+
+**NEW in v1.4.2-RC1**: Blueprint, Query, and Context commands expose the indexed SAST output as an always-on code context fabric.
+
+#### The Problem It Solves
+
+AI assistants waste 5-10k tokens per refactoring iteration reading files to answer:
+- "What's the architecture? Where are boundaries?"
+- "Who calls this function?"
+- "Which endpoints are unprotected?"
+- "Where does user data flow?"
+
+TheAuditor already indexes all relationship data during `aud index`. The intelligence layer provides instant access via SQL queries and architectural drill-downs - **zero file reads, <10ms response time**, typically shrinking multi-iteration refactors from ~15k tokens per loop to ~1.5k.
+
+#### Architecture Overview
+
+**Three-Command Architecture:**
+
+```
+theauditor/commands/
+├── blueprint.py     # Architectural overview (4 drill-downs)
+├── query.py         # Code relationship queries (database API)
+└── context.py       # Semantic business logic (YAML-based)
+
+theauditor/context/
+├── __init__.py      # Shared query engine
+├── query.py         # CodeQueryEngine class (8 query methods)
+└── formatters.py    # Output formatting (text, json, tree)
+```
+
+**1. Blueprint Command (`aud blueprint`)**
+
+Provides architectural overview with 4 surgical drill-downs:
+- `--structure`: Scope understanding (monorepo detection, token estimates, migration paths)
+- `--graph`: Dependency mapping (gateway files, circular deps, bottlenecks)
+- `--security`: Attack surface mapping (unprotected endpoints, auth patterns, SQL risk)
+- `--taint`: Data flow mapping (vulnerable flows, sanitization coverage)
+
+Each drill-down shows exact file:line locations with actionable data. No recommendations - just facts.
+
+**2. Query Command (`aud query`)**
+
+Direct database queries for code relationships:
+- Symbol lookups with transitive call chains
+- File dependency tracing
+- API endpoint security coverage
+- React component hierarchies
+- Data flow queries (via junction tables)
+
+**3. Context Command (`aud context`)**
+
+Applies user-defined business logic via YAML:
+- Classifies findings as obsolete/current/transitional
+- Tracks refactoring progress
+- Maps semantic patterns to code
+
+**Design Principles:**
+1. **Database-First**: NO new schema - queries existing tables from `repo_index.db` and `graphs.db`
+2. **Zero Inference**: Exact SQL queries with provenance - no guessing, no embeddings
+3. **Performance-Obsessed**: Indexed lookups with O(1) hash maps and BFS for transitive queries
+4. **Type-Safe Results**: Dataclasses (SymbolInfo, CallSite, Dependency) for structured returns
+5. **Format-Agnostic**: Text (human), JSON (AI), tree (visualization) output modes
+6. **Truth Courier Mode**: Facts only, no recommendations or prescriptive language
+
+#### Database Schema Used
+
+The query engine leverages existing indexed data:
+
+**repo_index.db (required):**
+- `symbols` (33k rows) - Function/class definitions (CRITICAL: uses `path` column, not `file`)
+- `symbols_jsx` (8k rows) - JSX component definitions
+- `function_call_args` (13k rows) - Function call sites with arguments
+- `function_call_args_jsx` (4k rows) - JSX component usages
+- `api_endpoints` (185 rows) - REST endpoint handlers
+- `react_components` (1k rows) - React component metadata
+- `react_hooks` (667 rows) - Hook usage tracking
+
+**graphs.db (optional for dependency queries):**
+- `edges` (7.3k rows) - Import and call relationships
+- `nodes` (4.8k rows) - File/module nodes
+
+**No schema changes required** - queries run on existing indexed data.
+
+#### Query Methods
+
+The `CodeQueryEngine` class provides 6 query methods:
+
+**1. find_symbol(name, type_filter) → List[SymbolInfo]**
+- Exact name match across `symbols` and `symbols_jsx` tables
+- Returns: Symbol definitions with file, line, signature, export status
+- Performance: <5ms (indexed by name)
+
+**2. get_callers(symbol_name, depth=1) → List[CallSite]**
+- BFS traversal for transitive caller discovery
+- Queries: `function_call_args` WHERE `callee_function = ?`
+- Depth 1-5 supported (default: 1 for direct callers only)
+- Performance: <10ms direct, <50ms depth=3 transitive
+- Cycle detection: Visited set prevents infinite loops
+
+**3. get_callees(symbol_name) → List[CallSite]**
+- What a function calls
+- Queries: `function_call_args` WHERE `caller_function LIKE ?`
+- Returns: Call sites with arguments and line numbers
+- Performance: <10ms
+
+**4. get_file_dependencies(file_path, direction='both') → Dict[str, List[Dependency]]**
+- Import relationships from `graphs.db`
+- Directions: 'incoming' (dependents), 'outgoing' (dependencies), 'both'
+- Queries: `edges` WHERE `graph_type = 'import'`
+- Performance: <10ms
+- Graceful degradation: Returns error if graphs.db not built
+
+**5. get_api_handlers(route_pattern) → List[Dict]**
+- Find REST endpoint implementations
+- Queries: `api_endpoints` WHERE `path LIKE ? OR pattern LIKE ?`
+- Returns: Method, path, handler function, auth status, file location
+- Performance: <5ms
+
+**6. get_component_tree(component_name) → Dict**
+- React component hierarchy
+- Queries: `react_components`, `react_hooks`, `function_call_args_jsx`
+- Returns: Component metadata, hooks used, child components
+- Performance: <10ms
+
+#### Transitive Query Algorithm (BFS)
+
+For `get_callers(depth > 1)`, the engine uses Breadth-First Search:
+
+```python
+queue = deque([(symbol_name, 0)])
+visited = set()
+
+while queue:
+    current_symbol, current_depth = queue.popleft()
+    if current_depth >= depth:
+        continue
+
+    # Query direct callers
+    callers = query_function_call_args(current_symbol)
+
+    for caller in callers:
+        caller_key = (caller.function, caller.file, caller.line)
+        if caller_key not in visited:
+            visited.add(caller_key)
+            all_callers.append(caller)
+
+            # Add to queue for next level
+            if current_depth + 1 < depth:
+                queue.append((caller.function, current_depth + 1))
+```
+
+**Why BFS?**
+- Guarantees shortest path to each caller
+- Level-order traversal (depth-aware)
+- Cycle detection via visited set
+- Memory-efficient (stores only unique caller keys)
+
+#### Output Formatters
+
+Three output modes via `formatters.py`:
+
+**1. Text Format (default)** - Human-readable:
+```
+Symbol Definitions (1):
+  1. authenticateUser
+     Type: function
+     File: backend/src/auth.ts:42-67
+     Signature: (username: string, password: string) => Promise<User>
+     Exported: Yes
+
+Callers (3):
+  1. backend/src/routes/login.ts:23
+     handleLogin -> authenticateUser
+     Args: req.body.username, req.body.password
+```
+
+**2. JSON Format** - AI-consumable structured data:
+```json
+{
+  "symbol": [{
+    "name": "authenticateUser",
+    "type": "function",
+    "file": "backend/src/auth.ts",
+    "line": 42,
+    "end_line": 67,
+    "signature": "(username: string, password: string) => Promise<User>",
+    "is_exported": true
+  }],
+  "callers": [...]
+}
+```
+
+**3. Tree Format** - Visual hierarchy (placeholder, falls back to text):
+```
+└─ authenticateUser
+   ├─ handleLogin (backend/src/routes/login.ts:23)
+   ├─ validateCredentials (backend/src/middleware/auth.ts:15)
+   └─ refreshSession (backend/src/sessions/refresh.ts:8)
+```
+
+#### Performance Characteristics
+
+All queries leverage SQLite indexes:
+
+| Query Type | Time | Method |
+|------------|------|--------|
+| Symbol lookup | <5ms | Indexed by name + type |
+| Direct callers | <10ms | Indexed by callee_function |
+| Transitive (depth=3) | <50ms | BFS with visited set |
+| File dependencies | <10ms | Indexed by source/target + graph_type |
+| API handlers | <5ms | Indexed by path pattern |
+| Component tree | <10ms | Multiple indexed queries |
+
+**Zero file I/O** - all data from SQLite databases with O(1) hash map lookups internally.
+
+#### CLI Integration
+
+Exposed via three specialized commands:
+
+**Blueprint (Architectural Overview):**
+```bash
+# Top-level overview
+aud blueprint
+
+# Drill-downs for surgical analysis
+aud blueprint --structure  # Scope, monorepo, token estimates
+aud blueprint --graph      # Gateway files, cycles, bottlenecks
+aud blueprint --security   # Unprotected endpoints, auth patterns
+aud blueprint --taint      # Vulnerable flows, sanitization gaps
+
+# Export for AI consumption
+aud blueprint --all --format json
+```
+
+**Query (Code Relationships):**
+```bash
+# Symbol queries
+aud query --symbol authenticateUser --show-callers --depth 3
+aud query --symbol handleRequest --show-callees
+
+# File queries
+aud query --file src/auth.ts --show-dependents
+aud query --file src/utils.ts --show-dependencies
+
+# API queries
+aud query --api "/users/:id"
+aud query --show-api-coverage  # Security coverage for all endpoints
+```
+
+**Context (Semantic Business Logic):**
+```bash
+# Apply YAML-based refactoring patterns
+aud context --file auth_migration.yaml --verbose
+```
+
+#### Integration with Existing Systems
+
+The query engine is a **read-only consumer** of indexed data:
+- **Indexer**: Populates tables during `aud index`
+- **Graph Builder**: Creates edges/nodes during `aud graph build`
+- **Query Engine**: Reads data, never writes
+
+**No pipeline changes** - runs independently after indexing completes.
+
+#### Error Handling
+
+**Graceful degradation:**
+- Missing `repo_index.db`: Raises FileNotFoundError with remediation
+- Missing `graphs.db`: Returns error dict for dependency queries
+- Missing tables (e.g., no JSX in Python projects): Silently skipped via try/except
+- Empty results: Returns empty list (not an error)
+
+**Helpful error messages:**
+```python
+# If database not found
+FileNotFoundError: "Database not found: .pf/repo_index.db\nRun 'aud index' first to build the database."
+
+# If graphs.db not built
+{'error': 'Graph database not found. Run: aud graph build'}
+```
+
+#### Example: Token Savings Calculation
+
+**Without query engine (traditional approach):**
+```
+AI reads auth.ts (500 tokens)
+AI reads login.ts (300 tokens)
+AI reads middleware/auth.ts (400 tokens)
+AI reads sessions/refresh.ts (350 tokens)
+Total: 1,550 tokens per iteration
+10 iterations: 15,500 tokens
+```
+
+**With query engine:**
+```
+aud context query --symbol authenticateUser --show-callers --depth 2 --format json
+Output: 150 tokens (structured call graph)
+10 iterations: 1,500 tokens
+Savings: 14,000 tokens (90% reduction)
+```
+
+#### Future Enhancements
+
+Potential additions (not yet implemented):
+- Tree format visualization (currently placeholder)
+- Cross-file taint path queries
+- SQL query builder for custom queries
+- GraphQL schema traversal
+- Database migration impact analysis
+
 ### Taint Analysis Package (`theauditor/taint/`)
 Previously a monolithic file, the taint analysis system has been refactored into a modular package with 11 specialized modules. A backward compatibility shim remains at `theauditor/taint_analyzer.py` for legacy imports.
 
@@ -289,9 +857,170 @@ Previously a monolithic file, the taint analysis system has been refactored into
 ### Graph Analysis (`theauditor/graph/`)
 - **builder.py**: Constructs dependency graph from codebase
 - **analyzer.py**: Detects cycles, measures complexity, identifies hotspots
+- **dfg_builder.py**: Builds data flow graphs from indexed assignments and returns
+- **store.py**: Persists graphs to `.pf/graphs.db` SQLite database
 - Uses NetworkX for graph algorithms
 
+**Graph Types:**
+1. **Import Graph** (`graph build`): Module/file import dependencies
+2. **Call Graph** (`graph build`): Function call relationships
+3. **Data Flow Graph** (`graph build-dfg`): Variable assignment and return value flows
+
 **Note**: The optional health scoring and recommendations are provided by `theauditor/insights/graph.py` (Insights module)
+
+#### Data Flow Graph (DFG) Architecture
+
+The DFG builder constructs graph representations of how data flows through variable assignments and function returns. This enables more accurate inter-procedural taint analysis and data dependency tracking.
+
+**Data Source:**
+- `assignment_sources` junction table (42,844 rows in typical project)
+- `function_return_sources` junction table (19,313 rows in typical project)
+- Both tables populated during indexing (`aud index`)
+
+**Graph Construction:**
+```python
+# DFGBuilder reads normalized junction tables
+builder = DFGBuilder(db_path=".pf/repo_index.db")
+graph = builder.build_unified_flow_graph(root=".")
+
+# Graph structure:
+{
+    "nodes": [
+        {"id": "file::function::variable", "file": "...", "type": "variable"},
+        {"id": "file::function::return", "file": "...", "type": "return_value"}
+    ],
+    "edges": [
+        {"source": "var1_id", "target": "var2_id", "type": "assignment", "line": 42},
+        {"source": "var_id", "target": "return_id", "type": "return", "line": 58}
+    ],
+    "metadata": {
+        "stats": {
+            "total_assignments": 42844,
+            "assignments_with_sources": 38521,
+            "total_nodes": 45892,
+            "total_edges": 53768
+        }
+    }
+}
+```
+
+**Storage (Dual-Write Pattern):**
+1. **Database**: `.pf/graphs.db` via `XGraphStore.save_data_flow_graph()`
+   - Nodes table with `graph_type='data_flow'`
+   - Edges table with `graph_type='data_flow'`
+   - Queryable via SQL for fast lookups
+
+2. **JSON**: `.pf/raw/data_flow_graph.json`
+   - Immutable record for human/AI consumption
+   - Contains complete graph with metadata
+
+**Pipeline Integration:**
+- Runs in Stage 2 (Data Preparation) after `graph build`
+- Command: `aud graph build-dfg`
+- Prerequisite: `aud index` (to populate junction tables)
+
+**Current Status:**
+- ✅ Graph building working (reads junction tables, builds nodes/edges)
+- ✅ Dual-write to database + JSON
+- ⚠️ Taint analyzer integration pending (future work)
+
+**Future Integration:**
+Taint analyzer will use DFG for:
+- Inter-procedural flow tracking (follow assignments across functions)
+- Return value propagation (track tainted returns to call sites)
+- Alias analysis (detect variable aliasing through assignments)
+- Faster traversals (pre-built graph vs on-the-fly queries)
+
+### Terraform Analysis (`theauditor/terraform/`)
+
+**Purpose:** Infrastructure as Code (IaC) security analysis for Terraform/HCL configurations.
+
+TheAuditor provides complete Terraform support with database-first architecture and zero fallbacks, enabling security analysis of cloud infrastructure definitions.
+
+**Components:**
+
+1. **HCL Extraction** (`theauditor/ast_extractors/hcl_impl.py`):
+   - Tree-sitter-based HCL parsing with precise line numbers
+   - Extracts resources, variables, outputs, data sources
+   - Graceful fallback to python-hcl2 if tree-sitter unavailable
+
+2. **Terraform Parser** (`theauditor/terraform/parser.py`):
+   - Structural parsing using python-hcl2 library
+   - Hard fail on malformed HCL (no graceful degradation)
+   - Identifies sensitive properties by keyword matching
+
+3. **Terraform Extractor** (`theauditor/indexer/extractors/terraform.py`):
+   - Indexer integration for .tf/.tfvars/.tf.json files
+   - Dual parser strategy: tree-sitter (preferred) + python-hcl2 (fallback)
+   - Populates 5 database tables: terraform_files, terraform_resources, terraform_variables, terraform_outputs, terraform_findings
+
+4. **Provisioning Flow Graph** (`theauditor/terraform/graph.py`):
+   - Builds data flow graphs: variable → resource → output
+   - Tracks variable references, resource dependencies, output references
+   - Writes to graphs.db via XGraphStore.save_custom_graph()
+   - Enables blast radius analysis for infrastructure changes
+
+5. **Security Analyzer** (`theauditor/terraform/analyzer.py`):
+   - 6 security check categories:
+     - Public S3 buckets (ACL analysis, website hosting)
+     - Unencrypted storage (RDS, EBS)
+     - IAM wildcards (Action=*, Resource=*)
+     - Hardcoded secrets (non-variable values)
+     - Missing encryption (SNS topics, KMS)
+     - Security groups (0.0.0.0/0 ingress rules)
+   - Dual-write: terraform_findings + findings_consolidated (FCE integration)
+   - Severity filtering: critical/high/medium/low
+
+6. **CLI Commands** (`theauditor/commands/terraform.py`):
+   - `aud terraform provision` - Build provisioning flow graph
+   - `aud terraform analyze` - Detect security issues
+   - `aud terraform report` - Generate report [PHASE 7 - not implemented]
+   - Workset support for changed files only
+
+**Database Schema:**
+
+Five new tables in repo_index.db:
+- `terraform_files` - File metadata (module_name, stack_name, backend_type)
+- `terraform_resources` - Resource blocks with properties, dependencies, public exposure flags
+- `terraform_variables` - Variable declarations with types, defaults, sensitivity
+- `terraform_outputs` - Output blocks with sensitivity flags
+- `terraform_findings` - Security findings with category, severity, remediation
+
+**Architecture Principles:**
+
+1. **Database-First**: All extracted data flows through database tables
+2. **Zero Fallbacks**: Hard fail on parse errors, missing data exposes bugs
+3. **Dual Parser**: Tree-sitter for line numbers, python-hcl2 for fallback
+4. **Graph Integration**: Provisioning graphs stored alongside DFG/import graphs
+5. **FCE Correlation**: Findings dual-written for cross-tool correlation
+
+**Workflow:**
+```bash
+aud index                      # Extract Terraform resources to database
+aud terraform provision        # Build provisioning flow graph
+aud terraform analyze          # Detect security issues
+aud full                       # Includes all Terraform analysis
+```
+
+**Typical Output:**
+- `.pf/graphs.db` - Provisioning graph (terraform_provisioning type)
+- `.pf/raw/terraform_graph.json` - JSON export of graph
+- `.pf/raw/terraform_findings.json` - Security findings
+- `terraform_findings` table - Queryable findings for FCE
+
+**Performance:**
+- Indexing: ~5-10ms per .tf file (tree-sitter)
+- Graph building: ~2s for 100 resources
+- Security analysis: ~500ms for 100 resources
+- All database queries with indexed lookups
+
+**Future Enhancements (Phase 7):**
+- Graph-based blast radius calculation
+- Module analysis (terraform_modules population)
+- Provider analysis (terraform_providers population)
+- Data source analysis (terraform_data population)
+- .tfvars parsing for variable values
+- Stack detection from directory structure
 
 ### Framework Detection (`theauditor/framework_detector.py`)
 - Auto-detects Django, Flask, React, Vue, Angular, etc.

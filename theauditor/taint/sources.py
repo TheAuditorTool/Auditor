@@ -399,6 +399,7 @@ SECURITY_SINKS = {
         "typeorm.createQueryBuilder",
         "objection.raw",
         "knex.raw",
+        "destroy",
         # Rust SQL sinks (raw/unsafe query functions)
         "diesel::sql_query",
         "diesel::dsl::sql",

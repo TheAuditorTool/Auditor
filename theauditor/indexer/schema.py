@@ -60,19 +60,86 @@ class Column:
 
 
 @dataclass
+class ForeignKey:
+    """Foreign key relationship metadata for JOIN query generation.
+
+    Purpose: Enables build_join_query() to validate and construct JOINs.
+    NOT used for CREATE TABLE generation (database.py defines FKs).
+
+    Attributes:
+        local_columns: Column names in this table (e.g., ['query_file', 'query_line'])
+        foreign_table: Referenced table name (e.g., 'sql_queries')
+        foreign_columns: Column names in foreign table (e.g., ['file_path', 'line_number'])
+
+    Example:
+        ForeignKey(
+            local_columns=['query_file', 'query_line'],
+            foreign_table='sql_queries',
+            foreign_columns=['file_path', 'line_number']
+        )
+    """
+    local_columns: List[str]
+    foreign_table: str
+    foreign_columns: List[str]
+
+    def validate(self, local_table: str, all_tables: Dict[str, 'TableSchema']) -> List[str]:
+        """Validate foreign key definition against schema.
+
+        Returns:
+            List of error messages (empty if valid)
+        """
+        errors = []
+
+        # Check foreign table exists
+        if self.foreign_table not in all_tables:
+            errors.append(f"Foreign table '{self.foreign_table}' does not exist")
+            return errors
+
+        local_schema = all_tables[local_table]
+        foreign_schema = all_tables[self.foreign_table]
+
+        # Check local columns exist
+        local_col_names = set(local_schema.column_names())
+        for col in self.local_columns:
+            if col not in local_col_names:
+                errors.append(f"Local column '{col}' not found in table '{local_table}'")
+
+        # Check foreign columns exist
+        foreign_col_names = set(foreign_schema.column_names())
+        for col in self.foreign_columns:
+            if col not in foreign_col_names:
+                errors.append(f"Foreign column '{col}' not found in table '{self.foreign_table}'")
+
+        # Check column count matches
+        if len(self.local_columns) != len(self.foreign_columns):
+            errors.append(
+                f"Column count mismatch: {len(self.local_columns)} local vs "
+                f"{len(self.foreign_columns)} foreign"
+            )
+
+        return errors
+
+
+@dataclass
 class TableSchema:
     """Represents a complete table schema.
 
     Design Pattern - Foreign Key Constraints:
-        FOREIGN KEY constraints are intentionally omitted from TableSchema definitions.
-        This design choice keeps the schema focused on table-level structure (columns,
-        types, indexes, constraints) and decouples it from relational integrity, which
-        is managed and enforced at the database.py layer where CREATE TABLE statements
-        are defined. This simplifies schema validation and code generation by avoiding
-        circular dependencies between table definitions.
+        Foreign keys serve TWO purposes in this schema:
 
-        Foreign keys are defined exclusively in database.py CREATE TABLE statements
-        and are not validated by the schema contract system.
+        1. JOIN Query Generation (NEW):
+           The foreign_keys field provides metadata for build_join_query() to:
+           - Validate JOIN conditions reference correct tables/columns
+           - Auto-generate proper JOIN ON clauses
+           - Enable type-safe relational queries
+
+        2. Database Integrity (UNCHANGED):
+           Actual FOREIGN KEY constraints in CREATE TABLE statements are still
+           defined exclusively in database.py. This separation maintains backward
+           compatibility and avoids circular dependencies during table creation.
+
+        The foreign_keys field is OPTIONAL and backward compatible. Tables without
+        foreign keys can still be queried normally with build_query().
 
     Attributes:
         name: Table name
@@ -80,12 +147,14 @@ class TableSchema:
         indexes: List of (index_name, [column_names]) tuples
         primary_key: Composite primary key column list (for multi-column PKs)
         unique_constraints: List of UNIQUE constraint column lists
+        foreign_keys: List of ForeignKey definitions (for JOIN generation)
     """
     name: str
     columns: List[Column]
     indexes: List[Tuple[str, List[str]]] = field(default_factory=list)
     primary_key: Optional[List[str]] = None  # Composite primary keys
     unique_constraints: List[List[str]] = field(default_factory=list)  # UNIQUE constraints
+    foreign_keys: List[ForeignKey] = field(default_factory=list)  # For JOIN query generation
 
     def column_names(self) -> List[str]:
         """Get list of column names in definition order."""
@@ -224,6 +293,7 @@ SYMBOLS = TableSchema(
         Column("col", "INTEGER", nullable=False),
         Column("end_line", "INTEGER"),
         Column("type_annotation", "TEXT"),
+        Column("parameters", "TEXT"),  # JSON array of parameter names: ['data', '_createdBy']
         Column("is_typed", "BOOLEAN", default="0"),
     ],
     primary_key=["path", "name", "line", "type", "col"],
@@ -252,6 +322,67 @@ SYMBOLS_JSX = TableSchema(
     ]
 )
 
+CLASS_PROPERTIES = TableSchema(
+    name="class_properties",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("property_name", "TEXT", nullable=False),
+        Column("property_type", "TEXT", nullable=True),  # TypeScript type annotation
+        Column("is_optional", "BOOLEAN", default="0"),    # ? modifier
+        Column("is_readonly", "BOOLEAN", default="0"),    # readonly keyword
+        Column("access_modifier", "TEXT", nullable=True), # "private", "protected", "public"
+        Column("has_declare", "BOOLEAN", default="0"),    # declare keyword (TypeScript)
+        Column("initializer", "TEXT", nullable=True),     # Default value if present
+    ],
+    primary_key=["file", "class_name", "property_name", "line"],
+    indexes=[
+        ("idx_class_properties_file", ["file"]),
+        ("idx_class_properties_class", ["class_name"]),
+        ("idx_class_properties_name", ["property_name"]),
+    ]
+)
+
+ENV_VAR_USAGE = TableSchema(
+    name="env_var_usage",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("var_name", "TEXT", nullable=False),        # "NODE_ENV", "DATABASE_URL"
+        Column("access_type", "TEXT", nullable=False),     # "read", "write", "check"
+        Column("in_function", "TEXT", nullable=True),      # Function containing this access
+        Column("property_access", "TEXT", nullable=True),  # Full expression: "process.env.NODE_ENV"
+    ],
+    primary_key=["file", "line", "var_name"],
+    indexes=[
+        ("idx_env_var_usage_file", ["file"]),
+        ("idx_env_var_usage_name", ["var_name"]),
+        ("idx_env_var_usage_type", ["access_type"]),
+    ]
+)
+
+ORM_RELATIONSHIPS = TableSchema(
+    name="orm_relationships",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("source_model", "TEXT", nullable=False),      # "User"
+        Column("target_model", "TEXT", nullable=False),      # "Account"
+        Column("relationship_type", "TEXT", nullable=False), # "hasMany", "belongsTo", "hasOne"
+        Column("foreign_key", "TEXT", nullable=True),        # "account_id"
+        Column("cascade_delete", "BOOLEAN", default="0"),    # CASCADE delete option
+        Column("as_name", "TEXT", nullable=True),            # Association alias (e.g., "as: 'owner'")
+    ],
+    primary_key=["file", "line", "source_model", "target_model"],
+    indexes=[
+        ("idx_orm_relationships_file", ["file"]),
+        ("idx_orm_relationships_source", ["source_model"]),
+        ("idx_orm_relationships_target", ["target_model"]),
+        ("idx_orm_relationships_type", ["relationship_type"]),
+    ]
+)
+
 # ============================================================================
 # API & ROUTING TABLES
 # ============================================================================
@@ -264,12 +395,37 @@ API_ENDPOINTS = TableSchema(
         Column("method", "TEXT", nullable=False),
         Column("pattern", "TEXT", nullable=False),
         Column("path", "TEXT"),
-        Column("controls", "TEXT"),
+        # controls REMOVED - see api_endpoint_controls junction table
         Column("has_auth", "BOOLEAN", default="0"),
         Column("handler_function", "TEXT"),
     ],
     indexes=[
         ("idx_api_endpoints_file", ["file"]),
+    ]
+)
+
+# Junction table for normalized API endpoint controls/middleware
+# Replaces JSON TEXT column api_endpoints.controls with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+API_ENDPOINT_CONTROLS = TableSchema(
+    name="api_endpoint_controls",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("endpoint_file", "TEXT", nullable=False),
+        Column("endpoint_line", "INTEGER", nullable=False),
+        Column("control_name", "TEXT", nullable=False),  # 1 row per middleware/control
+    ],
+    indexes=[
+        ("idx_api_endpoint_controls_endpoint", ["endpoint_file", "endpoint_line"]),  # FK composite lookup
+        ("idx_api_endpoint_controls_control", ["control_name"]),  # Fast search by control name
+        ("idx_api_endpoint_controls_file", ["endpoint_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["endpoint_file", "endpoint_line"],
+            foreign_table="api_endpoints",
+            foreign_columns=["file", "line"]
+        )
     ]
 )
 
@@ -296,12 +452,37 @@ SQL_QUERIES = TableSchema(
         Column("line_number", "INTEGER", nullable=False),  # NOTE: line_number not line
         Column("query_text", "TEXT", nullable=False),
         Column("command", "TEXT", nullable=False, check="command != 'UNKNOWN'"),
-        Column("tables", "TEXT"),
+        # tables REMOVED - see sql_query_tables junction table
         Column("extraction_source", "TEXT", nullable=False, default="'code_execute'"),
     ],
     indexes=[
         ("idx_sql_queries_file", ["file_path"]),
         ("idx_sql_queries_command", ["command"]),
+    ]
+)
+
+# Junction table for normalized SQL query table references
+# Replaces JSON TEXT column sql_queries.tables with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+SQL_QUERY_TABLES = TableSchema(
+    name="sql_query_tables",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("query_file", "TEXT", nullable=False),
+        Column("query_line", "INTEGER", nullable=False),
+        Column("table_name", "TEXT", nullable=False),  # 1 row per table referenced
+    ],
+    indexes=[
+        ("idx_sql_query_tables_query", ["query_file", "query_line"]),  # FK composite lookup
+        ("idx_sql_query_tables_table", ["table_name"]),  # Fast search by table name
+        ("idx_sql_query_tables_file", ["query_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["query_file", "query_line"],
+            foreign_table="sql_queries",
+            foreign_columns=["file_path", "line_number"]
+        )
     ]
 )
 
@@ -365,13 +546,15 @@ ASSIGNMENTS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
-        Column("source_vars", "TEXT"),
         Column("in_function", "TEXT", nullable=False),
+        Column("property_path", "TEXT", nullable=True),  # Full path for destructured assignments (e.g., req.params.id)
     ],
+    primary_key=["file", "line", "target_var"],
     indexes=[
         ("idx_assignments_file", ["file"]),
         ("idx_assignments_function", ["in_function"]),
         ("idx_assignments_target", ["target_var"]),
+        ("idx_assignments_property_path", ["property_path"]),  # Index for taint analysis queries
     ]
 )
 
@@ -382,8 +565,8 @@ ASSIGNMENTS_JSX = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("target_var", "TEXT", nullable=False),
         Column("source_expr", "TEXT", nullable=False),
-        Column("source_vars", "TEXT"),
         Column("in_function", "TEXT", nullable=False),
+        Column("property_path", "TEXT", nullable=True),  # Full path for destructured assignments (e.g., req.params.id)
         Column("jsx_mode", "TEXT", nullable=False, default="'preserved'"),
         Column("extraction_pass", "INTEGER", default="1"),
     ],
@@ -391,6 +574,7 @@ ASSIGNMENTS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_assignments_file", ["file"]),
         ("idx_jsx_assignments_function", ["in_function"]),
+        ("idx_jsx_assignments_property_path", ["property_path"]),  # Index for taint analysis queries
     ]
 )
 
@@ -401,9 +585,9 @@ FUNCTION_CALL_ARGS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("caller_function", "TEXT", nullable=False),
         Column("callee_function", "TEXT", nullable=False, check="callee_function != ''"),
-        Column("argument_index", "INTEGER", nullable=False),
-        Column("argument_expr", "TEXT", nullable=False),
-        Column("param_name", "TEXT", nullable=False),
+        Column("argument_index", "INTEGER", nullable=True),  # NULL for 0-arg calls
+        Column("argument_expr", "TEXT", nullable=True),     # NULL for 0-arg calls
+        Column("param_name", "TEXT", nullable=True),        # NULL for 0-arg calls
         Column("callee_file_path", "TEXT"),  # Resolved file path for callee function (enables unambiguous cross-file tracking)
     ],
     indexes=[
@@ -422,9 +606,9 @@ FUNCTION_CALL_ARGS_JSX = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("caller_function", "TEXT", nullable=False),
         Column("callee_function", "TEXT", nullable=False),
-        Column("argument_index", "INTEGER", nullable=False),
-        Column("argument_expr", "TEXT", nullable=False),
-        Column("param_name", "TEXT", nullable=False),
+        Column("argument_index", "INTEGER", nullable=True),  # NULL for 0-arg calls
+        Column("argument_expr", "TEXT", nullable=True),     # NULL for 0-arg calls
+        Column("param_name", "TEXT", nullable=True),        # NULL for 0-arg calls
         Column("jsx_mode", "TEXT", nullable=False, default="'preserved'"),
         Column("extraction_pass", "INTEGER", default="1"),
     ],
@@ -442,12 +626,12 @@ FUNCTION_RETURNS = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("function_name", "TEXT", nullable=False),
         Column("return_expr", "TEXT", nullable=False),
-        Column("return_vars", "TEXT"),
         # React-specific columns (added via ALTER TABLE)
         Column("has_jsx", "BOOLEAN", default="0"),
         Column("returns_component", "BOOLEAN", default="0"),
         Column("cleanup_operations", "TEXT"),
     ],
+    primary_key=["file", "line", "function_name"],
     indexes=[
         ("idx_function_returns_file", ["file"]),
         ("idx_function_returns_function", ["function_name"]),
@@ -461,7 +645,6 @@ FUNCTION_RETURNS_JSX = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("function_name", "TEXT"),
         Column("return_expr", "TEXT"),
-        Column("return_vars", "TEXT"),
         Column("has_jsx", "BOOLEAN", default="0"),
         Column("returns_component", "BOOLEAN", default="0"),
         Column("cleanup_operations", "TEXT"),
@@ -472,6 +655,104 @@ FUNCTION_RETURNS_JSX = TableSchema(
     indexes=[
         ("idx_jsx_returns_file", ["file"]),
         ("idx_jsx_returns_function", ["function_name"]),
+    ]
+)
+
+# Junction tables for normalized many-to-many relationships
+# Replaces JSON TEXT columns source_vars and return_vars with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+
+ASSIGNMENT_SOURCES = TableSchema(
+    name="assignment_sources",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("assignment_file", "TEXT", nullable=False),
+        Column("assignment_line", "INTEGER", nullable=False),
+        Column("assignment_target", "TEXT", nullable=False),
+        Column("source_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_assignment_sources_assignment", ["assignment_file", "assignment_line", "assignment_target"]),
+        ("idx_assignment_sources_var", ["source_var_name"]),
+        ("idx_assignment_sources_file", ["assignment_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["assignment_file", "assignment_line", "assignment_target"],
+            foreign_table="assignments",
+            foreign_columns=["file", "line", "target_var"]
+        )
+    ]
+)
+
+ASSIGNMENT_SOURCES_JSX = TableSchema(
+    name="assignment_sources_jsx",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("assignment_file", "TEXT", nullable=False),
+        Column("assignment_line", "INTEGER", nullable=False),
+        Column("assignment_target", "TEXT", nullable=False),
+        Column("jsx_mode", "TEXT", nullable=False),
+        Column("source_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_assignment_sources_jsx_assignment", ["assignment_file", "assignment_line", "assignment_target", "jsx_mode"]),
+        ("idx_assignment_sources_jsx_var", ["source_var_name"]),
+        ("idx_assignment_sources_jsx_file", ["assignment_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["assignment_file", "assignment_line", "assignment_target"],
+            foreign_table="assignments_jsx",
+            foreign_columns=["file", "line", "target_var"]
+        )
+    ]
+)
+
+FUNCTION_RETURN_SOURCES = TableSchema(
+    name="function_return_sources",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("return_file", "TEXT", nullable=False),
+        Column("return_line", "INTEGER", nullable=False),
+        Column("return_function", "TEXT", nullable=False),
+        Column("return_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_function_return_sources_return", ["return_file", "return_line", "return_function"]),
+        ("idx_function_return_sources_var", ["return_var_name"]),
+        ("idx_function_return_sources_file", ["return_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["return_file", "return_line", "return_function"],
+            foreign_table="function_returns",
+            foreign_columns=["file", "line", "function_name"]
+        )
+    ]
+)
+
+FUNCTION_RETURN_SOURCES_JSX = TableSchema(
+    name="function_return_sources_jsx",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),
+        Column("return_file", "TEXT", nullable=False),
+        Column("return_line", "INTEGER", nullable=False),
+        Column("return_function", "TEXT"),
+        Column("jsx_mode", "TEXT", nullable=False),
+        Column("return_var_name", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_function_return_sources_jsx_return", ["return_file", "return_line", "jsx_mode"]),
+        ("idx_function_return_sources_jsx_var", ["return_var_name"]),
+        ("idx_function_return_sources_jsx_file", ["return_file"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["return_file", "return_line"],
+            foreign_table="function_returns_jsx",
+            foreign_columns=["file", "line"]
+        )
     ]
 )
 
@@ -579,12 +860,37 @@ REACT_COMPONENTS = TableSchema(
         Column("start_line", "INTEGER", nullable=False),
         Column("end_line", "INTEGER", nullable=False),
         Column("has_jsx", "BOOLEAN", default="0"),
-        Column("hooks_used", "TEXT"),
+        # hooks_used REMOVED - see react_component_hooks junction table
         Column("props_type", "TEXT"),
     ],
     indexes=[
         ("idx_react_components_file", ["file"]),
         ("idx_react_components_name", ["name"]),
+    ]
+)
+
+# Junction table for normalized React component hooks
+# Replaces JSON TEXT column react_components.hooks_used with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+REACT_COMPONENT_HOOKS = TableSchema(
+    name="react_component_hooks",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("component_file", "TEXT", nullable=False),
+        Column("component_name", "TEXT", nullable=False),
+        Column("hook_name", "TEXT", nullable=False),  # 1 row per hook used
+    ],
+    indexes=[
+        ("idx_react_comp_hooks_component", ["component_file", "component_name"]),  # FK composite lookup
+        ("idx_react_comp_hooks_hook", ["hook_name"]),  # Fast search by hook name
+        ("idx_react_comp_hooks_file", ["component_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["component_file", "component_name"],
+            foreign_table="react_components",
+            foreign_columns=["file", "name"]
+        )
     ]
 )
 
@@ -596,7 +902,7 @@ REACT_HOOKS = TableSchema(
         Column("component_name", "TEXT", nullable=False),
         Column("hook_name", "TEXT", nullable=False),
         Column("dependency_array", "TEXT"),
-        Column("dependency_vars", "TEXT"),
+        # dependency_vars REMOVED - see react_hook_dependencies junction table
         Column("callback_body", "TEXT"),
         Column("has_cleanup", "BOOLEAN", default="0"),
         Column("cleanup_type", "TEXT"),
@@ -605,6 +911,32 @@ REACT_HOOKS = TableSchema(
         ("idx_react_hooks_file", ["file"]),
         ("idx_react_hooks_component", ["component_name"]),
         ("idx_react_hooks_name", ["hook_name"]),
+    ]
+)
+
+# Junction table for normalized React hook dependency variables
+# Replaces JSON TEXT column react_hooks.dependency_vars with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+REACT_HOOK_DEPENDENCIES = TableSchema(
+    name="react_hook_dependencies",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("hook_file", "TEXT", nullable=False),
+        Column("hook_line", "INTEGER", nullable=False),
+        Column("hook_component", "TEXT", nullable=False),
+        Column("dependency_name", "TEXT", nullable=False),  # 1 row per dependency variable
+    ],
+    indexes=[
+        ("idx_react_hook_deps_hook", ["hook_file", "hook_line", "hook_component"]),  # FK composite lookup
+        ("idx_react_hook_deps_name", ["dependency_name"]),  # Fast search by variable name
+        ("idx_react_hook_deps_file", ["hook_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["hook_file", "hook_line", "hook_component"],
+            foreign_table="react_hooks",
+            foreign_columns=["file", "line", "component_name"]
+        )
     ]
 )
 
@@ -782,6 +1114,159 @@ NGINX_CONFIGS = TableSchema(
 )
 
 # ============================================================================
+# TERRAFORM TABLES (Infrastructure as Code)
+# ============================================================================
+
+TERRAFORM_FILES = TableSchema(
+    name="terraform_files",
+    columns=[
+        Column("file_path", "TEXT", nullable=False, primary_key=True),
+        Column("module_name", "TEXT"),  # e.g., "vpc", "database", "networking"
+        Column("stack_name", "TEXT"),   # e.g., "prod", "staging", "dev"
+        Column("backend_type", "TEXT"), # e.g., "s3", "local", "remote"
+        Column("providers_json", "TEXT"), # JSON array of provider configs
+        Column("is_module", "BOOLEAN", default="0"),
+        Column("module_source", "TEXT"), # For module blocks
+    ],
+    indexes=[
+        ("idx_terraform_files_module", ["module_name"]),
+        ("idx_terraform_files_stack", ["stack_name"]),
+    ]
+)
+
+TERRAFORM_RESOURCES = TableSchema(
+    name="terraform_resources",
+    columns=[
+        Column("resource_id", "TEXT", nullable=False, primary_key=True),  # Format: "file::type.name"
+        Column("file_path", "TEXT", nullable=False),
+        Column("resource_type", "TEXT", nullable=False),  # e.g., "aws_db_instance", "aws_security_group"
+        Column("resource_name", "TEXT", nullable=False),  # e.g., "main_db", "web_sg"
+        Column("module_path", "TEXT"),  # Hierarchical path for nested modules
+        Column("properties_json", "TEXT"),  # Full resource properties
+        Column("depends_on_json", "TEXT"),  # Explicit depends_on declarations
+        Column("sensitive_flags_json", "TEXT"),  # Which properties are sensitive
+        Column("has_public_exposure", "BOOLEAN", default="0"),  # Flagged during analysis
+        Column("line", "INTEGER"),  # Start line in file
+    ],
+    indexes=[
+        ("idx_terraform_resources_file", ["file_path"]),
+        ("idx_terraform_resources_type", ["resource_type"]),
+        ("idx_terraform_resources_name", ["resource_name"]),
+        ("idx_terraform_resources_public", ["has_public_exposure"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        )
+    ]
+)
+
+TERRAFORM_VARIABLES = TableSchema(
+    name="terraform_variables",
+    columns=[
+        Column("variable_id", "TEXT", nullable=False, primary_key=True),  # Format: "file::var_name"
+        Column("file_path", "TEXT", nullable=False),
+        Column("variable_name", "TEXT", nullable=False),
+        Column("variable_type", "TEXT"),  # string, number, list, map, object, etc.
+        Column("default_json", "TEXT"),  # Default value if provided
+        Column("is_sensitive", "BOOLEAN", default="0"),
+        Column("description", "TEXT"),
+        Column("source_file", "TEXT"),  # .tfvars file if value sourced externally
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_terraform_variables_file", ["file_path"]),
+        ("idx_terraform_variables_name", ["variable_name"]),
+        ("idx_terraform_variables_sensitive", ["is_sensitive"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        )
+    ]
+)
+
+TERRAFORM_VARIABLE_VALUES = TableSchema(
+    name="terraform_variable_values",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("variable_name", "TEXT", nullable=False),
+        Column("variable_value_json", "TEXT"),
+        Column("line", "INTEGER"),
+        Column("is_sensitive_context", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_tf_var_values_file", ["file_path"]),
+        ("idx_tf_var_values_name", ["variable_name"]),
+        ("idx_tf_var_values_sensitive", ["is_sensitive_context"]),
+    ]
+)
+
+TERRAFORM_OUTPUTS = TableSchema(
+    name="terraform_outputs",
+    columns=[
+        Column("output_id", "TEXT", nullable=False, primary_key=True),  # Format: "file::output_name"
+        Column("file_path", "TEXT", nullable=False),
+        Column("output_name", "TEXT", nullable=False),
+        Column("value_json", "TEXT"),  # The output expression
+        Column("is_sensitive", "BOOLEAN", default="0"),
+        Column("description", "TEXT"),
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_terraform_outputs_file", ["file_path"]),
+        ("idx_terraform_outputs_name", ["output_name"]),
+        ("idx_terraform_outputs_sensitive", ["is_sensitive"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        )
+    ]
+)
+
+TERRAFORM_FINDINGS = TableSchema(
+    name="terraform_findings",
+    columns=[
+        Column("finding_id", "TEXT", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("resource_id", "TEXT"),  # FK to terraform_resources
+        Column("category", "TEXT", nullable=False),  # "public_exposure", "iam_wildcard", "secret_propagation"
+        Column("severity", "TEXT", nullable=False),  # "critical", "high", "medium", "low"
+        Column("title", "TEXT", nullable=False),
+        Column("description", "TEXT"),
+        Column("graph_context_json", "TEXT"),  # Path nodes for blast radius
+        Column("remediation", "TEXT"),
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_terraform_findings_file", ["file_path"]),
+        ("idx_terraform_findings_resource", ["resource_id"]),
+        ("idx_terraform_findings_severity", ["severity"]),
+        ("idx_terraform_findings_category", ["category"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="terraform_files",
+            foreign_columns=["file_path"]
+        ),
+        ForeignKey(
+            local_columns=["resource_id"],
+            foreign_table="terraform_resources",
+            foreign_columns=["resource_id"]
+        )
+    ]
+)
+
+# ============================================================================
 # BUILD ANALYSIS TABLES
 # ============================================================================
 
@@ -827,7 +1312,7 @@ IMPORT_STYLES = TableSchema(
         Column("line", "INTEGER", nullable=False),
         Column("package", "TEXT", nullable=False),
         Column("import_style", "TEXT", nullable=False),
-        Column("imported_names", "TEXT"),
+        # imported_names REMOVED - see import_style_names junction table
         Column("alias_name", "TEXT"),
         Column("full_statement", "TEXT"),
     ],
@@ -835,6 +1320,31 @@ IMPORT_STYLES = TableSchema(
         ("idx_import_styles_file", ["file"]),
         ("idx_import_styles_package", ["package"]),
         ("idx_import_styles_style", ["import_style"]),
+    ]
+)
+
+# Junction table for normalized import statement names
+# Replaces JSON TEXT column import_styles.imported_names with relational model
+# FOREIGN KEY constraints defined in database.py to avoid circular dependencies
+IMPORT_STYLE_NAMES = TableSchema(
+    name="import_style_names",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("import_file", "TEXT", nullable=False),
+        Column("import_line", "INTEGER", nullable=False),
+        Column("imported_name", "TEXT", nullable=False),  # 1 row per imported name
+    ],
+    indexes=[
+        ("idx_import_style_names_import", ["import_file", "import_line"]),  # FK composite lookup
+        ("idx_import_style_names_name", ["imported_name"]),  # Fast search by imported name
+        ("idx_import_style_names_file", ["import_file"]),  # File-level aggregation queries
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["import_file", "import_line"],
+            foreign_table="import_styles",
+            foreign_columns=["file", "line"]
+        )
     ]
 )
 
@@ -868,6 +1378,24 @@ FRAMEWORK_SAFE_SINKS = TableSchema(
         Column("reason", "TEXT"),
     ],
     indexes=[]
+)
+
+VALIDATION_FRAMEWORK_USAGE = TableSchema(
+    name="validation_framework_usage",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("framework", "TEXT", nullable=False),  # 'zod', 'joi', 'yup'
+        Column("method", "TEXT", nullable=False),  # 'parse', 'parseAsync', 'validate'
+        Column("variable_name", "TEXT"),  # 'schema', 'userSchema' or NULL for direct calls
+        Column("is_validator", "BOOLEAN", default="1"),  # True for validators, False for schema builders
+        Column("argument_expr", "TEXT"),  # Expression being validated (e.g., 'req.body')
+    ],
+    indexes=[
+        ("idx_validation_framework_file_line", ["file_path", "line"]),
+        ("idx_validation_framework_method", ["framework", "method"]),
+        ("idx_validation_is_validator", ["is_validator"]),
+    ]
 )
 
 # ============================================================================
@@ -915,13 +1443,18 @@ TABLES: Dict[str, TableSchema] = {
     # Symbol tables
     "symbols": SYMBOLS,
     "symbols_jsx": SYMBOLS_JSX,
+    "class_properties": CLASS_PROPERTIES,
+    "env_var_usage": ENV_VAR_USAGE,
+    "orm_relationships": ORM_RELATIONSHIPS,
 
     # API & routing
     "api_endpoints": API_ENDPOINTS,
+    "api_endpoint_controls": API_ENDPOINT_CONTROLS,  # Junction table for normalized controls
 
     # SQL & database
     "sql_objects": SQL_OBJECTS,
     "sql_queries": SQL_QUERIES,
+    "sql_query_tables": SQL_QUERY_TABLES,  # Junction table for normalized table references
     "jwt_patterns": JWT_PATTERNS,
     "orm_queries": ORM_QUERIES,
     "prisma_models": PRISMA_MODELS,
@@ -929,10 +1462,14 @@ TABLES: Dict[str, TableSchema] = {
     # Data flow (taint analysis critical)
     "assignments": ASSIGNMENTS,
     "assignments_jsx": ASSIGNMENTS_JSX,
+    "assignment_sources": ASSIGNMENT_SOURCES,
+    "assignment_sources_jsx": ASSIGNMENT_SOURCES_JSX,
     "function_call_args": FUNCTION_CALL_ARGS,
     "function_call_args_jsx": FUNCTION_CALL_ARGS_JSX,
     "function_returns": FUNCTION_RETURNS,
     "function_returns_jsx": FUNCTION_RETURNS_JSX,
+    "function_return_sources": FUNCTION_RETURN_SOURCES,
+    "function_return_sources_jsx": FUNCTION_RETURN_SOURCES_JSX,
     "variable_usage": VARIABLE_USAGE,
     "object_literals": OBJECT_LITERALS,
 
@@ -943,7 +1480,9 @@ TABLES: Dict[str, TableSchema] = {
 
     # React
     "react_components": REACT_COMPONENTS,
+    "react_component_hooks": REACT_COMPONENT_HOOKS,  # Junction table for normalized hooks_used
     "react_hooks": REACT_HOOKS,
+    "react_hook_dependencies": REACT_HOOK_DEPENDENCIES,  # Junction table for normalized dependency_vars
 
     # Vue
     "vue_components": VUE_COMPONENTS,
@@ -959,14 +1498,24 @@ TABLES: Dict[str, TableSchema] = {
     "compose_services": COMPOSE_SERVICES,
     "nginx_configs": NGINX_CONFIGS,
 
+    # Terraform (Infrastructure as Code)
+    "terraform_files": TERRAFORM_FILES,
+    "terraform_resources": TERRAFORM_RESOURCES,
+    "terraform_variables": TERRAFORM_VARIABLES,
+    "terraform_variable_values": TERRAFORM_VARIABLE_VALUES,
+    "terraform_outputs": TERRAFORM_OUTPUTS,
+    "terraform_findings": TERRAFORM_FINDINGS,
+
     # Build analysis
     "package_configs": PACKAGE_CONFIGS,
     "lock_analysis": LOCK_ANALYSIS,
     "import_styles": IMPORT_STYLES,
+    "import_style_names": IMPORT_STYLE_NAMES,  # Junction table for normalized imported_names
 
     # Framework detection
     "frameworks": FRAMEWORKS,
     "framework_safe_sinks": FRAMEWORK_SAFE_SINKS,
+    "validation_framework_usage": VALIDATION_FRAMEWORK_USAGE,
 
     # Findings
     "findings_consolidated": FINDINGS_CONSOLIDATED,
@@ -1029,6 +1578,174 @@ def build_query(table_name: str, columns: Optional[List[str]] = None,
 
     if where:
         query_parts.extend(["WHERE", where])
+
+    if order_by:
+        query_parts.extend(["ORDER BY", order_by])
+
+    if limit is not None:
+        query_parts.extend(["LIMIT", str(limit)])
+
+    return " ".join(query_parts)
+
+
+def build_join_query(
+    base_table: str,
+    base_columns: List[str],
+    join_table: str,
+    join_columns: List[str],
+    join_on: Optional[List[Tuple[str, str]]] = None,
+    aggregate: Optional[Dict[str, str]] = None,
+    where: Optional[str] = None,
+    group_by: Optional[List[str]] = None,
+    order_by: Optional[str] = None,
+    limit: Optional[int] = None,
+    join_type: str = "LEFT"
+) -> str:
+    """Build a JOIN query using schema definitions and foreign keys.
+
+    This function generates SQL JOIN queries with schema validation,
+    eliminating the need for raw SQL and enabling type-safe joins.
+
+    Args:
+        base_table: Name of the base table (e.g., 'react_hooks')
+        base_columns: Columns to select from base table (e.g., ['file', 'line', 'hook_name'])
+        join_table: Name of table to join (e.g., 'react_hook_dependencies')
+        join_columns: Columns to select/aggregate from join table (e.g., ['dependency_name'])
+        join_on: Optional explicit JOIN conditions as (base_col, join_col) tuples.
+                 If None, uses foreign key relationship from schema.
+        aggregate: Optional aggregation for join columns (e.g., {'dependency_name': 'GROUP_CONCAT'})
+        where: Optional WHERE clause (without 'WHERE' keyword)
+        group_by: Optional GROUP BY columns (required when using aggregation)
+        order_by: Optional ORDER BY clause (without 'ORDER BY' keyword)
+        limit: Optional LIMIT clause (just the number)
+        join_type: Type of JOIN ('LEFT', 'INNER', 'RIGHT') - default 'LEFT'
+
+    Returns:
+        Complete SELECT query string with JOIN
+
+    Example:
+        >>> build_join_query(
+        ...     base_table='react_hooks',
+        ...     base_columns=['file', 'line', 'hook_name'],
+        ...     join_table='react_hook_dependencies',
+        ...     join_columns=['dependency_name'],
+        ...     aggregate={'dependency_name': 'GROUP_CONCAT'},
+        ...     group_by=['file', 'line', 'hook_name']
+        ... )
+        'SELECT rh.file, rh.line, rh.hook_name, GROUP_CONCAT(rhd.dependency_name, '|') as dependency_name_concat FROM react_hooks rh LEFT JOIN react_hook_dependencies rhd ON rh.file = rhd.hook_file AND rh.line = rhd.hook_line AND rh.component_name = rhd.hook_component GROUP BY rh.file, rh.line, rh.hook_name'
+
+    Raises:
+        ValueError: If tables don't exist, columns invalid, or foreign key not found
+    """
+    # Validate tables exist
+    if base_table not in TABLES:
+        raise ValueError(f"Unknown base table: {base_table}. Available: {', '.join(sorted(TABLES.keys()))}")
+    if join_table not in TABLES:
+        raise ValueError(f"Unknown join table: {join_table}. Available: {', '.join(sorted(TABLES.keys()))}")
+
+    base_schema = TABLES[base_table]
+    join_schema = TABLES[join_table]
+
+    # Validate base columns exist
+    base_col_names = set(base_schema.column_names())
+    for col in base_columns:
+        if col not in base_col_names:
+            raise ValueError(
+                f"Unknown column '{col}' in base table '{base_table}'. "
+                f"Valid columns: {', '.join(sorted(base_col_names))}"
+            )
+
+    # Validate join columns exist (unless they're being aggregated)
+    join_col_names = set(join_schema.column_names())
+    for col in join_columns:
+        if col not in join_col_names:
+            raise ValueError(
+                f"Unknown column '{col}' in join table '{join_table}'. "
+                f"Valid columns: {', '.join(sorted(join_col_names))}"
+            )
+
+    # Determine JOIN ON conditions
+    if join_on is None:
+        # Auto-discover from foreign keys
+        fk = None
+        for foreign_key in join_schema.foreign_keys:
+            if foreign_key.foreign_table == base_table:
+                fk = foreign_key
+                break
+
+        if fk is None:
+            raise ValueError(
+                f"No foreign key found from '{join_table}' to '{base_table}'. "
+                f"Either define foreign_keys in schema or provide explicit join_on parameter."
+            )
+
+        # Build JOIN conditions from foreign key
+        join_on = list(zip(fk.foreign_columns, fk.local_columns))
+
+    # Validate JOIN ON columns
+    for base_col, join_col in join_on:
+        if base_col not in base_col_names:
+            raise ValueError(f"JOIN ON column '{base_col}' not found in base table '{base_table}'")
+        if join_col not in join_col_names:
+            raise ValueError(f"JOIN ON column '{join_col}' not found in join table '{join_table}'")
+
+    # Generate table aliases
+    base_alias = ''.join([c for c in base_table if c.isalpha()])[:2]  # First 2 letters
+    join_alias = ''.join([c for c in join_table if c.isalpha()])[:3]  # First 3 letters
+
+    # Build SELECT clause
+    select_parts = [f"{base_alias}.{col}" for col in base_columns]
+
+    if aggregate:
+        for col, agg_func in aggregate.items():
+            if agg_func == 'GROUP_CONCAT':
+                select_parts.append(
+                    f"GROUP_CONCAT({join_alias}.{col}, '|') as {col}_concat"
+                )
+            elif agg_func in ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX']:
+                select_parts.append(
+                    f"{agg_func}({join_alias}.{col}) as {col}_{agg_func.lower()}"
+                )
+            else:
+                raise ValueError(
+                    f"Unknown aggregation function '{agg_func}'. "
+                    f"Supported: GROUP_CONCAT, COUNT, SUM, AVG, MIN, MAX"
+                )
+    else:
+        # No aggregation - select join columns directly
+        select_parts.extend([f"{join_alias}.{col}" for col in join_columns])
+
+    # Build JOIN ON clause
+    on_conditions = [
+        f"{base_alias}.{base_col} = {join_alias}.{join_col}"
+        for base_col, join_col in join_on
+    ]
+    on_clause = " AND ".join(on_conditions)
+
+    # Assemble query
+    query_parts = [
+        "SELECT",
+        ", ".join(select_parts),
+        "FROM",
+        f"{base_table} {base_alias}",
+        f"{join_type} JOIN",
+        f"{join_table} {join_alias}",
+        "ON",
+        on_clause
+    ]
+
+    if where:
+        query_parts.extend(["WHERE", where])
+
+    if group_by:
+        # Prefix group_by columns with base alias if not already qualified
+        qualified_group_by = []
+        for col in group_by:
+            if '.' not in col:
+                qualified_group_by.append(f"{base_alias}.{col}")
+            else:
+                qualified_group_by.append(col)
+        query_parts.extend(["GROUP BY", ", ".join(qualified_group_by)])
 
     if order_by:
         query_parts.extend(["ORDER BY", order_by])

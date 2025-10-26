@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from theauditor.manifest_parser import ManifestParser
 from theauditor.framework_registry import FRAMEWORK_REGISTRY
+from theauditor.utils.validation_debug import log_validation
 
 
 class FrameworkDetector:
@@ -89,7 +90,24 @@ class FrameworkDetector:
                 # Replace with version that has a known version
                 seen[key] = fw
 
-        return list(seen.values())
+        final_frameworks = list(seen.values())
+
+        # Debug logging for validation frameworks (after deduplication)
+        validation_frameworks = [
+            fw for fw in final_frameworks
+            if FRAMEWORK_REGISTRY.get(fw["framework"], {}).get("category") == "validation"
+        ]
+        if validation_frameworks:
+            for fw in validation_frameworks:
+                log_validation("L1-DETECT", f"Detected validation framework: {fw['framework']}", {
+                    "framework": fw["framework"],
+                    "version": fw["version"],
+                    "language": fw["language"],
+                    "source": fw["source"],
+                    "path": fw.get("path", ".")
+                })
+
+        return final_frameworks
 
     def _detect_from_manifests(self):
         """Unified manifest detection using registry and ManifestParser - now directory-aware."""
@@ -200,13 +218,23 @@ class FrameworkDetector:
                             for line in manifest_data:
                                 version = parser.check_package_in_deps([line], fw_name)
                                 if version:
-                                    self.detected_frameworks.append({
+                                    fw_info = {
                                         "framework": fw_name,
                                         "version": version or "unknown",
                                         "language": fw_config["language"],
                                         "path": dir_path,
                                         "source": manifest_key
-                                    })
+                                    }
+                                    self.detected_frameworks.append(fw_info)
+
+                                    # Debug logging for validation frameworks
+                                    if fw_config.get("category") == "validation":
+                                        log_validation("L1-DETECT", f"Found validation framework: {fw_name}", {
+                                            "framework": fw_name,
+                                            "version": version or "unknown",
+                                            "source": manifest_key,
+                                            "path": dir_path
+                                        })
                                     break
                     elif isinstance(manifest_data, str):
                         # Text file content
