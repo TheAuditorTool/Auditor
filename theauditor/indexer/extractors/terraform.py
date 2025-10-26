@@ -9,7 +9,7 @@ Handles extraction of Terraform/HCL infrastructure definitions including:
 - Data source references
 
 ARCHITECTURE: Database-first, zero fallbacks.
-- Uses TerraformParser for structural HCL parsing (python-hcl2)
+- Uses tree-sitter HCL parser for structural extraction
 - NO regex fallbacks - hard fail if parsing fails
 - Returns extracted data dict for indexer to store in database
 - Facts go to repo_index.db terraform_* tables
@@ -20,11 +20,11 @@ Graph relationships (variable → resource → output) are built in Phase 4 by g
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 from . import BaseExtractor
-from ...terraform.parser import TerraformParser
 from ...utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -34,14 +34,8 @@ class TerraformExtractor(BaseExtractor):
     """Extractor for Terraform/HCL files."""
 
     def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
-        """Initialize Terraform extractor with HCL parser.
-
-        Args:
-            root_path: Project root path
-            ast_parser: Unused for Terraform (no tree-sitter support needed)
-        """
+        """Initialize Terraform extractor."""
         super().__init__(root_path, ast_parser)
-        self.parser = TerraformParser()
 
     def supported_extensions(self) -> List[str]:
         """Return list of file extensions this extractor supports."""
@@ -70,37 +64,37 @@ class TerraformExtractor(BaseExtractor):
         """
         file_path = file_info['path']
 
-        # Skip .tfvars files for now (TODO: parse for variable values)
+        # Dedicated parsing path for tfvars files (variable assignments only)
         if file_path.endswith('.tfvars'):
-            logger.debug(f"Skipping .tfvars file (not yet supported): {file_path}")
-            return {}
+            return self._extract_tfvars(file_path, content, tree)
 
         try:
-            # PREFERRED: Use tree-sitter if available (provides line numbers)
-            if tree and tree.get('type') == 'tree_sitter' and tree.get('tree'):
-                from ...ast_extractors import hcl_impl
+            if not (tree and tree.get('type') == 'tree_sitter' and tree.get('tree')):
+                logger.error(
+                    "Tree-sitter HCL parser unavailable for %s. Run 'aud setup-ai' to install language support.",
+                    file_path,
+                )
+                return {}
 
-                ts_tree = tree['tree']
+            from ...ast_extractors import hcl_impl
 
-                # Extract using tree-sitter HCL implementation
-                resources = hcl_impl.extract_hcl_resources(ts_tree, content, file_path)
-                variables = hcl_impl.extract_hcl_variables(ts_tree, content, file_path)
-                outputs = hcl_impl.extract_hcl_outputs(ts_tree, content, file_path)
-                data_sources = hcl_impl.extract_hcl_data_sources(ts_tree, content, file_path)
+            ts_tree = tree['tree']
 
-                # Convert tree-sitter format to parser format for compatibility
-                parsed = {
-                    'resources': self._convert_ts_resources(resources),
-                    'variables': self._convert_ts_variables(variables),
-                    'outputs': self._convert_ts_outputs(outputs),
-                    'data': self._convert_ts_data(data_sources),
-                    'modules': [],  # TODO: Add tree-sitter module extraction
-                    'providers': [],  # TODO: Add tree-sitter provider extraction
-                    'terraform': [],  # TODO: Add tree-sitter terraform block extraction
-                }
-            else:
-                # FALLBACK: Use python-hcl2 parser (no line numbers)
-                parsed = self.parser.parse_file(file_path)
+            # Extract using tree-sitter HCL implementation
+            resources = hcl_impl.extract_hcl_resources(ts_tree, content, file_path)
+            variables = hcl_impl.extract_hcl_variables(ts_tree, content, file_path)
+            outputs = hcl_impl.extract_hcl_outputs(ts_tree, content, file_path)
+            data_sources = hcl_impl.extract_hcl_data_sources(ts_tree, content, file_path)
+
+            parsed = {
+                'resources': self._convert_ts_resources(resources),
+                'variables': self._convert_ts_variables(variables),
+                'outputs': self._convert_ts_outputs(outputs),
+                'data': self._convert_ts_data(data_sources),
+                'modules': [],  # TODO: Add tree-sitter module extraction
+                'providers': [],  # TODO: Add tree-sitter provider extraction
+                'terraform': [],  # TODO: Add tree-sitter terraform block extraction
+            }
 
             # Build file metadata record
             terraform_file = self._build_file_record(file_path, parsed)
@@ -204,19 +198,23 @@ class TerraformExtractor(BaseExtractor):
         Returns:
             Resources in TerraformParser format matching database schema
         """
-        return [
-            {
-                'resource_id': f"{r['file_path']}::{r['resource_type']}.{r['resource_name']}",
-                'file_path': r['file_path'],
-                'resource_type': r['resource_type'],
-                'resource_name': r['resource_name'],
-                'properties': {},  # TODO: Extract attributes from tree-sitter body node
-                'depends_on': [],
-                'sensitive_properties': [],
-                'line': r['line'],  # Tree-sitter advantage: precise line numbers!
-            }
-            for r in ts_resources
-        ]
+        converted = []
+        for resource in ts_resources:
+            attributes = self._normalize_hcl_attributes(resource.get('attributes', {}))
+            depends_on = attributes.pop('depends_on', [])
+
+            converted.append({
+                'resource_id': f"{resource['file_path']}::{resource['resource_type']}.{resource['resource_name']}",
+                'file_path': resource['file_path'],
+                'resource_type': resource['resource_type'],
+                'resource_name': resource['resource_name'],
+                'properties': attributes,
+                'depends_on': depends_on,
+                'sensitive_properties': self._identify_sensitive_properties(attributes),
+                'line': resource['line'],
+            })
+
+        return converted
 
     def _convert_ts_variables(self, ts_variables: List[Dict]) -> List[Dict]:
         """Convert tree-sitter variable format to TerraformParser format.
@@ -283,3 +281,223 @@ class TerraformExtractor(BaseExtractor):
             }
             for d in ts_data
         ]
+
+    def _normalize_hcl_attributes(self, attributes: Dict[str, Any]) -> Dict[str, Any]:
+        normalized: Dict[str, Any] = {}
+        for key, raw_value in attributes.items():
+            if key == 'depends_on':
+                normalized[key] = self._parse_depends_on(raw_value)
+            else:
+                normalized[key] = self._interpret_hcl_value(raw_value)
+        return normalized
+
+    def _interpret_hcl_value(self, value: Any) -> Any:
+        if isinstance(value, (bool, int, float)):
+            return value
+        if value is None:
+            return None
+
+        text = str(value).strip()
+        if not text:
+            return text
+
+        lowered = text.lower()
+        if lowered in ('true', 'false'):
+            return lowered == 'true'
+        if lowered == 'null':
+            return None
+
+        if text.startswith('"') and text.endswith('"') and len(text) >= 2:
+            return text[1:-1]
+
+        try:
+            if '.' in text:
+                return float(text)
+            return int(text)
+        except ValueError:
+            pass
+
+        if text.startswith('[') and text.endswith(']'):
+            inner = text[1:-1].strip()
+            if inner:
+                parts = [p.strip().strip('"') for p in inner.split(',') if p.strip()]
+                return parts
+            return []
+
+        return text
+
+    def _parse_depends_on(self, value: Any) -> List[str]:
+        if isinstance(value, list):
+            return [str(item).strip().strip('"') for item in value if str(item).strip()]
+
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped.startswith('[') and stripped.endswith(']'):
+                stripped = stripped[1:-1]
+            parts = [part.strip().strip('"') for part in stripped.split(',') if part.strip()]
+            return parts
+
+        return []
+
+    def _strip_inline_comment(self, text: str) -> str:
+        result = []
+        in_string = False
+        escape = False
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if ch == '"' and not escape:
+                in_string = not in_string
+            if not in_string and not escape:
+                if ch == '#':
+                    break
+                if ch == '/' and i + 1 < len(text) and text[i + 1] == '/':
+                    break
+            result.append(ch)
+            escape = (ch == '\\' and not escape)
+            if escape and ch != '\\':
+                escape = False
+            i += 1
+        return ''.join(result).rstrip()
+
+    def _detect_heredoc_marker(self, text: str) -> Optional[str]:
+        match = re.match(r"<<-?\s*\"?([A-Za-z0-9_]+)\"?", text)
+        if match:
+            return match.group(1)
+        return None
+
+    def _brace_delta(self, text: Optional[str]) -> int:
+        if not text:
+            return 0
+        delta = 0
+        in_string = False
+        escape = False
+        for ch in text:
+            if ch == '"' and not escape:
+                in_string = not in_string
+            if not in_string:
+                if ch in '{[':
+                    delta += 1
+                elif ch in '}]':
+                    delta -= 1
+            escape = (ch == '\\' and not escape)
+            if escape and ch != '\\':
+                escape = False
+        return delta
+
+    def _extract_tfvars(self, file_path: str, content: str,
+                        tree: Optional[Any]) -> Dict[str, Any]:
+        """Extract variable assignments from .tfvars files without hcl2."""
+        if content is None:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as handle:
+                    content = handle.read()
+            except Exception as exc:
+                logger.error(f"Failed to read .tfvars file {file_path}: {exc}")
+                return {}
+
+        lines = content.splitlines()
+        variable_values: List[Dict[str, Any]] = []
+        idx = 0
+
+        while idx < len(lines):
+            raw_line = lines[idx]
+            stripped = raw_line.strip()
+
+            if not stripped or stripped.startswith(('#', '//')):
+                idx += 1
+                continue
+
+            if '=' not in stripped:
+                idx += 1
+                continue
+
+            key_part, remainder = raw_line.split('=', 1)
+            key = key_part.strip()
+            if not key:
+                idx += 1
+                continue
+
+            start_line = idx + 1
+            remainder = self._strip_inline_comment(remainder).strip()
+            heredoc_marker = self._detect_heredoc_marker(remainder)
+            value_lines: List[str] = []
+
+            idx += 1
+
+            if heredoc_marker:
+                # Collect lines until the heredoc terminator (exclusive)
+                value_lines.clear()
+                while idx < len(lines):
+                    current = lines[idx]
+                    if current.strip() == heredoc_marker:
+                        idx += 1
+                        break
+                    value_lines.append(current.rstrip())
+                    idx += 1
+            else:
+                depth = 0
+                if remainder:
+                    value_lines.append(remainder)
+                    depth = self._brace_delta(remainder)
+                else:
+                    # Value may start on following line
+                    while idx < len(lines):
+                        current = self._strip_inline_comment(lines[idx])
+                        if not current.strip():
+                            idx += 1
+                            continue
+                        value_lines.append(current.rstrip())
+                        depth = self._brace_delta(current)
+                        idx += 1
+                        break
+
+                while idx < len(lines) and depth > 0:
+                    current = self._strip_inline_comment(lines[idx])
+                    value_lines.append(current.rstrip())
+                    depth += self._brace_delta(current)
+                    idx += 1
+
+            value_text = '\n'.join(line for line in value_lines if line is not None).strip()
+            if not value_text:
+                continue
+
+            variable_values.append({
+                'file_path': file_path,
+                'variable_name': key,
+                'variable_value': value_text,
+                'line': start_line,
+                'is_sensitive_context': self._is_sensitive_value(key, value_text),
+            })
+
+        if not variable_values:
+            return {}
+
+        logger.debug(
+            f"Extracted {len(variable_values)} Terraform variable assignments from {file_path}"
+        )
+        return {'terraform_variable_values': variable_values}
+
+    def _is_sensitive_value(self, key: str, value: Any) -> bool:
+        """Heuristic detection for sensitive tfvars entries."""
+        sensitive_keywords = (
+            'password', 'secret', 'token', 'key', 'credential', 'private', 'auth'
+        )
+        key_lower = key.lower()
+        if any(word in key_lower for word in sensitive_keywords):
+            return True
+
+        if isinstance(value, str):
+            value_lower = value.lower()
+            return any(word in value_lower for word in sensitive_keywords)
+
+        return False
+
+    def _identify_sensitive_properties(self, properties: Dict[str, Any]) -> List[str]:
+        sensitive = []
+        keywords = ('password', 'secret', 'key', 'token', 'credential', 'private')
+        for prop_name in properties.keys():
+            lower = prop_name.lower()
+            if any(keyword in lower for keyword in keywords):
+                sensitive.append(prop_name)
+        return sensitive

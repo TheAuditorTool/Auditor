@@ -135,7 +135,8 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             except Exception as e:
                 # Non-critical: Terraform can work without tree-sitter (though no line numbers)
                 print(f"[INFO] HCL tree-sitter not available: {e}")
-                print("[INFO] Terraform files will be parsed with python-hcl2 fallback (no line numbers)")
+                print("[INFO] Terraform analysis requires the tree-sitter HCL grammar. "
+                      "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
 
         except ImportError as e:
             # If tree-sitter is installed but language pack is not, this is a critical error
