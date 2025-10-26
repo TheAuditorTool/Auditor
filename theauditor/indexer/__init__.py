@@ -1308,6 +1308,27 @@ class IndexerOrchestrator:
                     self.counts['terraform_variables'] = 0
                 self.counts['terraform_variables'] += 1
 
+        if 'terraform_variable_values' in extracted:
+            for value in extracted['terraform_variable_values']:
+                raw_value = value.get('variable_value')
+                value_json = value.get('variable_value_json')
+                if value_json is None and raw_value is not None:
+                    try:
+                        value_json = json.dumps(raw_value)
+                    except TypeError:
+                        value_json = json.dumps(str(raw_value))
+
+                self.db_manager.add_terraform_variable_value(
+                    file_path=value['file_path'],
+                    variable_name=value['variable_name'],
+                    variable_value_json=value_json,
+                    line=value.get('line'),
+                    is_sensitive_context=value.get('is_sensitive_context', False)
+                )
+                if 'terraform_variable_values' not in self.counts:
+                    self.counts['terraform_variable_values'] = 0
+                self.counts['terraform_variable_values'] += 1
+
         if 'terraform_outputs' in extracted:
             for output in extracted['terraform_outputs']:
                 self.db_manager.add_terraform_output(

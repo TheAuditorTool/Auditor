@@ -1190,6 +1190,23 @@ TERRAFORM_VARIABLES = TableSchema(
     ]
 )
 
+TERRAFORM_VARIABLE_VALUES = TableSchema(
+    name="terraform_variable_values",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("variable_name", "TEXT", nullable=False),
+        Column("variable_value_json", "TEXT"),
+        Column("line", "INTEGER"),
+        Column("is_sensitive_context", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_tf_var_values_file", ["file_path"]),
+        ("idx_tf_var_values_name", ["variable_name"]),
+        ("idx_tf_var_values_sensitive", ["is_sensitive_context"]),
+    ]
+)
+
 TERRAFORM_OUTPUTS = TableSchema(
     name="terraform_outputs",
     columns=[
@@ -1485,6 +1502,7 @@ TABLES: Dict[str, TableSchema] = {
     "terraform_files": TERRAFORM_FILES,
     "terraform_resources": TERRAFORM_RESOURCES,
     "terraform_variables": TERRAFORM_VARIABLES,
+    "terraform_variable_values": TERRAFORM_VARIABLE_VALUES,
     "terraform_outputs": TERRAFORM_OUTPUTS,
     "terraform_findings": TERRAFORM_FINDINGS,
 

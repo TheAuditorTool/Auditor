@@ -12,6 +12,14 @@ Architecture:
 from typing import List, Dict, Any, Optional
 
 
+def _get_body_node(block_node: Any) -> Optional[Any]:
+    """Return the body child node for a block if present."""
+    for child in getattr(block_node, 'children', []) or []:
+        if child.type == "body":
+            return child
+    return None
+
+
 def extract_hcl_blocks(node: Any, language: str = "hcl") -> List[Dict]:
     """Extract HCL blocks (resources, variables, outputs) from tree-sitter AST.
 
@@ -63,12 +71,16 @@ def extract_hcl_blocks(node: Any, language: str = "hcl") -> List[Dict]:
             block_name = block_type
             block_type = None
 
+        body_node = _get_body_node(node)
+
         blocks.append({
             "identifier": identifier,           # "resource", "variable", "output", "data", etc.
             "type": block_type,                 # Resource type (e.g., "aws_s3_bucket") or None
             "name": block_name,                 # Block name (e.g., "example")
             "line": node.start_point[0] + 1,   # 1-indexed line number
             "column": node.start_point[1],     # Column number
+            "node": node,
+            "body": body_node,
         })
 
     # Recursively search children
@@ -129,6 +141,8 @@ def extract_hcl_resources(tree, content: str, file_path: str) -> List[Dict]:
 
     for block in all_blocks:
         if block["identifier"] == "resource":
+            body_node = block.get("body")
+            attributes = extract_hcl_attributes(body_node, block["type"]) if body_node else {}
             # Find the actual block node to extract attributes
             # For now, just return basic structure
             resources.append({
@@ -136,7 +150,8 @@ def extract_hcl_resources(tree, content: str, file_path: str) -> List[Dict]:
                 "resource_name": block["name"],
                 "line": block["line"],
                 "column": block["column"],
-                "file_path": file_path
+                "file_path": file_path,
+                "attributes": attributes,
             })
 
     return resources

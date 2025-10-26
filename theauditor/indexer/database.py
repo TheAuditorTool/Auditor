@@ -285,6 +285,7 @@ class DatabaseManager:
                 ('terraform_files', 'INSERT'),
                 ('terraform_resources', 'INSERT'),
                 ('terraform_variables', 'INSERT'),
+                ('terraform_variable_values', 'INSERT'),
                 ('terraform_outputs', 'INSERT'),
                 ('terraform_findings', 'INSERT'),
 
@@ -1190,6 +1191,19 @@ class DatabaseManager:
         self.generic_batches['terraform_variables'].append((
             variable_id, file_path, variable_name, variable_type,
             default_json, is_sensitive, description, source_file, line
+        ))
+
+    def add_terraform_variable_value(self, file_path: str, variable_name: str,
+                                     variable_value_json: Optional[str] = None,
+                                     line: Optional[int] = None,
+                                     is_sensitive_context: bool = False):
+        """Add a .tfvars variable value record to the batch."""
+        self.generic_batches['terraform_variable_values'].append((
+            file_path,
+            variable_name,
+            variable_value_json,
+            line,
+            is_sensitive_context,
         ))
 
     def add_terraform_output(self, output_id: str, file_path: str, output_name: str,

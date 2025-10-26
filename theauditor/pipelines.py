@@ -427,6 +427,7 @@ def run_full_pipeline(
         ("graph", ["build"]),
         ("graph", ["build-dfg"]),  # DFG builder - MUST run after graph build
         ("terraform", ["provision"]),  # Terraform provisioning graph - MUST run after graph build-dfg
+        ("terraform", ["analyze"]),  # Terraform security analysis (database-first)
         ("graph", ["analyze"]),
         ("graph", ["viz", "--view", "full", "--include-analysis"]),
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
@@ -482,6 +483,8 @@ def run_full_pipeline(
                 description = f"{phase_num}. Build data flow graph"
             elif cmd_name == "terraform" and "provision" in extra_args:
                 description = f"{phase_num}. Build Terraform provisioning graph"
+            elif cmd_name == "terraform" and "analyze" in extra_args:
+                description = f"{phase_num}. Analyze Terraform security"
             elif cmd_name == "graph" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze graph"
             elif cmd_name == "graph" and "viz" in extra_args:
@@ -599,6 +602,8 @@ def run_full_pipeline(
         elif "terraform provision" in cmd_str:
             # Terraform provisioning graph must run AFTER graph build-dfg
             data_prep_commands.append((phase_name, cmd))
+        elif "terraform analyze" in cmd_str:
+            track_b_commands.append((phase_name, cmd))
         elif "graph build" in cmd_str:
             data_prep_commands.append((phase_name, cmd))
         elif "cfg" in cmd_str:
