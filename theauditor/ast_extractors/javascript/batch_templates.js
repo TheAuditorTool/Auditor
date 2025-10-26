@@ -32,7 +32,11 @@
 // ES Module helper script for batch TypeScript AST extraction
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import crypto from 'crypto';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { parse as parseVueSfc, compileScript as compileVueScript, compileTemplate as compileVueTemplate } from '@vue/compiler-sfc';
+import { NodeTypes as VueNodeTypes } from '@vue/compiler-dom';
 
 // ES modules don't have __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -54,6 +58,82 @@ function findNearestTsconfig(startPath, projectRoot, ts, path) {
     }
 
     return null;
+}
+
+function createVueScopeId(filePath) {
+    return crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 8);
+}
+
+function createVueTempPath(scopeId, langHint) {
+    const isTs = langHint && langHint.toLowerCase().includes('ts');
+    const ext = isTs ? '.ts' : '.js';
+    const randomPart = crypto.randomBytes(4).toString('hex');
+    return path.join(os.tmpdir(), `theauditor_vue_${scopeId}_${Date.now()}_${randomPart}${ext}`);
+}
+
+function safeUnlink(filePath) {
+    if (!filePath) {
+        return;
+    }
+    try {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+    } catch (err) {
+        console.error(`[VUE TEMP CLEANUP] Failed to remove ${filePath}: ${err.message}`);
+    }
+}
+
+function prepareVueSfcFile(filePath) {
+    const source = fs.readFileSync(filePath, 'utf8');
+    const { descriptor, errors } = parseVueSfc(source, { filename: filePath });
+
+    if (errors && errors.length > 0) {
+        const firstError = errors[0];
+        const message = typeof firstError === 'string'
+            ? firstError
+            : firstError.message || firstError.msg || 'Unknown Vue SFC parse error';
+        throw new Error(message);
+    }
+
+    if (!descriptor.script && !descriptor.scriptSetup) {
+        throw new Error('Vue SFC is missing <script> or <script setup> block');
+    }
+
+    const scopeId = createVueScopeId(filePath);
+    let compiledScript;
+    try {
+        compiledScript = compileVueScript(descriptor, { id: scopeId, inlineTemplate: false });
+    } catch (err) {
+        throw new Error(`Failed to compile Vue script: ${err.message}`);
+    }
+
+    const langHint = (descriptor.scriptSetup && descriptor.scriptSetup.lang) || (descriptor.script && descriptor.script.lang) || 'js';
+    const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
+    fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
+
+    let templateAst = null;
+    if (descriptor.template && descriptor.template.content) {
+        try {
+            const templateResult = compileVueTemplate({
+                source: descriptor.template.content,
+                filename: filePath,
+                id: scopeId
+            });
+            templateAst = templateResult.ast || null;
+        } catch (err) {
+            console.error(`[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`);
+        }
+    }
+
+    return {
+        tempFilePath,
+        descriptor,
+        compiledScript,
+        templateAst,
+        scopeId,
+        hasStyle: descriptor.styles && descriptor.styles.length > 0
+    };
 }
 
 async function main() {
@@ -104,9 +184,30 @@ async function main() {
 
         const filesByConfig = new Map();
         const DEFAULT_KEY = '__DEFAULT__';
+        const preprocessingErrors = new Map();
 
         for (const filePath of filePaths) {
             const absoluteFilePath = path.resolve(filePath);
+            const ext = path.extname(absoluteFilePath).toLowerCase();
+            const fileEntry = {
+                original: filePath,
+                absolute: absoluteFilePath,
+                cleanup: null,
+                vueMeta: null
+            };
+
+            if (ext === '.vue') {
+                try {
+                    const vueMeta = prepareVueSfcFile(absoluteFilePath);
+                    fileEntry.absolute = vueMeta.tempFilePath;
+                    fileEntry.cleanup = vueMeta.tempFilePath;
+                    fileEntry.vueMeta = vueMeta;
+                } catch (err) {
+                    preprocessingErrors.set(filePath, `Vue SFC preprocessing failed: ${err.message}`);
+                    continue;
+                }
+            }
+
             const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
             const nearestConfig = mappedConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
             const groupKey = nearestConfig ? path.resolve(nearestConfig) : DEFAULT_KEY;
@@ -114,7 +215,7 @@ async function main() {
             if (!filesByConfig.has(groupKey)) {
                 filesByConfig.set(groupKey, []);
             }
-            filesByConfig.get(groupKey).push({ original: filePath, absolute: absoluteFilePath });
+            filesByConfig.get(groupKey).push(fileEntry);
         }
 
         const results = {};
@@ -126,6 +227,9 @@ async function main() {
         for (const [configKey, groupedFiles] of filesByConfig.entries()) {
             const configLabel = configKey === '__DEFAULT__' ? 'DEFAULT' : configKey;
             console.error(`[BATCH DEBUG] Config group: ${configLabel}, files=${groupedFiles.length}`);
+            if (!groupedFiles || groupedFiles.length === 0) {
+                continue;
+            }
             let compilerOptions;
             let program;
 
@@ -266,10 +370,46 @@ async function main() {
                     const refs = extractRefs(imports);
                     const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                     const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
-                    const ormQueries = extractORMQueries(functionCallArgs);
-                    const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-                    const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
-                    const sqlQueries = extractSQLQueries(functionCallArgs);
+            const ormQueries = extractORMQueries(functionCallArgs);
+            const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+            const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+            const sqlQueries = extractSQLQueries(functionCallArgs);
+            let vueComponents = [];
+            let vueHooks = [];
+            let vueDirectives = [];
+            let vueProvideInject = [];
+
+            if (fileInfo.vueMeta) {
+                const vueComponentData = extractVueComponents(
+                    fileInfo.vueMeta,
+                    fileInfo.original,
+                    functionCallArgs,
+                    returns
+                );
+                vueComponents = vueComponentData.components;
+                const activeComponentName = vueComponentData.primaryName;
+                vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
+                vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
+                vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
+            }
+                    let vueComponents = [];
+                    let vueHooks = [];
+                    let vueDirectives = [];
+                    let vueProvideInject = [];
+
+                    if (fileInfo.vueMeta) {
+                        const vueComponentData = extractVueComponents(
+                            fileInfo.vueMeta,
+                            fileInfo.original,
+                            functionCallArgs,
+                            returns
+                        );
+                        vueComponents = vueComponentData.components;
+                        const activeComponentName = vueComponentData.primaryName;
+                        vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
+                        vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
+                        vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
+                    }
 
                     // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
                     // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
@@ -318,6 +458,10 @@ async function main() {
                             routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
+                            vue_components: vueComponents,
+                            vue_hooks: vueHooks,
+                            vue_directives: vueDirectives,
+                            vue_provide_inject: vueProvideInject,
                             scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
                             cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
                         }
@@ -332,8 +476,22 @@ async function main() {
                         diagnostics: [],
                         symbols: []
                     };
+                } finally {
+                    if (fileInfo.cleanup) {
+                        safeUnlink(fileInfo.cleanup);
+                    }
                 }
             }
+        }
+
+        for (const [failedPath, message] of preprocessingErrors.entries()) {
+            results[failedPath] = {
+                success: false,
+                error: message,
+                ast: null,
+                diagnostics: [],
+                symbols: []
+            };
         }
 
         // Write all results
@@ -365,6 +523,10 @@ main().catch(error => {
 // CommonJS helper script for batch TypeScript AST extraction
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
+const { parse: parseVueSfc, compileScript: compileVueScript, compileTemplate: compileVueTemplate } = require('@vue/compiler-sfc');
+const { NodeTypes: VueNodeTypes } = require('@vue/compiler-dom');
 
 function findNearestTsconfig(startPath, projectRoot, ts, path) {
     let currentDir = path.resolve(path.dirname(startPath));
@@ -431,9 +593,30 @@ try {
 
     const filesByConfig = new Map();
     const DEFAULT_KEY = '__DEFAULT__';
+    const preprocessingErrors = new Map();
 
     for (const filePath of filePaths) {
         const absoluteFilePath = path.resolve(filePath);
+        const ext = path.extname(absoluteFilePath).toLowerCase();
+        const fileEntry = {
+            original: filePath,
+            absolute: absoluteFilePath,
+            cleanup: null,
+            vueMeta: null
+        };
+
+        if (ext === '.vue') {
+            try {
+                const vueMeta = prepareVueSfcFile(absoluteFilePath);
+                fileEntry.absolute = vueMeta.tempFilePath;
+                fileEntry.cleanup = vueMeta.tempFilePath;
+                fileEntry.vueMeta = vueMeta;
+            } catch (err) {
+                preprocessingErrors.set(filePath, `Vue SFC preprocessing failed: ${err.message}`);
+                continue;
+            }
+        }
+
         const mappedConfig = normalizedConfigMap.get(absoluteFilePath);
         const nearestConfig = mappedConfig || findNearestTsconfig(absoluteFilePath, resolvedProjectRoot, ts, path);
         const groupKey = nearestConfig ? path.resolve(nearestConfig) : DEFAULT_KEY;
@@ -441,13 +624,16 @@ try {
         if (!filesByConfig.has(groupKey)) {
             filesByConfig.set(groupKey, []);
         }
-        filesByConfig.get(groupKey).push({ original: filePath, absolute: absoluteFilePath });
+        filesByConfig.get(groupKey).push(fileEntry);
     }
 
     const results = {};
     const jsxEmitMode = jsxMode === 'preserved' ? ts.JsxEmit.Preserve : ts.JsxEmit.React;
 
     for (const [configKey, groupedFiles] of filesByConfig.entries()) {
+        if (!groupedFiles || groupedFiles.length === 0) {
+            continue;
+        }
         let compilerOptions;
         let program;
 
@@ -634,6 +820,10 @@ try {
                         routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
+                        vue_components: vueComponents,
+                        vue_hooks: vueHooks,
+                        vue_directives: vueDirectives,
+                        vue_provide_inject: vueProvideInject,
                         scope_map: Object.fromEntries(scopeMap),  // Convert Map to object for JSON
                         cfg: cfg  // CFG extracted in JavaScript (handles JSX nodes correctly)
                     }
@@ -647,9 +837,23 @@ try {
                     diagnostics: [],
                     symbols: []
                 };
+            } finally {
+                if (fileInfo.cleanup) {
+                    safeUnlink(fileInfo.cleanup);
+                }
             }
         }
     }
+    for (const [failedPath, message] of preprocessingErrors.entries()) {
+        results[failedPath] = {
+            success: false,
+            error: message,
+            ast: null,
+            diagnostics: [],
+            symbols: []
+        };
+    }
+
     // Write all results
     fs.writeFileSync(outputPath, JSON.stringify(results, null, 2), 'utf8');
     process.exit(0);

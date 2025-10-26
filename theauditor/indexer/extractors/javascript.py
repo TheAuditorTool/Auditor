@@ -121,6 +121,10 @@ class JavaScriptExtractor(BaseExtractor):
                     'resolved_imports': 'resolved_imports',
                     'react_components': 'react_components',
                     'react_hooks': 'react_hooks',
+                    'vue_components': 'vue_components',
+                    'vue_hooks': 'vue_hooks',
+                    'vue_directives': 'vue_directives',
+                    'vue_provide_inject': 'vue_provide_inject',
                     'orm_queries': 'orm_queries',
                     'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
                     'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
@@ -559,60 +563,6 @@ class JavaScriptExtractor(BaseExtractor):
                     'callback_body': callback_body,
                     'has_cleanup': has_cleanup,
                     'cleanup_type': cleanup_type
-                })
-
-        # Detect Vue components and patterns - use function_calls, not removed 'calls' variable
-        for fc in result.get('function_calls', []):
-            call_name = fc.get('callee_function', '')
-
-            # Vue 3 Composition API
-            if call_name == 'defineComponent':
-                result['vue_components'].append({
-                    'name': file_info.get('path', '').split('/')[-1].split('.')[0],
-                    'type': 'composition-api',
-                    'start_line': fc.get('line', 0),
-                    'end_line': fc.get('line', 0),
-                    'has_template': file_info.get('ext') == '.vue',
-                    'has_style': file_info.get('ext') == '.vue',
-                    'composition_api_used': True,
-                    'props_definition': None,
-                    'emits_definition': None,
-                    'setup_return': None
-                })
-
-            # Vue reactivity hooks
-            elif call_name in ['ref', 'reactive', 'computed', 'watch', 'watchEffect']:
-                result['vue_hooks'].append({
-                    'line': fc.get('line', 0),
-                    'component_name': 'global',  # Would need component detection
-                    'hook_name': call_name,
-                    'hook_type': 'reactivity',
-                    'dependencies': None,
-                    'return_value': None,
-                    'is_async': False
-                })
-
-            # Vue provide/inject
-            elif call_name in ['provide', 'inject']:
-                result['vue_provide_inject'].append({
-                    'line': fc.get('line', 0),
-                    'component_name': 'global',
-                    'operation_type': call_name,
-                    'key_name': 'unknown',
-                    'value_expr': None,
-                    'is_reactive': False
-                })
-
-            # Vue directives (would need template parsing for full support)
-            elif call_name.startswith('v-') or call_name in ['directive']:
-                result['vue_directives'].append({
-                    'line': fc.get('line', 0),
-                    'directive_name': call_name,
-                    'element_type': None,
-                    'argument': None,
-                    'modifiers': [],
-                    'value_expr': None,
-                    'is_dynamic': False
                 })
 
         # Detect ORM queries with DETAILED analysis
