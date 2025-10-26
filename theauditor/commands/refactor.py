@@ -1,599 +1,703 @@
 """Refactoring impact analysis command.
 
-This command analyzes the impact of refactoring changes and detects
-inconsistencies between frontend and backend, API contract mismatches,
-and data model evolution issues.
+Analyzes database migrations to detect schema changes and finds code that still
+references removed/renamed fields and tables, reporting potential breaking changes.
+
+NO pattern detection. NO FCE. Just direct database queries.
 """
 
 import json
-import os
+import re
 import sqlite3
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, List, Set, Any, Optional
+from typing import Dict, List, Set, Any, Optional, Iterable, Tuple
 
 import click
 
+from theauditor.refactor import (
+    ProfileEvaluation,
+    RefactorProfile,
+    RefactorRuleEngine,
+)
+
+SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 @click.command()
-@click.option("--file", "-f", help="File to analyze refactoring impact from")
-@click.option("--line", "-l", type=int, help="Line number in the file")
-@click.option("--migration-dir", "-m", default="backend/migrations", 
+@click.option("--migration-dir", "-m", default="backend/migrations",
               help="Directory containing database migrations")
-@click.option("--migration-limit", "-ml", type=int, default=0,
-              help="Number of recent migrations to analyze (0=all, default=all)")
-@click.option("--expansion-mode", "-e", 
-              type=click.Choice(["none", "direct", "full"]),
-              default="none",
-              help="Dependency expansion mode: none (affected only), direct (1 level), full (transitive)")
-@click.option("--auto-detect", "-a", is_flag=True, 
-              help="Auto-detect refactoring from recent migrations")
-@click.option("--workset", "-w", is_flag=True,
-              help="Use current workset for analysis")
+@click.option("--migration-limit", "-ml", type=int, default=5,
+              help="Number of recent migrations to analyze (0=all, default=5)")
+@click.option("--file", "-f", "profile_file", type=click.Path(exists=True),
+              help="Refactor profile YAML describing old/new schema expectations")
 @click.option("--output", "-o", type=click.Path(),
               help="Output file for detailed report")
-def refactor(file: Optional[str], line: Optional[int], migration_dir: str,
-             migration_limit: int, expansion_mode: str,
-             auto_detect: bool, workset: bool, output: Optional[str]) -> None:
-    """Analyze refactoring impact and find inconsistencies.
-    
-    This command helps detect issues introduced by refactoring such as:
-    - Data model changes (fields moved between tables)
-    - API contract mismatches (frontend expects old structure)
-    - Missing updates in dependent code
-    - Cross-stack inconsistencies
-    
+def refactor(
+    migration_dir: str,
+    migration_limit: int,
+    profile_file: Optional[str],
+    output: Optional[str],
+) -> None:
+    """Analyze refactoring impact from database migrations.
+
+    This command:
+    1. Parses migrations to find removed/renamed tables and columns
+    2. Queries repo_index.db for code that references those items
+    3. Reports mismatches (code using deleted schema)
+
     Examples:
-        # Analyze impact from a specific model change
-        aud refactor --file models/Product.ts --line 42
-        
-        # Auto-detect refactoring from migrations
-        aud refactor --auto-detect
-        
-        # Analyze current workset
-        aud refactor --workset
+        # Analyze last 5 migrations
+        aud refactor
+
+        # Analyze ALL migrations
+        aud refactor --migration-limit 0
+
+        # Custom migration dir
+        aud refactor --migration-dir db/migrations
     """
-    
+
     # Find repository root
     repo_root = Path.cwd()
     while repo_root != repo_root.parent:
         if (repo_root / ".git").exists():
             break
         repo_root = repo_root.parent
-    
+
     pf_dir = repo_root / ".pf"
     db_path = pf_dir / "repo_index.db"
-    
+
     if not db_path.exists():
         click.echo("Error: No index found. Run 'aud index' first.", err=True)
         raise click.Abort()
-    
-    # Import components here to avoid import errors
-    try:
-        from theauditor.impact_analyzer import analyze_impact
-        from theauditor.universal_detector import UniversalPatternDetector
-        from theauditor.pattern_loader import PatternLoader
-        from theauditor.fce import run_fce
-    except ImportError as e:
-        click.echo(f"Error importing components: {e}", err=True)
-        raise click.Abort()
-    # Initialize components
-    pattern_loader = PatternLoader()
-    pattern_detector = UniversalPatternDetector(
-        repo_root, 
-        pattern_loader,
-        exclude_patterns=[]
-    )
-    
-    click.echo("\nRefactoring Impact Analysis")
-    click.echo("-" * 60)
-    
-    # Step 1: Determine what to analyze
-    affected_files = set()
-    
-    if auto_detect:
-        click.echo("Auto-detecting refactoring from migrations...")
-        affected_files.update(_analyze_migrations(repo_root, migration_dir, migration_limit))
-        
-        if not affected_files:
-            click.echo("No affected files found from migrations.")
-            click.echo("Tip: Check if your migrations contain schema change operations")
-            return
-        
-    elif workset:
-        click.echo("Analyzing workset files...")
-        workset_file = pf_dir / "workset.json"
-        if workset_file.exists():
-            with open(workset_file, 'r') as f:
-                workset_data = json.load(f)
-                affected_files.update(workset_data.get("files", []))
-        else:
-            click.echo("Error: No workset found. Create one with 'aud workset'", err=True)
+
+    click.echo("\n" + "=" * 70)
+    click.echo("REFACTORING IMPACT ANALYSIS - Schema Change Detection")
+    click.echo("=" * 70)
+
+    profile_report = None
+    if profile_file:
+        click.echo("\nPhase 1: Evaluating refactor profile (YAML rules)...")
+        try:
+            profile = RefactorProfile.load(Path(profile_file))
+        except Exception as exc:
+            click.echo(f"Error loading profile: {exc}", err=True)
             raise click.Abort()
-            
-    elif file and line:
-        click.echo(f"Analyzing impact from {file}:{line}...")
-        
-        # Run impact analysis
-        impact_result = analyze_impact(
-            db_path=str(db_path),
-            target_file=file,
-            target_line=line,
-            trace_to_backend=True
+
+        click.echo(f"  Profile: {profile.refactor_name}")
+        click.echo(f"  Rules: {len(profile.rules)}")
+        with RefactorRuleEngine(db_path, repo_root) as engine:
+            profile_report = engine.evaluate(profile)
+
+    # Step 2: Analyze migrations for schema changes
+    click.echo("\nPhase 2: Analyzing database migrations...")
+    schema_changes = _analyze_migrations(repo_root, migration_dir, migration_limit)
+
+    if not schema_changes['removed_tables'] and not schema_changes['removed_columns'] and not schema_changes['renamed_items']:
+        click.echo("\nNo schema changes detected in migrations.")
+        click.echo("Tip: This command looks for removeColumn, dropTable, renameColumn, etc.")
+        if not profile_report:
+            return
+
+    # Step 3: Query database for code references
+    click.echo("\nPhase 3: Searching codebase for references to removed schema...")
+    mismatches = _find_code_references(db_path, schema_changes, repo_root)
+
+    schema_counts = _aggregate_schema_counts(mismatches)
+
+    # Step 3: Report findings
+    click.echo("\n" + "=" * 70)
+    click.echo("RESULTS")
+    click.echo("=" * 70)
+
+    _print_impact_overview(profile_report, mismatches, schema_counts)
+    if profile_report:
+        _print_profile_report(profile_report, schema_counts)
+
+    profile_violations = profile_report.total_violations() if profile_report else 0
+    total_issues = sum(len(v) for v in mismatches.values())
+
+    if total_issues == 0:
+        click.echo("\nNo mismatches found!")
+        click.echo("All removed schema items appear to have been cleaned up from the codebase.")
+    else:
+        click.echo(f"\nFound {total_issues} potential breaking references:")
+
+        _print_mismatch_summary(
+            mismatches['removed_tables'],
+            label="Removed Tables",
+            key_field='table',
+            description="code still touching dropped tables",
         )
-        
-        if not impact_result.get("error"):
-            # Extract affected files from impact analysis
-            upstream_files = [dep["file"] for dep in impact_result.get("upstream", [])]
-            downstream_files = [dep["file"] for dep in impact_result.get("downstream", [])]
-            upstream_trans_files = [dep["file"] for dep in impact_result.get("upstream_transitive", [])]
-            downstream_trans_files = [dep["file"] for dep in impact_result.get("downstream_transitive", [])]
-            
-            all_impact_files = set(upstream_files + downstream_files + upstream_trans_files + downstream_trans_files)
-            affected_files.update(all_impact_files)
-            
-            # Show immediate impact
-            summary = impact_result.get("impact_summary", {})
-            click.echo(f"\nDirect impact: {summary.get('direct_upstream', 0)} upstream, "
-                      f"{summary.get('direct_downstream', 0)} downstream")
-            click.echo(f"Total files affected: {summary.get('affected_files', len(affected_files))}")
-            
-            # Check for cross-stack impact
-            if impact_result.get("cross_stack_impact"):
-                click.echo("\n⚠️  Cross-stack impact detected!")
-                for impact in impact_result["cross_stack_impact"]:
-                    click.echo(f"  • {impact['file']}:{impact['line']} - {impact['type']}")
-    else:
-        click.echo("Error: Specify --file and --line, --auto-detect, or --workset", err=True)
-        raise click.Abort()
-    
-    if not affected_files:
-        click.echo("No files to analyze.")
-        return
-    
-    # Step 2b: Expand affected files based on mode
-    if affected_files:
-        expanded_files = _expand_affected_files(
-            affected_files, 
-            str(db_path), 
-            expansion_mode,
-            repo_root
+        _print_mismatch_summary(
+            mismatches['removed_columns'],
+            label="Removed Columns",
+            key_field='column',
+            description="code still touching dropped columns",
         )
-    else:
-        expanded_files = set()
-    
-    # Update workset with expanded files
-    click.echo(f"\nCreating workset from {len(expanded_files)} files...")
-    temp_workset_file = pf_dir / "temp_workset.json"
-    with open(temp_workset_file, 'w') as f:
-        json.dump({"files": list(expanded_files)}, f)
-    
-    # Step 3: Run pattern detection with targeted file list
-    if expanded_files:
-        click.echo(f"Running pattern detection on {len(expanded_files)} files...")
-        
-        # Check if batch method is available
-        if hasattr(pattern_detector, 'detect_patterns_for_files'):
-            # Use optimized batch method if available
-            findings = pattern_detector.detect_patterns_for_files(
-                list(expanded_files),
-                categories=None
-            )
-        else:
-            # Fallback to individual file processing
-            findings = []
-            for i, file_path in enumerate(expanded_files, 1):
-                if i % 10 == 0:
-                    click.echo(f"  Scanning file {i}/{len(expanded_files)}...", nl=False)
-                    click.echo("\r", nl=False)
-                
-                # Convert to relative path for pattern detector
-                try:
-                    rel_path = Path(file_path).relative_to(repo_root).as_posix()
-                except ValueError:
-                    rel_path = file_path
-                
-                file_findings = pattern_detector.detect_patterns(
-                    categories=None, 
-                    file_filter=rel_path
-                )
-                findings.extend(file_findings)
-            
-            click.echo(f"\n  Found {len(findings)} patterns")
-    else:
-        findings = []
-        click.echo("No files to analyze after expansion")
-    
-    patterns = findings
-    
-    # Step 4: Run FCE correlation with refactoring rules
-    click.echo("Running correlation analysis...")
-    
-    # Run the FCE to get correlations
-    fce_results = run_fce(
-        root_path=str(repo_root),
-        capsules_dir=str(pf_dir / "capsules"),
-        manifest_path="manifest.json",
-        workset_path=str(temp_workset_file),
-        db_path="repo_index.db",
-        timeout=600,
-        print_plan=False
-    )
-    
-    # Extract correlations from FCE results
-    correlations = []
-    if fce_results.get("success") and fce_results.get("results"):
-        fce_data = fce_results["results"]
-        if "correlations" in fce_data and "factual_clusters" in fce_data["correlations"]:
-            correlations = fce_data["correlations"]["factual_clusters"]
-    
-    # Step 5: Identify mismatches
-    mismatches = _find_mismatches(patterns, correlations, affected_files)
-    
-    # Generate report
-    report = _generate_report(affected_files, patterns, correlations, mismatches)
-    
-    # Display summary
-    click.echo("\n" + "=" * 60)
-    click.echo("Refactoring Analysis Summary")
-    click.echo("=" * 60)
-    
-    click.echo(f"\nFiles analyzed: {len(affected_files)}")
-    click.echo(f"Patterns detected: {len(patterns)}")
-    click.echo(f"Correlations found: {len(correlations)}")
-    
-    if mismatches["api"]:
-        click.echo(f"\nAPI Mismatches: {len(mismatches['api'])}")
-        for mismatch in mismatches["api"][:5]:  # Show top 5
-            click.echo(f"  • {mismatch['description']}")
-            
-    if mismatches["model"]:
-        click.echo(f"\nData Model Mismatches: {len(mismatches['model'])}")
-        for mismatch in mismatches["model"][:5]:  # Show top 5
-            click.echo(f"  • {mismatch['description']}")
-            
-    if mismatches["contract"]:
-        click.echo(f"\nContract Mismatches: {len(mismatches['contract'])}")
-        for mismatch in mismatches["contract"][:5]:  # Show top 5
-            click.echo(f"  • {mismatch['description']}")
-    
+        _print_mismatch_summary(
+            mismatches['renamed_items'],
+            label="Renamed Items",
+            key_field='old_name',
+            description="code still referencing pre-rename identifiers",
+        )
+
     # Risk assessment
-    risk_level = _assess_risk(mismatches, len(affected_files))
-    click.echo(f"\nRisk Level: {risk_level}")
-    
-    # Recommendations
-    recommendations = _generate_recommendations(mismatches)
-    if recommendations:
-        click.echo("\nRecommendations:")
-        for rec in recommendations:
-            click.echo(f"  ✓ {rec}")
-    
-    # Save detailed report if requested
+    risk = _assess_risk(mismatches)
+    click.echo(f"\nRisk Level: {risk}")
+    if profile_report:
+        if profile_violations > 0:
+            click.echo(f"Profile violations (YAML rules): {profile_violations}")
+        else:
+            click.echo("Profile violations (YAML rules): 0")
+
+    # Save detailed report
     if output:
+        report = _generate_report(schema_changes, mismatches, risk, profile_report)
         with open(output, 'w') as f:
             json.dump(report, f, indent=2, default=str)
-        click.echo(f"\nDetailed report saved to: {output}")
-    
-    # Suggest next steps
-    click.echo("\nNext Steps:")
-    click.echo("  1. Review the mismatches identified above")
-    click.echo("  2. Run 'aud impact --file <file> --line <line>' for detailed impact")
-    click.echo("  3. Use 'aud detect-patterns --workset' for pattern-specific issues")
-    click.echo("  4. Run 'aud full' for comprehensive analysis")
+        click.echo(f"\nDetailed report saved: {output}")
+
+    click.echo("")
 
 
-def _expand_affected_files(
-    affected_files: Set[str], 
-    db_path: str, 
-    expansion_mode: str,
-    repo_root: Path
-) -> Set[str]:
-    """Expand affected files with their dependencies based on mode."""
-    if expansion_mode == "none":
-        return affected_files
-    
-    expanded = set(affected_files)
-    total_files = len(affected_files)
-    
-    click.echo(f"\nExpanding {total_files} affected files with {expansion_mode} mode...")
-    
-    if expansion_mode in ["direct", "full"]:
-        from theauditor.impact_analyzer import analyze_impact
-        import sqlite3
-        import os
-        
-        for i, file_path in enumerate(affected_files, 1):
-            if i % 5 == 0 or i == total_files:
-                click.echo(f"  Analyzing dependencies {i}/{total_files}...", nl=False)
-                click.echo("\r", nl=False)
-            
-            # Find a representative line (first function/class)
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT line FROM symbols 
-                WHERE path = ? AND type IN ('function', 'class')
-                ORDER BY line LIMIT 1
-            """, (file_path,))
-            result = cursor.fetchone()
-            conn.close()
-            
-            if result:
-                line = result[0]
-                try:
-                    impact = analyze_impact(
-                        db_path=db_path,
-                        target_file=file_path,
-                        target_line=line,
-                        trace_to_backend=(expansion_mode == "full")
-                    )
-                    
-                    # Add direct dependencies
-                    for dep in impact.get("upstream", []):
-                        expanded.add(dep["file"])
-                    for dep in impact.get("downstream", []):
-                        if dep["file"] != "external":
-                            expanded.add(dep["file"])
-                    
-                    # Add transitive if full mode
-                    if expansion_mode == "full":
-                        for dep in impact.get("upstream_transitive", []):
-                            expanded.add(dep["file"])
-                        for dep in impact.get("downstream_transitive", []):
-                            if dep["file"] != "external":
-                                expanded.add(dep["file"])
-                except Exception as e:
-                    # Don't fail entire analysis for one file
-                    if os.environ.get("THEAUDITOR_DEBUG"):
-                        click.echo(f"\n  Warning: Could not analyze {file_path}: {e}")
-        
-        click.echo(f"\n  Expanded from {total_files} to {len(expanded)} files")
-    
-    return expanded
+def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: int) -> Dict[str, Any]:
+    """Parse migrations to find schema changes.
 
-
-def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: int = 0) -> List[str]:
-    """Analyze migration files to detect schema changes.
-    
-    Args:
-        repo_root: Repository root path
-        migration_dir: Migration directory path
-        migration_limit: Number of recent migrations to analyze (0=all)
+    Returns dict with:
+        removed_tables: List of table names that were dropped
+        removed_columns: List of {table, column} dicts for dropped columns
+        renamed_items: List of {old_name, new_name, type} dicts
     """
     migration_path = repo_root / migration_dir
-    affected_files = []
-    
+
+    # Try common locations if default doesn't exist
     if not migration_path.exists():
-        # Try common locations (most common first!)
-        found_migrations = False
-        for common_path in ["backend/migrations", "migrations", "db/migrations", 
-                           "database/migrations", "frontend/migrations"]:
+        for common_path in ["backend/migrations", "migrations", "db/migrations", "database/migrations"]:
             test_path = repo_root / common_path
             if test_path.exists():
-                # Check if it actually contains migration files
                 import glob
-                test_migrations = (glob.glob(str(test_path / "*.js")) + 
-                                 glob.glob(str(test_path / "*.ts")) +
-                                 glob.glob(str(test_path / "*.sql")))
-                if test_migrations:
+                if glob.glob(str(test_path / "*.js")) + glob.glob(str(test_path / "*.ts")) + glob.glob(str(test_path / "*.sql")):
                     migration_path = test_path
-                    found_migrations = True
                     click.echo(f"Found migrations in: {common_path}")
                     break
-        
-        if not found_migrations:
-            click.echo("\n⚠️  WARNING: No migration files found in standard locations:", err=True)
-            click.echo("    • backend/migrations/", err=True)
-            click.echo("    • migrations/", err=True)
-            click.echo("    • db/migrations/", err=True)
-            click.echo("    • database/migrations/", err=True)
-            click.echo("    • frontend/migrations/ (yes, we check here too)", err=True)
-            click.echo(f"\n    Current directory searched: {migration_dir}", err=True)
-            click.echo(f"    Use --migration-dir <path> to specify your migration folder\n", err=True)
-            return affected_files
-    
-    if migration_path.exists():
-        # Look for migration files
-        import glob
-        import re
-        
-        migrations = sorted(glob.glob(str(migration_path / "*.js")) + 
-                          glob.glob(str(migration_path / "*.ts")) +
-                          glob.glob(str(migration_path / "*.sql")))
-        
-        if not migrations:
-            click.echo(f"\n⚠️  WARNING: Directory '{migration_path}' exists but contains no migration files", err=True)
-            click.echo(f"    Expected: .js, .ts, or .sql files", err=True)
-            return affected_files
-        
-        # Determine which migrations to analyze
-        total_migrations = len(migrations)
-        if migration_limit > 0:
-            migrations_to_analyze = migrations[-migration_limit:]
-            click.echo(f"Analyzing {len(migrations_to_analyze)} most recent migrations (out of {total_migrations} total)")
-        else:
-            migrations_to_analyze = migrations
-            click.echo(f"Analyzing ALL {total_migrations} migration files")
-            if total_migrations > 20:
-                click.echo("⚠️  Large migration set detected. Consider using --migration-limit for faster analysis")
-        
-        # Enhanced pattern matching
-        schema_patterns = {
-            'column_ops': r'(?:removeColumn|dropColumn|renameColumn|addColumn|alterColumn|modifyColumn)',
-            'table_ops': r'(?:createTable|dropTable|renameTable|alterTable)',
-            'index_ops': r'(?:addIndex|dropIndex|createIndex|removeIndex)',
-            'fk_ops': r'(?:addForeignKey|dropForeignKey|addConstraint|dropConstraint)',
-            'type_changes': r'(?:changeColumn|changeDataType|alterType)'
-        }
-        
-        tables_affected = set()
-        operations_found = set()
-        
-        # Process migrations with progress indicator
-        for i, migration_file in enumerate(migrations_to_analyze, 1):
-            if i % 10 == 0 or i == len(migrations_to_analyze):
-                click.echo(f"  Processing migration {i}/{len(migrations_to_analyze)}...", nl=False)
-                click.echo("\r", nl=False)
-            
-            try:
-                with open(migration_file, 'r') as f:
-                    content = f.read()
-                    
-                    # Check all pattern categories
-                    for pattern_name, pattern_regex in schema_patterns.items():
-                        if re.search(pattern_regex, content, re.IGNORECASE):
-                            operations_found.add(pattern_name)
-                            
-                            # Extract table/model names (improved regex)
-                            # Handles: "table", 'table', `table`, tableName
-                            tables = re.findall(r"['\"`](\w+)['\"`]|(?:table|Table)Name:\s*['\"`]?(\w+)", content)
-                            for match in tables:
-                                # match is a tuple from multiple capture groups
-                                table = match[0] if match[0] else match[1] if len(match) > 1 else None
-                                if table and table not in ['table', 'Table', 'column', 'Column']:
-                                    tables_affected.add(table)
-            except Exception as e:
-                click.echo(f"\nWarning: Could not read migration {migration_file}: {e}")
-                continue
-        
-        click.echo(f"\nFound {len(operations_found)} types of operations affecting {len(tables_affected)} tables")
-        
-        # Map tables to model files
-        for table in tables_affected:
-            model_file = _find_model_file(repo_root, table)
-            if model_file:
-                affected_files.append(str(model_file))
-        
-        # Deduplicate
-        affected_files = list(set(affected_files))
-        click.echo(f"Mapped to {len(affected_files)} model files")
-    
-    return affected_files
 
+    if not migration_path.exists():
+        click.echo(f"WARNING: No migrations found at {migration_path}", err=True)
+        return {'removed_tables': [], 'removed_columns': [], 'renamed_items': []}
 
-def _find_model_file(repo_root: Path, table_name: str) -> Optional[Path]:
-    """Find model file corresponding to a database table."""
-    # Convert table name to likely model name
-    model_names = [
-        table_name,  # exact match
-        table_name.rstrip('s'),  # singular
-        ''.join(word.capitalize() for word in table_name.split('_')),  # PascalCase
-    ]
-    
-    for model_name in model_names:
-        # Check common model locations
-        for pattern in [f"**/models/{model_name}.*", f"**/{model_name}.model.*", 
-                       f"**/entities/{model_name}.*"]:
-            import glob
-            matches = glob.glob(str(repo_root / pattern), recursive=True)
-            if matches:
-                return Path(matches[0])
-    
-    return None
+    # Find migration files
+    import glob
+    migrations = sorted(
+        glob.glob(str(migration_path / "*.js")) +
+        glob.glob(str(migration_path / "*.ts")) +
+        glob.glob(str(migration_path / "*.sql"))
+    )
 
+    if not migrations:
+        return {'removed_tables': [], 'removed_columns': [], 'renamed_items': []}
 
-def _find_mismatches(patterns: List[Dict], correlations: List[Dict], 
-                    affected_files: Set[str]) -> Dict[str, List[Dict]]:
-    """Identify mismatches from patterns and correlations."""
-    mismatches = {
-        "api": [],
-        "model": [],
-        "contract": []
+    # Select which migrations to analyze
+    if migration_limit > 0:
+        migrations = migrations[-migration_limit:]
+        click.echo(f"Analyzing {len(migrations)} most recent migrations")
+    else:
+        click.echo(f"Analyzing ALL {len(migrations)} migrations")
+
+    removed_tables = set()
+    removed_columns = []  # List of {table, column}
+    renamed_items = []    # List of {old_name, new_name, type}
+
+    # Regex patterns for schema operations
+    DROP_TABLE = re.compile(r'(?:dropTable|DROP\s+TABLE)\s*\(\s*[\'"`](\w+)[\'"`]', re.IGNORECASE)
+    REMOVE_COLUMN = re.compile(r'(?:removeColumn|dropColumn|DROP\s+COLUMN)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]', re.IGNORECASE)
+    RENAME_TABLE = re.compile(r'(?:renameTable|RENAME\s+TABLE)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]', re.IGNORECASE)
+    RENAME_COLUMN = re.compile(r'(?:renameColumn)\s*\(\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]\s*,\s*[\'"`](\w+)[\'"`]', re.IGNORECASE)
+
+    for mig_file in migrations:
+        try:
+            with open(mig_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Find dropped tables
+            for match in DROP_TABLE.finditer(content):
+                table = match.group(1)
+                removed_tables.add(table)
+
+            # Find removed columns
+            for match in REMOVE_COLUMN.finditer(content):
+                table = match.group(1)
+                column = match.group(2)
+                removed_columns.append({'table': table, 'column': column})
+
+            # Find renamed tables
+            for match in RENAME_TABLE.finditer(content):
+                old_name = match.group(1)
+                new_name = match.group(2)
+                renamed_items.append({'old_name': old_name, 'new_name': new_name, 'type': 'table'})
+
+            # Find renamed columns
+            for match in RENAME_COLUMN.finditer(content):
+                table = match.group(1)
+                old_name = match.group(2)
+                new_name = match.group(3)
+                renamed_items.append({
+                    'old_name': f"{table}.{old_name}",
+                    'new_name': f"{table}.{new_name}",
+                    'type': 'column'
+                })
+
+        except Exception as e:
+            click.echo(f"Warning: Could not read {mig_file}: {e}")
+
+    click.echo(f"  Removed tables: {len(removed_tables)}")
+    click.echo(f"  Removed columns: {len(removed_columns)}")
+    click.echo(f"  Renamed items: {len(renamed_items)}")
+
+    return {
+        'removed_tables': list(removed_tables),
+        'removed_columns': removed_columns,
+        'renamed_items': renamed_items
     }
-    
-    # Analyze patterns for known refactoring issues
-    for pattern in patterns:
-        if pattern.get("rule_id") in ["PRODUCT_PRICE_FIELD_REMOVED", 
-                                      "PRODUCT_SKU_MOVED_TO_VARIANT"]:
-            mismatches["model"].append({
-                "type": "field_moved",
-                "description": pattern.get("message", "Field moved between models"),
-                "file": pattern.get("file"),
-                "line": pattern.get("line")
+
+
+def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) -> Dict[str, List[Dict]]:
+    """Query database for code that references removed schema items.
+
+    Returns dict with:
+        removed_tables: Code references to dropped tables
+        removed_columns: Code references to dropped columns
+        renamed_items: Code using old names
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    mismatches = {
+        'removed_tables': [],
+        'removed_columns': [],
+        'renamed_items': []
+    }
+
+    # Find code referencing removed tables
+    for table in schema_changes['removed_tables']:
+        # Search in symbols (class/variable names matching table name)
+        cursor.execute("""
+            SELECT path, line, name, type
+            FROM symbols
+            WHERE name LIKE ?
+        """, (f"%{table}%",))
+
+        for row in cursor.fetchall():
+            mismatches['removed_tables'].append({
+                'file': row['path'],
+                'line': row['line'] or 0,
+                'table': table,
+                'snippet': f"{row['type']} {row['name']}"
             })
-        elif pattern.get("rule_id") in ["API_ENDPOINT_PRODUCT_PRICE"]:
-            mismatches["api"].append({
-                "type": "endpoint_deprecated",
-                "description": pattern.get("message", "API endpoint no longer exists"),
-                "file": pattern.get("file"),
-                "line": pattern.get("line")
+
+        # Search in assignments/operations
+        cursor.execute("""
+            SELECT file, line, target_var, source_expr
+            FROM assignments
+            WHERE target_var LIKE ? OR source_expr LIKE ?
+            LIMIT 50
+        """, (f"%{table}%", f"%{table}%"))
+
+        for row in cursor.fetchall():
+            mismatches['removed_tables'].append({
+                'file': row['file'],
+                'line': row['line'] or 0,
+                'table': table,
+                'snippet': (row['source_expr'] or row['target_var'] or '')[:200]
             })
-        elif pattern.get("rule_id") in ["FRONTEND_BACKEND_CONTRACT_MISMATCH"]:
-            mismatches["contract"].append({
-                "type": "contract_mismatch",
-                "description": pattern.get("message", "Frontend/backend contract mismatch"),
-                "file": pattern.get("file"),
-                "line": pattern.get("line")
+
+    # Find code referencing removed columns
+    for col_info in schema_changes['removed_columns']:
+        table = col_info['table']
+        column = col_info['column']
+
+        # Search for table.column or "column" references
+        search_patterns = [
+            f"{table}.{column}",
+            f'"{column}"',
+            f"'{column}'",
+            f"`{column}`"
+        ]
+
+        # Search assignments for column references
+        cursor.execute("""
+            SELECT file, line, target_var, source_expr
+            FROM assignments
+            WHERE source_expr LIKE ? OR source_expr LIKE ?
+            LIMIT 20
+        """, (f"%{table}.{column}%", f"%'{column}'%"))
+
+        for row in cursor.fetchall():
+            mismatches['removed_columns'].append({
+                'file': row['file'],
+                'line': row['line'] or 0,
+                'table': table,
+                'column': column,
+                'snippet': (row['source_expr'] or '')[:200]
             })
-    
-    # Analyze correlations for co-occurring issues
-    for correlation in correlations:
-        if correlation.get("confidence", 0) > 0.8:
-            category = "contract" if "contract" in correlation.get("name", "").lower() else \
-                      "api" if "api" in correlation.get("name", "").lower() else "model"
-            
-            mismatches[category].append({
-                "type": "correlation",
-                "description": correlation.get("description", "Correlated issue detected"),
-                "confidence": correlation.get("confidence"),
-                "facts": correlation.get("matched_facts", [])
+
+    # Find code using old names (renamed items)
+    for rename_info in schema_changes['renamed_items']:
+        old_name = rename_info['old_name']
+        new_name = rename_info['new_name']
+
+        cursor.execute("""
+            SELECT path, line, name, type
+            FROM symbols
+            WHERE name LIKE ?
+            LIMIT 20
+        """, (f"%{old_name}%",))
+
+        for row in cursor.fetchall():
+            mismatches['renamed_items'].append({
+                'file': row['path'],
+                'line': row['line'] or 0,
+                'old_name': old_name,
+                'new_name': new_name,
+                'snippet': f"{row['type']} {row['name']}"
             })
-    
+
+    conn.close()
+
+    # Deduplicate by file+line
+    for category in mismatches:
+        seen = set()
+        deduped = []
+        for item in mismatches[category]:
+            key = (item['file'], item.get('line', 0))
+            if key not in seen:
+                seen.add(key)
+                deduped.append(item)
+        mismatches[category] = deduped
+
     return mismatches
 
 
-def _assess_risk(mismatches: Dict[str, List], file_count: int) -> str:
-    """Assess the risk level of the refactoring."""
-    total_issues = sum(len(issues) for issues in mismatches.values())
-    
-    if total_issues > 20 or file_count > 50:
-        return "HIGH"
-    elif total_issues > 10 or file_count > 20:
+def _print_profile_report(
+    report: ProfileEvaluation,
+    schema_counts: Optional[Dict[str, Dict[str, int]]] = None
+) -> None:
+    """Pretty-print YAML profile evaluation."""
+    click.echo(f"  Description: {report.profile.description}")
+    if report.profile.version:
+        click.echo(f"  Version: {report.profile.version}")
+
+    total_old = sum(len(r.violations) for r in report.rule_results)
+    rules_with_old = [r for r in report.rule_results if r.violations]
+
+    click.echo("\n  PROFILE SUMMARY")
+    click.echo(f"    Rules evaluated: {len(report.rule_results)}")
+    click.echo(f"    Rules with old references: {len(rules_with_old)}")
+    click.echo(f"    Total old references: {total_old}")
+
+    _print_rule_breakdown(report.rule_results, schema_counts)
+    _print_top_files(report.rule_results, schema_counts)
+    _print_missing_expectations(report.rule_results)
+
+
+def _assess_risk(mismatches: Dict[str, List]) -> str:
+    """Assess risk level based on number of mismatches."""
+    total = sum(len(v) for v in mismatches.values())
+
+    if total == 0:
+        return "NONE"
+    elif total < 5:
+        return "LOW"
+    elif total < 15:
         return "MEDIUM"
     else:
-        return "LOW"
+        return "HIGH"
 
 
-def _generate_recommendations(mismatches: Dict[str, List]) -> List[str]:
-    """Generate actionable recommendations based on mismatches."""
-    recommendations = []
-    
-    if mismatches["model"]:
-        recommendations.append("Update frontend interfaces to match new model structure")
-        recommendations.append("Run database migrations in all environments")
-        
-    if mismatches["api"]:
-        recommendations.append("Update API client to use new endpoints")
-        recommendations.append("Add deprecation notices for old endpoints")
-        
-    if mismatches["contract"]:
-        recommendations.append("Synchronize TypeScript interfaces with backend models")
-        recommendations.append("Add API versioning to prevent breaking changes")
-    
-    if sum(len(issues) for issues in mismatches.values()) > 10:
-        recommendations.append("Consider breaking this refactoring into smaller steps")
-        recommendations.append("Add integration tests before proceeding")
-    
-    return recommendations
-
-
-def _generate_report(affected_files: Set[str], patterns: List[Dict], 
-                    correlations: List[Dict], mismatches: Dict) -> Dict:
-    """Generate detailed report of the refactoring analysis."""
-    return {
-        "summary": {
-            "files_analyzed": len(affected_files),
-            "patterns_detected": len(patterns),
-            "correlations_found": len(correlations),
-            "total_mismatches": sum(len(issues) for issues in mismatches.values())
-        },
-        "affected_files": list(affected_files),
-        "patterns": patterns,
-        "correlations": correlations,
-        "mismatches": mismatches,
-        "risk_assessment": _assess_risk(mismatches, len(affected_files)),
-        "recommendations": _generate_recommendations(mismatches)
+def _generate_report(
+    schema_changes: Dict,
+    mismatches: Dict,
+    risk: str,
+    profile_report: Optional[ProfileEvaluation] = None,
+) -> Dict:
+    """Generate JSON report."""
+    report = {
+        'schema_changes': schema_changes,
+        'mismatches': mismatches,
+        'summary': {
+            'removed_tables': len(schema_changes['removed_tables']),
+            'removed_columns': len(schema_changes['removed_columns']),
+            'renamed_items': len(schema_changes['renamed_items']),
+            'total_mismatches': sum(len(v) for v in mismatches.values()),
+            'risk_level': risk
+        }
     }
+    if profile_report:
+        report['profile'] = profile_report.to_dict()
+        report['summary']['profile_violations'] = profile_report.total_violations()
+    return report
 
 
-# Register command
+def _aggregate_schema_counts(mismatches: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, int]]:
+    """Aggregate schema mismatch counts per file."""
+    counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {'tables': 0, 'columns': 0, 'renamed': 0, 'total': 0})
+
+    for item in mismatches.get('removed_tables', []):
+        file_path = item.get('file')
+        if not file_path:
+            continue
+        counts[file_path]['tables'] += 1
+
+    for item in mismatches.get('removed_columns', []):
+        file_path = item.get('file')
+        if not file_path:
+            continue
+        counts[file_path]['columns'] += 1
+
+    for item in mismatches.get('renamed_items', []):
+        file_path = item.get('file')
+        if not file_path:
+            continue
+        counts[file_path]['renamed'] += 1
+
+    for info in counts.values():
+        info['total'] = info['tables'] + info['columns'] + info['renamed']
+
+    return counts
+
+
+def _collect_profile_files(rule_results: List) -> Set[str]:
+    """Return set of files involved in profile violations."""
+    files = set()
+    for result in rule_results:
+        for item in result.violations:
+            file_path = item.get('file')
+            if file_path:
+                files.add(file_path)
+    return files
+
+
+def _print_impact_overview(
+    profile_report: Optional[ProfileEvaluation],
+    mismatches: Dict[str, List[Dict[str, Any]]],
+    schema_counts: Dict[str, Dict[str, int]]
+) -> None:
+    """Display high-level summary across profile + schema phases."""
+    click.echo("\nIMPACT OVERVIEW")
+
+    if profile_report:
+        rule_count = len(profile_report.rule_results)
+        rules_with_old = sum(1 for r in profile_report.rule_results if r.violations)
+        total_old = sum(len(r.violations) for r in profile_report.rule_results)
+        files_with_old = len(_collect_profile_files(profile_report.rule_results))
+        click.echo(
+            f"  Profile coverage: {rule_count} rules | "
+            f"{rules_with_old} with old refs | "
+            f"{total_old} old refs | files impacted: {files_with_old}"
+        )
+
+    tables_total = len(mismatches.get('removed_tables', []))
+    columns_total = len(mismatches.get('removed_columns', []))
+    renamed_total = len(mismatches.get('renamed_items', []))
+    click.echo(
+        f"  Schema mismatches: tables={tables_total}, columns={columns_total}, renamed={renamed_total} | "
+        f"files impacted: {len(schema_counts)}"
+    )
+
+    if profile_report:
+        profile_files = _collect_profile_files(profile_report.rule_results)
+        overlap = sum(1 for file in profile_files if schema_counts.get(file))
+        click.echo(f"  Files overlapping profile + schema mismatches: {overlap}")
+
+
+def _print_rule_breakdown(
+    rule_results: List,
+    schema_counts: Optional[Dict[str, Dict[str, int]]] = None
+) -> None:
+    """Show per-rule stats sorted by severity and violation count."""
+    click.echo("\n  RULE BREAKDOWN")
+    for result in sorted(
+        rule_results,
+        key=lambda r: (
+            SEVERITY_ORDER.get(r.rule.severity, 4),
+            -len(r.violations),
+            r.rule.id,
+        ),
+    ):
+        old_count = len(result.violations)
+        new_count = len(result.expected_references)
+        unique_files = len({item['file'] for item in result.violations})
+        header = f"    [{result.rule.severity.upper()}] {result.rule.id}"
+        click.echo(header)
+        click.echo(f"      Description: {result.rule.description}")
+        click.echo(f"      Old refs: {old_count} (files: {unique_files}) | New refs: {new_count}")
+        if schema_counts and old_count:
+            violation_files = {item['file'] for item in result.violations}
+            overlapping = [schema_counts.get(file) for file in violation_files if schema_counts.get(file)]
+            if overlapping:
+                overlap_refs = sum(entry['total'] for entry in overlapping)
+                click.echo(
+                    f"      Schema mismatches touching these files: "
+                    f"{overlap_refs} refs across {len(overlapping)} file(s)"
+                )
+
+        if old_count:
+            click.echo("      Files:")
+            top_files = _top_counts((item['file'] for item in result.violations), limit=5)
+            for file_path, count in top_files:
+                suffix = ""
+                if schema_counts and schema_counts.get(file_path, {}).get('total'):
+                    schema_info = schema_counts[file_path]
+                    suffix = (
+                        f" | schema refs: {schema_info['total']} "
+                        f"(tables:{schema_info['tables']}, columns:{schema_info['columns']})"
+                    )
+                click.echo(f"        - {file_path} ({count}){suffix}")
+        else:
+            click.echo("      Files: clean")
+
+        if new_count:
+            click.echo("      Confirmed new schema locations:")
+            for item in result.expected_references[:3]:
+                click.echo(f"        + {item['file']}:{item['line']} :: {item['match']}")
+            if new_count > 3:
+                click.echo(f"        ... {new_count - 3} more")
+        elif not result.rule.expect.is_empty():
+            click.echo("      Confirmed new schema locations: missing")
+
+
+def _print_top_files(
+    rule_results: List,
+    schema_counts: Optional[Dict[str, Dict[str, int]]] = None,
+    limit: int = 10
+) -> None:
+    """Aggregate violations across rules to highlight hotspots."""
+    queue = _build_file_priority_queue(rule_results, schema_counts, limit=limit)
+    if not queue:
+        return
+    click.echo("\n  FILE PRIORITY QUEUE")
+    for file_path, data in queue:
+        rules_desc = ", ".join(f"{rule_id}({count})" for rule_id, count in data['rules'])
+        schema_suffix = ""
+        schema = data.get('schema')
+        if schema and schema.get('total'):
+            schema_suffix = (
+                f" | schema refs: {schema['total']} "
+                f"(tables:{schema['tables']}, columns:{schema['columns']})"
+            )
+        click.echo(
+            f"    - [{data['max_severity'].upper()}] {file_path}: "
+            f"{data['count']} refs across {data['rule_count']} rule(s) | {rules_desc}{schema_suffix}"
+        )
+
+
+def _top_counts(items: Iterable[str], limit: int = 5) -> List[Tuple[str, int]]:
+    """Return top counts for iterable items."""
+    counter = Counter(item for item in items if item)
+    return counter.most_common(limit)
+
+
+def _build_file_priority_queue(
+    rule_results: List,
+    schema_counts: Optional[Dict[str, Dict[str, int]]] = None,
+    limit: int = 10
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """Summarize files affected by rules with severity and rule context."""
+    stats: Dict[str, Dict[str, Any]] = {}
+
+    for result in rule_results:
+        severity = result.rule.severity
+        for issue in result.violations:
+            file_path = issue.get('file')
+            if not file_path:
+                continue
+            entry = stats.setdefault(
+                file_path,
+                {
+                    'count': 0,
+                    'rules': Counter(),
+                    'max_severity': severity,
+                },
+            )
+            entry['count'] += 1
+            entry['rules'][result.rule.id] += 1
+            if SEVERITY_ORDER.get(severity, 4) < SEVERITY_ORDER.get(entry['max_severity'], 4):
+                entry['max_severity'] = severity
+
+    queue = sorted(
+        stats.items(),
+        key=lambda item: (
+            SEVERITY_ORDER.get(item[1]['max_severity'], 4),
+            -item[1]['count'],
+            item[0],
+        ),
+    )[:limit]
+
+    formatted = []
+    for file_path, data in queue:
+        formatted.append(
+            (
+                file_path,
+                {
+                    'count': data['count'],
+                    'rule_count': len(data['rules']),
+                    'max_severity': data['max_severity'],
+                    'rules': data['rules'].most_common(),
+                    'schema': schema_counts.get(file_path) if schema_counts else None,
+                },
+            )
+        )
+    return formatted
+
+
+def _print_missing_expectations(rule_results: List) -> None:
+    """Highlight rules that expect new schema references but none were found."""
+    missing = [
+        result for result in rule_results
+        if not result.expected_references and not result.rule.expect.is_empty()
+    ]
+    if not missing:
+        return
+    click.echo("\n  RULES WITH MISSING NEW SCHEMA REFERENCES")
+    for result in missing:
+        click.echo(f"    - [{result.rule.severity.upper()}] {result.rule.id}: expected patterns not observed")
+
+
+def _print_mismatch_summary(items: List[Dict[str, Any]], label: str, key_field: str, description: str) -> None:
+    """Report aggregate info plus sample references for schema mismatches."""
+    count = len(items)
+    click.echo(f"\n{label} ({count} issues):")
+    if not items:
+        click.echo("  None")
+        return
+
+    top_keys = _top_counts((item.get(key_field) for item in items), limit=5)
+    top_files = _top_counts((item.get('file') for item in items), limit=5)
+
+    click.echo(f"  Summary: {description}")
+    if top_keys:
+        click.echo("  Most affected identifiers:")
+        for key, key_count in top_keys:
+            click.echo(f"    - {key}: {key_count}")
+    if top_files:
+        click.echo("  Files with highest counts:")
+        for file_path, file_count in top_files:
+            click.echo(f"    - {file_path}: {file_count}")
+
+    click.echo("  Sample references:")
+    for issue in items[:10]:
+        location = f"{issue['file']}:{issue.get('line', 0)}"
+        click.echo(f"    - {location}")
+        if 'table' in issue and 'column' in issue:
+            click.echo(f"      {issue['table']}.{issue['column']}")
+        elif 'table' in issue:
+            click.echo(f"      {issue['table']}")
+        elif 'old_name' in issue and 'new_name' in issue:
+            click.echo(f"      {issue['old_name']} -> {issue['new_name']}")
+        snippet = issue.get('snippet')
+        if snippet:
+            click.echo(f"      Snippet: {snippet[:80]}...")
+
+
+# Export for CLI
 refactor_command = refactor
