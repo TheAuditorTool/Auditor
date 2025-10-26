@@ -6,6 +6,8 @@ This document provides a comprehensive technical overview of TheAuditor's archit
 
 TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform. It orchestrates industry-standard tools to provide ground truth about code quality and security, producing AI-consumable reports optimized for LLM context windows.
 
+With **v1.4.2-RC1** the platform now exposes that ground truth through three dedicated intelligence commands—`aud blueprint`, `aud query`, and `aud context`. They sit directly on top of `repo_index.db`/`graphs.db`, closing the AI code-context gap while preserving the same verifiable facts that power the SAST + code-quality pipeline.
+
 ### Core Design Principles
 
 1. **Offline-First Operation** - All analysis runs without network access, ensuring data privacy and reproducible results
@@ -521,7 +523,7 @@ Orchestrates comprehensive analysis pipeline in **4-stage optimized structure** 
 
 ### Architectural Intelligence & Query System
 
-**NEW in v1.3**: Blueprint visualization and database query interface for surgical refactoring.
+**NEW in v1.4.2-RC1**: Blueprint, Query, and Context commands expose the indexed SAST output as an always-on code context fabric.
 
 #### The Problem It Solves
 
@@ -531,7 +533,7 @@ AI assistants waste 5-10k tokens per refactoring iteration reading files to answ
 - "Which endpoints are unprotected?"
 - "Where does user data flow?"
 
-TheAuditor already indexes all relationship data during `aud index`. The intelligence layer provides instant access via SQL queries and architectural drill-downs - **zero file reads, <10ms response time**.
+TheAuditor already indexes all relationship data during `aud index`. The intelligence layer provides instant access via SQL queries and architectural drill-downs - **zero file reads, <10ms response time**, typically shrinking multi-iteration refactors from ~15k tokens per loop to ~1.5k.
 
 #### Architecture Overview
 

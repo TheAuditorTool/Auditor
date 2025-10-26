@@ -1,4 +1,4 @@
-# TheAuditor v1.3-RC1
+# TheAuditor v1.4.2-RC1
 
 ### The Ground-Truth Engine for AI-Driven Development 🧭
 
@@ -7,6 +7,16 @@ AI assistants write code, but they don’t *understand* it. They can create a co
 **Offline-first. Polyglot. Tool-agnostic.** TheAuditor builds an incorruptible, queryable source of truth about your codebase so humans and AIs can build, refactor, and secure software with **verifiable facts**—not statistical guesses.
 
 **Universal Integration**: No SDK, no integration, no setup - it just works with Claude, Cursor, Windsurf, Copilot, or any future AI tool that can run terminal/shell commands and read files.
+
+## 🆕 v1.4.2-RC1: Code Context On-Demand
+
+Our SAST + code-quality pipeline now ships with a dedicated **code context layer** so AIs stop burning tokens hunting for relationships across files.
+
+- `aud blueprint` — Architectural drill-downs (`--structure`, `--graph`, `--security`, `--taint`) surface scope, bottlenecks, and attack surface with file:line precision.
+- `aud query` — Indexed lookups for symbols, call chains, API handlers, dependency graphs, and component trees that respond in milliseconds with JSON/Text/Tree output.
+- `aud context` — YAML-driven semantic mapping that tags obsolete/current code, tracks refactor states, and projects business logic directly onto TheAuditor's databases.
+
+Together they cut typical refactor loops from 15k tokens to ~1.5k per iteration while keeping every result tied back to the same verifiable SQLite ground truth that powers our SAST findings.
 
 ---
 
@@ -61,14 +71,22 @@ A multi-stage pipeline that orchestrates best-in-class tools plus proprietary en
 
 ---
 
-## ✨ The Intelligence Layer (v1.3)
+## ✨ Code Context Intelligence (v1.4.2-RC1)
 
-**v1.3** adds an **Insights Engine** that turns ground truth into action.
+v1.4.2-RC1 layers **live code context** on top of our existing SAST + code-quality platform so agents can query architecture instead of brute-forcing file reads.
 
-* 🧠 **Semantic Context Engine**
+1. **`aud blueprint`** – Four drill-downs (Structure, Graph, Security, Taint) summarize repo scope, gateway files, auth coverage, and risky flows with file:line references.
+2. **`aud query`** – Millisecond SQL-backed lookups for call chains, module dependencies, API handlers, and component trees, emitted in text, JSON, or tree form.
+3. **`aud context`** – YAML-driven semantic overlays that classify obsolete/current code, track refactor migrations, and tag findings with business language.
+
+All three commands run entirely offline against `.pf/repo_index.db` and `.pf/graphs.db`, keeping TheAuditor’s “truth courier” guarantees intact while closing the code-context gap for AI copilots.
+
+### Optional Insights (Still Available)
+
+* 🧠 **Semantic Context Engine**  
   Teach TheAuditor your business logic via simple YAML. Define refactors, API deprecations, and architecture patterns. It flags obsolete code and tracks migration progress.
 
-* 🔮 **Predictive ML Insights** *(optional)*
+* 🔮 **Predictive ML Insights** *(optional)*  
   Learns from Git churn, past findings, and complexity to predict **likely root causes** and **next files to edit**, helping teams prioritize.
 
 ---
@@ -168,9 +186,9 @@ Data flow graphs track how variables flow through assignments and function retur
 
 ### Architectural Intelligence & Code Queries
 
-**NEW (v1.3)**: Blueprint visualization and direct database queries for surgical refactoring.
+**NEW in v1.4.2-RC1**: Blueprint, Query, and Context commands convert our indexed SAST output into an always-on code context fabric.
 
-AI assistants waste 5-10k tokens per refactoring iteration reading files to understand code relationships. TheAuditor's intelligence layer gives them instant access to indexed relationships and architectural overview.
+AI assistants previously wasted 5-10k tokens per refactor just to re-learn architecture. TheAuditor now exposes the same SQLite truth our analyzers use so they can ask the repo—not grep through it.
 
 #### Blueprint: Architectural Overview
 
@@ -213,10 +231,24 @@ aud query --api "/users/:id"
 aud query --show-api-coverage
 ```
 
+#### Context: Semantic Refactor Tracking
+
+`aud context` projects YAML-defined business rules onto the same database so AIs can reason with your domain language instead of raw file paths.
+
+```bash
+# Apply semantic overlays and emit a refactor plan
+aud context --file refactors/auth_migration.yaml --verbose
+
+# Run context-aware queries (pairs with blueprint/query output)
+aud context query --symbol authenticateUser --show-callers --depth 2 --format json
+```
+
+Use it to mark patterns as obsolete/current, measure migration progress, and label findings with terms your stakeholders recognize. Because it runs against `.pf/repo_index.db`, every tag still maps to concrete file:line evidence.
+
 **Performance**: <10ms indexed lookups, zero file reads. Query entire call chains across 100k LOC projects instantly.
 **Formats**: Human-readable text, AI-consumable JSON.
 
-See [HOWTOUSE.md](HOWTOUSE.md#code-queries) for complete usage guide.
+See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, and context walkthroughs.
 
 ---
 

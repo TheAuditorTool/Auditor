@@ -814,7 +814,7 @@ The CFG commands help identify:
 
 ### Architectural Intelligence & Code Queries
 
-**NEW in v1.3**: Blueprint visualization and direct database queries for surgical refactoring.
+**NEW in v1.4.2-RC1**: Blueprint, Query, and Context commands expose the indexed ground truth as an always-on code context service.
 
 AI assistants waste 5-10k tokens per refactoring iteration reading files to understand:
 - "What's the architecture? Where are boundaries?"
@@ -822,7 +822,7 @@ AI assistants waste 5-10k tokens per refactoring iteration reading files to unde
 - "What files depend on this module?"
 - "Which endpoints are unprotected?"
 
-TheAuditor's intelligence layer provides instant answers via indexed database - **zero file reads, <10ms response time**.
+TheAuditor's intelligence layer provides instant answers via indexed database - **zero file reads, <10ms response time**, often cutting refactor loops from ~15k tokens to ~1.5k per iteration.
 
 #### Blueprint: Architectural Overview
 
@@ -994,6 +994,39 @@ aud query --symbol createUser --show-callees
 # 3. Trace authentication chain
 aud query --symbol authenticateRequest --show-callers --depth 2
 ```
+
+#### Context: Semantic Refactor Tracking
+
+`aud context` lets you tag obsolete/current code paths and follow large-scale migrations with the same verifiable evidence the SAST pipeline uses.
+
+1. **Describe the refactor in YAML** (store anywhere in your repo or playbooks):
+
+```yaml
+context_name: "auth_migration"
+patterns:
+  obsolete:
+    - id: legacy_session
+      pattern: "sessionStore\\."
+      replacement: "tokenProvider."
+  current:
+    - id: token_auth
+      pattern: "tokenProvider\\."
+```
+
+2. **Apply the overlay and emit a plan/reports:**
+
+```bash
+aud context --file refactors/auth_migration.yaml --verbose
+```
+
+3. **Run context-aware queries (optional):**
+
+```bash
+# Same switches as aud query, but filtered to the semantic set
+aud context query --symbol authenticateUser --show-callers --depth 2 --format json
+```
+
+Outputs include counts per context, file:line evidence, and JSON payloads your AI assistant can ingest alongside `aud blueprint`/`aud query` results to keep business terminology consistent.
 
 #### Performance Characteristics
 
