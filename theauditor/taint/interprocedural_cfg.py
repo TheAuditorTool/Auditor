@@ -532,6 +532,44 @@ class InterProceduralCFGAnalyzer:
                                 print(f"[INTER-CFG]   Propagated: {tainted_var} -> {target_var} at line {line}", file=sys.stderr)
                             break # One propagation is enough
 
+        # After processing assignments, check if any returns propagate taint
+        if block_ranges:
+            min_line = min(start for start, _ in block_ranges.values())
+            max_line = max(end for _, end in block_ranges.values())
+        else:
+            min_line = 0
+            max_line = 10**9
+
+        # NORMALIZATION FIX: return_vars column removed, use function_return_sources junction table
+        # Schema Contract: function_returns and function_return_sources tables guaranteed to exist
+        query = build_query(
+            'function_returns',
+            ['return_expr', 'line'],
+            where="file = ? AND function_name = ? AND line >= ? AND line <= ?",
+            order_by="line"
+        )
+        self.cursor.execute(query, (file_path, function_name, min_line, max_line))
+
+        for return_expr, ret_line in self.cursor.fetchall():
+            # Query junction table for return variables at this line
+            vars_query = build_query('function_return_sources',
+                ['return_var_name'],
+                where="return_file = ? AND return_line = ? AND return_function = ?",
+                order_by="return_var_name"
+            )
+            self.cursor.execute(vars_query, (file_path, ret_line, function_name))
+            var_rows = self.cursor.fetchall()
+            return_vars = [row[0] for row in var_rows] if var_rows else []
+
+            expr_text = return_expr or ""
+
+            for tainted_var in list(current_tainted):
+                if tainted_var in expr_text or tainted_var in return_vars:
+                    current_tainted.add("__return__")
+                    if self.debug:
+                        print(f"[INTER-CFG]   Return tainted: {tainted_var} flows to return at line {ret_line}", file=sys.stderr)
+                    break
+
         final_state = BlockTaintState(block_id=path[-1])
         final_state.tainted_vars = current_tainted
         final_state.sanitized_vars = current_sanitized # Pass sanitization state up
@@ -722,7 +760,8 @@ class InterProceduralCFGAnalyzer:
             self.registry = TaintRegistry()
 
         for callee, arg_expr in self.cursor.fetchall():
-            if var_name in arg_expr and self.registry.is_sanitizer(callee):
+            # CRITICAL FIX: arg_expr can be NULL in database - check before 'in' operation
+            if arg_expr and var_name in arg_expr and self.registry.is_sanitizer(callee):
                 return True
 
         return False

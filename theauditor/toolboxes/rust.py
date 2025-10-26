@@ -25,6 +25,7 @@ import urllib.error
 from pathlib import Path
 from typing import Dict, Any
 
+from theauditor import __version__
 from . import LanguageToolbox
 from .base import get_sandbox_dir, detect_platform
 
@@ -143,7 +144,7 @@ class RustToolbox(LanguageToolbox):
             # Get latest release tag from GitHub API
             api_url = 'https://api.github.com/repos/rust-lang/rust-analyzer/releases/latest'
             req = urllib.request.Request(api_url)
-            req.add_header('User-Agent', 'TheAuditor/0.1.0')
+            req.add_header('User-Agent', f'TheAuditor/{__version__}')
 
             with urllib.request.urlopen(req, timeout=30) as response:
                 release_data = json.loads(response.read())

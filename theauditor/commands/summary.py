@@ -13,10 +13,49 @@ import click
 @click.option("--raw-dir", default="./.pf/raw", help="Raw outputs directory")
 @click.option("--out", default="./.pf/raw/audit_summary.json", help="Output path for summary")
 def summary(root, raw_dir, out):
-    """Generate comprehensive audit summary from all phases."""
+    """Generate comprehensive audit summary from all analysis phases.
+
+    Aggregates findings from all completed analysis phases (index, lint, taint,
+    patterns, graph, fce, etc.) into a single executive summary JSON file with
+    severity counts, phase statistics, and overall audit status.
+
+    DIFFERENCE FROM 'aud report':
+    - 'aud summary' = Aggregate statistics in JSON (machine-readable)
+    - 'aud report' = AI-optimized markdown chunks (LLM-consumable)
+
+    WHEN TO USE:
+    - After 'aud full' to get overall audit status
+    - In CI/CD pipelines for build pass/fail decisions
+    - For metrics tracking and dashboards
+    - Quick status check of latest audit
+
+    EXAMPLES:
+      # Generate summary after full audit
+      aud full && aud summary
+
+      # Custom output location
+      aud summary --out ./results/summary.json
+
+      # CI/CD usage
+      aud summary && jq '.overall_status' .pf/raw/audit_summary.json
+
+    OUTPUT:
+      .pf/raw/audit_summary.json       # Executive summary
+
+    STATUS LEVELS:
+    - CRITICAL: Has critical findings
+    - HIGH: Has high findings (no critical)
+    - MEDIUM: Has medium findings (no high/critical)
+    - LOW: Only low findings
+    - CLEAN: No findings
+
+    RELATED:
+      aud full      # Run all analysis first
+      aud report    # Generate AI chunks
+    """
     start_time = time.time()
     raw_path = Path(raw_dir)
-    
+
     # Initialize summary structure
     audit_summary = {
         "generated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
@@ -32,7 +71,7 @@ def summary(root, raw_dir, out):
         "metrics_by_phase": {},
         "key_statistics": {}
     }
-    
+
     # Helper function to safely load JSON
     def load_json(file_path: Path) -> Dict[str, Any]:
         if file_path.exists():
@@ -42,7 +81,7 @@ def summary(root, raw_dir, out):
             except (json.JSONDecodeError, IOError):
                 pass
         return {}
-    
+
     # Phase 1: Index metrics
     manifest_path = Path(root) / "manifest.json"
     if manifest_path.exists():
@@ -52,7 +91,7 @@ def summary(root, raw_dir, out):
                 "files_indexed": len(manifest),
                 "total_size_bytes": sum(f.get("size", 0) for f in manifest)
             }
-    
+
     # Phase 2: Framework detection (read from database, not output files)
     framework_list = _load_frameworks_from_db(Path(root))
     if framework_list:
@@ -60,7 +99,7 @@ def summary(root, raw_dir, out):
             "frameworks_detected": len(framework_list),
             "languages": list(set(f.get("language", "") for f in framework_list))
         }
-    
+
     # Phase 3: Dependencies
     deps = load_json(raw_path / "deps.json")
     deps_latest = load_json(raw_path / "deps_latest.json")
@@ -68,13 +107,13 @@ def summary(root, raw_dir, out):
         outdated_count = 0
         vulnerability_count = 0
         total_deps = 0
-        
+
         # Handle deps being either dict or list
         if isinstance(deps, dict):
             total_deps = len(deps.get("dependencies", []))
         elif isinstance(deps, list):
             total_deps = len(deps)
-        
+
         # Handle deps_latest structure
         if isinstance(deps_latest, dict) and "packages" in deps_latest:
             for pkg in deps_latest["packages"]:
@@ -83,13 +122,13 @@ def summary(root, raw_dir, out):
                         outdated_count += 1
                     if pkg.get("vulnerabilities"):
                         vulnerability_count += len(pkg["vulnerabilities"])
-        
+
         audit_summary["metrics_by_phase"]["dependencies"] = {
             "total_dependencies": total_deps,
             "outdated_packages": outdated_count,
             "vulnerabilities": vulnerability_count
         }
-    
+
     # Phase 7: Linting
     lint_data = load_json(raw_path / "lint.json")
     if lint_data and "findings" in lint_data:
@@ -98,37 +137,37 @@ def summary(root, raw_dir, out):
             severity = finding.get("severity", "info").lower()
             if severity in lint_by_severity:
                 lint_by_severity[severity] += 1
-        
+
         audit_summary["metrics_by_phase"]["lint"] = {
             "total_issues": len(lint_data["findings"]),
             "by_severity": lint_by_severity
         }
-        
+
         # Add to total
         for sev, count in lint_by_severity.items():
             audit_summary["total_findings_by_severity"][sev] += count
-    
+
     # Phase 8: Pattern detection
     patterns = load_json(raw_path / "patterns.json")
     if not patterns:
         patterns = load_json(raw_path / "findings.json")
-    
+
     if patterns and "findings" in patterns:
         pattern_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
         for finding in patterns["findings"]:
             severity = finding.get("severity", "info").lower()
             if severity in pattern_by_severity:
                 pattern_by_severity[severity] += 1
-        
+
         audit_summary["metrics_by_phase"]["patterns"] = {
             "total_patterns_matched": len(patterns["findings"]),
             "by_severity": pattern_by_severity
         }
-        
+
         # Add to total
         for sev, count in pattern_by_severity.items():
             audit_summary["total_findings_by_severity"][sev] += count
-    
+
     # Phase 9-10: Graph analysis
     graph_analysis = load_json(raw_path / "graph_analysis.json")
     graph_metrics = load_json(raw_path / "graph_metrics.json")
@@ -141,11 +180,11 @@ def summary(root, raw_dir, out):
             "hotspots_identified": len(graph_analysis.get("hotspots", [])),
             "graph_density": summary_data.get("import_graph", {}).get("density", 0)
         }
-        
+
         if "health_metrics" in summary_data:
             audit_summary["metrics_by_phase"]["graph"]["health_grade"] = summary_data["health_metrics"].get("health_grade", "N/A")
             audit_summary["metrics_by_phase"]["graph"]["fragility_score"] = summary_data["health_metrics"].get("fragility_score", 0)
-    
+
     # Phase 11: Taint analysis
     taint = load_json(raw_path / "taint_analysis.json")
     if taint:
@@ -155,18 +194,44 @@ def summary(root, raw_dir, out):
                 severity = path.get("severity", "medium").lower()
                 if severity in taint_by_severity:
                     taint_by_severity[severity] += 1
-        
+
         audit_summary["metrics_by_phase"]["taint_analysis"] = {
             "taint_paths_found": len(taint.get("taint_paths", [])),
             "total_vulnerabilities": taint.get("total_vulnerabilities", 0),
             "by_severity": taint_by_severity
         }
-        
+
         # Add to total
         for sev, count in taint_by_severity.items():
             if sev in audit_summary["total_findings_by_severity"]:
                 audit_summary["total_findings_by_severity"][sev] += count
-    
+
+    # Phase 11.5: Terraform Infrastructure Security
+    terraform_findings = load_json(raw_path / "terraform_findings.json")
+    if terraform_findings:
+        terraform_by_severity = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+        terraform_by_category = {}
+
+        for finding in terraform_findings:
+            severity = finding.get("severity", "info").lower()
+            if severity in terraform_by_severity:
+                terraform_by_severity[severity] += 1
+
+            category = finding.get("category", "unknown")
+            terraform_by_category[category] = terraform_by_category.get(category, 0) + 1
+
+        audit_summary["metrics_by_phase"]["terraform"] = {
+            "total_findings": len(terraform_findings),
+            "by_severity": terraform_by_severity,
+            "by_category": terraform_by_category,
+            "resources_analyzed": len(set(f.get("resource_id", "") for f in terraform_findings if f.get("resource_id")))
+        }
+
+        # Add to total
+        for sev, count in terraform_by_severity.items():
+            if sev in audit_summary["total_findings_by_severity"]:
+                audit_summary["total_findings_by_severity"][sev] += count
+
     # Phase 12: FCE (Factual Correlation Engine)
     fce = load_json(raw_path / "fce.json")
     if fce:
@@ -180,7 +245,7 @@ def summary(root, raw_dir, out):
             "path_clusters": summary_block.get("path_clusters", correlations.get("total_path_clusters", 0)),
             "hotspots_correlated": correlations.get("total_hotspots", 0),
         }
-    
+
     # Calculate overall status based on severity counts
     severity_counts = audit_summary["total_findings_by_severity"]
     if severity_counts["critical"] > 0:
@@ -193,18 +258,18 @@ def summary(root, raw_dir, out):
         audit_summary["overall_status"] = "LOW"
     else:
         audit_summary["overall_status"] = "CLEAN"
-    
+
     # Add key statistics
     audit_summary["key_statistics"] = {
         "total_findings": sum(severity_counts.values()),
         "phases_with_findings": len([p for p in audit_summary["metrics_by_phase"] if audit_summary["metrics_by_phase"][p]]),
         "total_phases_run": len(audit_summary["metrics_by_phase"])
     }
-    
+
     # Calculate runtime
     elapsed = time.time() - start_time
     audit_summary["summary_generation_time"] = elapsed
-    
+
     # Read pipeline.log for total runtime if available
     pipeline_log = Path(root) / ".pf" / "pipeline.log"
     if pipeline_log.exists():
@@ -218,13 +283,13 @@ def summary(root, raw_dir, out):
                         break
         except:
             pass
-    
+
     # Save the summary
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(audit_summary, f, indent=2)
-    
+
     # Output results
     click.echo(f"[OK] Audit summary generated in {elapsed:.1f}s")
     click.echo(f"  Overall status: {audit_summary['overall_status']}")
@@ -269,6 +334,3 @@ def _load_frameworks_from_db(project_path: Path) -> List[Dict]:
 
     except sqlite3.Error:
         return []
-    click.echo(f"  Summary saved to: {out_path}")
-    
-    return audit_summary

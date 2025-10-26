@@ -44,6 +44,7 @@ class TaintPath:
         self.path_complexity = 0
         self.tainted_vars = []
         self.sanitized_vars = []
+        self.related_sources: List[Dict[str, Any]] = []
     
     def _classify_vulnerability(self) -> str:
         """Classify the vulnerability based on sink type - factual categorization."""
@@ -109,7 +110,27 @@ class TaintPath:
             result["tainted_vars"] = self.tainted_vars
             result["sanitized_vars"] = self.sanitized_vars
         
+        if self.related_sources:
+            result["related_sources"] = self.related_sources
+            result["related_source_count"] = len(self.related_sources)
+            result["unique_source_count"] = len(self.related_sources) + 1
+        
         return result
+
+    def add_related_path(self, other: "TaintPath") -> None:
+        """Attach additional source/path metadata that reaches the same sink."""
+        related_entry = {
+            "source": {
+                "file": other.source.get("file"),
+                "line": other.source.get("line"),
+                "name": other.source.get("name"),
+                "pattern": other.source.get("pattern"),
+            },
+            "path": other.path,
+            "path_length": len(other.path) if other.path else 0,
+            "flow_sensitive": other.flow_sensitive,
+        }
+        self.related_sources.append(related_entry)
 
 
 def trace_taint(db_path: str, max_depth: int = 5, registry=None,
@@ -270,7 +291,7 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
             "medium_count": 0,
             "low_count": 0
         }
-        
+
         return {
             "success": True,
             "taint_paths": path_dicts,  # Keep original key for backward compatibility

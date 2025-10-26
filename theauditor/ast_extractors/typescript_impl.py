@@ -540,23 +540,14 @@ def build_scope_map(ast_root: Dict) -> Dict[int, str]:
 def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Dict]:
     """Extract function metadata from TypeScript semantic AST for symbol table.
 
-    COMPREHENSIVE FIX for TypeScript class property arrow functions.
+    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
 
-    This implementation uses HYBRID APPROACH:
-    1. AST TRAVERSAL - Detects ALL function patterns including PropertyDeclaration
-    2. SYMBOL ENRICHMENT - Merges rich type metadata from TypeScript compiler
+    Now supports two modes:
+    1. PRE-EXTRACTED DATA (batch parsing) - Functions extracted in JavaScript, received directly
+    2. AST TRAVERSAL (individual parsing) - Fallback to full AST traversal for backward compatibility
 
-    Function patterns detected:
-    1. FunctionDeclaration - standard function declarations
-    2. MethodDeclaration - class methods (async method() {})
-    3. PropertyDeclaration - class property arrow functions (prop = async () => {})
-    4. Constructor - class constructors
-    5. GetAccessor/SetAccessor - property accessors
-
-    CRITICAL: PropertyDeclaration with ArrowFunction/FunctionExpression initializers
-    are now properly detected and extracted with full class context.
-
-    This unblocks multi-hop taint analysis by ensuring ALL functions are indexed.
+    This hybrid approach eliminates JSON.stringify crashes for batch parsing (512MB+ → 5MB)
+    while maintaining backward compatibility for individual file parsing.
     """
     functions = []
 
@@ -566,6 +557,20 @@ def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Di
     if not actual_tree or not actual_tree.get("success"):
         return functions
 
+    # PHASE 5: Check for pre-extracted data (from batch parsing)
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "functions" in extracted_data:
+        # Use pre-extracted function data - NO AST TRAVERSAL NEEDED
+        # This is the fast path for batch parsing (avoids 512MB AST transfer)
+        import os
+        if os.getenv("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] extract_typescript_functions_for_symbols: Using PRE-EXTRACTED data ({len(extracted_data['functions'])} functions)")
+        return extracted_data["functions"]
+
+    # FALLBACK: AST traversal for individual file parsing (backward compatibility)
+    import os
+    if os.getenv("THEAUDITOR_DEBUG"):
+        print(f"[DEBUG] extract_typescript_functions_for_symbols: Using FALLBACK AST traversal")
     ast_root = actual_tree.get("ast", {})
 
     if not ast_root:
@@ -878,14 +883,30 @@ def extract_typescript_classes(tree: Dict, parser_self) -> List[Dict]:
 def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
     """Extract function calls from TypeScript semantic AST.
 
-    PHASE 3: Single-pass extraction using only AST traversal.
-    Removed filtered symbols loop and deduplication logic.
+    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
+
+    Now supports two modes:
+    1. PRE-EXTRACTED DATA (batch parsing) - Calls extracted in JavaScript
+    2. AST TRAVERSAL (individual parsing) - Fallback for backward compatibility
     """
     calls = []
 
     # Get actual tree structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if actual_tree and actual_tree.get("success"):
+        # PHASE 5: Check for pre-extracted data (from batch parsing)
+        extracted_data = actual_tree.get("extracted_data")
+        if extracted_data and "calls" in extracted_data:
+            # Use pre-extracted call data - NO AST TRAVERSAL NEEDED
+            import os
+            if os.getenv("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG] extract_typescript_calls: Using PRE-EXTRACTED data ({len(extracted_data['calls'])} calls)")
+            return extracted_data["calls"]
+
+        # FALLBACK: AST traversal for individual file parsing
+        import os
+        if os.getenv("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] extract_typescript_calls: Using FALLBACK AST traversal")
         ast_root = actual_tree.get("ast")
         if ast_root:
             # Single-pass AST traversal extracts ALL calls/properties
@@ -895,11 +916,29 @@ def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
 
 
 def extract_typescript_imports(tree: Dict, parser_self) -> List[Dict[str, Any]]:
-    """Extract import statements from TypeScript semantic AST."""
+    """Extract import statements from TypeScript semantic AST.
+
+    PHASE 5: EXTRACTION-FIRST ARCHITECTURE
+
+    Imports are now part of extracted_data (batch) or tree.imports (individual).
+    """
     imports = []
-    
-    # Use TypeScript compiler API data
-    for imp in tree.get("imports", []):
+
+    # PHASE 5: Check for pre-extracted data (from batch parsing)
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if actual_tree and actual_tree.get("success"):
+        extracted_data = actual_tree.get("extracted_data")
+        if extracted_data and "imports" in extracted_data:
+            # Imports are already in extracted_data - use directly
+            tree_imports = extracted_data["imports"]
+        else:
+            # Fallback: Use imports from tree (individual parsing)
+            tree_imports = tree.get("imports", [])
+    else:
+        tree_imports = tree.get("imports", [])
+
+    # Process imports (same format in both modes)
+    for imp in tree_imports:
         specifiers = imp.get("specifiers", []) or []
         namespace = None
         default = None
@@ -974,11 +1013,11 @@ def extract_typescript_properties(tree: Dict, parser_self) -> List[Dict]:
 
 def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring.
-    
+
     CRITICAL FIX: Now uses line-based scope mapping for accurate function context.
     """
     assignments = []
-    
+
     # Check if parsing was successful - handle nested structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
@@ -986,7 +1025,15 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
             import sys
             print(f"[AST_DEBUG] extract_typescript_assignments: No success in tree", file=sys.stderr)
         return assignments
-    
+
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "assignments" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_assignments: Using PRE-EXTRACTED data ({len(extracted_data['assignments'])} assignments)", file=sys.stderr)
+        return extracted_data["assignments"]
+
     # CRITICAL FIX: Build scope map FIRST!
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
@@ -1119,15 +1166,30 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
     # Get AST from the correct location after unwrapping
     ast_root = actual_tree.get("ast", {})
     traverse(ast_root)
-    
+
+    # CRITICAL FIX: Deduplicate assignments by (line, target_var, in_function)
+    # WHY: TypeScript semantic AST can represent nodes in multiple parent contexts,
+    # causing traverse() to visit same VariableDeclaration multiple times.
+    # This is NOT a fallback - it's fixing the extraction at source.
+    seen = set()
+    deduped = []
+    for a in assignments:
+        # Use composite key matching PRIMARY KEY constraint
+        key = (a['line'], a['target_var'], a['in_function'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(a)
+
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
-        print(f"[AST_DEBUG] extract_typescript_assignments: Found {len(assignments)} assignments", file=sys.stderr)
-        if assignments and len(assignments) < 5:
-            for a in assignments[:3]:
+        if len(assignments) != len(deduped):
+            print(f"[AST_DEBUG] Deduplication: {len(assignments)} -> {len(deduped)} assignments ({len(assignments) - len(deduped)} duplicates removed)", file=sys.stderr)
+        print(f"[AST_DEBUG] extract_typescript_assignments: Found {len(deduped)} unique assignments", file=sys.stderr)
+        if deduped and len(deduped) < 5:
+            for a in deduped[:3]:
                 print(f"[AST_DEBUG]   Example: {a['target_var']} = {a['source_expr'][:30]}...", file=sys.stderr)
-    
-    return assignments
+
+    return deduped
 
 
 def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, List[str]]:
@@ -1327,21 +1389,29 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
 
 def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, List[str]], parser_self) -> List[Dict[str, Any]]:
     """Extract function calls with arguments from TypeScript semantic AST.
-    
+
     CRITICAL FIX: Now uses line-based scope mapping instead of broken recursive tracking.
     This solves the "100% anonymous caller" problem that crippled taint analysis.
     """
     calls = []
-    
+
     if os.environ.get("THEAUDITOR_DEBUG"):
         print(f"[DEBUG] extract_typescript_calls_with_args: tree type={type(tree)}, success={tree.get('success') if tree else 'N/A'}")
-    
+
     # Check if parsing was successful - handle nested structure
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] extract_typescript_calls_with_args: Returning early - no tree or no success")
         return calls
+
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "function_call_args" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_calls_with_args: Using PRE-EXTRACTED data ({len(extracted_data['function_call_args'])} calls)", file=sys.stderr)
+        return extracted_data["function_call_args"]
 
     # CRITICAL FIX: Build scope map FIRST before traversing!
     # This pre-computes which function contains each line number
@@ -1462,6 +1532,14 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     if not actual_tree or not actual_tree.get("success"):
         return returns
 
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "returns" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_returns: Using PRE-EXTRACTED data ({len(extracted_data['returns'])} returns)", file=sys.stderr)
+        return extracted_data["returns"]
+
     # CRITICAL FIX: Build scope map FIRST!
     ast_root = actual_tree.get("ast", {})
     scope_map = build_scope_map(ast_root)
@@ -1562,32 +1640,60 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     # Start traversal
     traverse(ast_root)
 
+    # CRITICAL FIX: Deduplicate returns by (line, function_name)
+    # WHY: Same issue as assignments - AST traverse visits nodes multiple times
+    # NOTE: PRIMARY KEY is (file, line, function_name) but file is added by orchestrator
+    seen = set()
+    deduped = []
+    for r in returns:
+        key = (r['line'], r['function_name'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+
     # Debug output for JSX detection
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
-        jsx_returns = [r for r in returns if r.get("has_jsx")]
-        print(f"[DEBUG] Found {len(returns)} total returns, {len(jsx_returns)} with JSX", file=sys.stderr)
+        if len(returns) != len(deduped):
+            print(f"[AST_DEBUG] TypeScript returns deduplication: {len(returns)} -> {len(deduped)} ({len(returns) - len(deduped)} duplicates removed)", file=sys.stderr)
+        jsx_returns = [r for r in deduped if r.get("has_jsx")]
+        print(f"[DEBUG] Found {len(deduped)} total returns, {len(jsx_returns)} with JSX", file=sys.stderr)
         if jsx_returns and len(jsx_returns) < 5:
             for r in jsx_returns[:3]:
                 print(f"[DEBUG]   JSX return in {r['function_name']} at line {r['line']}: {r['return_expr'][:50]}...", file=sys.stderr)
 
-    return returns
+    return deduped
 
 
 def extract_typescript_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:
-    """Extract control flow graphs for all TypeScript/JavaScript functions.
+    """Extract control flow graphs from pre-extracted CFG data.
 
-    Returns CFG data matching the database schema expectations.
+    PHASE 5 UNIFIED SINGLE-PASS ARCHITECTURE:
+    CFG is now extracted directly in JavaScript using extractCFG() function,
+    which handles ALL node types including JSX (JsxElement, JsxSelfClosingElement, etc.).
+
+    This fixes the jsx='preserved' 0 CFG bug where Python's AST traverser
+    couldn't understand JSX nodes.
+
+    Returns:
+        List of CFG objects (one per function) from extracted_data.cfg
     """
     cfgs = []
 
-    # Get complete function AST nodes
-    func_nodes = extract_typescript_function_nodes(tree, parser_self)
+    # Get the actual tree structure
+    actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
+    if not actual_tree or not actual_tree.get("success"):
+        return cfgs
 
-    for func_node in func_nodes:
-        cfg = build_typescript_function_cfg(func_node)
-        if cfg:
-            cfgs.append(cfg)
+    # Get data from Phase 5 payload
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "cfg" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG] extract_typescript_cfg: Using PRE-EXTRACTED CFG data ({len(extracted_data['cfg'])} CFGs)")
+        return extracted_data["cfg"]
+
+    if os.environ.get("THEAUDITOR_DEBUG"):
+        print(f"[DEBUG] extract_typescript_cfg: No 'cfg' key found in extracted_data.")
 
     return cfgs
 
@@ -1616,6 +1722,14 @@ def extract_typescript_object_literals(tree: Dict, parser_self) -> List[Dict[str
     actual_tree = tree.get("tree") if isinstance(tree.get("tree"), dict) else tree
     if not actual_tree or not actual_tree.get("success"):
         return object_literals
+
+    # PHASE 5: Check for pre-extracted data FIRST
+    extracted_data = actual_tree.get("extracted_data")
+    if extracted_data and "object_literals" in extracted_data:
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            import sys
+            print(f"[DEBUG] extract_typescript_object_literals: Using PRE-EXTRACTED data ({len(extracted_data['object_literals'])} literals)", file=sys.stderr)
+        return extracted_data["object_literals"]
 
     ast_root = actual_tree.get("ast", {})
     if not ast_root:

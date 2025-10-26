@@ -317,7 +317,16 @@ class IndexerOrchestrator:
         
         # Final commit
         self.db_manager.commit()
-        
+
+        # PHASE 6: Resolve cross-file parameter names
+        # After all files indexed, update function_call_args.param_name with actual parameter names
+        # from symbols table (fixes file-scoped limitation in JavaScript extraction)
+        from theauditor.indexer.extractors.javascript import JavaScriptExtractor
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[INDEXER] PHASE 6: Resolving cross-file parameter names...", file=sys.stderr)
+        JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
+        self.db_manager.commit()
+
         # Report results with database location
         base_msg = (f"[Indexer] Indexed {self.counts['files']} files, "
                    f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
@@ -481,6 +490,17 @@ class IndexerOrchestrator:
                 if not tree:
                     continue
 
+                # DEBUG: Check if AST is present in tree
+
+                if os.environ.get("THEAUDITOR_DEBUG"):
+                    has_ast = False
+                    if isinstance(tree, dict):
+                        if 'ast' in tree:
+                            has_ast = tree['ast'] is not None
+                        elif 'tree' in tree and isinstance(tree['tree'], dict):
+                            has_ast = tree['tree'].get('ast') is not None
+                    print(f"[DEBUG] JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}")
+
                 # Read file content (cap at 1MB)
                 try:
                     with open(file_path, encoding="utf-8", errors="ignore") as f:
@@ -494,6 +514,11 @@ class IndexerOrchestrator:
                     continue
 
                 # Extract data from preserved AST
+                # Check for batch processing failures before extraction
+                if isinstance(tree, dict) and tree.get('success') is False:
+                    print(f"[Indexer] JavaScript extraction FAILED for {file_path}: {tree.get('error')}", file=sys.stderr)
+                    continue  # Skip this file
+
                 try:
                     extracted = extractor.extract(file_info, content, tree)
                 except Exception as e:
@@ -518,7 +543,7 @@ class IndexerOrchestrator:
                     self.db_manager.add_assignment_jsx(
                         file_path_str, assign['line'], assign['target_var'],
                         assign['source_expr'], assign['source_vars'],
-                        assign['in_function'],
+                        assign['in_function'], assign.get('property_path'),  # Pass destructuring property path
                         jsx_mode='preserved', extraction_pass=2
                     )
                     jsx_counts['assignments'] += 1
@@ -544,6 +569,57 @@ class IndexerOrchestrator:
                     )
                     jsx_counts['returns'] += 1
 
+                # CFG extraction (JSX PASS)
+                # Extract CFG from JSX files - critical for control flow analysis
+                for function_cfg in extracted.get('cfg', []):
+                    if not function_cfg:
+                        continue
+
+                    # Map temporary block IDs to real IDs
+                    block_id_map = {}
+
+                    # Store blocks and build ID mapping
+                    for block in function_cfg.get('blocks', []):
+                        temp_id = block['id']
+                        real_id = self.db_manager.add_cfg_block(
+                            file_path_str,
+                            function_cfg['function_name'],
+                            block['type'],
+                            block['start_line'],
+                            block['end_line'],
+                            block.get('condition')
+                        )
+                        block_id_map[temp_id] = real_id
+                        self.counts['cfg_blocks'] += 1
+
+                        # Store statements for this block
+                        for stmt in block.get('statements', []):
+                            self.db_manager.add_cfg_statement(
+                                real_id,
+                                stmt['type'],
+                                stmt['line'],
+                                stmt.get('text')
+                            )
+                            self.counts['cfg_statements'] += 1
+
+                    # Store edges with mapped IDs
+                    for edge in function_cfg.get('edges', []):
+                        source_id = block_id_map.get(edge['source'], edge['source'])
+                        target_id = block_id_map.get(edge['target'], edge['target'])
+                        self.db_manager.add_cfg_edge(
+                            file_path_str,
+                            function_cfg['function_name'],
+                            source_id,
+                            target_id,
+                            edge['type']
+                        )
+                        self.counts['cfg_edges'] += 1
+
+                    # Track count
+                    if 'cfg_functions' not in self.counts:
+                        self.counts['cfg_functions'] = 0
+                    self.counts['cfg_functions'] += 1
+
                 # Flush batches periodically for memory efficiency
                 if (idx + 1) % self.db_manager.batch_size == 0:
                     self.db_manager.flush_batch()
@@ -557,6 +633,12 @@ class IndexerOrchestrator:
                   f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
                   f"{jsx_counts['returns']} returns stored to _jsx tables")
 
+        # Flush all generic batches (validation_framework_usage, etc.)
+        for table_name in self.db_manager.generic_batches.keys():
+            if self.db_manager.generic_batches[table_name]:  # Only flush if non-empty
+                self.db_manager.flush_generic_batch(table_name)
+        self.db_manager.commit()
+
         # Cleanup extractor resources (LSP sessions, temp directories, etc.)
         self._cleanup_extractors()
 
@@ -564,11 +646,16 @@ class IndexerOrchestrator:
     
     def _process_file(self, file_info: Dict[str, Any], js_ts_cache: Dict[str, Any]):
         """Process a single file.
-        
+
         Args:
             file_info: File metadata
             js_ts_cache: Cache of pre-parsed JS/TS ASTs
         """
+        # DEBUG: Trace file processing
+        import sys
+        if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
+            print(f"[TRACE] _process_file() called for: {file_info['path']}", file=sys.stderr)
+
         # Insert file record
         self.db_manager.add_file(
             file_info['path'], file_info['sha256'], file_info['ext'],
@@ -612,7 +699,12 @@ class IndexerOrchestrator:
         extractor = self._select_extractor(file_info['path'], file_info['ext'])
         if not extractor:
             return  # No extractor for this file type
-        
+
+        # DEBUG: Track file processing
+
+        if os.getenv("THEAUDITOR_DEBUG"):
+            print(f"[DEBUG ORCHESTRATOR] _process_file called for: {file_info['path']}")
+
         # Extract all information
         try:
             extracted = extractor.extract(file_info, content, tree)
@@ -622,6 +714,10 @@ class IndexerOrchestrator:
             return
         
         # Store extracted data in database
+        import sys
+        if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
+            num_assignments = len(extracted.get('assignments', []))
+            print(f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments", file=sys.stderr)
         self._store_extracted_data(file_info['path'], extracted)
     
     def _get_or_parse_ast(self, file_info: Dict[str, Any], 
@@ -684,9 +780,11 @@ class IndexerOrchestrator:
             file_path: Path to the source file
             extracted: Dictionary of extracted data
         """
+        import json  # Ensure json is available for all code paths
+
         # Store imports/references
         if 'imports' in extracted:
-            import os
+
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Processing {len(extracted['imports'])} imports for {file_path}")
             for import_tuple in extracted['imports']:
@@ -743,10 +841,18 @@ class IndexerOrchestrator:
         
         # Store symbols
         if 'symbols' in extracted:
+            import json
             for symbol in extracted['symbols']:
+                # Serialize parameters array to JSON if present
+                parameters_json = None
+                if 'parameters' in symbol and symbol['parameters']:
+                    parameters_json = json.dumps(symbol['parameters'])
+
                 self.db_manager.add_symbol(
                     file_path, symbol['name'], symbol['type'],
-                    symbol['line'], symbol['col'], symbol.get('end_line')
+                    symbol['line'], symbol['col'], symbol.get('end_line'),
+                    symbol.get('type_annotation'),  # Pass type_annotation if present
+                    parameters_json  # Pass JSON-serialized parameters
                 )
                 self.counts['symbols'] += 1
 
@@ -780,6 +886,28 @@ class IndexerOrchestrator:
                 )
                 self.counts['orm'] += 1
 
+        # Store validation framework usage (for taint analysis sanitizer detection)
+        # DEBUG: Check if validation_framework_usage key exists
+        if os.environ.get("THEAUDITOR_VALIDATION_DEBUG") and file_path.endswith('validate.ts'):
+            print(f"[PY-DEBUG] Extracted keys for {file_path}: {list(extracted.keys())}", file=sys.stderr)
+            if 'validation_framework_usage' in extracted:
+                print(f"[PY-DEBUG] validation_framework_usage has {len(extracted['validation_framework_usage'])} items", file=sys.stderr)
+
+        if 'validation_framework_usage' in extracted:
+            for usage in extracted['validation_framework_usage']:
+                self.db_manager.generic_batches['validation_framework_usage'].append((
+                    file_path,
+                    usage['line'],
+                    usage['framework'],
+                    usage['method'],
+                    usage.get('variable_name'),
+                    1 if usage.get('is_validator', True) else 0,
+                    usage.get('argument_expr', '')
+                ))
+            # Flush if batch is full
+            if len(self.db_manager.generic_batches['validation_framework_usage']) >= self.db_manager.batch_size:
+                self.db_manager.flush_generic_batch('validation_framework_usage')
+
         # Store data flow information for taint analysis
         if 'assignments' in extracted:
             if extracted['assignments']:
@@ -792,7 +920,7 @@ class IndexerOrchestrator:
                 self.db_manager.add_assignment(
                     file_path, assignment['line'], assignment['target_var'],
                     assignment['source_expr'], assignment['source_vars'],
-                    assignment['in_function']
+                    assignment['in_function'], assignment.get('property_path')  # Pass destructuring property path
                 )
                 self.counts['assignments'] += 1
         
@@ -917,6 +1045,65 @@ class IndexerOrchestrator:
                     component.get('props_type')
                 )
                 self.counts['react_components'] += 1
+
+        # Store class property declarations (TypeScript/JavaScript ES2022+)
+        if 'class_properties' in extracted:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG INDEXER] Found {len(extracted['class_properties'])} class_properties for {file_path}")
+            for prop in extracted['class_properties']:
+                if os.environ.get("THEAUDITOR_DEBUG") and len(extracted['class_properties']) > 0:
+                    print(f"[DEBUG INDEXER]   Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}")
+                self.db_manager.add_class_property(
+                    file_path,
+                    prop['line'],
+                    prop['class_name'],
+                    prop['property_name'],
+                    prop.get('property_type'),
+                    prop.get('is_optional', False),
+                    prop.get('is_readonly', False),
+                    prop.get('access_modifier'),
+                    prop.get('has_declare', False),
+                    prop.get('initializer')
+                )
+                if 'class_properties' not in self.counts:
+                    self.counts['class_properties'] = 0
+                self.counts['class_properties'] += 1
+
+        # Store environment variable usage (process.env.X)
+        if 'env_var_usage' in extracted:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG INDEXER] Found {len(extracted['env_var_usage'])} env_var_usage for {file_path}")
+            for usage in extracted['env_var_usage']:
+                self.db_manager.add_env_var_usage(
+                    file_path,
+                    usage['line'],
+                    usage['var_name'],
+                    usage['access_type'],
+                    usage.get('in_function'),
+                    usage.get('property_access')
+                )
+                if 'env_var_usage' not in self.counts:
+                    self.counts['env_var_usage'] = 0
+                self.counts['env_var_usage'] += 1
+
+        # Store ORM relationship declarations (hasMany, belongsTo, etc.)
+        if 'orm_relationships' in extracted:
+            if os.environ.get("THEAUDITOR_DEBUG"):
+                print(f"[DEBUG INDEXER] Found {len(extracted['orm_relationships'])} orm_relationships for {file_path}")
+            for rel in extracted['orm_relationships']:
+                self.db_manager.add_orm_relationship(
+                    file_path,
+                    rel['line'],
+                    rel['source_model'],
+                    rel['target_model'],
+                    rel['relationship_type'],
+                    rel.get('foreign_key'),
+                    rel.get('cascade_delete', False),
+                    rel.get('as_name')
+                )
+                if 'orm_relationships' not in self.counts:
+                    self.counts['orm_relationships'] = 0
+                self.counts['orm_relationships'] += 1
 
         if 'react_hooks' in extracted:
             for hook in extracted['react_hooks']:
@@ -1069,6 +1256,93 @@ class IndexerOrchestrator:
                 if 'import_styles' not in self.counts:
                     self.counts['import_styles'] = 0
                 self.counts['import_styles'] += 1
+
+        # Store Terraform infrastructure definitions
+        if 'terraform_file' in extracted:
+            file_record = extracted['terraform_file']
+            self.db_manager.add_terraform_file(
+                file_path=file_record['file_path'],
+                module_name=file_record.get('module_name'),
+                stack_name=file_record.get('stack_name'),
+                backend_type=file_record.get('backend_type'),
+                providers_json=file_record.get('providers_json'),
+                is_module=file_record.get('is_module', False),
+                module_source=file_record.get('module_source')
+            )
+            if 'terraform_files' not in self.counts:
+                self.counts['terraform_files'] = 0
+            self.counts['terraform_files'] += 1
+
+        if 'terraform_resources' in extracted:
+            for resource in extracted['terraform_resources']:
+                self.db_manager.add_terraform_resource(
+                    resource_id=resource['resource_id'],
+                    file_path=resource['file_path'],
+                    resource_type=resource['resource_type'],
+                    resource_name=resource['resource_name'],
+                    module_path=resource.get('module_path'),
+                    properties_json=json.dumps(resource.get('properties', {})),
+                    depends_on_json=json.dumps(resource.get('depends_on', [])),
+                    sensitive_flags_json=json.dumps(resource.get('sensitive_properties', [])),
+                    has_public_exposure=resource.get('has_public_exposure', False),
+                    line=resource.get('line')
+                )
+                if 'terraform_resources' not in self.counts:
+                    self.counts['terraform_resources'] = 0
+                self.counts['terraform_resources'] += 1
+
+        if 'terraform_variables' in extracted:
+            for variable in extracted['terraform_variables']:
+                self.db_manager.add_terraform_variable(
+                    variable_id=variable['variable_id'],
+                    file_path=variable['file_path'],
+                    variable_name=variable['variable_name'],
+                    variable_type=variable.get('variable_type'),
+                    default_json=json.dumps(variable.get('default')) if variable.get('default') is not None else None,
+                    is_sensitive=variable.get('is_sensitive', False),
+                    description=variable.get('description', ''),
+                    source_file=variable.get('source_file'),
+                    line=variable.get('line')
+                )
+                if 'terraform_variables' not in self.counts:
+                    self.counts['terraform_variables'] = 0
+                self.counts['terraform_variables'] += 1
+
+        if 'terraform_variable_values' in extracted:
+            for value in extracted['terraform_variable_values']:
+                raw_value = value.get('variable_value')
+                value_json = value.get('variable_value_json')
+                if value_json is None and raw_value is not None:
+                    try:
+                        value_json = json.dumps(raw_value)
+                    except TypeError:
+                        value_json = json.dumps(str(raw_value))
+
+                self.db_manager.add_terraform_variable_value(
+                    file_path=value['file_path'],
+                    variable_name=value['variable_name'],
+                    variable_value_json=value_json,
+                    line=value.get('line'),
+                    is_sensitive_context=value.get('is_sensitive_context', False)
+                )
+                if 'terraform_variable_values' not in self.counts:
+                    self.counts['terraform_variable_values'] = 0
+                self.counts['terraform_variable_values'] += 1
+
+        if 'terraform_outputs' in extracted:
+            for output in extracted['terraform_outputs']:
+                self.db_manager.add_terraform_output(
+                    output_id=output['output_id'],
+                    file_path=output['file_path'],
+                    output_name=output['output_name'],
+                    value_json=json.dumps(output.get('value')) if output.get('value') is not None else None,
+                    is_sensitive=output.get('is_sensitive', False),
+                    description=output.get('description', ''),
+                    line=output.get('line')
+                )
+                if 'terraform_outputs' not in self.counts:
+                    self.counts['terraform_outputs'] = 0
+                self.counts['terraform_outputs'] += 1
 
     def _cleanup_extractors(self):
         """Call cleanup() on all registered extractors.

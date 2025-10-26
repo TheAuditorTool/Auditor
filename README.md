@@ -1,4 +1,4 @@
-# TheAuditor v1.3-RC1
+# TheAuditor v1.4.2-RC1
 
 ### The Ground-Truth Engine for AI-Driven Development 🧭
 
@@ -7,6 +7,16 @@ AI assistants write code, but they don’t *understand* it. They can create a co
 **Offline-first. Polyglot. Tool-agnostic.** TheAuditor builds an incorruptible, queryable source of truth about your codebase so humans and AIs can build, refactor, and secure software with **verifiable facts**—not statistical guesses.
 
 **Universal Integration**: No SDK, no integration, no setup - it just works with Claude, Cursor, Windsurf, Copilot, or any future AI tool that can run terminal/shell commands and read files.
+
+## 🆕 v1.4.2-RC1: Code Context On-Demand
+
+Our SAST + code-quality pipeline now ships with a dedicated **code context layer** so AIs stop burning tokens hunting for relationships across files.
+
+- `aud blueprint` — Architectural drill-downs (`--structure`, `--graph`, `--security`, `--taint`) surface scope, bottlenecks, and attack surface with file:line precision.
+- `aud query` — Indexed lookups for symbols, call chains, API handlers, dependency graphs, and component trees that respond in milliseconds with JSON/Text/Tree output.
+- `aud context` — YAML-driven semantic mapping that tags obsolete/current code, tracks refactor states, and projects business logic directly onto TheAuditor's databases.
+
+Together they cut typical refactor loops from 15k tokens to ~1.5k per iteration while keeping every result tied back to the same verifiable SQLite ground truth that powers our SAST findings.
 
 ---
 
@@ -45,30 +55,38 @@ This isn’t hypothetical. **It works today.** It’s 100% offline, language-agn
 
 A multi-stage pipeline that orchestrates best-in-class tools plus proprietary engines to build a complete, **queryable** model of your repo.
 
-* **Polyglot:** Python, JavaScript/TypeScript, and Rust ecosystems.
+* **Polyglot:** Python, JavaScript/TypeScript, Rust ecosystems, and Terraform/HCL Infrastructure as Code.
 * **100% Offline:** Your code never leaves your machine. 🔒
 * **Performance-Obsessed:** Medium projects finish in minutes thanks to in-memory architecture and O(1) lookups. CI/CD-ready.
 
 | Stage                              | What it Does                                                                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. |
-| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit**, **pip-audit**, and **Google’s osv-scanner**—cross-referenced for accuracy.                       |
+| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. Extracts Terraform IaC resources. |
+| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit**, **pip-audit**, and **Google's osv-scanner**—cross-referenced for accuracy.                       |
 | **3. Industry-Standard Linting**   | Correlates **ESLint**, **Ruff**, **MyPy**, **Clippy** with project-aware configs.                                                                               |
 | **4. Multi-Hop Taint Analysis**    | True inter-procedural (cross-file) taint analysis with CFG validation to surface complex vulns (SQLi, XSS) with near-zero false positives.                      |
-| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the “blast radius” of code changes.                                                               |
-| **6. Factual Correlation Engine**  | The “brain” that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
+| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the "blast radius" of code changes. Terraform provisioning flow graphs for infrastructure analysis. |
+| **6. Factual Correlation Engine**  | The "brain" that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
 | **7. AI-Centric Output**           | Raw outputs preserved in `.pf/raw/` for humans; concise, chunked reports for AI in `.pf/readthis/`.                                                             |
 
 ---
 
-## ✨ The Intelligence Layer (v1.3)
+## ✨ Code Context Intelligence (v1.4.2-RC1)
 
-**v1.3** adds an **Insights Engine** that turns ground truth into action.
+v1.4.2-RC1 layers **live code context** on top of our existing SAST + code-quality platform so agents can query architecture instead of brute-forcing file reads.
 
-* 🧠 **Semantic Context Engine**
+1. **`aud blueprint`** – Four drill-downs (Structure, Graph, Security, Taint) summarize repo scope, gateway files, auth coverage, and risky flows with file:line references.
+2. **`aud query`** – Millisecond SQL-backed lookups for call chains, module dependencies, API handlers, and component trees, emitted in text, JSON, or tree form.
+3. **`aud context`** – YAML-driven semantic overlays that classify obsolete/current code, track refactor migrations, and tag findings with business language.
+
+All three commands run entirely offline against `.pf/repo_index.db` and `.pf/graphs.db`, keeping TheAuditor’s “truth courier” guarantees intact while closing the code-context gap for AI copilots.
+
+### Optional Insights (Still Available)
+
+* 🧠 **Semantic Context Engine**  
   Teach TheAuditor your business logic via simple YAML. Define refactors, API deprecations, and architecture patterns. It flags obsolete code and tracks migration progress.
 
-* 🔮 **Predictive ML Insights** *(optional)*
+* 🔮 **Predictive ML Insights** *(optional)*  
   Learns from Git churn, past findings, and complexity to predict **likely root causes** and **next files to edit**, helping teams prioritize.
 
 ---
@@ -159,7 +177,78 @@ aud graph viz --view hotspots --top-hotspots 5
 
 # Show the impact of changing a file
 aud graph viz --view impact --impact-target "src/api/auth.js"
+
+# Build data flow graph (tracks variable assignments and returns)
+aud graph build-dfg
 ```
+
+Data flow graphs track how variables flow through assignments and function returns, stored in `.pf/graphs.db` and `.pf/raw/data_flow_graph.json`. Used by taint analysis for more accurate inter-procedural tracking.
+
+### Architectural Intelligence & Code Queries
+
+**NEW in v1.4.2-RC1**: Blueprint, Query, and Context commands convert our indexed SAST output into an always-on code context fabric.
+
+AI assistants previously wasted 5-10k tokens per refactor just to re-learn architecture. TheAuditor now exposes the same SQLite truth our analyzers use so they can ask the repo—not grep through it.
+
+#### Blueprint: Architectural Overview
+
+Get a top-level view of your codebase structure, dependencies, security surface, and data flows - all in one command.
+
+```bash
+# Top-level overview (tree structure with key metrics)
+aud blueprint
+
+# Drill down into specific areas:
+aud blueprint --structure   # Scope, monorepo detection, token estimates
+aud blueprint --graph       # Gateway files, circular deps, bottlenecks
+aud blueprint --security    # Unprotected endpoints, auth patterns, SQL risk
+aud blueprint --taint       # Vulnerable data flows, sanitization coverage
+
+# Export everything for AI consumption
+aud blueprint --all --format json
+```
+
+**Each drill-down shows**: Exact file:line locations, impact analysis, actionable data. No recommendations - just facts about what exists and where.
+
+#### Query: Code Relationship Lookups
+
+Direct SQL queries over indexed code relationships for precise, token-efficient analysis.
+
+```bash
+# Who calls this function? (transitive, 3 levels deep)
+aud query --symbol authenticateUser --show-callers --depth 3
+
+# What does this function call?
+aud query --symbol handleRequest --show-callees
+
+# What files import this module?
+aud query --file src/auth.ts --show-dependents
+
+# Find API endpoint handler
+aud query --api "/users/:id"
+
+# Check API security coverage
+aud query --show-api-coverage
+```
+
+#### Context: Semantic Refactor Tracking
+
+`aud context` projects YAML-defined business rules onto the same database so AIs can reason with your domain language instead of raw file paths.
+
+```bash
+# Apply semantic overlays and emit a refactor plan
+aud context --file refactors/auth_migration.yaml --verbose
+
+# Run context-aware queries (pairs with blueprint/query output)
+aud context query --symbol authenticateUser --show-callers --depth 2 --format json
+```
+
+Use it to mark patterns as obsolete/current, measure migration progress, and label findings with terms your stakeholders recognize. Because it runs against `.pf/repo_index.db`, every tag still maps to concrete file:line evidence.
+
+**Performance**: <10ms indexed lookups, zero file reads. Query entire call chains across 100k LOC projects instantly.
+**Formats**: Human-readable text, AI-consumable JSON.
+
+See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, and context walkthroughs.
 
 ---
 

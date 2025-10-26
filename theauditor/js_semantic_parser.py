@@ -95,10 +95,11 @@ class JSSemanticParser:
                 break
         
         # If not found, will trigger proper error messages
-        
+
         self.tsc_available = self._check_tsc_availability()
-        self.helper_script = self._create_helper_script()
-        self.batch_helper_script = self._create_batch_helper_script()  # NEW: Batch processing helper
+        # PHASE 5: Single-file mode removed (512MB crash). Use batch mode for all files.
+        self.helper_script = None  # Deprecated - do not use
+        self.batch_helper_script = self._create_batch_helper_script()  # All parsing uses batch mode
 
     def _detect_module_type(self) -> str:
         """Detect the project's module type from package.json.
@@ -244,35 +245,15 @@ class JSSemanticParser:
         return script_content, template_content
     
     def _create_helper_script(self) -> Path:
-        """Create a Node.js helper script for TypeScript AST extraction.
+        """DEPRECATED: Single-file mode removed in Phase 5.
 
-        Returns:
-            Path to the created helper script
+        Raises:
+            RuntimeError: Always - single-file mode causes 512MB crash
         """
-        # CRITICAL: Create helper script with relative path resolution
-        # Always create in project root's .pf directory
-        pf_dir = self.project_root / ".pf"
-        pf_dir.mkdir(exist_ok=True)
-
-        helper_path = pf_dir / "tsc_ast_helper.js"
-
-        # Check if TypeScript module exists in our sandbox
-        typescript_exists = False
-        if self.node_modules_path:
-            # The TypeScript module is at node_modules/typescript/lib/typescript.js
-            ts_path = self.node_modules_path / "typescript" / "lib" / "typescript.js"
-            typescript_exists = ts_path.exists()
-
-        # Generate appropriate helper content based on module type
-        if self.project_module_type == "module":
-            # Use the ES Module helper from templates
-            helper_content = js_helper_templates.get_single_file_helper("module")
-        else:
-            # Use the CommonJS helper from templates
-            helper_content = js_helper_templates.get_single_file_helper("commonjs")
-
-        helper_path.write_text(helper_content, encoding='utf-8')
-        return helper_path
+        raise RuntimeError(
+            "Single-file mode removed in Phase 5. Single-file templates serialize full AST (512MB crash). "
+            "Use _create_batch_helper_script() instead (sets ast: null)."
+        )
     
     def _create_batch_helper_script(self) -> Path:
         """Create a Node.js helper script for batch TypeScript AST extraction.
@@ -299,15 +280,26 @@ class JSSemanticParser:
         batch_helper_path.write_text(batch_helper_content, encoding='utf-8')
         return batch_helper_path
     
-    def get_semantic_ast_batch(self, file_paths: List[str], jsx_mode: str = 'transformed') -> Dict[str, Dict[str, Any]]:
+    def get_semantic_ast_batch(
+        self,
+        file_paths: List[str],
+        jsx_mode: str = 'transformed',
+        tsconfig_map: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Dict[str, Any]]:
         """Get semantic ASTs for multiple JavaScript/TypeScript files in a single process.
-        
+
         This dramatically improves performance by reusing the TypeScript program
         and dependency cache across multiple files.
-        
+
+        PHASE 5: UNIFIED SINGLE-PASS ARCHITECTURE
+        All data (symbols, calls, CFG, etc.) extracted in one call.
+        No more two-pass system with cfg_only flag.
+
         Args:
             file_paths: List of paths to JavaScript or TypeScript files to parse
-            
+            jsx_mode: JSX transformation mode ('transformed' or 'preserved')
+            tsconfig_map: Optional mapping of file paths to tsconfig paths
+
         Returns:
             Dictionary mapping file paths to their AST results
         """
@@ -315,6 +307,9 @@ class JSSemanticParser:
         results = {}
         valid_files = []
         
+        normalized_tsconfig_map: Dict[str, str] = {}
+        tsconfig_map = tsconfig_map or {}
+
         for file_path in file_paths:
             file = Path(file_path).resolve()
             if not file.exists():
@@ -334,7 +329,13 @@ class JSSemanticParser:
                     "symbols": []
                 }
             else:
-                valid_files.append(str(file.resolve()))
+                resolved_file = file.resolve()
+                normalized_path = str(resolved_file).replace('\\', '/')
+                valid_files.append(normalized_path)
+
+                config_path = tsconfig_map.get(file_path) or tsconfig_map.get(str(file_path)) or tsconfig_map.get(normalized_path)
+                if config_path:
+                    normalized_tsconfig_map[normalized_path] = str(Path(config_path).resolve()).replace('\\', '/')
         
         if not valid_files:
             return results
@@ -355,7 +356,9 @@ class JSSemanticParser:
             batch_request = {
                 "files": valid_files,
                 "projectRoot": str(self.project_root),
-                "jsxMode": jsx_mode
+                "jsxMode": jsx_mode,
+                "configMap": normalized_tsconfig_map
+                # PHASE 5: No cfgOnly flag - single-pass extraction includes CFG
             }
             
             # Write batch request to temp file
@@ -414,17 +417,51 @@ class JSSemanticParser:
                             "symbols": []
                         }
                 else:
+                    # Print stderr in debug mode (contains console.error() output from JavaScript)
+                    if os.environ.get("THEAUDITOR_DEBUG") and result.stderr:
+                        print(f"[DEBUG JS STDERR] {result.stderr}")
+
                     # Read batch results
                     if Path(output_path).exists():
                         with open(output_path, 'r', encoding='utf-8') as f:
                             batch_results = json.load(f)
-                        
+
+                        # Build normalized lookup to handle path separator differences
+                        def _normalize(path_str: str) -> str:
+                            normalized = path_str.replace("\\", "/")
+                            try:
+                                resolved = Path(path_str).resolve()
+                                normalized_resolved = str(resolved).replace("\\", "/")
+                                return normalized_resolved or normalized
+                            except OSError:
+                                return normalized
+
+                        normalized_results: Dict[str, Dict[str, Any]] = {}
+                        for key, value in batch_results.items():
+                            candidates = {
+                                key,
+                                key.replace("\\", "/"),
+                                _normalize(key)
+                            }
+                            for candidate in candidates:
+                                normalized_results[candidate] = value
+
                         # Map results back to original file paths
                         for file_path in file_paths:
-                            resolved_path = str(Path(file_path).resolve())
-                            if resolved_path in batch_results:
-                                results[file_path] = batch_results[resolved_path]
-                            elif file_path not in results:
+                            candidate_keys = [
+                                file_path,
+                                file_path.replace("\\", "/"),
+                                _normalize(file_path),
+                            ]
+
+                            matched = False
+                            for candidate in candidate_keys:
+                                if candidate in normalized_results:
+                                    results[file_path] = normalized_results[candidate]
+                                    matched = True
+                                    break
+
+                            if not matched and file_path not in results:
                                 results[file_path] = {
                                     "success": False,
                                     "error": "File not processed in batch",
@@ -468,7 +505,12 @@ class JSSemanticParser:
         
         return results
     
-    def get_semantic_ast(self, file_path: str, jsx_mode: str = 'transformed') -> Dict[str, Any]:
+    def get_semantic_ast(
+        self,
+        file_path: str,
+        jsx_mode: str = 'transformed',
+        tsconfig_path: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Get semantic AST for a JavaScript/TypeScript file using the TypeScript compiler.
 
         CRITICAL JSX HANDLING:
@@ -484,6 +526,7 @@ class JSSemanticParser:
         Args:
             file_path: Path to the JavaScript or TypeScript file to parse
             jsx_mode: Either 'preserved' or 'transformed' (default: 'transformed')
+            tsconfig_path: Optional explicit path to tsconfig.json controlling this file
 
         Returns:
             Dictionary containing the semantic AST and metadata:
@@ -622,9 +665,23 @@ class JSSemanticParser:
                 
                 # Pass projectRoot as the fourth argument and jsx_mode as fifth
                 project_root_converted = self._convert_path_for_node(self.project_root)
+                tsconfig_path_converted = ""
+                if tsconfig_path:
+                    try:
+                        tsconfig_path_converted = self._convert_path_for_node(Path(tsconfig_path).resolve())
+                    except OSError:
+                        tsconfig_path_converted = tsconfig_path
 
                 result = subprocess.run(
-                    [str(self.node_exe), helper_path_converted, file_path_converted, output_path_converted, project_root_converted, jsx_mode],
+                    [
+                        str(self.node_exe),
+                        helper_path_converted,
+                        file_path_converted,
+                        output_path_converted,
+                        project_root_converted,
+                        jsx_mode,
+                        tsconfig_path_converted
+                    ],
                     capture_output=False,  # Don't capture stdout - writing to file instead
                     stderr=subprocess.PIPE,  # Still capture stderr for error messages
                     text=True,
@@ -890,7 +947,12 @@ class JSSemanticParser:
 
 
 # Module-level function for direct usage
-def get_semantic_ast(file_path: str, project_root: str = None, jsx_mode: str = 'transformed') -> Dict[str, Any]:
+def get_semantic_ast(
+    file_path: str,
+    project_root: str = None,
+    jsx_mode: str = 'transformed',
+    tsconfig_path: Optional[str] = None
+) -> Dict[str, Any]:
     """Get semantic AST for a JavaScript/TypeScript file.
 
     This is a convenience function that creates or reuses a cached parser instance
@@ -917,18 +979,29 @@ def get_semantic_ast(file_path: str, project_root: str = None, jsx_mode: str = '
         if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
             print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
     parser = _parser_cache[cache_key]
-    return parser.get_semantic_ast(file_path, jsx_mode)
+    return parser.get_semantic_ast(file_path, jsx_mode, tsconfig_path)
 
 
-def get_semantic_ast_batch(file_paths: List[str], project_root: str = None, jsx_mode: str = 'transformed') -> Dict[str, Dict[str, Any]]:
+def get_semantic_ast_batch(
+    file_paths: List[str],
+    project_root: str = None,
+    jsx_mode: str = 'transformed',
+    tsconfig_map: Optional[Dict[str, str]] = None
+) -> Dict[str, Dict[str, Any]]:
     """Get semantic ASTs for multiple JavaScript/TypeScript files in batch.
 
     This is a convenience function that creates or reuses a cached parser instance
     and calls its get_semantic_ast_batch method.
 
+    PHASE 5: UNIFIED SINGLE-PASS ARCHITECTURE
+    All data (symbols, calls, CFG, etc.) extracted in one call.
+    No more two-pass system with cfg_only flag.
+
     Args:
         file_paths: List of paths to JavaScript or TypeScript files to parse
         project_root: Absolute path to project root. If not provided, uses current directory.
+        jsx_mode: JSX transformation mode ('transformed' or 'preserved')
+        tsconfig_map: Optional mapping of file paths to tsconfig paths
 
     Returns:
         Dictionary mapping file paths to their AST results
@@ -946,4 +1019,4 @@ def get_semantic_ast_batch(file_paths: List[str], project_root: str = None, jsx_
         if os.environ.get("THEAUDITOR_DEBUG") and _cache_stats['hits'] % 10 == 0:  # Log every 10th hit to reduce spam
             print(f"[DEBUG] Cache HIT #{_cache_stats['hits']} - Reusing JSSemanticParser for {cache_key}")
     parser = _parser_cache[cache_key]
-    return parser.get_semantic_ast_batch(file_paths, jsx_mode)
+    return parser.get_semantic_ast_batch(file_paths, jsx_mode, tsconfig_map)
