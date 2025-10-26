@@ -1,0 +1,283 @@
+# PlantFlow Frontend Variant Migration Profile
+# ------------------------------------------------------------
+# This template encodes the business logic spelled out in:
+#   Desktop/PlantFlow/frontrefact_issues.md (see sections 1-22)
+#
+# ⚠️  READ THIS BEFORE MODIFYING:
+#   • `match` = strings/idents we must eradicate (old product schema)
+#   • `expect` = strings/idents that must appear once the flow is migrated
+#   • `scope.include` uses glob paths relative to repo root
+#   • Copy this file per initiative and keep comments – other engineers
+#     copy/paste from here to author their own rules.
+#
+# Running the check:
+#   aud refactor --file theauditor/refactor/examples/plantflow_variants_profile.yaml
+# ------------------------------------------------------------
+
+refactor_name: "plantflow_frontend_variants"
+description: "Ensure every frontend surface references product_variant_id and variant pricing data"
+version: "2025-10-26"
+
+metadata:
+  source_document: "Desktop/PlantFlow/frontrefact_issues.md"
+  owner: "PlantFlow Frontend"
+  jira_epic: "PF-276-product-variants"
+  related_migrations:
+    - "backend/migrations/20241014_move_pricing_to_variants.js"
+    - "backend/migrations/20241020_adjust_transfer_items.sql"
+
+rules:
+  # --------------------------------------------------------
+  # Products.tsx still renders buttons with empty handlers and
+  # assumes product_variant.product + nested inventory arrays.
+  # (Ref: frontrefact_issues.md:25-35)
+  # --------------------------------------------------------
+  - id: "products-variant-ui"
+    description: "Products dashboard must use flat variant relationships and wire CRUD handlers"
+    severity: "high"
+    category: "frontend-contract"
+    match:
+      expressions:
+        - "product_variant.product"
+        - "variant.inventory"
+      identifiers:
+        - "handleAddVariant = () => {}"
+        - "onEditVariant={() => {}}"
+        - "onDeleteVariant={() => {}}"
+    expect:
+      identifiers:
+        - "product.variants"
+        - "openVariantModal"
+        - "saveVariantDraft"
+      expressions:
+        - "variant.id"
+        - "variant.product_id"
+    scope:
+      include:
+        - "frontend/src/pages/dashboard/Products.tsx"
+        - "frontend/src/components/dashboard/ProductFormModal.tsx"
+        - "frontend/src/components/dashboard/ProductVariantForm.tsx"
+    guidance: >
+      Stop dereferencing product_variant.product.*, load variants via product.variants[] and implement
+      Add/Edit/Delete handlers that open ProductVariantForm with populated data.
+
+  # --------------------------------------------------------
+  # Inventory view + types still pull price/unit info from product.*
+  # (Ref: frontrefact_issues.md:37-45, 117-122)
+  # --------------------------------------------------------
+  - id: "inventory-pricing-source"
+    description: "Inventory list and types must pull price/unit/structure from variants"
+    severity: "critical"
+    category: "data-contract"
+    match:
+      identifiers:
+        - "product.unit_price"
+        - "product.inventory_type"
+        - "InventoryItem.product.unit_price"
+      expressions:
+        - "item.product?.unit_price"
+        - "group.product.inventory_type"
+    expect:
+      identifiers:
+        - "product_variant.retail_price"
+        - "product_variant.inventory_type"
+        - "inventoryItem.product_variant_id"
+      expressions:
+        - "variant?.retail_price ??"
+        - "group.variant.inventory_type"
+    scope:
+      include:
+        - "frontend/src/pages/dashboard/Inventory.tsx"
+        - "frontend/src/types/**"
+        - "frontend/src/store/**"
+    guidance: >
+      Update InventoryItem/GroupedInventory types so price + unit data come from variant payloads.
+      Ensure adjustment/bulk conversion UIs bind to product_variant_id instead of product_id.
+
+  # --------------------------------------------------------
+  # Transfers UI + modal still reference product_id and nested product structures.
+  # (Ref: frontrefact_issues.md:47-60)
+  # --------------------------------------------------------
+  - id: "transfers-variant-ids"
+    description: "Transfers + TransferDetailsModal must push product_variant_id everywhere"
+    severity: "high"
+    match:
+      identifiers:
+        - "transferItem.product_id"
+        - "product_variant.product.name"
+      expressions:
+        - "item.product_variant?.product?.name"
+        - "qrPayload.product_id"
+    expect:
+      identifiers:
+        - "transferItem.product_variant_id"
+        - "variant.product_id"
+      expressions:
+        - "qrPayload.product_variant_id"
+    scope:
+      include:
+        - "frontend/src/pages/dashboard/Transfers.tsx"
+        - "frontend/src/components/dashboard/TransferDetailsModal.tsx"
+        - "frontend/src/components/QRScanner.tsx"
+    guidance: >
+      Flatten transfer item payloads to { product_variant_id, quantity } and adjust QR encode/decode.
+
+  # --------------------------------------------------------
+  # CreateOrder, POS, Receipts still write cartItem.product_id etc.
+  # (Ref: frontrefact_issues.md:61-74, 123-133)
+  # --------------------------------------------------------
+  - id: "order-pos-cart"
+    description: "Ordering and POS flows must capture variant selections and prices"
+    severity: "critical"
+    match:
+      identifiers:
+        - "cartItem.product_id"
+        - "orderItem.product_id"
+        - "receipt.product_name"
+      expressions:
+        - "product.unit_price"
+        - "selectedProduct.id"
+    expect:
+      identifiers:
+        - "cartItem.product_variant_id"
+        - "orderItem.product_variant_id"
+        - "posSelection.variant"
+      expressions:
+        - "variant.retail_price"
+        - "variant.displayName"
+    scope:
+      include:
+        - "frontend/src/pages/dashboard/CreateOrder.tsx"
+        - "frontend/src/pages/dashboard/OrderDetails.tsx"
+        - "frontend/src/pages/pos/**"
+        - "frontend/src/components/receipts/**"
+    guidance: >
+      Introduce variant pickers before adding to cart, persist product_variant_id through checkout,
+      and render variant metadata on receipts/refunds.
+
+  # --------------------------------------------------------
+  # Shared API + type definitions need to align with backend responses (IDs only).
+  # (Ref: frontrefact_issues.md:92-150)
+  # --------------------------------------------------------
+  - id: "api-type-alignment"
+    description: "TypeScript models + API helpers must align with variant-first payloads"
+    severity: "medium"
+    category: "types"
+    match:
+      expressions:
+        - "interface Product { .*unit_price"
+        - "interface TransferItem { product: Product"
+        - "product_variant?: { product: Product }"
+      identifiers:
+        - "fetchProductsWithNestedVariants"
+        - "ProductVariant extends Product"
+    expect:
+      expressions:
+        - "interface ProductVariant { id: string; product_id: string"
+        - "type TransferItem = { product_variant_id: string"
+      identifiers:
+        - "api.products.listVariants"
+        - "api.transfers.create({ product_variant_id"
+    scope:
+      include:
+        - "frontend/src/types/**"
+        - "frontend/src/lib/api.ts"
+        - "frontend/src/services/**"
+    guidance: >
+      Model backend responses exactly: variant records are flat, products carry metadata only.
+      Update API helpers to call /variants endpoints and hydrate UI stores accordingly.
+
+  # --------------------------------------------------------
+  # Return / refund flows still keyed off transfer_items.weight + product_id.
+  # (Ref: frontrefact_issues.md:12, 123-133)
+  # --------------------------------------------------------
+  - id: "returns-variant-state"
+    description: "ReturnModal + POS refund logic must reference variant IDs and payloads"
+    severity: "high"
+    match:
+      expressions:
+        - "transfer_items.weight"
+        - "returnLines.forEach"
+      identifiers:
+        - "returnLines[index]"
+        - "order.items"
+        - "line.product_id"
+    expect:
+      identifiers:
+        - "returnLine.product_variant_id"
+        - "returnLine.variant"
+      expressions:
+        - "variant_weight_in_grams"
+        - "variant_display"
+    scope:
+      include:
+        - "frontend/src/components/pos/ReturnModal.tsx"
+        - "frontend/src/components/receipts/**"
+        - "frontend/src/pages/dashboard/OrderDetails.tsx"
+    guidance: >
+      Ensure refunds operate on variant IDs (same as cart/order storage) and use variant-level payloads
+      instead of transfer_items weight fields that no longer exist.
+
+  # --------------------------------------------------------
+  # Backend + form validations still expect product.inventory_type / transfer_items.weight.
+  # (Ref: frontrefact_issues.md:37-45, 136-150)
+  # --------------------------------------------------------
+  - id: "backend-variant-contract"
+    description: "Backend DTOs and ProductVariantForm must drop product.inventory_type + transfer weight fields"
+    severity: "critical"
+    match:
+      expressions:
+        - "products.inventory_type"
+        - "product.inventory_type"
+        - "transfer_items.weight"
+      identifiers:
+        - "productVariantSchema"
+        - "productVariantValidation"
+    expect:
+      expressions:
+        - "variant.inventory_type"
+        - "variant_weight_policy"
+      identifiers:
+        - "product_variant_id"
+        - "VariantPayload"
+    scope:
+      include:
+        - "backend/src/controllers/**"
+        - "backend/src/services/**"
+        - "backend/src/validations/**"
+        - "frontend/src/components/dashboard/ProductVariantForm.tsx"
+    guidance: >
+      Align backend validators + TS forms with the variant contract: remove product.inventory_type and weight
+      fields that moved to ProductVariant / InventoryVariant tables.
+
+  # --------------------------------------------------------
+  # Conversions / bulk workflows still iterate product.inventory and inventory.weight_in_grams.
+  # (Ref: frontrefact_issues.md:166-190)
+  # --------------------------------------------------------
+  - id: "conversions-variant-flow"
+    description: "Bulk-to-variant conversions must target variant IDs and inventory summaries"
+    severity: "medium"
+    match:
+      expressions:
+        - "products.filter(p =>"
+        - "inventory.weight_in_grams"
+        - "product.inventory?."
+      identifiers:
+        - "ConversionService"
+        - "conversionsController"
+    expect:
+      identifiers:
+        - "variant_conversion_map"
+        - "product_variant_id"
+      expressions:
+        - "variant.inventory_summary"
+        - "convertBulkToVariant"
+    scope:
+      include:
+        - "frontend/src/pages/dashboard/Conversions.tsx"
+        - "backend/src/controllers/conversion.controller.ts"
+        - "backend/src/services/conversion.service.ts"
+    guidance: >
+      Track conversions via variant IDs and the new inventory summaries rather than iterating legacy
+      product.inventory arrays or weight columns.
+
