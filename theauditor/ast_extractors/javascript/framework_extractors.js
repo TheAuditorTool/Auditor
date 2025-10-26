@@ -15,14 +15,17 @@
  * - Pattern: Process data from core extractors to identify framework patterns
  * - Assembly: Concatenated after core_ast_extractors.js and security_extractors.js
  *
- * Functions (2 current + future growth):
+ * Functions (current):
  * 1. extractReactComponents() - React component detection (class & functional)
  * 2. extractReactHooks() - React Hooks usage patterns
+ * 3. extractVueComponents() - Vue component metadata from SFC descriptors
+ * 4. extractVueHooks() - Vue lifecycle/reactivity hook usage
+ * 5. extractVueProvideInject() - Vue DI relationships
+ * 6. extractVueDirectives() - Vue template directives
  *
  * FUTURE ADDITIONS (planned):
  * - extractReactProps() - React prop types and validation
  * - extractTypeScriptTypes() - TypeScript type definitions
- * - extractVueComponents() - Vue component detection
  * - extractAngularComponents() - Angular component detection
  * - extractContextProviders() - React Context providers/consumers
  * - extractSuspenseBoundaries() - React Suspense boundaries
@@ -191,5 +194,280 @@ function extractReactHooks(functionCallArgs, scopeMap) {
     }
 
     return hooks;
+}
+
+const VUE_LIFECYCLE_HOOKS = new Set([
+    'onMounted',
+    'onBeforeMount',
+    'onBeforeUpdate',
+    'onUpdated',
+    'onBeforeUnmount',
+    'onUnmounted',
+    'onActivated',
+    'onDeactivated',
+    'onErrorCaptured',
+    'onRenderTracked',
+    'onRenderTriggered',
+    'onServerPrefetch'
+]);
+
+const VUE_REACTIVITY_APIS = new Set([
+    'watch',
+    'watchEffect',
+    'watchPostEffect',
+    'watchSyncEffect',
+    'ref',
+    'reactive',
+    'computed'
+]);
+
+function truncateVueString(value, maxLength = 1000) {
+    if (!value || typeof value !== 'string') {
+        return value || null;
+    }
+    return value.length > maxLength ? value.slice(0, maxLength) + '…' : value;
+}
+
+function getVueBaseName(name) {
+    if (!name || typeof name !== 'string') {
+        return '';
+    }
+    const parts = name.split('.');
+    return parts[parts.length - 1] || '';
+}
+
+function inferVueComponentName(vueMeta, filePath) {
+    if (vueMeta && vueMeta.descriptor && vueMeta.descriptor.filename) {
+        filePath = vueMeta.descriptor.filename;
+    }
+    if (!filePath) {
+        return 'AnonymousVueComponent';
+    }
+    const segments = filePath.split(/[/\\]/);
+    const candidate = segments.pop() || 'Component';
+    const base = candidate.replace(/\.vue$/i, '') || 'Component';
+    return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+function groupFunctionCallArgs(functionCallArgs) {
+    const grouped = new Map();
+    if (!Array.isArray(functionCallArgs)) {
+        return grouped;
+    }
+    for (const call of functionCallArgs) {
+        const callee = call.callee_function || '';
+        if (!callee) continue;
+        const key = `${call.line || 0}:${callee}`;
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
+        }
+        grouped.get(key).push(call);
+    }
+    return grouped;
+}
+
+function findFirstVueMacroCall(functionCallArgs, macroName) {
+    if (!Array.isArray(functionCallArgs)) {
+        return null;
+    }
+    for (const call of functionCallArgs) {
+        const baseName = getVueBaseName(call.callee_function || '');
+        if (baseName === macroName && (call.argument_index === 0 || call.argument_index === null)) {
+            if (call.argument_expr && call.argument_expr.trim()) {
+                return truncateVueString(call.argument_expr.trim());
+            }
+        }
+    }
+    return null;
+}
+
+function extractVueComponents(vueMeta, filePath, functionCallArgs, returns) {
+    if (!vueMeta || !vueMeta.descriptor) {
+        const fallbackName = inferVueComponentName(null, filePath);
+        return { components: [], primaryName: fallbackName };
+    }
+
+    const componentName = inferVueComponentName(vueMeta, filePath);
+    const scriptBlock = vueMeta.descriptor.scriptSetup || vueMeta.descriptor.script;
+    const startLine = scriptBlock && scriptBlock.loc ? scriptBlock.loc.start.line : 1;
+    const endLine = scriptBlock && scriptBlock.loc ? scriptBlock.loc.end.line : startLine;
+
+    const propsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineProps');
+    const emitsDefinition = findFirstVueMacroCall(functionCallArgs, 'defineEmits');
+
+    const usesCompositionApi = Boolean(vueMeta.descriptor.scriptSetup) ||
+        (Array.isArray(functionCallArgs) && functionCallArgs.some(call => getVueBaseName(call.callee_function || '') === 'defineComponent'));
+
+    let componentType = 'options-api';
+    if (vueMeta.descriptor.scriptSetup) {
+        componentType = 'script-setup';
+    } else if (usesCompositionApi) {
+        componentType = 'composition-api';
+    }
+
+    let setupReturnExpr = null;
+    if (Array.isArray(returns)) {
+        const setupReturn = returns.find(ret => {
+            const fnName = (ret.function_name || '').toLowerCase();
+            return fnName.includes('setup');
+        });
+        if (setupReturn && setupReturn.return_expr) {
+            setupReturnExpr = truncateVueString(setupReturn.return_expr);
+        }
+    }
+
+    return {
+        components: [
+            {
+                name: componentName,
+                type: componentType,
+                start_line: startLine,
+                end_line: endLine,
+                has_template: Boolean(vueMeta.descriptor.template),
+                has_style: Boolean(vueMeta.hasStyle),
+                composition_api_used: usesCompositionApi,
+                props_definition: propsDefinition,
+                emits_definition: emitsDefinition,
+                setup_return: setupReturnExpr
+            }
+        ],
+        primaryName: componentName
+    };
+}
+
+function extractVueHooks(functionCallArgs, componentName) {
+    if (!componentName) {
+        return [];
+    }
+    const grouped = groupFunctionCallArgs(functionCallArgs);
+    const hooks = [];
+
+    grouped.forEach(args => {
+        if (!Array.isArray(args) || args.length === 0) {
+            return;
+        }
+        const callee = args[0].callee_function || '';
+        const baseName = getVueBaseName(callee);
+        if (!baseName) return;
+        const line = args[0].line || 0;
+
+        if (VUE_LIFECYCLE_HOOKS.has(baseName) || VUE_REACTIVITY_APIS.has(baseName)) {
+            const hookType = VUE_LIFECYCLE_HOOKS.has(baseName) ? 'lifecycle' : 'reactivity';
+            const dependencyArg = args.find(arg => arg.argument_index === 0);
+            const handlerArg = hookType === 'reactivity'
+                ? args.find(arg => arg.argument_index === 1)
+                : args.find(arg => arg.argument_index === 0);
+
+            hooks.push({
+                line,
+                component_name: componentName,
+                hook_name: baseName,
+                hook_type: hookType,
+                dependencies: dependencyArg && dependencyArg.argument_expr
+                    ? [truncateVueString(dependencyArg.argument_expr)]
+                    : null,
+                return_value: handlerArg && handlerArg.argument_expr
+                    ? truncateVueString(handlerArg.argument_expr)
+                    : null,
+                is_async: Boolean(handlerArg && handlerArg.argument_expr && handlerArg.argument_expr.trim().startsWith('async'))
+            });
+        }
+    });
+
+    return hooks;
+}
+
+function extractVueProvideInject(functionCallArgs, componentName) {
+    if (!componentName) {
+        return [];
+    }
+    const grouped = groupFunctionCallArgs(functionCallArgs);
+    const records = [];
+
+    grouped.forEach(args => {
+        if (!Array.isArray(args) || args.length === 0) {
+            return;
+        }
+        const callee = args[0].callee_function || '';
+        const baseName = getVueBaseName(callee);
+        if (baseName !== 'provide' && baseName !== 'inject') {
+            return;
+        }
+        const keyArg = args.find(arg => arg.argument_index === 0);
+        const valueArg = args.find(arg => arg.argument_index === 1);
+        const keyName = keyArg && keyArg.argument_expr ? truncateVueString(keyArg.argument_expr) : null;
+        const valueExpr = valueArg && valueArg.argument_expr ? truncateVueString(valueArg.argument_expr) : null;
+
+        records.push({
+            line: args[0].line || 0,
+            component_name: componentName,
+            operation_type: baseName,
+            key_name: keyName || '',
+            value_expr: valueExpr,
+            is_reactive: Boolean(valueExpr && /ref\s*\(|reactive\s*\(/.test(valueExpr))
+        });
+    });
+
+    return records;
+}
+
+function extractVueDirectives(templateAst, componentName, nodeTypes) {
+    const directives = [];
+    if (!templateAst || !nodeTypes) {
+        return directives;
+    }
+
+    const ELEMENT = nodeTypes.ELEMENT ?? 1;
+    const DIRECTIVE = nodeTypes.DIRECTIVE ?? 7;
+    const ROOT = nodeTypes.ROOT ?? 0;
+    const IF = nodeTypes.IF ?? 9;
+    const IF_BRANCH = nodeTypes.IF_BRANCH ?? 10;
+    const FOR = nodeTypes.FOR ?? 11;
+
+    function visit(node) {
+        if (!node || typeof node !== 'object') {
+            return;
+        }
+
+        if (node.type === ELEMENT) {
+            if (Array.isArray(node.props)) {
+                for (const prop of node.props) {
+                    if (prop && prop.type === DIRECTIVE) {
+                        directives.push({
+                            line: prop.loc ? prop.loc.start.line : (node.loc ? node.loc.start.line : null),
+                            directive_name: `v-${prop.name}`,
+                            expression: prop.exp && prop.exp.content ? truncateVueString(prop.exp.content) : null,
+                            in_component: componentName,
+                            has_key: prop.name === 'for' ? true : false,
+                            modifiers: Array.isArray(prop.modifiers) ? prop.modifiers.map(mod => mod.content || mod) : [],
+                            argument: prop.arg && prop.arg.content ? prop.arg.content : null,
+                            element_type: node.tag || null,
+                            is_dynamic: prop.name === 'bind' || prop.name === 'on' || Boolean(prop.exp && prop.exp.content && prop.exp.content.trim().length > 0)
+                        });
+                    }
+                }
+            }
+            if (Array.isArray(node.children)) {
+                node.children.forEach(visit);
+            }
+        } else if (node.type === ROOT && Array.isArray(node.children)) {
+            node.children.forEach(visit);
+        } else if (node.type === IF && Array.isArray(node.branches)) {
+            node.branches.forEach(branch => {
+                if (Array.isArray(branch.children)) {
+                    branch.children.forEach(visit);
+                }
+            });
+        } else if (node.type === IF_BRANCH && Array.isArray(node.children)) {
+            node.children.forEach(visit);
+        } else if (node.type === FOR && Array.isArray(node.children)) {
+            node.children.forEach(visit);
+        } else if (Array.isArray(node.children)) {
+            node.children.forEach(visit);
+        }
+    }
+
+    visit(templateAst);
+    return directives;
 }
 

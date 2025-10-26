@@ -8,7 +8,6 @@ and cross-file understanding for JavaScript and TypeScript projects.
 import json
 import os
 import platform
-import re
 import subprocess
 import sys
 import tempfile
@@ -221,28 +220,6 @@ class JSSemanticParser:
         
         # No sandbox TypeScript found - this is expected on first run
         return False
-    
-    def _extract_vue_blocks(self, content: str) -> Tuple[Optional[str], Optional[str]]:
-        """Extract script and template blocks from Vue SFC content.
-        
-        Args:
-            content: The raw Vue SFC file content
-            
-        Returns:
-            Tuple of (script_content, template_content) or (None, None) if not found
-        """
-        # Extract <script> block (handles both <script> and <script setup>)
-        # Supports optional attributes like lang="ts" or setup
-        script_pattern = r'<script(?:\s+[^>]*)?>(.+?)</script>'
-        script_match = re.search(script_pattern, content, re.DOTALL | re.IGNORECASE)
-        script_content = script_match.group(1).strip() if script_match else None
-        
-        # Extract <template> block for future analysis
-        template_pattern = r'<template(?:\s+[^>]*)?>(.+?)</template>'
-        template_match = re.search(template_pattern, content, re.DOTALL | re.IGNORECASE)
-        template_content = template_match.group(1).strip() if template_match else None
-        
-        return script_content, template_content
     
     def _create_helper_script(self) -> Path:
         """DEPRECATED: Single-file mode removed in Phase 5.
@@ -587,44 +564,6 @@ class JSSemanticParser:
             # CRITICAL: No automatic installation - user must install TypeScript manually
             # This enforces fail-fast philosophy
             
-            # Handle Vue SFC files specially
-            actual_file_to_parse = file_path
-            vue_metadata = None
-            temp_file = None
-            
-            if file.suffix.lower() == '.vue':
-                # Read Vue SFC content
-                vue_content = file.read_text(encoding='utf-8')
-                script_content, template_content = self._extract_vue_blocks(vue_content)
-                
-                if script_content is None:
-                    return {
-                        "success": False,
-                        "error": "No <script> block found in Vue SFC",
-                        "ast": None,
-                        "diagnostics": [],
-                        "symbols": [],
-                        "jsx_mode": jsx_mode,
-                        "vueMetadata": {
-                            "hasTemplate": template_content is not None,
-                            "hasScript": False
-                        }
-                    }
-                
-                # Create a temporary file with the extracted script content
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.ts', delete=False, encoding='utf-8') as tmp:
-                    tmp.write(script_content)
-                    temp_file = Path(tmp.name)
-                    actual_file_to_parse = temp_file
-                
-                # Store Vue metadata for the response
-                vue_metadata = {
-                    "originalFile": str(file_path),
-                    "hasTemplate": template_content is not None,
-                    "hasScript": True,
-                    "scriptLines": script_content.count('\n') + 1
-                }
-            
             # Run the helper script with Node.js - use POSIX paths for Windows compatibility
             # NO LONGER NEED NODE_PATH - we use absolute paths in the helper script
             
@@ -634,7 +573,7 @@ class JSSemanticParser:
             
             # Calculate dynamic timeout based on file size
             # Base timeout of 10 seconds + 1 second per 10KB
-            file_size_kb = Path(actual_file_to_parse).stat().st_size / 1024
+            file_size_kb = file.stat().st_size / 1024
             dynamic_timeout = min(10 + (file_size_kb / 10), 60)  # Cap at 60 seconds
             
             # Create temporary file for output to avoid pipe buffer limits
@@ -646,53 +585,48 @@ class JSSemanticParser:
                 with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False, encoding='utf-8') as tmp_out:
                     tmp_output_path = tmp_out.name
             
-            try:
-                # CRITICAL FIX: Use sandboxed node executable, not system "node"
-                if not self.node_exe:
-                    return {
-                        "success": False,
-                        "error": "Node.js runtime not found. Run 'aud setup-claude' to install tools.",
-                        "ast": None,
-                        "diagnostics": [],
-                        "symbols": [],
-                        "jsx_mode": jsx_mode
-                    }
-                
-                # Convert paths for Windows node if needed
-                helper_path_converted = self._convert_path_for_node(Path(helper_absolute))
-                file_path_converted = self._convert_path_for_node(Path(actual_file_to_parse).resolve())
-                output_path_converted = self._convert_path_for_node(Path(tmp_output_path))
-                
-                # Pass projectRoot as the fourth argument and jsx_mode as fifth
-                project_root_converted = self._convert_path_for_node(self.project_root)
-                tsconfig_path_converted = ""
-                if tsconfig_path:
-                    try:
-                        tsconfig_path_converted = self._convert_path_for_node(Path(tsconfig_path).resolve())
-                    except OSError:
-                        tsconfig_path_converted = tsconfig_path
+            # CRITICAL FIX: Use sandboxed node executable, not system "node"
+            if not self.node_exe:
+                return {
+                    "success": False,
+                    "error": "Node.js runtime not found. Run 'aud setup-claude' to install tools.",
+                    "ast": None,
+                    "diagnostics": [],
+                    "symbols": [],
+                    "jsx_mode": jsx_mode
+                }
+            
+            # Convert paths for Windows node if needed
+            helper_path_converted = self._convert_path_for_node(Path(helper_absolute))
+            file_path_converted = self._convert_path_for_node(file.resolve())
+            output_path_converted = self._convert_path_for_node(Path(tmp_output_path))
+            
+            # Pass projectRoot as the fourth argument and jsx_mode as fifth
+            project_root_converted = self._convert_path_for_node(self.project_root)
+            tsconfig_path_converted = ""
+            if tsconfig_path:
+                try:
+                    tsconfig_path_converted = self._convert_path_for_node(Path(tsconfig_path).resolve())
+                except OSError:
+                    tsconfig_path_converted = tsconfig_path
 
-                result = subprocess.run(
-                    [
-                        str(self.node_exe),
-                        helper_path_converted,
-                        file_path_converted,
-                        output_path_converted,
-                        project_root_converted,
-                        jsx_mode,
-                        tsconfig_path_converted
-                    ],
-                    capture_output=False,  # Don't capture stdout - writing to file instead
-                    stderr=subprocess.PIPE,  # Still capture stderr for error messages
-                    text=True,
-                    timeout=dynamic_timeout,  # Dynamic timeout based on file size
-                    cwd=file.parent,  # Run in the file's directory for proper module resolution
-                    shell=IS_WINDOWS  # Windows compatibility fix
-                )
-            finally:
-                # Clean up temporary file if created for Vue
-                if temp_file and temp_file.exists():
-                    temp_file.unlink()
+            result = subprocess.run(
+                [
+                    str(self.node_exe),
+                    helper_path_converted,
+                    file_path_converted,
+                    output_path_converted,
+                    project_root_converted,
+                    jsx_mode,
+                    tsconfig_path_converted
+                ],
+                capture_output=False,  # Don't capture stdout - writing to file instead
+                stderr=subprocess.PIPE,  # Still capture stderr for error messages
+                text=True,
+                timeout=dynamic_timeout,  # Dynamic timeout based on file size
+                cwd=file.parent,  # Run in the file's directory for proper module resolution
+                shell=IS_WINDOWS  # Windows compatibility fix
+            )
             
             # Handle the result - read from file instead of stdout
             try:
@@ -744,9 +678,6 @@ class JSSemanticParser:
                         with open(tmp_output_path, 'r', encoding='utf-8') as f:
                             ast_data = json.load(f)
                         
-                        # Add Vue metadata if this was a Vue file
-                        if vue_metadata:
-                            ast_data["vueMetadata"] = vue_metadata
                         # Add jsx_mode to the response
                         ast_data["jsx_mode"] = jsx_mode
                         return ast_data
