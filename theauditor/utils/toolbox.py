@@ -191,42 +191,6 @@ class Toolbox:
 
         return None
 
-    def get_pip_audit(self, required: bool = True) -> Optional[str]:
-        """Get path to pip-audit binary.
-
-        Args:
-            required: If True, raise FileNotFoundError when missing
-
-        Returns:
-            Path to pip-audit executable, or None if not required and not found
-
-        Raises:
-            FileNotFoundError: If required=True and not found in either location
-        """
-        # Try bundled version first (PREFERRED)
-        python_tools = self.sandbox / "python-tools"
-
-        if IS_WINDOWS:
-            bundled = python_tools / "pip-audit.exe"
-        else:
-            bundled = python_tools / "pip-audit"
-
-        if bundled.exists():
-            return str(bundled)
-
-        # Fallback to system pip-audit
-        system_pip_audit = shutil.which("pip-audit")
-        if system_pip_audit:
-            return system_pip_audit
-
-        if required:
-            raise FileNotFoundError(
-                f"pip-audit not found at {bundled} or in system PATH. "
-                f"Run 'aud setup-ai --target {self.root}' to install vulnerability scanners."
-            )
-
-        return None
-
     def get_osv_scanner(self, required: bool = True) -> Optional[str]:
         """Get path to OSV-Scanner binary.
 

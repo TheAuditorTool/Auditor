@@ -7,8 +7,14 @@ import shutil
 import subprocess
 import sys
 import venv
+import contextlib
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover - fallback for older interpreters
+    import tomli as tomllib  # type: ignore
 
 # Import dependency checking functions for self-updating sandbox
 from theauditor.deps import _check_npm_latest
@@ -32,6 +38,62 @@ NODE_CHECKSUMS = {
     "node-v20.11.1-darwin-x64.tar.gz": "c52e7fb0709dbe63a4cbe08ac8af3479188692937a7bd8e776e0eedfa33bb848",
     "node-v20.11.1-darwin-arm64.tar.gz": "e0065c61f340e85106a99c4b54746c5cee09d59b08c5712f67f99e92aa44995d"
 }
+
+
+def _extract_pyproject_dependencies(pyproject_path: Path) -> List[str]:
+    """Extract dependency strings from pyproject.toml for offline vulnerability DB seeding."""
+    try:
+        data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    dependencies: List[str] = []
+
+    # PEP 621 project dependencies
+    project = data.get("project")
+    if isinstance(project, dict):
+        proj_deps = project.get("dependencies")
+        if isinstance(proj_deps, list):
+            dependencies.extend(str(dep).strip() for dep in proj_deps if str(dep).strip())
+
+    # Poetry dependencies
+    tool = data.get("tool")
+    if isinstance(tool, dict):
+        poetry = tool.get("poetry")
+        if isinstance(poetry, dict):
+            poetry_deps = poetry.get("dependencies")
+            if isinstance(poetry_deps, dict):
+                for name, spec in poetry_deps.items():
+                    if str(name).lower() == "python":
+                        continue
+                    if isinstance(spec, str):
+                        if spec.strip() in {"*", ""}:
+                            dependencies.append(str(name))
+                        else:
+                            dependencies.append(f"{name} {spec.strip()}")
+                    elif isinstance(spec, dict):
+                        version = spec.get("version")
+                        extras = spec.get("extras")
+                        line = str(name)
+                        if extras and isinstance(extras, list):
+                            extras_str = ",".join(str(e) for e in extras if e)
+                            if extras_str:
+                                line += f"[{extras_str}]"
+                        if version:
+                            line += f" {version}"
+                        dependencies.append(line)
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_deps = []
+    for dep in dependencies:
+        norm = dep.strip()
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        unique_deps.append(norm)
+
+    return unique_deps
 
 
 def find_theauditor_root() -> Path:
@@ -84,7 +146,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
     if venv_path.exists() and not force:
         python_exe, _ = get_venv_paths(venv_path)
         if python_exe.exists():
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            check_mark = "[OK]"
             print(f"{check_mark} Venv already exists: {venv_path}")
             return venv_path
         else:
@@ -111,7 +173,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
     )
     
     builder.create(venv_path)
-    check_mark = "[OK]" if IS_WINDOWS else "✓"
+    check_mark = "[OK]"
     print(f"{check_mark} Created venv: {venv_path}")
     
     return venv_path
@@ -170,7 +232,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
             pass
         
         if result.returncode == 0:
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            check_mark = "[OK]"
             print(f"{check_mark} TheAuditor already installed in {venv_path}")
             # Upgrade to ensure latest
             print("  Upgrading to ensure latest version...")
@@ -222,12 +284,12 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
             print(result.stderr)
             return False
         
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        check_mark = "[OK]"
         print(f"{check_mark} Installed TheAuditor (editable) from {theauditor_root}")
         
         # Verify installation
         if aud_exe.exists():
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            check_mark = "[OK]"
             print(f"{check_mark} Executable available: {aud_exe}")
         else:
             # Fallback check for module
@@ -259,7 +321,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
                 pass
             
             if verify_result.returncode == 0:
-                check_mark = "[OK]" if IS_WINDOWS else "✓"
+                check_mark = "[OK]"
                 print(f"{check_mark} Module available: python -m theauditor.cli")
             else:
                 print("Warning: Could not verify TheAuditor installation")
@@ -307,7 +369,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
                         if current_clean != latest:
                             data["dependencies"][name] = f"^{latest}"
                             updated_count += 1
-                            check_mark = "[OK]" if IS_WINDOWS else "✓"
+                            check_mark = "[OK]"
                             print(f"      {check_mark} Updated {name}: {current} → ^{latest}")
                 except Exception as e:
                     # If we can't get latest, keep current version
@@ -326,7 +388,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
                         if current_clean != latest:
                             data["devDependencies"][name] = f"^{latest}"
                             updated_count += 1
-                            check_mark = "[OK]" if IS_WINDOWS else "✓"
+                            check_mark = "[OK]"
                             print(f"      {check_mark} Updated {name}: {current} → ^{latest}")
                 except Exception as e:
                     # If we can't get latest, keep current version
@@ -400,7 +462,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
     
     # Check if already installed
     if node_exe.exists():
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        check_mark = "[OK]"
         print(f"    {check_mark} Node.js runtime already installed at {node_runtime_dir}")
         return node_exe
     
@@ -453,7 +515,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
                 f"    This may indicate a corrupted download or security issue."
             )
         
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        check_mark = "[OK]"
         print(f"    {check_mark} Checksum verified: {actual_checksum[:16]}...")
         
         # Extract based on archive type
@@ -486,7 +548,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
         # Clean up download file
         download_path.unlink()
         
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        check_mark = "[OK]"
         print(f"    {check_mark} Node.js runtime installed at {node_runtime_dir}")
         return node_exe
         
@@ -547,7 +609,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
 
     # Check if already installed
     if binary_path.exists():
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        check_mark = "[OK]"
         print(f"    {check_mark} OSV-Scanner already installed at {osv_dir}")
         return binary_path
 
@@ -556,6 +618,8 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
     url = f"https://github.com/google/osv-scanner/releases/latest/download/{download_filename}"
     print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
     print(f"    URL: {url}")
+
+    temp_files: List[Path] = []
 
     try:
         # Download binary
@@ -567,7 +631,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
             st = binary_path.stat()
             binary_path.chmod(st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
+        check_mark = "[OK]"
         print(f"    {check_mark} OSV-Scanner binary downloaded successfully")
 
         # Create offline database directory
@@ -626,6 +690,18 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
                 if 'PyPI' in lockfiles:
                     break
 
+            # Support pyproject.toml by synthesizing a temporary requirements file
+            if 'PyPI' not in lockfiles:
+                pyproject = target_dir / "pyproject.toml"
+                if pyproject.exists():
+                    deps = _extract_pyproject_dependencies(pyproject)
+                    if deps:
+                        temp_req = sandbox_dir / "pyproject_requirements.txt"
+                        temp_req.write_text("\n".join(deps), encoding="utf-8")
+                        lockfiles['PyPI'] = temp_req
+                        temp_files.append(temp_req)
+                        print("    ℹ Generated temporary requirements from pyproject.toml")
+
             # Build OSV-Scanner command with real lockfiles
             cmd = [str(binary_path), "scan"]
 
@@ -645,7 +721,8 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
             cmd.extend([
                 "--offline-vulnerabilities",
                 "--download-offline-databases",
-                "--format", "json"
+                "--format", "json",
+                "--allow-no-lockfiles"
             ])
 
             # Download databases using OSV-Scanner
@@ -725,6 +802,11 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
             print(f"    ⚠ To retry manually:")
             print(f"      export OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
             print(f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases")
+        finally:
+            for tmp in temp_files:
+                with contextlib.suppress(OSError):
+                    if tmp.exists():
+                        tmp.unlink()
 
         return binary_path
 
@@ -737,110 +819,6 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
         # Clean up partial download
         if binary_path.exists():
             binary_path.unlink()
-        return None
-
-
-def setup_python_security_tools(sandbox_dir: Path) -> Optional[Path]:
-    """
-    Bundle pip-audit in sandboxed Python environment.
-
-    pip-audit is a tool for scanning Python dependencies for known vulnerabilities.
-    We install it in an isolated venv to avoid conflicts with the user's project.
-
-    Creates:
-    - .theauditor_tools/python-tools/venv/ (isolated Python environment)
-    - .theauditor_tools/python-tools/pip-audit (executable symlink/copy)
-
-    Args:
-        sandbox_dir: Directory to install Python tools (.auditor_venv/.theauditor_tools)
-
-    Returns:
-        Path to pip-audit executable, or None if installation failed
-    """
-    print("  Setting up Python security tools (pip-audit)...", flush=True)
-
-    python_tools = sandbox_dir / "python-tools"
-    python_tools.mkdir(parents=True, exist_ok=True)
-
-    # Create virtual environment for Python security tools
-    venv_path = python_tools / "venv"
-
-    # Check if already exists
-    if venv_path.exists():
-        # Verify it's functional
-        if platform.system() == "Windows":
-            pip_exe = venv_path / "Scripts" / "pip.exe"
-            pip_audit_exe = venv_path / "Scripts" / "pip-audit.exe"
-        else:
-            pip_exe = venv_path / "bin" / "pip"
-            pip_audit_exe = venv_path / "bin" / "pip-audit"
-
-        if pip_audit_exe.exists():
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
-            print(f"    {check_mark} Python tools already installed at {python_tools}")
-            return pip_audit_exe
-
-    try:
-        print(f"    Creating isolated Python venv for security tools...", flush=True)
-
-        # Create venv using stdlib
-        builder = venv.EnvBuilder(
-            system_site_packages=False,
-            clear=False,
-            symlinks=(platform.system() != "Windows"),
-            upgrade=False,
-            with_pip=True,
-            prompt="[theauditor-tools]"
-        )
-        builder.create(venv_path)
-
-        # Determine pip executable path
-        if platform.system() == "Windows":
-            pip_exe = venv_path / "Scripts" / "pip.exe"
-            pip_audit_exe = venv_path / "Scripts" / "pip-audit.exe"
-        else:
-            pip_exe = venv_path / "bin" / "pip"
-            pip_audit_exe = venv_path / "bin" / "pip-audit"
-
-        # Install pip-audit
-        print(f"    Installing pip-audit 2.7.3...", flush=True)
-
-        result = subprocess.run(
-            [str(pip_exe), "install", "pip-audit==2.7.3"],
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-
-        if result.returncode != 0:
-            print(f"    ⚠ pip-audit installation failed: {result.stderr[:200]}")
-            return None
-
-        # Create symlink/copy for easy access
-        target = python_tools / ("pip-audit.exe" if platform.system() == "Windows" else "pip-audit")
-
-        if platform.system() == "Windows":
-            # Windows: copy the executable
-            shutil.copy(pip_audit_exe, target)
-        else:
-            # Unix: create symlink
-            if not target.exists():
-                target.symlink_to(pip_audit_exe)
-
-        check_mark = "[OK]" if IS_WINDOWS else "✓"
-        print(f"    {check_mark} pip-audit installed successfully")
-        print(f"    {check_mark} Python tools available at: {python_tools}")
-
-        return pip_audit_exe
-
-    except Exception as e:
-        print(f"    ⚠ Error setting up Python security tools: {e}")
-        # Clean up partial installation
-        if venv_path.exists():
-            try:
-                shutil.rmtree(venv_path)
-            except Exception:
-                pass
         return None
 
 
@@ -910,7 +888,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                     pass
                 
                 if result.returncode == 0:
-                    check_mark = "[OK]" if IS_WINDOWS else "✓"
+                    check_mark = "[OK]"
                     print(f"    {check_mark} Updated to latest package versions")
         except Exception as e:
             print(f"    ⚠ Could not update versions: {e}")
@@ -960,7 +938,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                 pass
             
             if result.returncode == 0:
-                check_mark = "[OK]" if IS_WINDOWS else "✓"
+                check_mark = "[OK]"
                 print(f"    {check_mark} Python linters installed")
 
                 # Now install tree-sitter packages separately
@@ -1056,7 +1034,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             # Copy the ESLint v9 flat config file
             import shutil
             shutil.copy2(str(eslint_config_source), str(eslint_config_dest))
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            check_mark = "[OK]"
             print(f"    {check_mark} ESLint v9 flat config copied to sandbox")
         else:
             print(f"    ⚠ ESLint config not found at {eslint_config_source}")
@@ -1068,7 +1046,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
         if python_config_source.exists():
             # Copy the Python linter config file
             shutil.copy2(str(python_config_source), str(python_config_dest))
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            check_mark = "[OK]"
             print(f"    {check_mark} Python linter config (pyproject.toml) copied to sandbox")
         else:
             print(f"    ⚠ Python config not found at {python_config_source}")
@@ -1189,7 +1167,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                 pass
             
             if result.returncode == 0:
-                check_mark = "[OK]" if IS_WINDOWS else "✓"
+                check_mark = "[OK]"
                 print(f"    {check_mark} JavaScript/TypeScript tools installed in sandbox")
                 print(f"    {check_mark} Tools isolated from project: {sandbox_dir}")
                 print(f"    {check_mark} Using bundled Node.js - no system dependency!")
@@ -1209,25 +1187,17 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
         except Exception as e:
             print(f"    ⚠ Unexpected error setting up JS tools: {e}")
 
-        # Setup vulnerability scanning tools (OSV-Scanner + pip-audit)
+        # Setup vulnerability scanning tools (OSV-Scanner)
         # These are needed by the vulnerability_scanner.py module
         print("\nSetting up vulnerability scanning tools...", flush=True)
 
         # OSV-Scanner for cross-platform vulnerability detection
         osv_scanner_path = setup_osv_scanner(sandbox_dir)
         if osv_scanner_path:
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            check_mark = "[OK]"
             print(f"{check_mark} OSV-Scanner ready for vulnerability detection")
         else:
             print("⚠ OSV-Scanner setup failed - vulnerability detection may be limited")
-
-        # pip-audit for Python dependency scanning
-        pip_audit_path = setup_python_security_tools(sandbox_dir)
-        if pip_audit_path:
-            check_mark = "[OK]" if IS_WINDOWS else "✓"
-            print(f"{check_mark} pip-audit ready for Python dependency scanning")
-        else:
-            print("⚠ pip-audit setup failed - Python vulnerability detection may be limited")
 
         # Rust toolchain setup (rust-analyzer for Rust projects)
         print("\nDetecting Rust projects...", flush=True)
@@ -1239,7 +1209,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
             result = rust_toolbox.install()
 
             if result['status'] in ['success', 'cached']:
-                check_mark = "[OK]" if IS_WINDOWS else "✓"
+                check_mark = "[OK]"
                 print(f"    {check_mark} rust-analyzer installed: {result['path']}")
                 print(f"    {check_mark} Version: {result['version']}")
             else:

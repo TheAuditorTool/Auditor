@@ -70,7 +70,7 @@ class VerboseGroup(click.Group):
         formatter.write_text("DEPENDENCIES:")
         with formatter.indentation():
             formatter.write_text("aud deps                    # Analyze project dependencies")
-            formatter.write_text("  --vuln-scan               # Run npm audit, pip-audit, OSV-Scanner")
+            formatter.write_text("  --vuln-scan               # Run npm audit + OSV-Scanner")
             formatter.write_text("  --offline                 # Use offline databases (no network)")
             formatter.write_text("  --check-latest            # Check for outdated packages")
             formatter.write_text("  --upgrade-all             # YOLO: upgrade everything to latest")

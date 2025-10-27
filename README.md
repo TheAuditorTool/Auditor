@@ -62,7 +62,7 @@ A multi-stage pipeline that orchestrates best-in-class tools plus proprietary en
 | Stage                              | What it Does                                                                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. Extracts Terraform IaC resources. |
-| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit**, **pip-audit**, and **Google's osv-scanner**—cross-referenced for accuracy.                       |
+| **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit** and **Google's osv-scanner** (offline database) — cross-referenced for accuracy.                 |
 | **3. Industry-Standard Linting**   | Correlates **ESLint**, **Ruff**, **MyPy**, **Clippy** with project-aware configs.                                                                               |
 | **4. Multi-Hop Taint Analysis**    | True inter-procedural (cross-file) taint analysis with CFG validation to surface complex vulns (SQLi, XSS) with near-zero false positives.                      |
 | **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the "blast radius" of code changes. Terraform provisioning flow graphs for infrastructure analysis. |
@@ -120,7 +120,7 @@ aud --version
 # Go to YOUR project
 cd ~/my-project-to-audit
 
-# 1) Set up a sandboxed toolchain (npm, pip-audit, etc.)
+# 1) Set up a sandboxed toolchain (npm, osv-scanner, etc.)
 aud setup-ai --target .
 
 # 2) Index the codebase into a local SQLite DB

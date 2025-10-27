@@ -316,7 +316,7 @@ Structure:
 
 **3-Source Cross-Validation**:
 - **npm audit**: JavaScript/TypeScript vulnerabilities (may query registry)
-- **pip-audit**: Python vulnerabilities (may query PyPI)
+- **OSV-Scanner (PyPI)**: Python vulnerabilities sourced from the offline OSV database
 - **OSV-Scanner**: Google's offline vulnerability database (ALWAYS offline)
 
 **OSV-Scanner: 100% Offline**:
@@ -571,7 +571,7 @@ aud graph viz                # Visualize (4 views: full, cycles, hotspots, layer
 aud cfg analyze              # Analyze control flow complexity
 
 # Security
-aud deps --vuln-scan         # Run npm audit, pip-audit, OSV-Scanner
+aud deps --vuln-scan         # Run npm audit + OSV-Scanner
 
 # Reporting
 aud fce                      # Run Factual Correlation Engine

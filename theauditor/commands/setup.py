@@ -41,7 +41,7 @@ def setup_ai(target, sync, dry_run):
     Benefits:
       - JS/TS analysis isolated from project dependencies
       - Offline vulnerability scanning (no OSV.dev API calls)
-      - Cross-referenced findings from 3 sources (npm audit, pip-audit, OSV-Scanner)
+      - Cross-referenced findings from 2 sources (npm audit, OSV-Scanner)
 
     After setup, run: aud deps --vuln-scan
     """
