@@ -21,10 +21,12 @@ This separation ensures single source of truth for file paths.
 import ast
 import json
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from . import BaseExtractor
 from .sql import parse_sql_query
+from theauditor.ast_extractors import python_impl
+from theauditor.ast_extractors.base import get_node_name
 
 
 class PythonExtractor(BaseExtractor):
@@ -55,8 +57,17 @@ class PythonExtractor(BaseExtractor):
             'returns': [],
             'variable_usage': [],  # CRITICAL: Track all variable usage for complete analysis
             'cfg': [],  # Control flow graph data
-            'object_literals': []  # Dict literal parsing for dynamic dispatch
+            'object_literals': [],  # Dict literal parsing for dynamic dispatch
+            'type_annotations': [],
+            'resolved_imports': {},
+            'orm_relationships': [],
+            'python_orm_models': [],
+            'python_orm_fields': [],
+            'python_routes': [],
+            'python_blueprints': [],
+            'python_validators': [],
         }
+        seen_symbols = set()
         
         # Extract imports using AST (proper Python import extraction)
         if tree and isinstance(tree, dict):
@@ -64,9 +75,13 @@ class PythonExtractor(BaseExtractor):
             import os
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Python extractor found {len(result['imports'])} imports in {file_info['path']}")
+            resolved = self._resolve_imports(file_info, tree)
+            if resolved:
+                result['resolved_imports'] = resolved
         else:
             # No AST available - skip import extraction
             result['imports'] = []
+            result['resolved_imports'] = {}
             import os
             if os.environ.get("THEAUDITOR_DEBUG"):
                 print(f"[DEBUG] Python extractor: No AST for {file_info['path']}, skipping imports")
@@ -81,43 +96,85 @@ class PythonExtractor(BaseExtractor):
                 # Functions
                 functions = self.ast_parser.extract_functions(tree)
                 for func in functions:
-                    result['symbols'].append({
+                    if func.get('type_annotations'):
+                        result['type_annotations'].extend(func['type_annotations'])
+
+                    symbol_entry = {
                         'name': func.get('name', ''),
                         'type': 'function',
                         'line': func.get('line', 0),
                         'end_line': func.get('end_line', func.get('line', 0)),  # Use end_line if available
-                        'col': func.get('col', 0)
-                    })
+                        'col': func.get('col', func.get('column', 0)),
+                        'column': func.get('column', func.get('col', 0)),
+                        'parameters': func.get('parameters', []),
+                        'return_type': func.get('return_type'),
+                    }
+                    key = (file_info['path'], symbol_entry['name'], symbol_entry['type'], symbol_entry['line'], symbol_entry['col'])
+                    if key not in seen_symbols:
+                        seen_symbols.add(key)
+                        result['symbols'].append(symbol_entry)
                 
                 # Classes
                 classes = self.ast_parser.extract_classes(tree)
                 for cls in classes:
-                    result['symbols'].append({
+                    symbol_entry = {
                         'name': cls.get('name', ''),
                         'type': 'class',
                         'line': cls.get('line', 0),
-                        'col': cls.get('col', 0)
-                    })
+                        'col': cls.get('col', cls.get('column', 0)),
+                        'column': cls.get('column', cls.get('col', 0))
+                    }
+                    key = (file_info['path'], symbol_entry['name'], symbol_entry['type'], symbol_entry['line'], symbol_entry['col'])
+                    if key not in seen_symbols:
+                        seen_symbols.add(key)
+                        result['symbols'].append(symbol_entry)
+                # Class/module attribute annotations
+                attribute_annotations = python_impl.extract_python_attribute_annotations(tree, self.ast_parser)
+                if attribute_annotations:
+                    result['type_annotations'].extend(attribute_annotations)
                 
                 # Calls and other symbols
                 symbols = self.ast_parser.extract_calls(tree)
                 for symbol in symbols:
-                    result['symbols'].append({
+                    symbol_entry = {
                         'name': symbol.get('name', ''),
                         'type': symbol.get('type', 'call'),
                         'line': symbol.get('line', 0),
                         'col': symbol.get('col', symbol.get('column', 0))
-                    })
+                    }
+                    key = (file_info['path'], symbol_entry['name'], symbol_entry['type'], symbol_entry['line'], symbol_entry['col'])
+                    if key not in seen_symbols:
+                        seen_symbols.add(key)
+                        result['symbols'].append(symbol_entry)
 
                 # Property accesses for taint analysis (request.args, request.GET, etc.)
                 properties = self.ast_parser.extract_properties(tree)
                 for prop in properties:
-                    result['symbols'].append({
+                    symbol_entry = {
                         'name': prop.get('name', ''),
                         'type': 'property',
                         'line': prop.get('line', 0),
                         'col': prop.get('col', prop.get('column', 0))
-                    })
+                    }
+                    key = (file_info['path'], symbol_entry['name'], symbol_entry['type'], symbol_entry['line'], symbol_entry['col'])
+                    if key not in seen_symbols:
+                        seen_symbols.add(key)
+                        result['symbols'].append(symbol_entry)
+
+                # ORM metadata (SQLAlchemy & Django)
+                sql_models, sql_fields, sql_relationships = python_impl.extract_sqlalchemy_definitions(tree, self.ast_parser)
+                if sql_models:
+                    result['python_orm_models'].extend(sql_models)
+                if sql_fields:
+                    result['python_orm_fields'].extend(sql_fields)
+                if sql_relationships:
+                    result['orm_relationships'].extend(sql_relationships)
+
+                django_models, django_relationships = python_impl.extract_django_definitions(tree, self.ast_parser)
+                if django_models:
+                    result['python_orm_models'].extend(django_models)
+                if django_relationships:
+                    result['orm_relationships'].extend(django_relationships)
 
                 # Extract data flow information for taint analysis
                 assignments = self.ast_parser.extract_assignments(tree)
@@ -202,7 +259,116 @@ class PythonExtractor(BaseExtractor):
         if tree and self.ast_parser:
             result['variable_usage'] = self._extract_variable_usage(tree, content)
 
+        # Pydantic validators & Flask blueprints are AST-driven; safe to extract outside parser guard
+        if tree and isinstance(tree, dict):
+            validators = python_impl.extract_pydantic_validators(tree, self.ast_parser)
+            if validators:
+                result['python_validators'].extend(validators)
+            blueprints = python_impl.extract_flask_blueprints(tree, self.ast_parser)
+            if blueprints:
+                result['python_blueprints'].extend(blueprints)
+
+        # Mirror route data into python_routes for framework tracking
+        if result['routes']:
+            for route in result['routes']:
+                result['python_routes'].append({
+                    'line': route.get('line'),
+                    'framework': route.get('framework', 'flask'),
+                    'method': route.get('method'),
+                    'pattern': route.get('pattern'),
+                    'handler_function': route.get('handler_function'),
+                    'has_auth': route.get('has_auth', False),
+                    'dependencies': route.get('dependencies', []),
+                    'blueprint': route.get('blueprint'),
+                })
+
         return result
+    
+    def _resolve_imports(self, file_info: Dict[str, Any], tree: Dict[str, Any]) -> Dict[str, str]:
+        """Resolve Python import targets to absolute module/file paths."""
+        resolved: Dict[str, str] = {}
+        actual_tree = tree.get("tree")
+
+        if not isinstance(actual_tree, ast.AST):
+            return resolved
+
+        # Determine current module parts from file path
+        file_path = Path(file_info['path'])
+        module_parts = list(file_path.with_suffix('').parts)
+        package_parts = module_parts[:-1]  # directory components
+
+        def normalize_path(path: Path) -> str:
+            return str(path).replace("\\", "/")
+
+        def module_parts_to_path(parts: List[str]) -> Optional[str]:
+            if not parts:
+                return None
+            candidate_file = Path(*parts).with_suffix('.py')
+            candidate_init = Path(*parts) / '__init__.py'
+
+            if (self.root_path / candidate_file).exists():
+                return normalize_path(candidate_file)
+            if (self.root_path / candidate_init).exists():
+                return normalize_path(candidate_init)
+            return None
+
+        def resolve_dotted(module_name: str) -> Optional[str]:
+            if not module_name:
+                return None
+            return module_parts_to_path(module_name.split('.'))
+
+        for node in ast.walk(actual_tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    module_name = alias.name
+                    resolved_target = resolve_dotted(module_name) or module_name
+
+                    local_name = alias.asname or module_name.split('.')[-1]
+
+                    resolved[module_name] = resolved_target
+                    resolved[local_name] = resolved_target
+
+            elif isinstance(node, ast.ImportFrom):
+                level = getattr(node, 'level', 0) or 0
+                base_parts = package_parts.copy()
+
+                if level:
+                    if level <= len(base_parts):
+                        base_parts = base_parts[:-level]
+                    else:
+                        base_parts = []
+
+                module_name = node.module or ""
+                module_name_parts = module_name.split('.') if module_name else []
+                target_base = base_parts + module_name_parts
+
+                # Resolve module itself
+                module_key = '.'.join(part for part in target_base if part)
+                module_path = module_parts_to_path(target_base)
+                if module_key:
+                    resolved[module_key] = module_path or module_key
+                elif module_path:
+                    resolved[module_path] = module_path
+
+                for alias in node.names:
+                    imported_name = alias.name
+                    local_name = alias.asname or imported_name
+
+                    full_parts = target_base + [imported_name]
+                    symbol_path = module_parts_to_path(full_parts)
+
+                    if symbol_path:
+                        resolved_value = symbol_path
+                    elif module_path:
+                        resolved_value = module_path
+                    elif module_key:
+                        resolved_value = f"{module_key}.{imported_name}"
+                    else:
+                        resolved_value = local_name
+
+                    resolved[local_name] = resolved_value
+
+        return resolved
     
     def _extract_routes_ast(self, tree: Dict[str, Any], file_path: str) -> List[Dict]:
         """Extract Flask/FastAPI routes using Python AST.
@@ -237,60 +403,66 @@ class PythonExtractor(BaseExtractor):
         # Walk the AST to find decorated functions
         for node in ast.walk(tree["tree"]):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                decorators = []
-                route_info = None
                 has_auth = False
+                controls: List[str] = []
+                framework = None
+                blueprint_name = None
+                method = 'GET'
+                pattern = ''
+                route_found = False
 
-                # Extract all decorator names
                 for decorator in node.decorator_list:
-                    dec_name = None
-                    if isinstance(decorator, ast.Name):
-                        dec_name = decorator.id
-                    elif isinstance(decorator, ast.Attribute):
-                        dec_name = decorator.attr
-                    elif isinstance(decorator, ast.Call):
-                        if isinstance(decorator.func, ast.Attribute):
-                            # Handle @app.route('/path') or @router.get('/path')
-                            method_name = decorator.func.attr
-                            if method_name in ['route', 'get', 'post', 'put', 'patch', 'delete']:
-                                # Extract path from first argument
-                                if decorator.args and isinstance(decorator.args[0], ast.Constant):
-                                    path = decorator.args[0].value
-                                    # Determine HTTP method
-                                    if method_name == 'route':
-                                        # Check for methods argument
-                                        method = 'GET'  # Default
-                                        for keyword in decorator.keywords:
-                                            if keyword.arg == 'methods':
-                                                if isinstance(keyword.value, ast.List):
-                                                    if keyword.value.elts:
-                                                        if isinstance(keyword.value.elts[0], ast.Constant):
-                                                            method = keyword.value.elts[0].value.upper()
-                                    else:
-                                        method = method_name.upper()
-                                    route_info = (method, path)
-                            dec_name = method_name
-                        elif isinstance(decorator.func, ast.Name):
-                            dec_name = decorator.func.id
+                    dec_identifier = get_node_name(decorator)
 
-                    # Check if this is an auth decorator
-                    if dec_name and dec_name in AUTH_DECORATORS:
+                    if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute):
+                        method_name = decorator.func.attr
+                        owner_name = get_node_name(decorator.func.value)
+
+                        if method_name in ['route'] + list(python_impl.FASTAPI_HTTP_METHODS):
+                            pattern = ''
+                            if decorator.args:
+                                path_node = decorator.args[0]
+                                if isinstance(path_node, ast.Constant):
+                                    pattern = str(path_node.value)
+                                elif hasattr(ast, "Str") and isinstance(path_node, ast.Str):
+                                    pattern = path_node.s
+
+                            if method_name == 'route':
+                                method = 'GET'
+                                for keyword in decorator.keywords:
+                                    if keyword.arg == 'methods' and isinstance(keyword.value, ast.List) and keyword.value.elts:
+                                        element = keyword.value.elts[0]
+                                        if isinstance(element, ast.Constant):
+                                            method = str(element.value).upper()
+                            else:
+                                method = method_name.upper()
+
+                            framework = 'flask' if method_name == 'route' else 'fastapi'
+                            blueprint_name = owner_name
+                            route_found = True
+                            dec_identifier = method_name
+
+                    if dec_identifier and dec_identifier in AUTH_DECORATORS:
                         has_auth = True
+                    elif dec_identifier and dec_identifier not in ['route'] + list(python_impl.FASTAPI_HTTP_METHODS):
+                        controls.append(dec_identifier)
 
-                    # Collect non-route decorators as potential middleware/controls
-                    if dec_name and dec_name not in ['route', 'get', 'post', 'put', 'patch', 'delete']:
-                        decorators.append(dec_name)
+                if route_found:
+                    dependencies = []
+                    if framework == 'fastapi':
+                        dependencies = python_impl._extract_fastapi_dependencies(node)
 
-                # If we found a route, add it with all required fields
-                if route_info:
                     routes.append({
                         'line': node.lineno,
-                        'method': route_info[0],
-                        'pattern': route_info[1],
+                        'method': method,
+                        'pattern': pattern,
                         'path': file_path,
                         'has_auth': has_auth,
                         'handler_function': node.name,
-                        'controls': decorators
+                        'controls': controls,
+                        'framework': framework or 'flask',
+                        'dependencies': dependencies,
+                        'blueprint': blueprint_name if framework == 'flask' else None,
                     })
 
         return routes
@@ -342,6 +514,73 @@ class PythonExtractor(BaseExtractor):
                     imports.append(('from', module, node.lineno))
 
         return imports
+
+    def _resolve_imports(self, file_info: Dict[str, Any], tree: Dict[str, Any]) -> Dict[str, str]:
+        """Resolve Python imports to module paths or local files."""
+        resolved: Dict[str, str] = {}
+
+        if not tree or not isinstance(tree, dict):
+            return resolved
+
+        actual_tree = tree.get("tree")
+        if not isinstance(actual_tree, ast.AST):
+            return resolved
+
+        file_path = Path(file_info['path'])
+        package_parts = list(file_path.with_suffix('').parts[:-1])
+
+        def to_path(parts: List[str]) -> Optional[str]:
+            if not parts:
+                return None
+            candidate = Path(*parts).with_suffix('.py')
+            candidate_init = Path(*parts) / '__init__.py'
+            for target in (candidate, candidate_init):
+                absolute = (self.root_path / target).resolve()
+                if absolute.exists():
+                    return target.as_posix()
+            return None
+
+        def register(name: str, value: str) -> None:
+            if not name or not value:
+                return
+            resolved[name] = value
+
+        for node in ast.walk(actual_tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    module_name = alias.name
+                    module_parts = module_name.split('.')
+                    resolved_value = to_path(module_parts) or module_name
+                    local_name = alias.asname or module_parts[-1]
+                    register(module_name, resolved_value)
+                    register(local_name, resolved_value)
+            elif isinstance(node, ast.ImportFrom):
+                level = getattr(node, "level", 0) or 0
+                base_parts = package_parts.copy()
+                if level:
+                    base_parts = base_parts[:-level] if level <= len(base_parts) else []
+                module_parts = node.module.split('.') if node.module else []
+                if module_parts and level == 0:
+                    target_base = module_parts
+                else:
+                    target_base = base_parts + module_parts
+                base_resolved = to_path(target_base)
+                module_key = '.'.join(part for part in target_base if part)
+                if module_key:
+                    register(module_key, base_resolved or module_key)
+                for alias in node.names:
+                    imported_name = alias.name
+                    local_name = alias.asname or imported_name
+                    full_parts = target_base + [imported_name]
+                    resolved_value = to_path(full_parts)
+                    if not resolved_value:
+                        candidate_key = module_key + '.' + imported_name if module_key else imported_name
+                        resolved_value = candidate_key
+                    register(local_name, resolved_value)
+                    if module_key:
+                        register(f"{module_key}.{imported_name}", resolved_value)
+
+        return resolved
 
     def _determine_sql_source(self, file_path: str, method_name: str) -> str:
         """Determine extraction source category for SQL query (Python).

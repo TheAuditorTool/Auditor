@@ -17,13 +17,175 @@ This separation ensures single source of truth for file paths.
 """
 
 import ast
-from typing import Any, List, Dict, Optional
+import logging
+import os
+from typing import Any, Dict, List, Optional, Tuple
 
 from .base import (
     get_node_name,
     extract_vars_from_expr,
-    find_containing_function_python
+    find_containing_function_python,
+    find_containing_class_python,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _get_type_annotation(node: Optional[ast.AST]) -> Optional[str]:
+    """Convert an annotation AST node into source text."""
+    if node is None:
+        return None
+    try:
+        if hasattr(ast, "unparse"):
+            return ast.unparse(node)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning(
+            "Failed to unparse annotation at line %s: %s",
+            getattr(node, "lineno", "?"),
+            exc,
+        )
+    return None
+
+
+def _analyze_annotation_flags(
+    node: Optional[ast.AST], annotation_text: Optional[str]
+) -> Tuple[bool, bool, Optional[str]]:
+    """Derive generic flags from an annotation node."""
+    if node is None or annotation_text is None:
+        return False, False, None
+
+    if isinstance(node, ast.Subscript):
+        # Subscript indicates parametrised generic: List[int], Optional[str], etc.
+        type_params_text = _get_type_annotation(getattr(node, "slice", None))
+        if type_params_text:
+            return True, True, type_params_text
+        return True, False, None
+
+    return False, False, None
+
+
+def _parse_function_type_comment(comment: Optional[str]) -> Tuple[List[str], Optional[str]]:
+    """Parse legacy PEP 484 type comments into parameter and return segments."""
+    if not comment:
+        return [], None
+
+    text = comment.strip()
+    if not text:
+        return [], None
+
+    # Strip optional leading markers ("# type:", "type:")
+    if text.startswith("#"):
+        text = text.lstrip("#").strip()
+    if text.lower().startswith("type:"):
+        text = text[5:].strip()
+
+    if "->" not in text:
+        return [], text or None
+
+    params_part, return_part = text.split("->", 1)
+    params_part = params_part.strip()
+    return_part = return_part.strip() or None
+
+    param_types: List[str] = []
+    if params_part.startswith("(") and params_part.endswith(")"):
+        inner = params_part[1:-1].strip()
+        if inner:
+            param_types = [segment.strip() for segment in inner.split(",")]
+    elif params_part:
+        param_types = [params_part]
+
+    return param_types, return_part
+
+
+SQLALCHEMY_BASE_IDENTIFIERS = {
+    "Base",
+    "DeclarativeBase",
+    "db.Model",
+    "sqlalchemy.orm.declarative_base",
+}
+
+DJANGO_MODEL_BASES = {
+    "models.Model",
+    "django.db.models.Model",
+}
+
+FASTAPI_HTTP_METHODS = {
+    "get",
+    "post",
+    "put",
+    "patch",
+    "delete",
+    "options",
+    "head",
+}
+
+
+def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+    """Return string value for constant nodes."""
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Str):
+        return node.s
+    return None
+
+
+def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
+    """Fetch keyword argument by name from AST call."""
+    for keyword in call.keywords:
+        if keyword.arg == name:
+            return keyword.value
+    return None
+
+
+def _is_truthy(node: Optional[ast.AST]) -> bool:
+    if isinstance(node, ast.Constant):
+        return bool(node.value)
+    if isinstance(node, ast.NameConstant):
+        return bool(node.value)
+    return False
+
+
+def _dependency_name(call: ast.Call) -> Optional[str]:
+    """Extract dependency target from Depends() call."""
+    func_name = get_node_name(call.func)
+    if not (func_name.endswith("Depends") or func_name == "Depends"):
+        return None
+
+    if call.args:
+        return get_node_name(call.args[0])
+
+    keyword = _keyword_arg(call, "dependency")
+    if keyword:
+        return get_node_name(keyword)
+    return "Depends"
+
+
+def _extract_fastapi_dependencies(func_node: ast.FunctionDef) -> List[str]:
+    """Collect dependency call targets from FastAPI route parameters."""
+    dependencies: List[str] = []
+
+    positional = list(func_node.args.args)
+    defaults = list(func_node.args.defaults)
+    pos_defaults_start = len(positional) - len(defaults)
+
+    for idx, arg in enumerate(positional):
+        default = None
+        if idx >= pos_defaults_start and defaults:
+            default = defaults[idx - pos_defaults_start]
+        if isinstance(default, ast.Call):
+            dep = _dependency_name(default)
+            if dep:
+                dependencies.append(dep)
+
+    for kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults):
+        if isinstance(default, ast.Call):
+            dep = _dependency_name(default)
+            if dep:
+                dependencies.append(dep)
+
+    return dependencies
 
 
 def extract_python_functions(tree: Dict, parser_self) -> List[Dict]:
@@ -45,14 +207,137 @@ def extract_python_functions(tree: Dict, parser_self) -> List[Dict]:
     for node in ast.walk(actual_tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # CRITICAL FIX: Add end_line for proper function boundaries
-            end_line = getattr(node, 'end_lineno', node.lineno)
-            functions.append({
+            end_line = getattr(node, "end_lineno", node.lineno)
+            col = getattr(node, "col_offset", 0)
+
+            function_entry: Dict[str, Any] = {
                 "name": node.name,
                 "line": node.lineno,
                 "end_line": end_line,
+                "column": col,
                 "async": isinstance(node, ast.AsyncFunctionDef),
-                "args": [arg.arg for arg in node.args.args],
-            })
+            }
+
+            parameter_entries: List[Dict[str, Any]] = []
+
+            def _register_param(arg: ast.arg, kind: str) -> None:
+                if not isinstance(arg, ast.arg):
+                    return
+
+                annotation_text = _get_type_annotation(getattr(arg, "annotation", None))
+                if not annotation_text and getattr(arg, "type_comment", None):
+                    annotation_text = arg.type_comment.strip()
+
+                is_generic, has_type_params, type_params = _analyze_annotation_flags(
+                    getattr(arg, "annotation", None), annotation_text
+                )
+
+                parameter_entries.append({
+                    "name": arg.arg,
+                    "kind": kind,
+                    "line": getattr(arg, "lineno", node.lineno),
+                    "column": getattr(arg, "col_offset", 0),
+                    "type_annotation": annotation_text,
+                    "is_any": annotation_text in {"Any", "typing.Any"} if annotation_text else False,
+                    "is_generic": is_generic,
+                    "has_type_params": has_type_params,
+                    "type_params": type_params,
+                })
+
+            # Positional-only args (Python 3.8+)
+            for arg in getattr(node.args, "posonlyargs", []):
+                _register_param(arg, "posonly")
+
+            # Regular args
+            for arg in node.args.args:
+                _register_param(arg, "arg")
+
+            # Vararg (*args)
+            if node.args.vararg:
+                _register_param(node.args.vararg, "vararg")
+
+            # Keyword-only args
+            for arg in node.args.kwonlyargs:
+                _register_param(arg, "kwonly")
+
+            # Kwarg (**kwargs)
+            if node.args.kwarg:
+                _register_param(node.args.kwarg, "kwarg")
+
+            # Map type comments (legacy) onto parameters if present
+            type_comment_params, type_comment_return = _parse_function_type_comment(
+                getattr(node, "type_comment", None)
+            )
+            if type_comment_params:
+                for idx, comment_value in enumerate(type_comment_params):
+                    if idx < len(parameter_entries) and comment_value:
+                        entry = parameter_entries[idx]
+                        if not entry["type_annotation"]:
+                            entry["type_annotation"] = comment_value
+
+            # Capture decorator names for downstream analysis (e.g., typing.overload)
+            decorators: List[str] = []
+            for decorator in getattr(node, "decorator_list", []):
+                decorators.append(get_node_name(decorator))
+
+            # Collect parameter names for backward compatibility
+            function_entry["args"] = [
+                arg.arg for arg in node.args.args
+            ]
+            function_entry["parameters"] = [p["name"] for p in parameter_entries]
+
+            # Determine return annotation (including legacy comments)
+            return_annotation = _get_type_annotation(getattr(node, "returns", None))
+            if not return_annotation and type_comment_return:
+                return_annotation = type_comment_return
+
+            is_generic, has_type_params, type_params = _analyze_annotation_flags(
+                getattr(node, "returns", None), return_annotation
+            )
+
+            type_annotation_records: List[Dict[str, Any]] = []
+
+            # Parameter records
+            for param in parameter_entries:
+                if not param["type_annotation"]:
+                    continue
+                type_annotation_records.append({
+                    "line": param["line"],
+                    "column": param["column"],
+                    "symbol_name": f"{node.name}.{param['name']}",
+                    "symbol_kind": "parameter",
+                    "type_annotation": param["type_annotation"],
+                    "is_any": param["is_any"],
+                    "is_unknown": False,
+                    "is_generic": param["is_generic"],
+                    "has_type_params": param["has_type_params"],
+                    "type_params": param["type_params"],
+                    "return_type": None,
+                })
+
+            # Function return record
+            if return_annotation:
+                is_any_return = return_annotation in {"Any", "typing.Any"}
+                type_annotation_records.append({
+                    "line": node.lineno,
+                    "column": col,
+                    "symbol_name": node.name,
+                    "symbol_kind": "function",
+                    "type_annotation": None,
+                    "return_type": return_annotation,
+                    "is_any": is_any_return,
+                    "is_unknown": False,
+                    "is_generic": is_generic,
+                    "has_type_params": has_type_params,
+                    "type_params": type_params,
+                })
+
+            function_entry["type_annotations"] = type_annotation_records
+            function_entry["return_type"] = return_annotation
+            function_entry["is_typed"] = bool(type_annotation_records)
+            function_entry["decorators"] = decorators
+
+            functions.append(function_entry)
     
     return functions
 
@@ -72,9 +357,324 @@ def extract_python_classes(tree: Dict, parser_self) -> List[Dict]:
                 "line": node.lineno,
                 "column": node.col_offset,
                 "bases": [get_node_name(base) for base in node.bases],
+                "type_annotations": [],
             })
     
     return classes
+
+
+def extract_python_attribute_annotations(tree: Dict, parser_self) -> List[Dict]:
+    """Extract type annotations declared on class or module attributes."""
+    annotations: List[Dict[str, Any]] = []
+    actual_tree = tree.get("tree")
+
+    if not actual_tree:
+        return annotations
+
+    for node in ast.walk(actual_tree):
+        if isinstance(node, ast.AnnAssign):
+            target_name = get_node_name(node.target)
+            if not target_name:
+                continue
+
+            annotation_text = _get_type_annotation(node.annotation)
+            if not annotation_text:
+                continue
+
+            class_name = find_containing_class_python(actual_tree, getattr(node, "lineno", 0))
+            is_generic, has_type_params, type_params = _analyze_annotation_flags(node.annotation, annotation_text)
+
+            annotations.append({
+                "line": getattr(node, "lineno", 0),
+                "column": getattr(node, "col_offset", 0),
+                "symbol_name": f"{class_name}.{target_name}" if class_name else target_name,
+                "symbol_kind": "class_attribute" if class_name else "module_attribute",
+                "type_annotation": annotation_text,
+                "return_type": None,
+                "class_name": class_name,
+                "is_any": annotation_text in {"Any", "typing.Any"},
+                "is_unknown": False,
+                "is_generic": is_generic,
+                "has_type_params": has_type_params,
+                "type_params": type_params,
+            })
+
+    return annotations
+
+
+def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+    """Extract SQLAlchemy ORM models, fields, and relationships."""
+    models: List[Dict[str, Any]] = []
+    fields: List[Dict[str, Any]] = []
+    relationships: List[Dict[str, Any]] = []
+
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return models, fields, relationships
+
+    for node in actual_tree.body if isinstance(actual_tree, ast.Module) else []:
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        base_names = {get_node_name(base) for base in node.bases}
+        if not any(
+            name in SQLALCHEMY_BASE_IDENTIFIERS
+            or name.endswith("Base")
+            or name.endswith("Model")
+            for name in base_names
+        ):
+            continue
+
+        has_column = False
+        for stmt in node.body:
+            value = getattr(stmt, "value", None)
+            if isinstance(value, ast.Call) and get_node_name(value.func).endswith("Column"):
+                has_column = True
+                break
+        if not has_column:
+            continue
+
+        table_name = None
+        for stmt in node.body:
+            if isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name) and target.id == "__tablename__":
+                        table_name = _get_str_constant(stmt.value) or get_node_name(stmt.value)
+
+        models.append({
+            "model_name": node.name,
+            "line": node.lineno,
+            "table_name": table_name,
+            "orm_type": "sqlalchemy",
+        })
+
+        for stmt in node.body:
+            value = getattr(stmt, "value", None)
+            attr_name = None
+            if isinstance(stmt, ast.Assign):
+                targets = [t for t in stmt.targets if isinstance(t, ast.Name)]
+                attr_name = targets[0].id if targets else None
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                attr_name = stmt.target.id
+
+            if not attr_name or not isinstance(value, ast.Call):
+                continue
+
+            func_name = get_node_name(value.func)
+            line_no = getattr(stmt, "lineno", node.lineno)
+
+            if func_name.endswith("Column"):
+                field_type = None
+                if value.args:
+                    field_type = _get_type_annotation(value.args[0]) or get_node_name(value.args[0])
+
+                is_primary_key = _is_truthy(_keyword_arg(value, "primary_key"))
+                is_foreign_key = False
+                foreign_key_target = None
+
+                for arg in value.args:
+                    if isinstance(arg, ast.Call) and get_node_name(arg.func).endswith("ForeignKey"):
+                        is_foreign_key = True
+                        if arg.args:
+                            foreign_key_target = _get_str_constant(arg.args[0]) or get_node_name(arg.args[0])
+
+                fk_kw = _keyword_arg(value, "ForeignKey")
+                if fk_kw:
+                    is_foreign_key = True
+                    foreign_key_target = _get_str_constant(fk_kw) or get_node_name(fk_kw)
+
+                fields.append({
+                    "model_name": node.name,
+                    "field_name": attr_name,
+                    "line": line_no,
+                    "field_type": field_type,
+                    "is_primary_key": is_primary_key,
+                    "is_foreign_key": is_foreign_key,
+                    "foreign_key_target": foreign_key_target,
+                })
+            elif func_name.endswith("relationship"):
+                target_model = None
+                if value.args:
+                    target_model = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
+                relationship_type = "hasMany" if attr_name.endswith("s") else "belongsTo"
+                relationships.append({
+                    "line": line_no,
+                    "source_model": node.name,
+                    "target_model": target_model or "Unknown",
+                    "relationship_type": relationship_type,
+                    "foreign_key": None,
+                    "cascade_delete": False,
+                    "as_name": attr_name,
+                })
+
+    return models, fields, relationships
+
+
+def extract_django_definitions(tree: Dict, parser_self) -> Tuple[List[Dict], List[Dict]]:
+    """Extract Django ORM models and relationships."""
+    relationships: List[Dict[str, Any]] = []
+    models: List[Dict[str, Any]] = []
+
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return models, relationships
+
+    for node in actual_tree.body if isinstance(actual_tree, ast.Module) else []:
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        base_names = {get_node_name(base) for base in node.bases}
+        if not any(name in DJANGO_MODEL_BASES for name in base_names):
+            continue
+
+        models.append({
+            "model_name": node.name,
+            "line": node.lineno,
+            "table_name": None,
+            "orm_type": "django",
+        })
+
+        for stmt in node.body:
+            value = getattr(stmt, "value", None)
+            attr_name = None
+            if isinstance(stmt, ast.Assign):
+                targets = [t for t in stmt.targets if isinstance(t, ast.Name)]
+                attr_name = targets[0].id if targets else None
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                attr_name = stmt.target.id
+            if not attr_name or not isinstance(value, ast.Call):
+                continue
+
+            func_name = get_node_name(value.func)
+            line_no = getattr(stmt, "lineno", node.lineno)
+
+            if func_name.endswith("ForeignKey"):
+                target = None
+                if value.args:
+                    target = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
+                cascade = False
+                on_delete = _keyword_arg(value, "on_delete")
+                if on_delete and get_node_name(on_delete).endswith("CASCADE"):
+                    cascade = True
+                relationships.append({
+                    "line": line_no,
+                    "source_model": node.name,
+                    "target_model": target or "Unknown",
+                    "relationship_type": "belongsTo",
+                    "foreign_key": attr_name,
+                    "cascade_delete": cascade,
+                    "as_name": attr_name,
+                })
+            elif func_name.endswith("ManyToManyField"):
+                target = None
+                if value.args:
+                    target = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
+                relationships.append({
+                    "line": line_no,
+                    "source_model": node.name,
+                    "target_model": target or "Unknown",
+                    "relationship_type": "manyToMany",
+                    "foreign_key": None,
+                    "cascade_delete": False,
+                    "as_name": attr_name,
+                })
+            elif func_name.endswith("OneToOneField"):
+                target = None
+                if value.args:
+                    target = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
+                relationships.append({
+                    "line": line_no,
+                    "source_model": node.name,
+                    "target_model": target or "Unknown",
+                    "relationship_type": "hasOne",
+                    "foreign_key": attr_name,
+                    "cascade_delete": False,
+                    "as_name": attr_name,
+                })
+
+    return models, relationships
+
+
+def extract_pydantic_validators(tree: Dict, parser_self) -> List[Dict]:
+    """Extract Pydantic validator metadata."""
+    validators: List[Dict[str, Any]] = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return validators
+
+    for node in actual_tree.body if isinstance(actual_tree, ast.Module) else []:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        base_names = {get_node_name(base) for base in node.bases}
+        if not any(name.endswith("BaseModel") or name == "BaseModel" for name in base_names):
+            continue
+
+        for stmt in node.body:
+            if not isinstance(stmt, ast.FunctionDef):
+                continue
+
+            for decorator in stmt.decorator_list:
+                dec_node = decorator.func if isinstance(decorator, ast.Call) else decorator
+                dec_name = get_node_name(dec_node)
+                if dec_name.endswith("root_validator"):
+                    validators.append({
+                        "line": stmt.lineno,
+                        "model_name": node.name,
+                        "field_name": None,
+                        "validator_method": stmt.name,
+                        "validator_type": "root",
+                    })
+                elif dec_name.endswith("validator"):
+                    fields = []
+                    if isinstance(decorator, ast.Call):
+                        for arg in decorator.args:
+                            candidate = _get_str_constant(arg) or get_node_name(arg)
+                            if candidate:
+                                fields.append(candidate)
+                    if not fields:
+                        fields = [None]
+                    for field in fields:
+                        validators.append({
+                            "line": stmt.lineno,
+                            "model_name": node.name,
+                            "field_name": field,
+                            "validator_method": stmt.name,
+                            "validator_type": "field",
+                        })
+
+    return validators
+
+
+def extract_flask_blueprints(tree: Dict, parser_self) -> List[Dict]:
+    """Detect Flask blueprint declarations."""
+    blueprints: List[Dict[str, Any]] = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return blueprints
+
+    for node in ast.walk(actual_tree):
+        if isinstance(node, ast.Assign):
+            if not isinstance(node.value, ast.Call):
+                continue
+            func_name = get_node_name(node.value.func)
+            if not func_name.endswith("Blueprint"):
+                continue
+            targets = [t for t in node.targets if isinstance(t, ast.Name)]
+            if not targets:
+                continue
+            var_name = targets[0].id
+            name_arg = node.value.args[0] if node.value.args else None
+            blueprint_name = _get_str_constant(name_arg) or var_name
+            url_prefix = _get_str_constant(_keyword_arg(node.value, "url_prefix"))
+            subdomain = _get_str_constant(_keyword_arg(node.value, "subdomain"))
+            blueprints.append({
+                "line": getattr(node, "lineno", 0),
+                "blueprint_name": blueprint_name,
+                "url_prefix": url_prefix,
+                "subdomain": subdomain,
+            })
+
+    return blueprints
 
 
 def extract_python_calls(tree: Dict, parser_self) -> List[Dict]:

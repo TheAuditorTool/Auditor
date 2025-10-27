@@ -195,6 +195,20 @@ def find_containing_function_python(tree: ast.AST, line: int) -> Optional[str]:
     return containing_func[0] if containing_func else None
 
 
+def find_containing_class_python(tree: ast.AST, line: int) -> Optional[str]:
+    """Find the class containing a given line in Python AST."""
+    containing_class = None
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+                if node.lineno <= line <= (node.end_lineno or node.lineno):
+                    if containing_class is None or node.lineno > containing_class[1]:
+                        containing_class = (node.name, node.lineno)
+
+    return containing_class[0] if containing_class else None
+
+
 def find_containing_function_tree_sitter(node: Any, content: str, language: str) -> Optional[str]:
     """Find the function containing a node in Tree-sitter AST.
     

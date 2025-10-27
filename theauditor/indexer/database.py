@@ -269,6 +269,11 @@ class DatabaseManager:
                 # API endpoints (before junction table)
                 ('api_endpoints', 'INSERT'),
                 ('api_endpoint_controls', 'INSERT'),  # Junction table
+                ('python_orm_models', 'INSERT'),
+                ('python_orm_fields', 'INSERT'),
+                ('python_routes', 'INSERT'),
+                ('python_blueprints', 'INSERT'),
+                ('python_validators', 'INSERT'),
 
                 # SQL query tables (before junction table)
                 ('sql_query_tables', 'INSERT'),  # Junction table
@@ -473,6 +478,68 @@ class DatabaseManager:
                 if not control_name:  # Skip empty strings (data validation, not fallback)
                     continue
                 self.generic_batches['api_endpoint_controls'].append((file_path, line, control_name))
+
+    def add_python_orm_model(self, file_path: str, line: int, model_name: str,
+                             table_name: Optional[str], orm_type: str = 'sqlalchemy'):
+        """Add a Python ORM model definition to the batch."""
+        self.generic_batches['python_orm_models'].append((file_path, line, model_name, table_name, orm_type))
+
+    def add_python_orm_field(self, file_path: str, line: int, model_name: str,
+                             field_name: str, field_type: Optional[str],
+                             is_primary_key: bool = False, is_foreign_key: bool = False,
+                             foreign_key_target: Optional[str] = None):
+        """Add a Python ORM field definition to the batch."""
+        self.generic_batches['python_orm_fields'].append((
+            file_path,
+            line,
+            model_name,
+            field_name,
+            field_type,
+            1 if is_primary_key else 0,
+            1 if is_foreign_key else 0,
+            foreign_key_target
+        ))
+
+    def add_python_route(self, file_path: str, line: int, framework: str, method: str,
+                         pattern: str, handler_function: str, has_auth: bool = False,
+                         dependencies: Optional[List[str]] = None, blueprint: Optional[str] = None):
+        """Add a Python framework route (Flask/FastAPI) to the batch."""
+        dependencies_json = json.dumps(dependencies) if dependencies else None
+        self.generic_batches['python_routes'].append((
+            file_path,
+            line,
+            framework,
+            method,
+            pattern,
+            handler_function,
+            1 if has_auth else 0,
+            dependencies_json,
+            blueprint
+        ))
+
+    def add_python_blueprint(self, file_path: str, line: int, blueprint_name: str,
+                             url_prefix: Optional[str], subdomain: Optional[str]):
+        """Add a Flask blueprint definition to the batch."""
+        self.generic_batches['python_blueprints'].append((
+            file_path,
+            line,
+            blueprint_name,
+            url_prefix,
+            subdomain
+        ))
+
+    def add_python_validator(self, file_path: str, line: int, model_name: str,
+                             field_name: Optional[str], validator_method: str,
+                             validator_type: str):
+        """Add a Pydantic validator definition to the batch."""
+        self.generic_batches['python_validators'].append((
+            file_path,
+            line,
+            model_name,
+            field_name,
+            validator_method,
+            validator_type
+        ))
 
     def add_sql_object(self, file_path: str, kind: str, name: str):
         """Add a SQL object record to the batch."""
