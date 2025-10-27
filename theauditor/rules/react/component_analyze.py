@@ -173,19 +173,28 @@ class ReactComponentAnalyzer:
 
     def _check_missing_memoization(self):
         """Check for components that should be memoized but aren't."""
+        # NORMALIZATION FIX: hooks_used column removed, check junction table instead
         self.cursor.execute("""
             SELECT c.file, c.name, c.type, c.start_line,
-                   c.hooks_used, c.props_type
+                   GROUP_CONCAT(rch.hook_name, ',') as hooks_used, c.props_type
             FROM react_components c
+            LEFT JOIN react_component_hooks rch
+                ON c.file = rch.component_file
+                AND c.name = rch.component_name
             WHERE c.type != 'memo'
               AND c.has_jsx = 1
               AND (
-                  c.hooks_used LIKE '%useCallback%'
-                  OR c.hooks_used LIKE '%useMemo%'
+                  EXISTS (
+                      SELECT 1 FROM react_component_hooks rch2
+                      WHERE rch2.component_file = c.file
+                        AND rch2.component_name = c.name
+                        AND (rch2.hook_name LIKE '%useCallback%' OR rch2.hook_name LIKE '%useMemo%')
+                  )
                   OR c.props_type LIKE '%data%'
                   OR c.props_type LIKE '%items%'
                   OR c.props_type LIKE '%list%'
               )
+            GROUP BY c.file, c.name, c.type, c.start_line, c.props_type
         """)
 
         for row in self.cursor.fetchall():
@@ -313,11 +322,17 @@ class ReactComponentAnalyzer:
 
     def _check_no_jsx_components(self):
         """Check for components that don't return JSX."""
+        # NORMALIZATION FIX: hooks_used column removed, check junction table instead
         self.cursor.execute("""
-            SELECT file, name, type, start_line, has_jsx, hooks_used
-            FROM react_components
-            WHERE has_jsx = 0
-              AND (hooks_used IS NULL OR hooks_used = '[]')
+            SELECT c.file, c.name, c.type, c.start_line, c.has_jsx,
+                   GROUP_CONCAT(rch.hook_name, ',') as hooks_used
+            FROM react_components c
+            LEFT JOIN react_component_hooks rch
+                ON c.file = rch.component_file
+                AND c.name = rch.component_name
+            WHERE c.has_jsx = 0
+            GROUP BY c.file, c.name, c.type, c.start_line, c.has_jsx
+            HAVING hooks_used IS NULL OR hooks_used = ''
         """)
 
         for row in self.cursor.fetchall():
