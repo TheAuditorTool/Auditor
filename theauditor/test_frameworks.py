@@ -1,11 +1,62 @@
 """Test framework detection for various languages."""
 
+import fnmatch
 import json
+import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from theauditor.manifest_parser import ManifestParser
 from theauditor.framework_registry import TEST_FRAMEWORK_REGISTRY
+
+# Directories to ignore when scanning for test files/imports (sandbox, vendor, caches)
+IGNORED_DIRECTORIES: set[str] = {
+    ".auditor_venv",
+    ".auditor_tmp",
+    ".pf",
+    ".git",
+    ".hg",
+    ".svn",
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    "__pycache__",
+}
+
+
+def _iter_matching_files(
+    root: Path,
+    patterns: Iterable[str],
+    max_matches: int | None = None,
+) -> list[Path]:
+    """Return files under root matching patterns, skipping ignored directories."""
+    matches: list[Path] = []
+    normalized_patterns = tuple(patterns)
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune directories we never want to inspect
+        dirnames[:] = [d for d in dirnames if d not in IGNORED_DIRECTORIES]
+
+        if not normalized_patterns:
+            continue
+
+        for filename in filenames:
+            file_path = Path(dirpath) / filename
+            try:
+                rel_path = file_path.relative_to(root).as_posix()
+            except ValueError:
+                rel_path = file_path.as_posix()
+
+            for pattern in normalized_patterns:
+                if fnmatch.fnmatch(filename, pattern) or fnmatch.fnmatch(rel_path, pattern):
+                    matches.append(file_path)
+                    if max_matches is not None and len(matches) >= max_matches:
+                        return matches
+                    break
+
+    return matches
 
 
 def detect_test_framework(root: str | Path) -> dict[str, Any]:
@@ -64,6 +115,19 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
             except Exception:
                 # Skip files that can't be parsed
                 continue
+
+    python_manifest_present = any(
+        key in manifests
+        for key in (
+            "pyproject.toml",
+            "requirements.txt",
+            "requirements-dev.txt",
+            "requirements-test.txt",
+            "setup.cfg",
+            "setup.py",
+            "tox.ini",
+        )
+    )
     
     # Check each test framework in priority order
     for tf_name, tf_config in TEST_FRAMEWORK_REGISTRY.items():
@@ -177,15 +241,17 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
         
         # Check for file patterns
         if "file_patterns" in tf_config:
-            for pattern in tf_config["file_patterns"]:
-                # Use glob to find matching files
-                import glob
-                if glob.glob(str(root / pattern)):
-                    return {
-                        "name": tf_name,
-                        "language": tf_config["language"],
-                        "cmd": tf_config.get("command", "")
-                    }
+            if tf_config.get("language") == "python" and not python_manifest_present:
+                # Defer to import-based detection to avoid false positives from stray files
+                pass
+            else:
+                for pattern in tf_config["file_patterns"]:
+                    if _iter_matching_files(root, [pattern], max_matches=1):
+                        return {
+                            "name": tf_name,
+                            "language": tf_config["language"],
+                            "cmd": tf_config.get("command", "")
+                        }
     
     # Fallback: Check for import patterns in source files (for unittest)
     # This is last resort for frameworks like unittest that don't have manifest entries
@@ -209,9 +275,11 @@ def detect_test_framework(root: str | Path) -> dict[str, Any]:
         for ext in extensions:
             if files_checked >= max_files_to_check:
                 break
-                
-            import glob
-            for file_path in glob.glob(str(root / "**" / ext), recursive=True)[:max_files_to_check]:
+
+            remaining = max_files_to_check - files_checked
+            candidate_files = _iter_matching_files(root, [ext], max_matches=remaining if remaining > 0 else None)
+
+            for file_path in candidate_files:
                 if files_checked >= max_files_to_check:
                     break
                     

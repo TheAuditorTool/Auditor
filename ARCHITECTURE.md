@@ -1041,10 +1041,9 @@ These parsers are used by extractors during indexing to extract security-relevan
 
 **OSV-Scanner: Offline-First Vulnerability Detection**
 
-TheAuditor uses a 3-source cross-validation approach for vulnerability detection:
+TheAuditor uses a 2-source cross-validation approach for vulnerability detection:
 - **npm audit**: Checks npm registry for JavaScript/TypeScript vulnerabilities
-- **pip-audit**: Checks PyPI for Python vulnerabilities
-- **OSV-Scanner**: Google's official offline vulnerability database scanner
+- **OSV-Scanner**: Google's official offline vulnerability database scanner (includes PyPI coverage)
 
 **OSV-Scanner Architecture**:
 - **Binary Location**: `.auditor_venv/.theauditor_tools/osv-scanner/osv-scanner.exe` (Windows) or `osv-scanner` (Linux/Mac)
@@ -1068,13 +1067,15 @@ TheAuditor uses a 3-source cross-validation approach for vulnerability detection
 
 **Cross-Validation Process**:
 ```python
-# All 3 scanners run independently
+# Scanners run independently
 npm_findings = _run_npm_audit()      # May hit npm registry (unless --offline)
-pip_findings = _run_pip_audit()      # May hit PyPI (unless --offline)
 osv_findings = _run_osv_scanner()    # ALWAYS uses local database
 
 # Cross-reference findings by vulnerability ID
-validated = _cross_reference(npm_findings, pip_findings, osv_findings)
+validated = _cross_reference({
+    "npm-audit": npm_findings,
+    "osv-scanner": osv_findings,
+})
 # Confidence = number of sources that found the same vulnerability
 ```
 
@@ -1084,7 +1085,7 @@ validated = _cross_reference(npm_findings, pip_findings, osv_findings)
 cmd.append("--offline-vulnerabilities")
 ```
 
-This ensures OSV-Scanner operates without network access regardless of the `--offline` flag to `aud full`. The offline flag only affects npm-audit and pip-audit registry checks.
+This ensures OSV-Scanner operates without network access regardless of the `--offline` flag to `aud full`. The offline flag only affects npm audit registry checks.
 
 ### Refactoring Detection (`theauditor/commands/refactor.py`)
 Detects incomplete refactorings and cross-stack inconsistencies:

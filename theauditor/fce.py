@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from theauditor.test_frameworks import detect_test_framework
+from theauditor.utils.temp_manager import TempManager
 
 
 
@@ -447,40 +448,55 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
 
         # Run command - safely split command string into arguments
         cmd_args = shlex.split(command)
-        
-        # Write directly to temp files to avoid buffer overflow
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
-             tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
-            
+        tool_name = Path(cmd_args[0]).name if cmd_args else "process"
+
+        stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
+            root_path,
+            tool_name=tool_name,
+        )
+
+        env = {**os.environ, "CI": "true"}
+        if tool_name.startswith("pytest"):
+            pytest_temp = TempManager.get_temp_dir(root_path) / "pytest"
+            pytest_temp.mkdir(parents=True, exist_ok=True)
+            existing_opts = env.get("PYTEST_ADDOPTS", "").strip()
+            extra_opt = f"--basetemp={pytest_temp}"
+            env["PYTEST_ADDOPTS"] = f"{existing_opts} {extra_opt}".strip()
+
+        with open(stdout_path, 'w', encoding='utf-8') as out_tmp, \
+             open(stderr_path, 'w', encoding='utf-8') as err_tmp:
+
             process = subprocess.Popen(
                 cmd_args,
                 cwd=root_path,
                 stdout=out_tmp,
                 stderr=err_tmp,
                 text=True,
-                env={**os.environ, "CI": "true"},  # Set CI env for tools
+                env=env,
             )
-            
-            stdout_file = out_tmp.name
-            stderr_file = err_tmp.name
 
         # Stream output with timeout
         try:
             process.communicate(timeout=timeout)
             
             # Read back the outputs
-            with open(stdout_file, 'r') as f:
+            with open(stdout_path, 'r', encoding='utf-8', errors='ignore') as f:
                 stdout = f.read()
-            with open(stderr_file, 'r') as f:
+            with open(stderr_path, 'r', encoding='utf-8', errors='ignore') as f:
                 stderr = f.read()
             
             # Clean up temp files
-            os.unlink(stdout_file)
-            os.unlink(stderr_file)
+            try:
+                os.unlink(stdout_path)
+            except OSError:
+                pass
+            try:
+                os.unlink(stderr_path)
+            except OSError:
+                pass
             
             # Append any errors to the global error.log
-            if stderr:
+            if stderr.strip():
                 from pathlib import Path
                 error_log = Path(root_path) / ".pf" / "error.log"
                 error_log.parent.mkdir(parents=True, exist_ok=True)

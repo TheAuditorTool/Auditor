@@ -361,12 +361,14 @@ class LinterOrchestrator:
                 timeout=LINTER_TIMEOUT,
                 check=False,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace'
             )
 
-            # Ruff outputs JSON to stdout
+            stdout = result.stdout or ""
             with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(result.stdout)
+                f.write(stdout)
 
         except subprocess.TimeoutExpired:
             logger.error(f"Ruff batch {batch_num} timed out after {LINTER_TIMEOUT} seconds")
@@ -390,12 +392,17 @@ class LinterOrchestrator:
         # Convert to standardized findings
         findings = []
         for item in results:
+            location = item.get("location", {}) or {}
+            rule_code = (item.get("code") or "").strip()
+            if not rule_code:
+                rule_code = "ruff-unknown"
+
             findings.append({
                 "tool": "ruff",
                 "file": self._normalize_path(item.get("filename", "")),
-                "line": item.get("location", {}).get("row", 0),
-                "column": item.get("location", {}).get("column", 0),
-                "rule": item.get("code", ""),
+                "line": location.get("row", 0),
+                "column": location.get("column", 0),
+                "rule": rule_code,
                 "message": item.get("message", ""),
                 "severity": "warning",  # Ruff doesn't distinguish error/warning
                 "category": "lint"
@@ -476,12 +483,15 @@ class LinterOrchestrator:
                 timeout=LINTER_TIMEOUT,
                 check=False,
                 capture_output=True,
-                text=True
+                text=True,
+                encoding='utf-8',
+                errors='replace'
             )
 
             # Mypy outputs JSON to stdout
+            stdout = result.stdout or ""
             with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(result.stdout)
+                f.write(stdout)
 
         except subprocess.TimeoutExpired:
             logger.error(f"Mypy batch {batch_num} timed out after {LINTER_TIMEOUT} seconds")
@@ -503,15 +513,50 @@ class LinterOrchestrator:
                         continue
                     try:
                         item = json.loads(line)
+                        source_file = self._normalize_path(item.get("file", ""))
+                        raw_severity = (item.get("severity") or "error").lower()
+                        original_code = item.get("code")
+                        rule_code = (original_code or "").strip()
+
+                        if not rule_code:
+                            if raw_severity == "note":
+                                rule_code = "mypy-note"
+                            else:
+                                rule_code = "mypy-unknown"
+
+                        # Mypy uses -1 to denote file-level context; normalise to 0.
+                        line_no = item.get("line", 0)
+                        if isinstance(line_no, int) and line_no < 0:
+                            line_no = 0
+
+                        column_no = item.get("column", 0)
+                        if isinstance(column_no, int) and column_no < 0:
+                            column_no = 0
+
+                        if raw_severity == "note":
+                            mapped_severity = "info"
+                            category = "lint-meta"
+                        else:
+                            mapped_severity = raw_severity if raw_severity in {"error", "warning"} else "error"
+                            category = "type"
+
+                        additional = {}
+                        if item.get("hint"):
+                            additional["hint"] = item["hint"]
+                        additional["mypy_severity"] = raw_severity
+                        if original_code:
+                            additional["mypy_code"] = original_code
+
                         findings.append({
                             "tool": "mypy",
-                            "file": self._normalize_path(item.get("file", "")),
-                            "line": item.get("line", 0),
-                            "column": item.get("column", 0),
-                            "rule": item.get("code", "type-error"),
+                            "file": source_file,
+                            "line": line_no,
+                            "column": column_no,
+                            "rule": rule_code,
                             "message": item.get("message", ""),
-                            "severity": item.get("severity", "error"),
-                            "category": "type"
+                            "severity": mapped_severity,
+                            "category": category,
+                            "additional_info": additional
                         })
                     except json.JSONDecodeError:
                         # Skip malformed lines

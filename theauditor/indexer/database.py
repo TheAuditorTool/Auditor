@@ -1118,11 +1118,23 @@ class DatabaseManager:
 
             # Handle different finding formats from various tools
             # Try multiple field names for compatibility
+            rule_value = f.get('rule')
+            if not rule_value:
+                rule_value = f.get('pattern', f.get('pattern_name', f.get('code', 'unknown-rule')))
+            if isinstance(rule_value, str):
+                rule_value = rule_value.strip() or 'unknown-rule'
+            else:
+                rule_value = str(rule_value) if rule_value is not None else 'unknown-rule'
+
+            file_path = f.get('file', '')
+            if not isinstance(file_path, str):
+                file_path = str(file_path or '')
+
             normalized.append((
-                f.get('file', ''),
+                file_path,
                 int(f.get('line', 0)),
                 f.get('column'),  # Optional
-                f.get('rule', f.get('pattern', f.get('pattern_name', f.get('code', 'unknown')))),  # Try multiple names
+                rule_value,
                 f.get('tool', tool_name),
                 f.get('message', ''),
                 f.get('severity', 'medium'),  # Default to medium if not specified

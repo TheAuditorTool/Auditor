@@ -30,7 +30,7 @@ IS_WINDOWS = platform.system() == "Windows"
 COMMAND_TIMEOUTS = {
     "index": 600,               # 10 minutes - AST parsing can be slow on large codebases
     "detect-frameworks": 300,   # 5 minutes - Quick scan of config files
-    "deps": 600,                # 10 minutes - Network I/O + vulnerability scanning (npm audit, pip-audit, osv-scanner)
+    "deps": 600,                # 10 minutes - Network I/O + vulnerability scanning (npm audit + osv-scanner)
     "docs": 300,                # 5 minutes - Network I/O for fetching docs
     "workset": 300,             # 5 minutes - File system traversal
     "lint": 900,                # 15 minutes - ESLint/ruff on large codebases

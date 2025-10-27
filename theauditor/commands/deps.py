@@ -35,7 +35,7 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
     Operation Modes:
       Default:        Parse and inventory all dependencies
       --check-latest: Check for available updates
-      --vuln-scan:    Run security scanners (npm audit, pip-audit)
+      --vuln-scan:    Run security scanners (npm audit + OSV-Scanner)
       --upgrade-all:  YOLO mode - upgrade everything to latest
 
     Examples:
@@ -46,7 +46,7 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
       aud deps --offline              # Skip all network operations
 
     Vulnerability Scanning (--vuln-scan):
-      - Runs 3 native tools: npm audit, pip-audit, OSV-Scanner
+      - Runs 2 native tools: npm audit and OSV-Scanner
       - Cross-references findings for validation (confidence scoring)
       - Reports CVEs with severity levels
       - Exit code 2 for critical vulnerabilities
@@ -85,13 +85,13 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
     # Vulnerability scanning
     if vuln_scan:
         click.echo(f"\n[SCAN] Running native vulnerability scanners...")
-        click.echo(f"  Using: npm audit, pip-audit, OSV-Scanner")
+        click.echo(f"  Using: npm audit, OSV-Scanner")
         if offline:
             click.echo(f"  Mode: Offline (all tools use local data)")
         else:
-            click.echo(f"  Mode: Online registry checks (npm/pip) + offline OSV database")
+            click.echo(f"  Mode: Online registry checks (npm) + offline OSV database")
             click.echo(f"        OSV-Scanner always uses local database (never hits API)")
-        click.echo(f"  Cross-referencing findings across 3 sources...")
+        click.echo(f"  Cross-referencing findings across 2 sources...")
 
         vulnerabilities = scan_dependencies(deps_list, offline=offline)
 
