@@ -274,12 +274,23 @@ class LinterOrchestrator:
             file_path = file_result.get("filePath", "")
 
             for msg in file_result.get("messages", []):
+                # Extract and normalize rule field (handle null, whitespace, empty)
+                original_rule = msg.get("ruleId")
+                if original_rule and str(original_rule).strip():
+                    rule = str(original_rule).strip()
+                else:
+                    rule = "eslint-error"
+
+                # Clamp negative line/column markers to 0
+                line = max(0, msg.get("line", 0))
+                column = max(0, msg.get("column", 0))
+
                 findings.append({
                     "tool": "eslint",
                     "file": self._normalize_path(file_path),
-                    "line": msg.get("line", 0),
-                    "column": msg.get("column", 0),
-                    "rule": msg.get("ruleId") or "eslint-error",
+                    "line": line,
+                    "column": column,
+                    "rule": rule,
                     "message": msg.get("message", ""),
                     "severity": "error" if msg.get("severity") == 2 else "warning",
                     "category": "lint"
@@ -390,12 +401,23 @@ class LinterOrchestrator:
         # Convert to standardized findings
         findings = []
         for item in results:
+            # Extract and normalize code field (handle null, whitespace, empty)
+            original_code = item.get("code")
+            if original_code and str(original_code).strip():
+                rule = str(original_code).strip()
+            else:
+                rule = "ruff-unknown"
+
+            # Clamp negative line/column markers to 0
+            line = max(0, item.get("location", {}).get("row", 0))
+            column = max(0, item.get("location", {}).get("column", 0))
+
             findings.append({
                 "tool": "ruff",
                 "file": self._normalize_path(item.get("filename", "")),
-                "line": item.get("location", {}).get("row", 0),
-                "column": item.get("location", {}).get("column", 0),
-                "rule": item.get("code", ""),
+                "line": line,
+                "column": column,
+                "rule": rule,
                 "message": item.get("message", ""),
                 "severity": "warning",  # Ruff doesn't distinguish error/warning
                 "category": "lint"
@@ -503,14 +525,31 @@ class LinterOrchestrator:
                         continue
                     try:
                         item = json.loads(line)
+
+                        # Extract and normalize code field (handle null, whitespace, empty)
+                        original_code = item.get("code")
+                        severity = item.get("severity", "error")
+
+                        # Map code based on severity and code presence
+                        if original_code and str(original_code).strip():
+                            rule = str(original_code).strip()
+                        elif severity == "note":
+                            rule = "mypy-note"
+                        else:
+                            rule = "mypy-unknown"
+
+                        # Clamp negative line/column markers to 0
+                        line = max(0, item.get("line", 0))
+                        column = max(0, item.get("column", 0))
+
                         findings.append({
                             "tool": "mypy",
                             "file": self._normalize_path(item.get("file", "")),
-                            "line": item.get("line", 0),
-                            "column": item.get("column", 0),
-                            "rule": item.get("code", "type-error"),
+                            "line": line,
+                            "column": column,
+                            "rule": rule,
                             "message": item.get("message", ""),
-                            "severity": item.get("severity", "error"),
+                            "severity": severity,
                             "category": "type"
                         })
                     except json.JSONDecodeError:
