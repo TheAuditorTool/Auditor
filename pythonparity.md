@@ -1,42 +1,66 @@
 # Python Parity Worklog
 
-## Session 1 (Initiation)
-- Environment: branch `pythonparity`, full write access, focus on Python extraction parity.
-- Tool check: `aud --help` failed on PATH; succeeded via `.venv/Scripts/aud.exe --help` confirming CLI availability.
-- Mandates: follow SOP v4.20, zero-fallback rules, respect layer separation (parser → extractor → indexer → taint/analysis).
-- TODO foundation: deep-read `theauditor/indexer/schema.py` and `theauditor/indexer/database.py` as baseline; keep log of insights, blockers, and regressions here.
+## Quick Onboarding / Environment
+- Branch: `pythonparity` (full write access; isolated working branch).
+- Tooling: use `aud` CLI (`aud --help`). If PATH lookup fails, call `.venv/Scripts/aud.exe --help`.
+- Prime directive: follow `teamsop.md` (verification first, zero fallbacks per `CLAUDE.md`). Respect layer boundaries: AST extractors → indexer → taint/analysis.
+- Long-running commands: bump timeout via `THEAUDITOR_TIMEOUT_SECONDS=900` when running `aud full --offline`.
+- Database inspection: use Python’s sqlite3 (see `CLAUDE.md` guidance) against `.pf/repo_index.db`.
+- OpenSpec workflow: see `openspec/AGENTS.md`. Run `openspec validate add-python-extraction-parity --strict` after spec edits.
 
-### Schema & Database Review Notes
-- `schema.py` enumerates 50+ tables; `type_annotations` already exists with composite PK `(file,line,column,symbol_name)` and fields for generics and return types—Python work must populate via existing contract.
-- `api_endpoints` plus `api_endpoint_controls` already normalize route metadata; Python extractor currently feeds these, so parity plan should avoid creating duplicate route tables.
-- `orm_relationships` table is generic and ready for SQLAlchemy/Django relationships; `database.py:add_orm_relationship` enforces tuple `(file,line,source,target,type,foreign_key,cascade_delete,alias)`.
-- Batch flush order in `database.py:flush_batch` shows where new tables should slot; adding Python-specific tables may require extending both schema registry and flush ordering.
-- `type_annotations` insert uses `INSERT OR REPLACE`, so multiple passes can overwrite; Python extractor should match TypeScript writer signature `(file,line,column,symbol_name,symbol_kind,...)`.
-- Memory-sensitive structures (assignments, function_call_args, variable_usage, orm queries) already normalized; any Python enhancements need to reuse these rather than new schemas.
+## Current Status (2025-10-27)
+- ✅ Python type hints (function parameters/returns and class/module `AnnAssign`) populate `type_annotations`.
+- ✅ Framework metadata flows into new tables: `python_orm_models`, `python_orm_fields`, `python_routes`, `python_blueprints`, `python_validators`.
+- ✅ Import resolution populates `resolved_imports` mapping, enabling cross-file lookups similar to JS.
+- ✅ SQLAlchemy + Django relationships recorded in `orm_relationships` (heuristic `hasMany`/`belongsTo` etc.).
+- ✅ Documentation set (`proposal.md`, `design.md`, `spec.md`, `tasks.md`, `verification.md`) updated to reflect shipped work and outstanding gaps.
+- 🔄 Outstanding: richer SQLAlchemy semantics (`back_populates`/`backref`, cascade flags), taint engine consumption of Python ORM tables, dedicated fixtures/tests beyond `tests/fixtures/python/parity_sample.py`, FastAPI parameter metadata, Django edge cases.
+- 🔄 Logging still omits file path in annotation warnings (line number only).
 
-### Verification Prep
-- Authored `openspec/changes/add-python-extraction-parity/verification.md` capturing confirmed gaps (type hints missing, imports unresolved) and correcting outdated proposal claim about route coverage.
+## What’s Working
+- End-to-end indexing (`aud full --offline`) completes on current code; `.pf/repo_index.db` shows 4,020 Python rows in `type_annotations`.
+- `resolved_imports` entries appear in `refs` table (e.g., local modules mapped to relative `.py` paths).
+- Framework tables contain data for SQLAlchemy models, Pydantic validators, Flask/FastAPI routes, and blueprints; verified via sqlite queries.
+- OpenSpec validation passes (`openspec validate add-python-extraction-parity --strict`).
 
-### Phase 1 (Type Annotation Parity) Outline
-- **Helper utilities**: Add `_get_type_annotation` + `_analyze_annotation_flags` in `theauditor/ast_extractors/python_impl.py` to stringify AST annotations and derive flags (`is_generic`, `has_type_params`, `type_params`).
-- **Function extraction**: Extend `extract_python_functions` to emit parameter metadata (`arg_annotations` keyed by argument name), capture return annotations, param defaults, `posonlyargs`/`kwonlyargs`/`vararg`/`kwarg`, and optional type comments.
-- **Class/attribute extraction**: Introduce extractor for `ast.AnnAssign` (class + module scope) returning annotation records; ensure dataclass/TypedDict patterns handled.
-- **Collector wiring**: In `theauditor/indexer/extractors/python.py`, assemble `type_annotations` payloads matching JS structure and forward to orchestrator; propagate `is_typed` flag to symbol entries when annotations present.
-- **Database flow**: Reuse `database.py:add_type_annotation` path (no schema changes); update flush statistics if needed.
-- **Testing strategy**: Create fixtures under `tests/fixtures/python/types/` covering functions, methods, generics, Optional/Union, type comments, class attrs. Add end-to-end indexer test validating DB rows and aggregator invariants.
-- **Validation**: Run `aud index --offline` (or targeted harness) on fixture set to confirm new rows; spot-check `.pf/repo_index.db` with sqlite via Python snippet (per CLAUDE.md).
-- **Spec hygiene**: Revisit Phase 2 spec expectations (`python_routes` table) before implementation to align with existing `api_endpoints` schema.
+## Known Gaps / Next Steps
+- `openspec/.../tasks.md:529` – parse `back_populates`/`backref` to enrich relationship metadata.
+- `openspec/.../tasks.md:904` – wire taint analyzer to load new Python ORM tables / relationship graph.
+- `openspec/.../tasks.md:812`+ – author focused fixtures (`sqlalchemy_app.py`, `pydantic_app.py`, etc.) and tests (`tests/test_python_framework_extraction.py`).
+- `openspec/.../tasks.md:35` – minimal fixture for early type-hint verification still outstanding if needed for regression harness.
+- Performance benchmarking tasks (tasks.md:375) remain TODO; collect data once framework enhancements settle.
+- Update CLAUDE.md once broader framework coverage/limitations are locked in (tasks.md:866).
 
-### Dev Log
-- Implemented `_get_type_annotation`, `_analyze_annotation_flags`, and `_parse_function_type_comment` helpers in `theauditor/ast_extractors/python_impl.py` for consistent annotation stringification and generic detection.
-- Enhanced `extract_python_functions` to capture parameter/return metadata, build per-parameter type annotation records, and flag typed functions.
-- Added `extract_python_attribute_annotations` plus supporting `find_containing_class_python` helper to record `AnnAssign` annotations for class/module scopes.
-- Updated `theauditor/indexer/extractors/python.py` to hydrate `type_annotations`, propagate function metadata into symbol entries, and reuse new attribute extraction.
-- Added local deduplication for Python symbols to prevent duplicate insertions when multiple passes surface identical function/call/property entries.
-- Sanity check: `python -m compileall theauditor` to ensure new modules compile cleanly under CPython 3.13.
-- Spot check: manual invocation of `extract_python_functions` / `extract_python_attribute_annotations` confirms parameters, varargs, generics, and class attributes emit `type_annotations` entries.
-- Captured decorator names on Python functions for future type-aware logic (e.g., `@overload`, `@dataclass` factory methods).
-- Reality check: `aud index` (THEAUDITOR_TIMEOUT_SECONDS=600) succeeds post-changes; `.pf/repo_index.db` now reports 4,020 Python rows in `type_annotations` with parameter/return metadata.
-- Full pipeline: `aud full --offline` (timeout 900s) completes; taint stage now loads 30,919 symbols with Python annotations contributing to the cache.
-- Implemented Python import resolution (`resolved_imports`) to map modules to concrete `.py` files where available; verified via `refs` table showing localized paths (e.g., `theauditor/js_semantic_parser.py`).
-- Phase 2 Planning (in progress): sketch SQLAlchemy extraction (models/fields/relationships), Pydantic validator harvesting, Flask blueprint registry, FastAPI dependency capture, and new schema tables (`python_orm_models`, `python_orm_fields`, `python_routes`, `python_blueprints`, `python_validators`) with matching `DatabaseManager` helpers and flush order integration.
+## Session Timeline
+
+### Session 1 (Initiation)
+- Environment setup, SOP refresh, baseline schema/database review.
+- Implemented:
+  - `_get_type_annotation`, `_analyze_annotation_flags`, `_parse_function_type_comment` (type serialization & generics).
+  - Function/class extraction updates to capture parameter/return metadata, decorator tags, and class attribute annotations.
+  - `extract_python_attribute_annotations` and supporting helpers (`find_containing_class_python`).
+  - Indexer wiring: populate `type_annotations`, propagate typed symbol metadata, ensure deduping.
+  - Added Python import resolution (`resolved_imports`) with heuristic filesystem mapping.
+  - Created new schema tables + database writers for ORM/routes/validators; flush order adjusted accordingly.
+- Verification:
+  - `python -m compileall theauditor` sanity check.
+  - `aud index` (timeout 600) and full pipeline run (timeout 900) succeeded; taint stage saw increased symbol counts.
+
+### Session 2 (Docs & Verification Sync)
+- Updated OpenSpec artifacts (`proposal.md`, `design.md`, `spec.md`, `tasks.md`) to match implemented behavior and highlight remaining work.
+- Added current-state verification log (`openspec/.../verification.md`) documenting evidence for type annotations, framework tables, import resolution, and gaps (back_populates, taint integration).
+- Logged changes in `pythonparity.md` to serve as changelog + onboarding.
+
+## Useful Commands / Queries
+- Re-run validation: `openspec validate add-python-extraction-parity --strict`.
+- Refresh DB: `aud full --offline` (set `THEAUDITOR_TIMEOUT_SECONDS=900`).
+- Inspect type annotations:  
+  ```powershell
+  .venv/Scripts/python.exe -c "import sqlite3; conn = sqlite3.connect('.pf/repo_index.db'); print(conn.execute('SELECT COUNT(*) FROM type_annotations WHERE file LIKE \"%.py\"').fetchone())"
+  ```
+- Check framework tables similarly (`SELECT COUNT(*) FROM python_routes;` etc.).
+
+## Reference Notes
+- Keep zero-fallback policy in mind (no silent skips; crash if schema contract breaks).
+- When enhancing relationship extraction, update `openspec/.../spec.md` and `tasks.md` simultaneously.
+- Before modifying taint analyzer, audit current consumers to ensure new tables are loaded into in-memory caches.

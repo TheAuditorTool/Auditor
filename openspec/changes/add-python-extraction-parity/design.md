@@ -20,22 +20,21 @@ TheAuditor indexes codebases by parsing AST (Abstract Syntax Tree) to extract sy
 - 7,514 lines of extraction code across Python and JavaScript
 - Populates 20 framework-specific tables
 
-**Python Extraction**:
-- Uses Python's built-in `ast` module for syntactic parsing only
-- Does NOT extract type annotations (despite Python code having type hints)
-- Does NOT support frameworks (Flask, FastAPI, SQLAlchemy, Pydantic, Django)
-- Does NOT resolve imports to paths
-- Does NOT track ORM relationships
-- 1,615 lines of extraction code
-- Populates 0 framework-specific tables
+**Python Extraction (2025-10-27)**:
+- Uses Python's built-in `ast` module for syntactic parsing, but now records function parameter/return annotations and class/module attribute annotations.
+- Populates dedicated framework tables for SQLAlchemy/Django models, Flask/FastAPI routes, and Pydantic validators (`python_orm_models`, `python_orm_fields`, `python_routes`, `python_blueprints`, `python_validators`).
+- Resolves imports to absolute paths and third-party package identifiers via `resolved_imports`.
+- Records ORM relationships (SQLAlchemy + Django) with heuristic relationship types; `back_populates`/`backref` semantics remain TODO.
+- Taint analyzer has not yet been updated to consume the new Python ORM tables.
+- ~2.7k lines of extraction code (Python) versus ~7.5k lines for JavaScript/TypeScript (~2.7x gap).
 
 **Gap**: 75-85% behind JavaScript/TypeScript. This is verified by code analysis in `PARITY_AUDIT_VERIFIED.md`.
 
 ### Problem Statement
 
-**Immediate Problem**: Python codebase HAS type hints (`def parse_file(self, file_path: Path) -> Any:`), but `python_impl.py:54` only extracts `arg.arg` (parameter names), ignoring `arg.annotation` (parameter types) and `node.returns` (return types). **This is a 5-line fix that unlocks massive value.**
+**Immediate Problem**: The extractor now captures type hints and framework metadata, but downstream taint analysis still ignores the new Python ORM tables and relationship metadata lacks `back_populates`/`backref` semantics.
 
-**Strategic Problem**: Python projects get inferior analysis compared to JavaScript projects. This undermines TheAuditor's positioning as a language-agnostic platform.
+**Strategic Problem**: Even with recent gains, Python parity trails JavaScript due to the lack of semantic typing (Mypy/Pyright integration) and incomplete taint wiring. Continued iteration is required to sustain the "language-agnostic" claim.
 
 **Architectural Problem**: Python uses syntactic parsing (`ast` module), JavaScript uses semantic analysis (TypeScript Compiler API). This gap cannot be fully closed without a Python semantic analysis engine (Mypy/Pyright integration), which is 6+ months of work and out of scope. This proposal accepts 40-50% remaining gap as "good enough."
 
@@ -49,6 +48,14 @@ TheAuditor indexes codebases by parsing AST (Abstract Syntax Tree) to extract sy
 4. **Increase Python parity** from 15-25% to 50-60% (closing gap from 4.7x to 2.4x)
 5. **Maintain backward compatibility** - no breaking changes to existing Python extraction
 6. **Zero performance regression** - <35ms overhead per file across all 3 phases
+
+### Implementation Status (2025-10-27)
+- ✅ Phase 1 (type annotations) implemented and flowing into `type_annotations`.
+- ✅ Phase 2 (framework extraction) implemented with new `python_*` tables and ORM relationship capture.
+- ✅ Import resolution populates `resolved_imports` for Python files (Phase 3 core).
+- 🔄 SQLAlchemy relationship metadata still lacks explicit `back_populates`/`backref` handling.
+- 🔄 Taint analyzer integration with Python ORM tables remains to be done.
+- 🔄 Targeted fixtures/tests beyond `tests/fixtures/python/parity_sample.py` still outstanding.
 
 ### Non-Goals
 
