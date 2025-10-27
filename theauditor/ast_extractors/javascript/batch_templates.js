@@ -35,8 +35,34 @@ import fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
 import { fileURLToPath, pathToFileURL } from 'url';
-import { parse as parseVueSfc, compileScript as compileVueScript, compileTemplate as compileVueTemplate } from '@vue/compiler-sfc';
-import { NodeTypes as VueNodeTypes } from '@vue/compiler-dom';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+
+let parseVueSfc = null;
+let compileVueScript = null;
+let compileVueTemplate = null;
+let VueNodeTypes = null;
+
+try {
+    const vueSfcModule = require('@vue/compiler-sfc');
+    if (vueSfcModule) {
+        parseVueSfc = vueSfcModule.parse;
+        compileVueScript = vueSfcModule.compileScript;
+        compileVueTemplate = vueSfcModule.compileTemplate;
+    }
+} catch (err) {
+    console.error(`[VUE SUPPORT DISABLED] @vue/compiler-sfc not available: ${err.message}`);
+}
+
+try {
+    const vueDomModule = require('@vue/compiler-dom');
+    if (vueDomModule) {
+        VueNodeTypes = vueDomModule.NodeTypes;
+    }
+} catch (err) {
+    console.error(`[VUE TEMPLATE SUPPORT DISABLED] @vue/compiler-dom not available: ${err.message}`);
+}
 
 // ES modules don't have __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -84,7 +110,15 @@ function safeUnlink(filePath) {
     }
 }
 
+function ensureVueCompilerAvailable() {
+    if (!parseVueSfc || !compileVueScript) {
+        throw new Error('Vue SFC support requires @vue/compiler-sfc. Install dependency or skip .vue files.');
+    }
+}
+
 function prepareVueSfcFile(filePath) {
+    ensureVueCompilerAvailable();
+
     const source = fs.readFileSync(filePath, 'utf8');
     const { descriptor, errors } = parseVueSfc(source, { filename: filePath });
 
@@ -114,15 +148,19 @@ function prepareVueSfcFile(filePath) {
 
     let templateAst = null;
     if (descriptor.template && descriptor.template.content) {
-        try {
-            const templateResult = compileVueTemplate({
-                source: descriptor.template.content,
-                filename: filePath,
-                id: scopeId
-            });
-            templateAst = templateResult.ast || null;
-        } catch (err) {
-            console.error(`[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`);
+        if (typeof compileVueTemplate === 'function') {
+            try {
+                const templateResult = compileVueTemplate({
+                    source: descriptor.template.content,
+                    filename: filePath,
+                    id: scopeId
+                });
+                templateAst = templateResult.ast || null;
+            } catch (err) {
+                console.error(`[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`);
+            }
+        } else {
+            console.error(`[VUE TEMPLATE WARN] Template compilation skipped for ${filePath}: @vue/compiler-sfc missing compileTemplate export`);
         }
     }
 
@@ -370,28 +408,11 @@ async function main() {
                     const refs = extractRefs(imports);
                     const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                     const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
-            const ormQueries = extractORMQueries(functionCallArgs);
-            const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-            const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
-            const sqlQueries = extractSQLQueries(functionCallArgs);
-            let vueComponents = [];
-            let vueHooks = [];
-            let vueDirectives = [];
-            let vueProvideInject = [];
+                    const ormQueries = extractORMQueries(functionCallArgs);
+                    const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+                    const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                    const sqlQueries = extractSQLQueries(functionCallArgs);
 
-            if (fileInfo.vueMeta) {
-                const vueComponentData = extractVueComponents(
-                    fileInfo.vueMeta,
-                    fileInfo.original,
-                    functionCallArgs,
-                    returns
-                );
-                vueComponents = vueComponentData.components;
-                const activeComponentName = vueComponentData.primaryName;
-                vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
-                vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
-                vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
-            }
                     let vueComponents = [];
                     let vueHooks = [];
                     let vueDirectives = [];
@@ -525,8 +546,117 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { parse: parseVueSfc, compileScript: compileVueScript, compileTemplate: compileVueTemplate } = require('@vue/compiler-sfc');
-const { NodeTypes: VueNodeTypes } = require('@vue/compiler-dom');
+
+let parseVueSfc = null;
+let compileVueScript = null;
+let compileVueTemplate = null;
+let VueNodeTypes = null;
+
+try {
+    const vueSfcModule = require('@vue/compiler-sfc');
+    if (vueSfcModule) {
+        parseVueSfc = vueSfcModule.parse;
+        compileVueScript = vueSfcModule.compileScript;
+        compileVueTemplate = vueSfcModule.compileTemplate;
+    }
+} catch (err) {
+    console.error(`[VUE SUPPORT DISABLED] @vue/compiler-sfc not available: ${err.message}`);
+}
+
+try {
+    const vueDomModule = require('@vue/compiler-dom');
+    if (vueDomModule) {
+        VueNodeTypes = vueDomModule.NodeTypes;
+    }
+} catch (err) {
+    console.error(`[VUE TEMPLATE SUPPORT DISABLED] @vue/compiler-dom not available: ${err.message}`);
+}
+
+function ensureVueCompilerAvailable() {
+    if (!parseVueSfc || !compileVueScript) {
+        throw new Error('Vue SFC support requires @vue/compiler-sfc. Install dependency or skip .vue files.');
+    }
+}
+
+function createVueScopeId(filePath) {
+    return crypto.createHash('sha256').update(filePath).digest('hex').slice(0, 8);
+}
+
+function createVueTempPath(scopeId, langHint) {
+    const isTs = langHint && langHint.toLowerCase().includes('ts');
+    const ext = isTs ? '.ts' : '.js';
+    const randomPart = crypto.randomBytes(4).toString('hex');
+    return path.join(os.tmpdir(), `theauditor_vue_${scopeId}_${Date.now()}_${randomPart}${ext}`);
+}
+
+function safeUnlink(filePath) {
+    if (!filePath) {
+        return;
+    }
+    try {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+    } catch (err) {
+        console.error(`[VUE TEMP CLEANUP] Failed to remove ${filePath}: ${err.message}`);
+    }
+}
+
+function prepareVueSfcFile(filePath) {
+    ensureVueCompilerAvailable();
+
+    const source = fs.readFileSync(filePath, 'utf8');
+    const { descriptor, errors } = parseVueSfc(source, { filename: filePath });
+
+    if (errors && errors.length > 0) {
+        const firstError = errors[0];
+        const message = typeof firstError === 'string'
+            ? firstError
+            : firstError.message || firstError.msg || 'Unknown Vue SFC parse error';
+        throw new Error(message);
+    }
+
+    if (!descriptor.script && !descriptor.scriptSetup) {
+        throw new Error('Vue SFC is missing <script> or <script setup> block');
+    }
+
+    const scopeId = createVueScopeId(filePath);
+    let compiledScript;
+    try {
+        compiledScript = compileVueScript(descriptor, { id: scopeId, inlineTemplate: false });
+    } catch (err) {
+        throw new Error(`Failed to compile Vue script: ${err.message}`);
+    }
+
+    const langHint = (descriptor.scriptSetup && descriptor.scriptSetup.lang) || (descriptor.script && descriptor.script.lang) || 'js';
+    const tempFilePath = createVueTempPath(scopeId, langHint || 'js');
+    fs.writeFileSync(tempFilePath, compiledScript.content, 'utf8');
+
+    let templateAst = null;
+    if (descriptor.template && descriptor.template.content) {
+        if (typeof compileVueTemplate === 'function') {
+            try {
+                const templateResult = compileVueTemplate({
+                    source: descriptor.template.content,
+                    filename: filePath,
+                    id: scopeId
+                });
+                templateAst = templateResult.ast || null;
+            } catch (err) {
+                console.error(`[VUE TEMPLATE WARN] Failed to compile template for ${filePath}: ${err.message}`);
+            }
+        } else {
+            console.error(`[VUE TEMPLATE WARN] Template compilation skipped for ${filePath}: @vue/compiler-sfc missing compileTemplate export`);
+        }
+    }
+
+    return {
+        tempFilePath,
+        scopeId,
+        descriptor,
+        templateAst
+    };
+}
 
 function findNearestTsconfig(startPath, projectRoot, ts, path) {
     let currentDir = path.resolve(path.dirname(startPath));
@@ -773,6 +903,25 @@ try {
                 const apiEndpoints = extractAPIEndpoints(functionCallArgs);
                 const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                 const sqlQueries = extractSQLQueries(functionCallArgs);
+
+                let vueComponents = [];
+                let vueHooks = [];
+                let vueDirectives = [];
+                let vueProvideInject = [];
+
+                if (fileInfo.vueMeta) {
+                    const vueComponentData = extractVueComponents(
+                        fileInfo.vueMeta,
+                        fileInfo.original,
+                        functionCallArgs,
+                        returns
+                    );
+                    vueComponents = vueComponentData.components;
+                    const activeComponentName = vueComponentData.primaryName;
+                    vueHooks = extractVueHooks(functionCallArgs, activeComponentName);
+                    vueProvideInject = extractVueProvideInject(functionCallArgs, activeComponentName);
+                    vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
+                }
 
                 // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
                 // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
