@@ -4,7 +4,7 @@ from flask import Blueprint
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, validator, root_validator
 from sqlalchemy import Column, ForeignKey, Integer, String
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, backref
 
 
 # SQLAlchemy setup
@@ -15,8 +15,17 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True)
-    email = Column(String)
-    posts = relationship("Post", back_populates="owner")
+    email = Column(String, nullable=False)
+    posts = relationship(
+        "Post",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+    profile = relationship(
+        "Profile",
+        back_populates="user",
+        uselist=False,
+    )
 
 
 class Post(Base):
@@ -25,6 +34,27 @@ class Post(Base):
     id = Column(Integer, primary_key=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
     owner = relationship("User", back_populates="posts")
+    comments = relationship(
+        "Comment",
+        backref=backref("post", cascade="all, delete"),
+    )
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+
+    id = Column(Integer, primary_key=True)
+    body = Column(String)
+    post_id = Column(Integer, ForeignKey("posts.id"))
+
+
+class Profile(Base):
+    __tablename__ = "profiles"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    bio = Column(String)
+    user = relationship("User", back_populates="profile", uselist=False)
 
 # Pydantic validators
 class Account(BaseModel):

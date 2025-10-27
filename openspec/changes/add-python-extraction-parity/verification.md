@@ -24,18 +24,19 @@
 - Evidence: Running `aud index` populates `refs` with resolved module paths referencing `.py` files from the same repository.
 - Verdict: ✅ Complete – `resolved_imports` now available to downstream consumers.
 
-### H4: SQLAlchemy relationship semantics remain heuristic.
-- Evidence: `theauditor/ast_extractors/python_impl.py:405-520` captures only the first positional argument of `relationship()` and derives `relationship_type` from attribute naming; `back_populates`/`backref` arguments are not parsed.
-- Verdict: ⚠️ Partial – relationships are recorded but lack bidirectional metadata promised in original proposal/spec.
+### H4: SQLAlchemy relationships expose bidirectional metadata.
+- Evidence: `theauditor/ast_extractors/python_impl.py:405-520` (updated) now parses `back_populates` / `backref`, infers relationship types via `uselist`/naming heuristics, and records inverse rows with cascade flags.
+- Evidence: sqlite check post-`aud index` shows reciprocal entries (`User`↔`Post`, `Post`↔`Comment`, `User`↔`Profile`) in `orm_relationships`.
+- Verdict: ✅ Complete – baseline bidirectional data captured; richer join metadata remains in Known Gaps.
 
-### H5: Taint analyzer still ignores new Python ORM tables.
-- Evidence: `rg -n "python_orm_models" -g"*.py" theauditor/taint` returns no matches.
-- Verdict: ❌ Not yet implemented – downstream taint integration remains a follow-up item.
+### H5: Taint analyzer wiring remains incomplete.
+- Evidence: `theauditor/taint/memory_cache.py` now preloads `python_orm_*` tables, but there are no downstream taint modules consuming the data (`rg "python_orm_models" theauditor/taint` → cache only).
+- Verdict: ❌ Not yet implemented – need propagation/graph wiring before taint benefits from new metadata.
 
 ## Discrepancies vs Proposal / Spec
 1. Proposal/spec previously claimed zero Python framework tables; implementation now provides five. Documentation required alignment (addressed in this update).
 2. Spec required `type_comment` fields and new extractor keys (`arg_types`, `arg_annotations`, `attributes`) that never shipped. Updated spec removes those expectations.
-3. SQLAlchemy requirements promised `back_populates`/`backref` awareness and taint graph integration – still outstanding and tracked as known gaps.
+3. SQLAlchemy requirements: bidirectional extraction delivered; taint traversal integration remains outstanding (tracked in Known Gaps / tasks).
 4. Logging requirement referenced file path + line; implementation logs only the line number. Spec adjusted accordingly.
 
 ## Next Actions

@@ -526,7 +526,7 @@
   - **Logic**: Check Column() call for ForeignKey in arguments
   - **Example**: `user_id = Column(Integer, ForeignKey('users.id'))` → extract FK relationship
 
-- [ ] 10.3 Extract relationship back_populates and backref
+- [x] 10.3 Extract relationship back_populates and backref
   - **Location**: In extract_sqlalchemy_models(), within relationship() extraction
   - **Logic**: Parse relationship() keyword arguments for `back_populates`, `backref`
   - **Example**: `items = relationship('Item', back_populates='owner')` → extract bidirectional relationship
@@ -903,7 +903,7 @@
 
 ### 24. ORM Relationship Graph Enhancement
 
-- [ ] 24.1 Enhance SQLAlchemy relationship extraction with bidirectional tracking
+- [x] 24.1 Enhance SQLAlchemy relationship extraction with bidirectional tracking
 - [x] 24.2 Extract Django ForeignKey, ManyToMany, OneToOne relationships
 - [ ] 24.3 Build relationship graph for taint analysis FK traversal
 - [x] 24.4 Store in existing orm_relationships table

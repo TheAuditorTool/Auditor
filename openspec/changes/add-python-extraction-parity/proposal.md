@@ -23,12 +23,13 @@ TheAuditor's Python extraction is 75-85% behind JavaScript/TypeScript extraction
 - **Remaining gaps**: Python taint analyzer has not yet been wired to use the new ORM tables, and relationship extraction lacks detailed `back_populates`/`backref` semantics, limiting deeper data-flow accuracy.
 - **Operational considerations**: Import resolution populates `resolved_imports`, improving cross-file context, but semantic analysis (inference, type narrowing) still trails the TypeScript compiler integration.
 
-### Current Status (2025-10-27)
+### Current Status (2025-10-28)
 
 - ✅ Type annotations populate `type_annotations` for Python parameters, returns, and class/module attributes.
 - ✅ Framework tables (`python_orm_models`, `python_orm_fields`, `python_routes`, `python_blueprints`, `python_validators`) are populated during indexing.
 - ✅ `resolved_imports` mirrors JavaScript structure, enabling cross-file lookups.
-- 🔄 SQLAlchemy relationship metadata captures basic targets but ignores `back_populates`/`backref` semantics (follow-up).
+- ✅ Memory cache preloads Python ORM/routes/validator tables so taint analysis sees the new data without disk round-trips.
+- ✅ SQLAlchemy relationship metadata captures inverse `back_populates`/`backref` links with cascade heuristics (join semantics still heuristic).
 - 🔄 Taint analyzer still ignores new Python ORM data (follow-up).
 - 🔄 Test coverage limited to `tests/fixtures/python/parity_sample.py`; broader fixtures and assertions remain TODO.
 

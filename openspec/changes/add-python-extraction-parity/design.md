@@ -49,11 +49,12 @@ TheAuditor indexes codebases by parsing AST (Abstract Syntax Tree) to extract sy
 5. **Maintain backward compatibility** - no breaking changes to existing Python extraction
 6. **Zero performance regression** - <35ms overhead per file across all 3 phases
 
-### Implementation Status (2025-10-27)
+### Implementation Status (2025-10-28)
 - ✅ Phase 1 (type annotations) implemented and flowing into `type_annotations`.
 - ✅ Phase 2 (framework extraction) implemented with new `python_*` tables and ORM relationship capture.
 - ✅ Import resolution populates `resolved_imports` for Python files (Phase 3 core).
-- 🔄 SQLAlchemy relationship metadata still lacks explicit `back_populates`/`backref` handling.
+- ✅ SQLAlchemy relationship metadata now parses `back_populates` / `backref`, infers inverse relationship records, and flags cascade semantics (join conditions still heuristic).
+- ✅ Memory cache loads Python ORM/routes/validator tables for taint preload.
 - 🔄 Taint analyzer integration with Python ORM tables remains to be done.
 - 🔄 Targeted fixtures/tests beyond `tests/fixtures/python/parity_sample.py` still outstanding.
 

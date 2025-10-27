@@ -19,7 +19,7 @@ This separation ensures single source of truth for file paths.
 import ast
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 
 from .base import (
     get_node_name,
@@ -137,6 +137,88 @@ def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
         if keyword.arg == name:
             return keyword.value
     return None
+
+
+def _get_bool_constant(node: Optional[ast.AST]) -> Optional[bool]:
+    """Return boolean value for constant/literal nodes."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id == "True":
+            return True
+        if node.id == "False":
+            return False
+    return None
+
+
+def _cascade_implies_delete(value: Optional[str]) -> bool:
+    """Return True when cascade configuration includes delete semantics."""
+    if not value:
+        return False
+    normalized = value.lower()
+    return "delete" in normalized or "remove" in normalized
+
+
+def _extract_backref_name(backref_value: ast.AST) -> Optional[str]:
+    """Extract string name from backref keyword (string or sqlalchemy.orm.backref)."""
+    name = _get_str_constant(backref_value)
+    if name:
+        return name
+
+    if isinstance(backref_value, ast.Call):
+        if backref_value.args:
+            return _get_str_constant(backref_value.args[0]) or get_node_name(backref_value.args[0])
+    return get_node_name(backref_value)
+
+
+def _extract_backref_cascade(backref_value: ast.AST) -> bool:
+    """Inspect backref(...) call for cascade style arguments."""
+    if isinstance(backref_value, ast.Call):
+        cascade_node = _keyword_arg(backref_value, "cascade")
+        if cascade_node:
+            cascade_value = _get_str_constant(cascade_node) or get_node_name(cascade_node)
+            if _cascade_implies_delete(cascade_value):
+                return True
+
+        passive_deletes = _keyword_arg(backref_value, "passive_deletes")
+        bool_val = _get_bool_constant(passive_deletes)
+        if bool_val:
+            return True
+    return False
+
+
+def _infer_relationship_type(
+    attr_name: str,
+    relationship_call: ast.Call
+) -> str:
+    """Infer relationship type using heuristics (uselist, secondary, naming)."""
+    # Many-to-many when a secondary table is provided
+    if _keyword_arg(relationship_call, "secondary"):
+        return "manyToMany"
+
+    uselist_arg = _keyword_arg(relationship_call, "uselist")
+    uselist = _get_bool_constant(uselist_arg)
+
+    if uselist is False:
+        return "hasOne"
+
+    # Default heuristic based on attribute naming
+    if attr_name.endswith("s") or attr_name.endswith("_list"):
+        return "hasMany"
+
+    return "belongsTo"
+
+
+def _inverse_relationship_type(rel_type: str) -> str:
+    """Return the opposite relationship type for inferred inverse records."""
+    if rel_type == "hasMany":
+        return "belongsTo"
+    if rel_type == "belongsTo":
+        return "hasMany"
+    if rel_type == "hasOne":
+        return "belongsTo"
+    # many-to-many (or unknown) mirrors itself
+    return rel_type
 
 
 def _is_truthy(node: Optional[ast.AST]) -> bool:
@@ -407,6 +489,7 @@ def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict],
     models: List[Dict[str, Any]] = []
     fields: List[Dict[str, Any]] = []
     relationships: List[Dict[str, Any]] = []
+    seen_relationships: Set[Tuple[str, str, str]] = set()
 
     actual_tree = tree.get("tree")
     if not isinstance(actual_tree, ast.AST):
@@ -496,16 +579,96 @@ def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict],
                 target_model = None
                 if value.args:
                     target_model = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
-                relationship_type = "hasMany" if attr_name.endswith("s") else "belongsTo"
-                relationships.append({
-                    "line": line_no,
-                    "source_model": node.name,
-                    "target_model": target_model or "Unknown",
-                    "relationship_type": relationship_type,
-                    "foreign_key": None,
-                    "cascade_delete": False,
-                    "as_name": attr_name,
-                })
+
+                relationship_type = _infer_relationship_type(attr_name, value)
+
+                cascade_delete = False
+                cascade_kw = _keyword_arg(value, "cascade")
+                if cascade_kw:
+                    cascade_val = _get_str_constant(cascade_kw) or get_node_name(cascade_kw)
+                    cascade_delete = _cascade_implies_delete(cascade_val)
+
+                passive_kw = _keyword_arg(value, "passive_deletes")
+                passive_bool = _get_bool_constant(passive_kw)
+                if passive_bool:
+                    cascade_delete = True
+
+                foreign_key = None
+                foreign_keys_kw = _keyword_arg(value, "foreign_keys")
+                if foreign_keys_kw:
+                    fk_candidate = None
+                    if isinstance(foreign_keys_kw, (ast.List, ast.Tuple)) and getattr(foreign_keys_kw, "elts", None):
+                        fk_candidate = foreign_keys_kw.elts[0]
+                    else:
+                        fk_candidate = foreign_keys_kw
+
+                    if fk_candidate is not None:
+                        fk_text = _get_str_constant(fk_candidate) or get_node_name(fk_candidate)
+                        if fk_text and "." in fk_text:
+                            fk_text = fk_text.split(".")[-1]
+                        foreign_key = fk_text
+
+                def _add_relationship(
+                    source_model: str,
+                    target_model_name: Optional[str],
+                    rel_type: str,
+                    alias: Optional[str],
+                    cascade_flag: bool,
+                    fk_name: Optional[str],
+                    rel_line: int,
+                ) -> None:
+                    target_name = target_model_name or "Unknown"
+                    key = (source_model, target_name, alias or "")
+                    if key in seen_relationships:
+                        return
+                    relationships.append({
+                        "line": rel_line,
+                        "source_model": source_model,
+                        "target_model": target_name,
+                        "relationship_type": rel_type,
+                        "foreign_key": fk_name,
+                        "cascade_delete": cascade_flag,
+                        "as_name": alias,
+                    })
+                    seen_relationships.add(key)
+
+                _add_relationship(
+                    node.name,
+                    target_model,
+                    relationship_type,
+                    attr_name,
+                    cascade_delete,
+                    foreign_key,
+                    line_no,
+                )
+
+                back_populates_node = _keyword_arg(value, "back_populates")
+                if back_populates_node and target_model:
+                    inverse_alias = _get_str_constant(back_populates_node) or get_node_name(back_populates_node)
+                    _add_relationship(
+                        target_model,
+                        node.name,
+                        _inverse_relationship_type(relationship_type),
+                        inverse_alias,
+                        cascade_delete,
+                        foreign_key,
+                        line_no,
+                    )
+
+                backref_node = _keyword_arg(value, "backref")
+                if backref_node and target_model:
+                    backref_name = _extract_backref_name(backref_node)
+                    inverse_cascade = cascade_delete or _extract_backref_cascade(backref_node)
+                    inverse_type = _inverse_relationship_type(relationship_type)
+                    _add_relationship(
+                        target_model,
+                        node.name,
+                        inverse_type,
+                        backref_name,
+                        inverse_cascade,
+                        foreign_key,
+                        line_no,
+                    )
 
     return models, fields, relationships
 
