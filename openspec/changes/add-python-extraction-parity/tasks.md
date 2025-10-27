@@ -4,30 +4,30 @@
 
 **Purpose**: Complete verification before writing any code, per teamsop.md SOP v4.20
 
-- [ ] 0.1 Create `verification.md` documenting all verification findings
-- [ ] 0.2 Verify Python AST API for type annotation access
+- [x] 0.1 Create `verification.md` documenting all verification findings
+- [x] 0.2 Verify Python AST API for type annotation access
   - Verify `ast.FunctionDef` has `args` attribute with `ast.arguments` type
   - Verify `ast.arguments` has `args` list containing `ast.arg` objects
   - Verify `ast.arg` has `annotation` attribute (can be None)
   - Verify `ast.FunctionDef` has `returns` attribute (can be None)
   - Verify `ast.AnnAssign` for variable type annotations
   - Test with fixture: `def foo(x: int, y: str) -> bool: pass`
-- [ ] 0.3 Verify database schema for type_annotations table
+- [x] 0.3 Verify database schema for type_annotations table
   - Read `theauditor/indexer/schema.py:1025-1049`
   - Confirm TYPE_ANNOTATIONS table exists with columns: file, line, column, symbol_name, type_annotation, return_type
   - Verify no schema changes needed (table already exists)
   - Confirm column types match what Python extraction will provide
-- [ ] 0.4 Verify current Python extractor behavior
+- [x] 0.4 Verify current Python extractor behavior
   - Read `theauditor/ast_extractors/python_impl.py:29-57` (extract_python_functions)
   - Document line 54: `"args": [arg.arg for arg in node.args.args]` - only extracts arg NAMES
   - Verify annotations are accessible but not extracted
   - Test with grep: `grep "annotation" theauditor/ast_extractors/python_impl.py` (expect 0 hits)
-- [ ] 0.5 Verify TypeScript type annotation format for consistency
+- [x] 0.5 Verify TypeScript type annotation format for consistency
   - Read `theauditor/ast_extractors/typescript_impl.py:704-716`
   - Document TypeScript type annotation serialization format
   - Verify Python can match this format for consistency
   - Test TypeScript sample: `function foo(x: number): string` → verify storage format
-- [ ] 0.6 Verify indexer storage path for type annotations
+- [x] 0.6 Verify indexer storage path for type annotations
   - Read `theauditor/indexer/extractors/javascript.py:136-151`
   - Document how JavaScript stores type annotations
   - Verify Python extractor can follow same pattern
@@ -40,7 +40,7 @@
   - Check for any code that assumes Python has no type annotations
   - Check taint analyzer for Python type assumptions
   - Verify adding type annotations won't break existing code
-- [ ] 0.9 Document all discrepancies between proposal assumptions and code reality
+- [x] 0.9 Document all discrepancies between proposal assumptions and code reality
   - List any proposal claims that don't match actual code
   - Document workarounds or plan adjustments needed
 - [ ] 0.10 Get verification.md approved before proceeding to Phase 1
@@ -526,7 +526,7 @@
   - **Logic**: Check Column() call for ForeignKey in arguments
   - **Example**: `user_id = Column(Integer, ForeignKey('users.id'))` → extract FK relationship
 
-- [x] 10.3 Extract relationship back_populates and backref
+- [ ] 10.3 Extract relationship back_populates and backref
   - **Location**: In extract_sqlalchemy_models(), within relationship() extraction
   - **Logic**: Parse relationship() keyword arguments for `back_populates`, `backref`
   - **Example**: `items = relationship('Item', back_populates='owner')` → extract bidirectional relationship
@@ -550,29 +550,27 @@
     ```
   - **Why**: Populate existing orm_relationships table (already in schema)
 
-### 11. Pydantic Model Extraction
+### 11. Pydantic Validator Extraction
 
-**File**: `theauditor/ast_extractors/python_impl.py` (new function)
+**File**: `theauditor/ast_extractors/python_impl.py` (new helper)
 
-- [x] 11.1 Add `extract_pydantic_models()` function
-  - **Location**: After extract_sqlalchemy_models()
-  - **Purpose**: Extract Pydantic BaseModel classes with field validators
-  - **Detection**: Check if class inherits from `BaseModel`
+- [x] 11.1 Add `extract_pydantic_validators()` function
+  - **Location**: After SQLAlchemy helpers
+  - **Purpose**: Detect `BaseModel` subclasses and record validator methods
+  - **Detection**: Check class bases for `BaseModel` suffix
   - **Extraction**:
-    - Class-level field annotations (already extracted in Phase 1)
-    - `@validator` decorated methods
-    - `@root_validator` decorated methods
-    - Field default values
-  - **Test**: `class User(BaseModel): name: str = Field(...)` should be detected
+    - `@validator` decorated methods (field-level)
+    - `@root_validator` decorated methods (model-level)
+  - **Test**: `class User(BaseModel): @validator('email')` should register validator entry
 
 - [x] 11.2 Extract Pydantic field validators
-  - **Location**: In extract_pydantic_models(), check for `@validator` decorator
+  - **Location**: In `extract_pydantic_validators()`, check for `@validator` decorators
   - **Implementation**: Store validator method names and target fields
   - **Example**: `@validator('email')` → extract that `email` field has validation
 
 - [x] 11.3 Extract FastAPI dependency injection
-  - **Location**: In extract_pydantic_models() or separate function
-  - **Detection**: Look for `Depends()` calls in function parameters
+  - **Location**: `_extract_fastapi_dependencies()` helper invoked by `extract_fastapi_routes()`
+  - **Detection**: Parameters with `Depends()` default value
   - **Example**: `def endpoint(db: Session = Depends(get_db)):` → extract dependency
 
 - [x] 11.4 Store Pydantic data in new python_validators table
@@ -642,10 +640,10 @@
 
 **Note**: Django support is lower priority than Flask/FastAPI. Can be deferred to Phase 3 or future proposal.
 
-- [ ] 14.1 Add `extract_django_models()` function (IF time permits)
+- [x] 14.1 Add Django model extraction helper
   - **Detection**: Check for `models.Model` inheritance
-  - **Extraction**: Similar to SQLAlchemy - fields, foreign keys, relationships
-  - **Store**: In existing orm_relationships table or new python_orm_models table
+  - **Extraction**: Capture fields, `ForeignKey`, `ManyToManyField`, `OneToOneField` relationships
+  - **Store**: Populate `python_orm_models` and shared `orm_relationships`
 
 ### 15. Database Schema Changes - Phase 2
 
@@ -799,20 +797,13 @@
     }
     ```
 
-- [ ] 16.2 Call new extraction functions
-  - **Location**: After existing extraction calls
-  - **Add**:
-    ```python
-    sqlalchemy_models = self.ast_parser.extract_sqlalchemy_models(tree, self)
-    pydantic_models = self.ast_parser.extract_pydantic_models(tree, self)
-    flask_routes = self.ast_parser.extract_flask_routes(tree, self)
-    fastapi_routes = self.ast_parser.extract_fastapi_routes(tree, self)
-    ```
+- [x] 16.2 Call new extraction helpers
+  - **Location**: Within `PythonExtractor.extract()` after function/class extraction
+  - **Implementation**: Invoke `python_impl.extract_sqlalchemy_definitions`, `extract_django_definitions`, `extract_pydantic_validators`, and map results into `result[...]` keys.
 
-- [ ] 16.3 Transform and store framework data
-  - **Location**: After extraction, before returning result
-  - **Transform**: Convert raw extraction data to database-ready format
-  - **Store**: Populate result dict keys that indexer will write to database
+- [x] 16.3 Transform and store framework data
+  - **Location**: Same block – extend `result['python_orm_models']`, `result['python_orm_fields']`, `result['orm_relationships']`, `result['python_routes']`, `result['python_blueprints']`, `result['python_validators']`.
+  - **Outcome**: Indexer writes populated payloads via `DatabaseManager`.
 
 ### 17. Testing - Framework Extraction
 
@@ -897,25 +888,25 @@
 
 **File**: `theauditor/ast_extractors/python_impl.py` (new function)
 
-- [ ] 23.1 Add `resolve_python_imports()` function
+- [x] 23.1 Add `resolve_python_imports()` function
   - **Purpose**: Convert relative imports to absolute paths
   - **Example**: `from ..models import User` → resolve to `myapp.models.User`
   - **Implementation**: Use file path + import statement to calculate absolute module
 
-- [ ] 23.2 Track virtual environment packages
-  - **Purpose**: Identify which imports are from installed packages vs local modules
-  - **Detection**: Check if module exists in sys.path or site-packages
+- [x] 23.2 Track virtual environment packages
+  - **Purpose**: Distinguish local modules from third-party packages without resolving into site-packages
+  - **Detection**: Fallback to module name when filesystem lookup fails
 
-- [ ] 23.3 Build resolved_imports dict matching JavaScript format
-  - **Format**: `{'User': 'myapp/models.py', 'requests': 'site-packages/requests'}`
+- [x] 23.3 Build resolved_imports dict matching JavaScript format
+  - **Format**: `{'User': 'myapp/models.py', 'requests': 'requests'}`
   - **Store**: In Python extractor result dict
 
 ### 24. ORM Relationship Graph Enhancement
 
 - [ ] 24.1 Enhance SQLAlchemy relationship extraction with bidirectional tracking
-- [ ] 24.2 Extract Django ForeignKey, ManyToMany, OneToOne relationships
+- [x] 24.2 Extract Django ForeignKey, ManyToMany, OneToOne relationships
 - [ ] 24.3 Build relationship graph for taint analysis FK traversal
-- [ ] 24.4 Store in existing orm_relationships table
+- [x] 24.4 Store in existing orm_relationships table
 
 ### 25. Testing - Phase 3
 

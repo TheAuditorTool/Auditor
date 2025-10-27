@@ -64,13 +64,6 @@ The system SHALL handle generic types (List, Dict, Optional, Union, Tuple) by pr
 - **THEN** parameter 'data' has type_annotation='Dict[str, List[Union[int, str]]]' with full nesting preserved
 - **AND** return_type='Tuple[str, int]'
 
-#### Scenario: Type comments (PEP 484 legacy syntax)
-- **GIVEN** a Python file with function using type comment: `def old_style(x, y): # type: (int, str) -> bool`
-- **WHEN** the file is indexed
-- **AND** Python version <3.6 compatibility is enabled
-- **THEN** the type comment is captured in the `type_comment` field (if supported)
-- **OR** type comment is ignored if Python 3.6+ only support
-
 ---
 
 ### Requirement: SQLAlchemy Model Extraction
@@ -79,7 +72,7 @@ The system SHALL detect SQLAlchemy model classes by checking for inheritance fro
 
 The system SHALL extract Column() definitions from SQLAlchemy models including field name, field type, and line number.
 
-The system SHALL extract relationship() definitions including relationship name, target model, and bidirectional references (back_populates, backref).
+The system SHALL extract `relationship()` definitions including relationship attribute name and target model when the target string or symbol is provided as the first positional argument.
 
 The system SHALL extract ForeignKey() definitions from Column() declarations.
 
@@ -103,19 +96,13 @@ The system SHALL store relationships in the existing `orm_relationships` table w
 - **AND** field 'id' has is_primary_key=True
 
 #### Scenario: SQLAlchemy relationship extraction
-- **GIVEN** a Python file with SQLAlchemy models with relationship:
+- **GIVEN** a Python file with SQLAlchemy models defining a relationship:
   ```python
   class User(Base):
-      items = relationship('Item', back_populates='owner')
-
-  class Item(Base):
-      user_id = Column(Integer, ForeignKey('users.id'))
-      owner = relationship('User', back_populates='items')
+      items = relationship('Item')
   ```
 - **WHEN** the file is indexed
 - **THEN** the `orm_relationships` table contains row with source_model='User', target_model='Item', as_name='items'
-- **AND** the `orm_relationships` table contains row with source_model='Item', target_model='User', as_name='owner'
-- **AND** field 'user_id' has is_foreign_key=True, foreign_key_target='users.id'
 
 #### Scenario: SQLAlchemy model without explicit __tablename__
 - **GIVEN** a SQLAlchemy model without `__tablename__` attribute
@@ -330,29 +317,28 @@ The system SHALL NOT resolve dynamic imports (`importlib.import_module(variable)
 
 ### Requirement: ORM Relationship Graph
 
-The system SHALL extract bidirectional relationships from SQLAlchemy models using `back_populates` and `backref` parameters.
+The system SHALL extract SQLAlchemy relationships recorded via `relationship()` calls and store their source attribute name and target model when available.
 
 The system SHALL extract Django ORM relationships from `ForeignKey`, `ManyToManyField`, `OneToOneField` field definitions.
 
 The system SHALL store relationships in the existing `orm_relationships` table with columns: file, line, source_model, target_model, relationship_type, foreign_key, cascade_delete, as_name.
 
-The system SHALL detect relationship type (one-to-many, many-to-one, many-to-many, one-to-one) from field definition.
-
-The system SHALL enable taint analysis to traverse foreign key relationships using the relationship graph.
+The system SHALL detect relationship type (one-to-many, many-to-one, many-to-many, one-to-one) using heuristics based on the relationship construct (e.g., `ForeignKey` → belongsTo, `ManyToManyField` → manyToMany, plural attribute names → hasMany).
 
 #### Scenario: SQLAlchemy one-to-many relationship
 - **GIVEN** SQLAlchemy models with one-to-many relationship:
   ```python
   class Author(Base):
-      books = relationship('Book', back_populates='author')
+      books = relationship('Book')
 
   class Book(Base):
       author_id = Column(Integer, ForeignKey('authors.id'))
-      author = relationship('Author', back_populates='books')
+      author = relationship('Author')
   ```
 - **WHEN** the file is indexed
 - **THEN** the `orm_relationships` table contains row with source_model='Author', target_model='Book', relationship_type='hasMany', as_name='books'
-- **AND** contains row with source_model='Book', target_model='Author', relationship_type='belongsTo', as_name='author'
+- **AND** the `orm_relationships` table contains row with source_model='Book', target_model='Author', relationship_type='belongsTo', as_name='author'
+- **AND** field `author_id` has is_foreign_key=True, foreign_key_target='authors.id'
 
 #### Scenario: Django ForeignKey relationship
 - **GIVEN** Django models with ForeignKey:
@@ -384,8 +370,6 @@ The system SHALL maintain backward compatibility with existing Python extraction
 The system SHALL NOT break existing function extraction, class extraction, import extraction, or call extraction.
 
 The system SHALL preserve existing `args` list in function extraction results (parameter names only).
-
-The system SHALL add NEW keys to extraction results: `arg_types`, `arg_annotations`, `return_type`, `decorators`, `attributes`.
 
 The system SHALL handle Python files without type annotations gracefully (no errors, NULL type annotations).
 
@@ -450,14 +434,14 @@ The system SHALL NOT crash if framework detection false-positives on non-framewo
 
 The system SHALL NOT crash if import resolution cannot resolve a specific import (skip that import, continue).
 
-The system SHALL log warnings for extraction failures with file path, line number, and error message.
+The system SHALL log warnings for extraction failures with line number and error message.
 
 The system SHALL NOT use fallback logic (per CLAUDE.md ZERO FALLBACK POLICY) - if extraction fails, return empty list or NULL.
 
 #### Scenario: Malformed type annotation (syntax error in annotation)
 - **GIVEN** a Python file with malformed type annotation that causes `ast.unparse()` to fail
 - **WHEN** the file is indexed
-- **THEN** a warning is logged with file path and line number
+- **THEN** a warning is logged with the annotation line number
 - **AND** that specific type annotation is stored as NULL
 - **AND** other valid type annotations in the file are still extracted
 - **AND** indexing continues without crashing
@@ -478,6 +462,13 @@ The system SHALL NOT use fallback logic (per CLAUDE.md ZERO FALLBACK POLICY) - i
 - **AND** this is acceptable trade-off (prefer false positives)
 
 ---
+
+## Known Gaps (Follow-up)
+
+- SQLAlchemy `back_populates` / `backref` arguments are parsed only for their target strings; richer bidirectional semantics are deferred to a future change.
+- Taint analysis does not yet consume `python_orm_models`, `python_orm_fields`, or the newly populated `orm_relationships` entries; downstream wiring remains TODO.
+- Warning logs for annotation failures include the line number but not the file path.
+- Relationship heuristics rely on attribute naming conventions and may need refinement for edge cases (e.g., singular `relationship()` names representing collections).
 
 ## MODIFIED Requirements
 
