@@ -465,7 +465,7 @@ The system SHALL NOT use fallback logic (per CLAUDE.md ZERO FALLBACK POLICY) - i
 
 ## Known Gaps (Follow-up)
 
-- SQLAlchemy `back_populates` / `backref` arguments are parsed only for their target strings; richer bidirectional semantics are deferred to a future change.
+- SQLAlchemy relationship metadata still relies on heuristics (plural naming, `uselist`, etc.) and does not yet extract secondary join details or map explicit foreign key columns beyond simple references.
 - Taint analysis does not yet consume `python_orm_models`, `python_orm_fields`, or the newly populated `orm_relationships` entries; downstream wiring remains TODO.
 - Warning logs for annotation failures include the line number but not the file path.
 - Relationship heuristics rely on attribute naming conventions and may need refinement for edge cases (e.g., singular `relationship()` names representing collections).

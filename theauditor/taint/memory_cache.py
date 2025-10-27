@@ -61,6 +61,14 @@ class MemoryCache:
         self.api_endpoints = []
         self.jwt_patterns = []
 
+        # Python-specific framework tables (Phase 3 Python parity)
+        self.python_orm_models: List[Dict[str, Any]] = []
+        self.python_orm_fields: List[Dict[str, Any]] = []
+        self.orm_relationships: List[Dict[str, Any]] = []
+        self.python_routes: List[Dict[str, Any]] = []
+        self.python_blueprints: List[Dict[str, Any]] = []
+        self.python_validators: List[Dict[str, Any]] = []
+
         # Multi-index architecture for different query patterns
         # Index 1: By line for proximity queries
         self.symbols_by_line = defaultdict(list)  # (file, line) -> [symbols]
@@ -112,6 +120,18 @@ class MemoryCache:
         self.api_endpoints_by_method = defaultdict(list)  # method -> [endpoints]
         self.jwt_patterns_by_file = defaultdict(list)  # file -> [patterns]
         self.jwt_patterns_by_type = defaultdict(list)  # pattern_type -> [patterns]
+
+        # Python-specific indexes for fast ORM / route lookups
+        self.python_orm_models_by_file = defaultdict(list)
+        self.python_orm_models_by_name = defaultdict(list)
+        self.python_orm_fields_by_model = defaultdict(list)
+        self.orm_relationships_by_source = defaultdict(list)
+        self.orm_relationships_by_target = defaultdict(list)
+        self.python_routes_by_file = defaultdict(list)
+        self.python_routes_by_framework = defaultdict(list)
+        self.python_validators_by_model = defaultdict(list)
+        self.python_validators_by_file = defaultdict(list)
+        self.python_blueprints_by_name = defaultdict(list)
 
         # Pre-computed patterns (will be populated during precompute)
         self.precomputed_sources = {}  # pattern -> [matching symbols]
@@ -402,6 +422,176 @@ class MemoryCache:
                 self.current_memory += sys.getsizeof(usage) + 50
 
             print(f"[MEMORY] Loaded {len(self.variable_usage)} variable usages", file=sys.stderr)
+
+            # Python-specific ORM metadata (Phase 3 parity)
+            query = build_query('python_orm_models', [
+                'file', 'line', 'model_name', 'table_name', 'orm_type'
+            ])
+            cursor.execute(query)
+            python_orm_models_data = cursor.fetchall()
+
+            for file, line, model_name, table_name, orm_type in python_orm_models_data:
+                file = file.replace("\\", "/") if file else ""
+                model = {
+                    "file": file,
+                    "line": line or 0,
+                    "model_name": model_name or "",
+                    "table_name": table_name or "",
+                    "orm_type": orm_type or "sqlalchemy",
+                }
+                self.python_orm_models.append(model)
+                self.python_orm_models_by_file[file].append(model)
+                self.python_orm_models_by_name[model_name].append(model)
+                self.current_memory += sys.getsizeof(model) + 50
+
+            print(f"[MEMORY] Loaded {len(self.python_orm_models)} Python ORM models", file=sys.stderr)
+
+            query = build_query('python_orm_fields', [
+                'file', 'line', 'model_name', 'field_name', 'field_type',
+                'is_primary_key', 'is_foreign_key', 'foreign_key_target'
+            ])
+            cursor.execute(query)
+            python_orm_fields_data = cursor.fetchall()
+
+            for file, line, model_name, field_name, field_type, is_pk, is_fk, fk_target in python_orm_fields_data:
+                file = file.replace("\\", "/") if file else ""
+                field = {
+                    "file": file,
+                    "line": line or 0,
+                    "model_name": model_name or "",
+                    "field_name": field_name or "",
+                    "field_type": field_type or "",
+                    "is_primary_key": bool(is_pk),
+                    "is_foreign_key": bool(is_fk),
+                    "foreign_key_target": fk_target or "",
+                }
+                self.python_orm_fields.append(field)
+                self.python_orm_fields_by_model[model_name].append(field)
+                self.current_memory += sys.getsizeof(field) + 50
+
+            print(f"[MEMORY] Loaded {len(self.python_orm_fields)} Python ORM fields", file=sys.stderr)
+
+            query = build_query('orm_relationships', [
+                'file', 'line', 'source_model', 'target_model', 'relationship_type',
+                'foreign_key', 'cascade_delete', 'as_name'
+            ])
+            cursor.execute(query)
+            orm_relationship_data = cursor.fetchall()
+
+            for (
+                file,
+                line,
+                source_model,
+                target_model,
+                rel_type,
+                foreign_key,
+                cascade_delete,
+                alias,
+            ) in orm_relationship_data:
+                file = file.replace("\\", "/") if file else ""
+                rel = {
+                    "file": file,
+                    "line": line or 0,
+                    "source_model": source_model or "",
+                    "target_model": target_model or "",
+                    "relationship_type": rel_type or "",
+                    "foreign_key": foreign_key or "",
+                    "cascade_delete": bool(cascade_delete),
+                    "as_name": alias or "",
+                }
+                self.orm_relationships.append(rel)
+                self.orm_relationships_by_source[source_model].append(rel)
+                self.orm_relationships_by_target[target_model].append(rel)
+                self.current_memory += sys.getsizeof(rel) + 50
+
+            print(f"[MEMORY] Loaded {len(self.orm_relationships)} ORM relationships", file=sys.stderr)
+
+            query = build_query('python_routes', [
+                'file', 'line', 'framework', 'method', 'pattern',
+                'handler_function', 'has_auth', 'dependencies', 'blueprint'
+            ])
+            cursor.execute(query)
+            python_routes_data = cursor.fetchall()
+
+            for (
+                file,
+                line,
+                framework,
+                method,
+                pattern,
+                handler_function,
+                has_auth,
+                dependencies,
+                blueprint,
+            ) in python_routes_data:
+                file = file.replace("\\", "/") if file else ""
+                deps_list: List[str] = []
+                if dependencies:
+                    try:
+                        deps_list = json.loads(dependencies)
+                    except Exception:
+                        deps_list = []
+                route = {
+                    "file": file,
+                    "line": line or 0,
+                    "framework": framework or "",
+                    "method": method or "",
+                    "pattern": pattern or "",
+                    "handler_function": handler_function or "",
+                    "has_auth": bool(has_auth),
+                    "dependencies": deps_list,
+                    "blueprint": blueprint or "",
+                }
+                self.python_routes.append(route)
+                self.python_routes_by_file[file].append(route)
+                self.python_routes_by_framework[framework].append(route)
+                self.current_memory += sys.getsizeof(route) + 50
+
+            print(f"[MEMORY] Loaded {len(self.python_routes)} Python routes", file=sys.stderr)
+
+            query = build_query('python_blueprints', [
+                'file', 'line', 'blueprint_name', 'url_prefix', 'subdomain'
+            ])
+            cursor.execute(query)
+            python_blueprints_data = cursor.fetchall()
+
+            for file, line, blueprint_name, url_prefix, subdomain in python_blueprints_data:
+                file = file.replace("\\", "/") if file else ""
+                blueprint_entry = {
+                    "file": file,
+                    "line": line or 0,
+                    "blueprint_name": blueprint_name or "",
+                    "url_prefix": url_prefix or "",
+                    "subdomain": subdomain or "",
+                }
+                self.python_blueprints.append(blueprint_entry)
+                self.python_blueprints_by_name[blueprint_name].append(blueprint_entry)
+                self.current_memory += sys.getsizeof(blueprint_entry) + 50
+
+            print(f"[MEMORY] Loaded {len(self.python_blueprints)} Python blueprints", file=sys.stderr)
+
+            query = build_query('python_validators', [
+                'file', 'line', 'model_name', 'field_name', 'validator_method', 'validator_type'
+            ])
+            cursor.execute(query)
+            python_validators_data = cursor.fetchall()
+
+            for file, line, model_name, field_name, validator_method, validator_type in python_validators_data:
+                file = file.replace("\\", "/") if file else ""
+                validator = {
+                    "file": file,
+                    "line": line or 0,
+                    "model_name": model_name or "",
+                    "field_name": field_name or "",
+                    "validator_method": validator_method or "",
+                    "validator_type": validator_type or "",
+                }
+                self.python_validators.append(validator)
+                self.python_validators_by_model[model_name].append(validator)
+                self.python_validators_by_file[file].append(validator)
+                self.current_memory += sys.getsizeof(validator) + 50
+
+            print(f"[MEMORY] Loaded {len(self.python_validators)} Python validators", file=sys.stderr)
 
             # Step 6: Load CFG tables for flow-sensitive taint analysis
             # These tables enable path-sensitive analysis through control flow graphs
@@ -1034,6 +1224,12 @@ class MemoryCache:
         self.orm_queries.clear()
         self.react_hooks.clear()
         self.variable_usage.clear()
+        self.python_orm_models.clear()
+        self.python_orm_fields.clear()
+        self.orm_relationships.clear()
+        self.python_routes.clear()
+        self.python_blueprints.clear()
+        self.python_validators.clear()
 
         # Clear Phase 3.4 security tables
         self.api_endpoints.clear()
@@ -1073,6 +1269,16 @@ class MemoryCache:
         self.react_hooks_by_file.clear()
         self.variable_usage_by_name.clear()
         self.variable_usage_by_file.clear()
+        self.python_orm_models_by_file.clear()
+        self.python_orm_models_by_name.clear()
+        self.python_orm_fields_by_model.clear()
+        self.orm_relationships_by_source.clear()
+        self.orm_relationships_by_target.clear()
+        self.python_routes_by_file.clear()
+        self.python_routes_by_framework.clear()
+        self.python_validators_by_model.clear()
+        self.python_validators_by_file.clear()
+        self.python_blueprints_by_name.clear()
 
         # Clear Phase 3.4 indexes
         self.api_endpoints_by_file.clear()

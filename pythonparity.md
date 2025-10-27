@@ -51,6 +51,19 @@
 - Added current-state verification log (`openspec/.../verification.md`) documenting evidence for type annotations, framework tables, import resolution, and gaps (back_populates, taint integration).
 - Logged changes in `pythonparity.md` to serve as changelog + onboarding.
 
+### Session 3 (SQLAlchemy Inverses & Taint Cache Integration)
+- Extraction:
+  - Added helper utilities for SQLAlchemy relationship analysis (`_infer_relationship_type`, `_inverse_relationship_type`, cascade/backref helpers).
+  - `extract_sqlalchemy_definitions` now parses `back_populates`/`backref`, infers `hasOne/hasMany/belongsTo`, flags cascade semantics, and emits inverse relationship records to `orm_relationships`.
+  - Updated parity fixture (`tests/fixtures/python/parity_sample.py`) with `Comment`, `Profile`, cascade/backref, and `uselist=False` scenarios.
+- Runtime plumbing:
+  - `MemoryCache` loads `python_orm_models`, `python_orm_fields`, `orm_relationships`, `python_routes`, `python_blueprints`, and `python_validators`, exposing file/model indexes for taint consumers.
+  - `aud full --offline` rerun (timeout 900s) succeeded; memory preload logs confirm Python ORM tables populated (4 models, 10 fields, 6 relationships, 2 routes, 1 blueprint, 2 validators).
+- Data checks:
+  - Verified `.pf/repo_index.db` contains bidirectional relationships and cascade flags via sqlite snippets (see queries above).
+  - `orm_relationships` now records inverse rows (`Post`↔`Comment`, `User`↔`Profile`) with cascade markers.
+- Open work: keep tasks `24.3` (taint traversal graph) and expanded fixture/test coverage outstanding for next iteration.
+
 ## Useful Commands / Queries
 - Re-run validation: `openspec validate add-python-extraction-parity --strict`.
 - Refresh DB: `aud full --offline` (set `THEAUDITOR_TIMEOUT_SECONDS=900`).
