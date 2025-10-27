@@ -476,10 +476,16 @@ class CodeQueryEngine:
 
         # Component definition
         try:
+            # NORMALIZATION FIX: hooks_used column removed, reconstruct from junction table
             cursor.execute("""
-                SELECT file, name, type, start_line, end_line, has_jsx, hooks_used, props_type
-                FROM react_components
-                WHERE name = ?
+                SELECT c.file, c.name, c.type, c.start_line, c.end_line, c.has_jsx,
+                       GROUP_CONCAT(rch.hook_name, ',') as hooks_used, c.props_type
+                FROM react_components c
+                LEFT JOIN react_component_hooks rch
+                    ON c.file = rch.component_file
+                    AND c.name = rch.component_name
+                WHERE c.name = ?
+                GROUP BY c.file, c.name, c.type, c.start_line, c.end_line, c.has_jsx, c.props_type
             """, (component_name,))
 
             row = cursor.fetchone()
@@ -488,13 +494,9 @@ class CodeQueryEngine:
 
             result = dict(row)
 
-            # Hooks used (parse JSON if stored as JSON string)
-            import json
+            # Hooks used (parse from comma-separated string)
             if result.get('hooks_used'):
-                try:
-                    result['hooks'] = json.loads(result['hooks_used'])
-                except (json.JSONDecodeError, TypeError):
-                    result['hooks'] = []
+                result['hooks'] = result['hooks_used'].split(',')
             else:
                 result['hooks'] = []
 

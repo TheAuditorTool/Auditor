@@ -213,19 +213,22 @@ class ApiAuthAnalyzer:
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
+        # NORMALIZATION FIX: controls column removed, reconstruct from junction table
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
-            ORDER BY file, pattern
+            SELECT ae.file, ae.line, ae.method, ae.pattern,
+                   GROUP_CONCAT(aec.control_name, ',') as controls
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
-            # Parse controls
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+            # Parse controls from comma-separated string
+            controls = controls_str.split(',') if controls_str else []
 
             # Convert to lowercase for matching
             controls_lower = [str(c).lower() for c in controls]
@@ -264,19 +267,22 @@ class ApiAuthAnalyzer:
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
         for sensitive in sensitive_patterns_lower:
+            # NORMALIZATION FIX: controls column removed, reconstruct from junction table
             self.cursor.execute("""
-                SELECT file, line, method, pattern, controls
-                FROM api_endpoints
-                WHERE LOWER(pattern) LIKE ?
-                ORDER BY file, pattern
+                SELECT ae.file, ae.line, ae.method, ae.pattern,
+                       GROUP_CONCAT(aec.control_name, ',') as controls
+                FROM api_endpoints ae
+                LEFT JOIN api_endpoint_controls aec
+                    ON ae.file = aec.endpoint_file
+                    AND ae.line = aec.endpoint_line
+                WHERE LOWER(ae.pattern) LIKE ?
+                GROUP BY ae.file, ae.line, ae.method, ae.pattern
+                ORDER BY ae.file, ae.pattern
             """, [f'%{sensitive}%'])
 
-            for file, line, method, pattern, controls_json in self.cursor.fetchall():
-                # Parse controls
-                try:
-                    controls = json.loads(controls_json) if controls_json else []
-                except (json.JSONDecodeError, TypeError):
-                    controls = []
+            for file, line, method, pattern, controls_str in self.cursor.fetchall():
+                # Parse controls from comma-separated string
+                controls = controls_str.split(',') if controls_str else []
 
                 controls_lower = [str(c).lower() for c in controls]
 
@@ -331,18 +337,21 @@ class ApiAuthAnalyzer:
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""
         # Look for basic auth or weak patterns
+        # NORMALIZATION FIX: controls column removed, reconstruct from junction table
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE controls IS NOT NULL
-            ORDER BY file, pattern
+            SELECT ae.file, ae.line, ae.method, ae.pattern,
+                   GROUP_CONCAT(aec.control_name, ',') as controls
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            HAVING controls IS NOT NULL AND controls != ''
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+            controls = controls_str.split(',') if controls_str else []
 
             controls_str = ' '.join(str(c).lower() for c in controls)
 
@@ -377,23 +386,26 @@ class ApiAuthAnalyzer:
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
         # Only check for web applications (not pure APIs)
+        # NORMALIZATION FIX: controls column removed, reconstruct from junction table
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
-              AND (pattern NOT LIKE '/api/%' OR pattern IS NULL)
-            ORDER BY file, pattern
+            SELECT ae.file, ae.line, ae.method, ae.pattern,
+                   GROUP_CONCAT(aec.control_name, ',') as controls
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
+              AND (ae.pattern NOT LIKE '/api/%' OR ae.pattern IS NULL)
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
             # Skip if this looks like a pure API endpoint
             if pattern and ('/api/' in pattern or '/v1/' in pattern or '/v2/' in pattern):
                 continue
 
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
+            controls = controls_str.split(',') if controls_str else []
 
             controls_lower = [str(c).lower() for c in controls]
 

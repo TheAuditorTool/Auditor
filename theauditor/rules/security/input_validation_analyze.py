@@ -477,14 +477,18 @@ class InputValidationAnalyzer:
     def _detect_framework_bypasses(self):
         """Detect framework-specific validation bypasses."""
         # Check for endpoints without middleware
+        # NORMALIZATION FIX: controls column removed, check junction table instead
         self.cursor.execute("""
-            SELECT file, method, pattern, controls
-            FROM api_endpoints
-            WHERE (method IN ('POST', 'PUT', 'PATCH', 'DELETE'))
-              AND (controls IS NULL
-                   OR controls = '[]'
-                   OR controls = '')
-            ORDER BY file, pattern
+            SELECT ae.file, ae.method, ae.pattern,
+                   GROUP_CONCAT(aec.control_name, ',') as controls
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE ae.method IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.method, ae.pattern
+            HAVING controls IS NULL OR controls = ''
+            ORDER BY ae.file, ae.pattern
         """)
 
         for file, method, route, controls in self.cursor.fetchall():

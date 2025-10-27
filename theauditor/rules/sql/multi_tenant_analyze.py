@@ -124,14 +124,23 @@ def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -
     for table in patterns.SENSITIVE_TABLES:
         # NOTE: frontend/test filtering handled by METADATA
         # Keep migration check - sensitive table queries in migrations are data seeds, not DDL
+        # NORMALIZATION FIX: tables column removed, use junction table or query_text only
         cursor.execute("""
-            SELECT file_path, line_number, query_text, command
-            FROM sql_queries
-            WHERE command != 'UNKNOWN'
-              AND command IS NOT NULL
-              AND (tables LIKE ? OR query_text LIKE ?)
-              AND file_path NOT LIKE '%migration%'
-            ORDER BY file_path, line_number
+            SELECT sq.file_path, sq.line_number, sq.query_text, sq.command
+            FROM sql_queries sq
+            WHERE sq.command != 'UNKNOWN'
+              AND sq.command IS NOT NULL
+              AND sq.file_path NOT LIKE '%migration%'
+              AND (
+                  sq.query_text LIKE ?
+                  OR EXISTS (
+                      SELECT 1 FROM sql_query_tables sqt
+                      WHERE sqt.query_file = sq.file_path
+                        AND sqt.query_line = sq.line_number
+                        AND sqt.table_name LIKE ?
+                  )
+              )
+            ORDER BY sq.file_path, sq.line_number
             LIMIT 10
         """, (f'%{table}%', f'%{table}%'))
 
@@ -466,13 +475,19 @@ def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) 
     # Find bulk operations in sql_queries
     # NOTE: frontend/test filtering handled by METADATA
     # Keep migration check - bulk operations in migrations are schema changes, not tenant data
+    # NORMALIZATION FIX: tables column removed, reconstruct from junction table
     cursor.execute("""
-        SELECT file_path, line_number, query_text, command, tables
-        FROM sql_queries
-        WHERE command IN ('INSERT', 'UPDATE', 'DELETE')
-          AND (query_text LIKE '%INSERT INTO%' OR query_text LIKE '%UPDATE%' OR query_text LIKE '%DELETE FROM%')
-          AND file_path NOT LIKE '%migration%'
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
+               GROUP_CONCAT(sqt.table_name, ',') as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command IN ('INSERT', 'UPDATE', 'DELETE')
+          AND (sq.query_text LIKE '%INSERT INTO%' OR sq.query_text LIKE '%UPDATE%' OR sq.query_text LIKE '%DELETE FROM%')
+          AND sq.file_path NOT LIKE '%migration%'
+        GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
+        ORDER BY sq.file_path, sq.line_number
         LIMIT 20
     """)
 
@@ -523,13 +538,19 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> List[Stan
 
     # NOTE: frontend/test filtering handled by METADATA
     # Keep migration check - JOINs in migrations are schema exploration, not queries
+    # NORMALIZATION FIX: tables column removed, reconstruct from junction table
     cursor.execute("""
-        SELECT file_path, line_number, query_text, command, tables
-        FROM sql_queries
-        WHERE command = 'SELECT'
-          AND (query_text LIKE '%JOIN%' OR query_text LIKE '%join%')
-          AND file_path NOT LIKE '%migration%'
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
+               GROUP_CONCAT(sqt.table_name, ',') as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command = 'SELECT'
+          AND (sq.query_text LIKE '%JOIN%' OR sq.query_text LIKE '%join%')
+          AND sq.file_path NOT LIKE '%migration%'
+        GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
+        ORDER BY sq.file_path, sq.line_number
         LIMIT 25
     """)
 

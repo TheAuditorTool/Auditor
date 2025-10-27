@@ -129,23 +129,30 @@ class ReactHooksAnalyzer:
 
     def _check_missing_dependencies(self):
         """Check for missing dependencies in hooks - NOW WITH REAL DATA!"""
+        # NORMALIZATION FIX: dependency_vars column removed, reconstruct from junction table
         self.cursor.execute("""
-            SELECT file, line, hook_name, component_name,
-                   dependency_array, dependency_vars
-            FROM react_hooks
-            WHERE hook_name IN ('useEffect', 'useCallback', 'useMemo')
-              AND dependency_array IS NOT NULL
-              AND dependency_vars IS NOT NULL
+            SELECT rh.file, rh.line, rh.hook_name, rh.component_name,
+                   rh.dependency_array,
+                   GROUP_CONCAT(rhd.dependency_name, ',') as dependency_vars
+            FROM react_hooks rh
+            LEFT JOIN react_hook_dependencies rhd
+                ON rh.file = rhd.hook_file
+                AND rh.line = rhd.hook_line
+                AND rh.component_name = rhd.hook_component
+            WHERE rh.hook_name IN ('useEffect', 'useCallback', 'useMemo')
+              AND rh.dependency_array IS NOT NULL
+            GROUP BY rh.file, rh.line, rh.hook_name, rh.component_name, rh.dependency_array
+            HAVING dependency_vars IS NOT NULL AND dependency_vars != ''
         """)
 
         for row in self.cursor.fetchall():
-            file, line, hook_name, component, deps_array_json, deps_vars_json = row
+            file, line, hook_name, component, deps_array_json, deps_vars_str = row
 
-            # Parse JSON arrays
+            # Parse JSON array and comma-separated string
             try:
                 declared_deps = json.loads(deps_array_json) if deps_array_json else []
-                used_vars = json.loads(deps_vars_json) if deps_vars_json else []
-            except json.JSONDecodeError:
+                used_vars = deps_vars_str.split(',') if deps_vars_str else []
+            except (json.JSONDecodeError, AttributeError):
                 continue
 
             # Skip if empty deps array (handled by exhaustive deps check)
@@ -261,22 +268,30 @@ class ReactHooksAnalyzer:
 
     def _check_exhaustive_deps(self):
         """Check for effects with empty dependencies that should have some."""
+        # NORMALIZATION FIX: dependency_vars column removed, reconstruct from junction table
         self.cursor.execute("""
-            SELECT file, line, hook_name, component_name,
-                   dependency_array, dependency_vars, callback_body
-            FROM react_hooks
-            WHERE hook_name IN ('useEffect', 'useCallback', 'useMemo')
-              AND dependency_array = '[]'
-              AND dependency_vars IS NOT NULL
+            SELECT rh.file, rh.line, rh.hook_name, rh.component_name,
+                   rh.dependency_array,
+                   GROUP_CONCAT(rhd.dependency_name, ',') as dependency_vars,
+                   rh.callback_body
+            FROM react_hooks rh
+            LEFT JOIN react_hook_dependencies rhd
+                ON rh.file = rhd.hook_file
+                AND rh.line = rhd.hook_line
+                AND rh.component_name = rhd.hook_component
+            WHERE rh.hook_name IN ('useEffect', 'useCallback', 'useMemo')
+              AND rh.dependency_array = '[]'
+            GROUP BY rh.file, rh.line, rh.hook_name, rh.component_name, rh.dependency_array, rh.callback_body
+            HAVING dependency_vars IS NOT NULL AND dependency_vars != ''
         """)
 
         for row in self.cursor.fetchall():
-            file, line, hook, component, deps_array, deps_vars_json, callback = row
+            file, line, hook, component, deps_array, deps_vars_str, callback = row
 
-            # Parse variables used
+            # Parse variables used from comma-separated string
             try:
-                used_vars = json.loads(deps_vars_json) if deps_vars_json else []
-            except json.JSONDecodeError:
+                used_vars = deps_vars_str.split(',') if deps_vars_str else []
+            except AttributeError:
                 continue
 
             # Filter out globals and built-ins

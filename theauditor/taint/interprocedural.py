@@ -228,12 +228,26 @@ def trace_inter_procedural_flow_insensitive(
         # 3. Propagate taint through return values.
         # Find if the current tainted variable is returned by the current function.
         # Handle both normalized and fully-qualified function names
-        query = build_query(
-            'function_returns',
-            ['return_expr', 'line'],
-            where="file = ? AND (function_name = ? OR function_name LIKE ?) AND (return_expr = ? OR return_expr LIKE ? OR return_vars LIKE ?)"
-        )
-        cursor.execute(query, (current_file, current_func, f"%.{current_func}", current_var, f"%{current_var}%", f'%"{current_var}"%'))
+        # NORMALIZATION FIX: return_vars column removed, use UNION to check both return_expr and junction table
+        combined_query = """
+            SELECT return_expr, line FROM function_returns
+            WHERE file = ? AND (function_name = ? OR function_name LIKE ?)
+              AND (return_expr = ? OR return_expr LIKE ?)
+            UNION
+            SELECT fr.return_expr, fr.line
+            FROM function_returns fr
+            INNER JOIN function_return_sources frs
+                ON fr.file = frs.return_file
+                AND fr.line = frs.return_line
+                AND fr.function_name = frs.return_function
+            WHERE fr.file = ?
+              AND (fr.function_name = ? OR fr.function_name LIKE ?)
+              AND frs.return_var_name = ?
+        """
+        cursor.execute(combined_query, (
+            current_file, current_func, f"%.{current_func}", current_var, f"%{current_var}%",
+            current_file, current_func, f"%.{current_func}", current_var
+        ))
 
         for return_expr, return_line in cursor.fetchall():
             # Now, find where the current function was called and its return value assigned to a new variable.
