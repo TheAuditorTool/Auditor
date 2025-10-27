@@ -1105,6 +1105,79 @@ class IndexerOrchestrator:
                     self.counts['orm_relationships'] = 0
                 self.counts['orm_relationships'] += 1
 
+        if 'python_orm_models' in extracted:
+            for model in extracted['python_orm_models']:
+                self.db_manager.add_python_orm_model(
+                    file_path,
+                    model.get('line', 0),
+                    model.get('model_name', ''),
+                    model.get('table_name'),
+                    model.get('orm_type', 'sqlalchemy')
+                )
+                if 'python_orm_models' not in self.counts:
+                    self.counts['python_orm_models'] = 0
+                self.counts['python_orm_models'] += 1
+
+        if 'python_orm_fields' in extracted:
+            for field in extracted['python_orm_fields']:
+                self.db_manager.add_python_orm_field(
+                    file_path,
+                    field.get('line', 0),
+                    field.get('model_name', ''),
+                    field.get('field_name', ''),
+                    field.get('field_type'),
+                    field.get('is_primary_key', False),
+                    field.get('is_foreign_key', False),
+                    field.get('foreign_key_target')
+                )
+                if 'python_orm_fields' not in self.counts:
+                    self.counts['python_orm_fields'] = 0
+                self.counts['python_orm_fields'] += 1
+
+        if 'python_routes' in extracted:
+            for route in extracted['python_routes']:
+                self.db_manager.add_python_route(
+                    file_path,
+                    route.get('line'),
+                    route.get('framework', ''),
+                    route.get('method', ''),
+                    route.get('pattern', ''),
+                    route.get('handler_function', ''),
+                    route.get('has_auth', False),
+                    route.get('dependencies'),
+                    route.get('blueprint')
+                )
+                if 'python_routes' not in self.counts:
+                    self.counts['python_routes'] = 0
+                self.counts['python_routes'] += 1
+
+        if 'python_blueprints' in extracted:
+            for blueprint in extracted['python_blueprints']:
+                self.db_manager.add_python_blueprint(
+                    file_path,
+                    blueprint.get('line'),
+                    blueprint.get('blueprint_name', ''),
+                    blueprint.get('url_prefix'),
+                    blueprint.get('subdomain')
+                )
+                if 'python_blueprints' not in self.counts:
+                    self.counts['python_blueprints'] = 0
+                self.counts['python_blueprints'] += 1
+
+        if 'python_validators' in extracted:
+            for validator in extracted['python_validators']:
+                self.db_manager.add_python_validator(
+                    file_path,
+                    validator.get('line', 0),
+                    validator.get('model_name', ''),
+                    validator.get('field_name'),
+                    validator.get('validator_method', ''),
+                    validator.get('validator_type', '')
+                )
+                if 'python_validators' not in self.counts:
+                    self.counts['python_validators'] = 0
+                self.counts['python_validators'] += 1
+
         if 'react_hooks' in extracted:
             for hook in extracted['react_hooks']:
                 self.db_manager.add_react_hook(

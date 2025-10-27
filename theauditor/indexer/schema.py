@@ -430,6 +430,97 @@ API_ENDPOINT_CONTROLS = TableSchema(
 )
 
 # ============================================================================
+# PYTHON-SPECIFIC TABLES
+# ============================================================================
+
+PYTHON_ORM_MODELS = TableSchema(
+    name="python_orm_models",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("model_name", "TEXT", nullable=False),
+        Column("table_name", "TEXT"),
+        Column("orm_type", "TEXT", nullable=False, default="'sqlalchemy'"),
+    ],
+    primary_key=["file", "model_name"],
+    indexes=[
+        ("idx_python_orm_models_file", ["file"]),
+        ("idx_python_orm_models_type", ["orm_type"]),
+    ]
+)
+
+PYTHON_ORM_FIELDS = TableSchema(
+    name="python_orm_fields",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("model_name", "TEXT", nullable=False),
+        Column("field_name", "TEXT", nullable=False),
+        Column("field_type", "TEXT"),
+        Column("is_primary_key", "BOOLEAN", default="0"),
+        Column("is_foreign_key", "BOOLEAN", default="0"),
+        Column("foreign_key_target", "TEXT"),
+    ],
+    primary_key=["file", "model_name", "field_name"],
+    indexes=[
+        ("idx_python_orm_fields_file", ["file"]),
+        ("idx_python_orm_fields_model", ["model_name"]),
+        ("idx_python_orm_fields_foreign", ["is_foreign_key"]),
+    ]
+)
+
+PYTHON_ROUTES = TableSchema(
+    name="python_routes",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER"),
+        Column("framework", "TEXT", nullable=False),
+        Column("method", "TEXT"),
+        Column("pattern", "TEXT"),
+        Column("handler_function", "TEXT"),
+        Column("has_auth", "BOOLEAN", default="0"),
+        Column("dependencies", "TEXT"),
+        Column("blueprint", "TEXT"),
+    ],
+    indexes=[
+        ("idx_python_routes_file", ["file"]),
+        ("idx_python_routes_framework", ["framework"]),
+    ]
+)
+
+PYTHON_BLUEPRINTS = TableSchema(
+    name="python_blueprints",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER"),
+        Column("blueprint_name", "TEXT", nullable=False),
+        Column("url_prefix", "TEXT"),
+        Column("subdomain", "TEXT"),
+    ],
+    primary_key=["file", "blueprint_name"],
+    indexes=[
+        ("idx_python_blueprints_file", ["file"]),
+    ]
+)
+
+PYTHON_VALIDATORS = TableSchema(
+    name="python_validators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("model_name", "TEXT", nullable=False),
+        Column("field_name", "TEXT"),
+        Column("validator_method", "TEXT", nullable=False),
+        Column("validator_type", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_validators_file", ["file"]),
+        ("idx_python_validators_model", ["model_name"]),
+        ("idx_python_validators_type", ["validator_type"]),
+    ]
+)
+
+# ============================================================================
 # SQL & DATABASE TABLES
 # ============================================================================
 
@@ -1450,6 +1541,11 @@ TABLES: Dict[str, TableSchema] = {
     # API & routing
     "api_endpoints": API_ENDPOINTS,
     "api_endpoint_controls": API_ENDPOINT_CONTROLS,  # Junction table for normalized controls
+    "python_orm_models": PYTHON_ORM_MODELS,
+    "python_orm_fields": PYTHON_ORM_FIELDS,
+    "python_routes": PYTHON_ROUTES,
+    "python_blueprints": PYTHON_BLUEPRINTS,
+    "python_validators": PYTHON_VALIDATORS,
 
     # SQL & database
     "sql_objects": SQL_OBJECTS,

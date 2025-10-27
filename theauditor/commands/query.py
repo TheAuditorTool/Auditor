@@ -75,6 +75,16 @@ def query(symbol, file, api, component, variable, pattern, category, search,
             --api ROUTE        → Find in api_endpoints table (185 rows)
             --component NAME   → Find in react_components table (1k rows)
 
+        Symbol canonicalization (CRITICAL - read this before screaming "no results"):
+            - ALL class/instance methods are indexed as ClassName.methodName
+              (e.g., AccountController.handleRequest). Property-assigned functions
+              and wrapped handlers follow the same Class.property pattern.
+            - Free functions keep their literal name, but still require an exact
+              match (case-sensitive).
+            - Command returns nothing if you pass a bare method name. Run
+              aud query --symbol handleRequest           # shows canonical spellings
+              then reuse the exact Name field in subsequent queries.
+
         Query Actions (what to show):
             --show-callers     → Who calls this? (function_call_args table)
             --show-callees     → What does this call? (function_call_args table)
@@ -402,6 +412,8 @@ def query(symbol, file, api, component, variable, pattern, category, search,
         FIX: Try: aud query --symbol foo (shows symbol info if exists)
         CAUSE 2: Database stale (code changed since last index)
         FIX: Run: aud index (regenerates database)
+        CAUSE 3: Provided unqualified method name (index stores ClassName.methodName)
+        FIX: Run: aud query --symbol handleRequest → copy exact Name field (e.g. AccountController.handleRequest)
 
         SYMPTOM: Slow queries (>50ms)
         CAUSE: Large project (100k+ LOC) + high depth (>3)
