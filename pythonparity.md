@@ -1,5 +1,13 @@
 # Python Parity Worklog
 
+## Autonomous Workflow (Always Follow)
+1. **Re-align** – Read `teamsop.md`, `CLAUDE.md`, and OpenSpec verification before touching code.
+2. **Plan from OpenSpec** – Pick the next unchecked item in `openspec/changes/add-python-extraction-parity/tasks.md` and update `verification.md` with current evidence.
+3. **Change by layer** – AST (`theauditor/ast_extractors/python_impl.py`) → extractor (`theauditor/indexer/extractors/python.py`) → schema/database (`schema.py`, `database.py`) → consumers (`theauditor/taint/*`, rules, etc.).
+4. **Run everything locally** – `python -m compileall theauditor`, `aud index`, `aud full --offline` (set `THEAUDITOR_TIMEOUT_SECONDS=900`). Validate `.pf/repo_index.db` with sqlite snippets; never assume.
+5. **Document immediately** – Sync OpenSpec proposal/design/spec/tasks/verification and this log in the same change.
+6. **Commit cleanly** – Descriptive commit titles, no co-author lines, small logical diffs.
+
 ## Quick Onboarding / Environment
 - Branch: `pythonparity` (full write access; isolated working branch).
 - Tooling: use `aud` CLI (`aud --help`). If PATH lookup fails, call `.venv/Scripts/aud.exe --help`.
@@ -8,24 +16,24 @@
 - Database inspection: use Python’s sqlite3 (see `CLAUDE.md` guidance) against `.pf/repo_index.db`.
 - OpenSpec workflow: see `openspec/AGENTS.md`. Run `openspec validate add-python-extraction-parity --strict` after spec edits.
 
-## Current Status (2025-10-27)
+## Current Status (2025-10-28)
 - ✅ Python type hints (function parameters/returns and class/module `AnnAssign`) populate `type_annotations`.
 - ✅ Framework metadata flows into new tables: `python_orm_models`, `python_orm_fields`, `python_routes`, `python_blueprints`, `python_validators`.
 - ✅ Import resolution populates `resolved_imports` mapping, enabling cross-file lookups similar to JS.
-- ✅ SQLAlchemy + Django relationships recorded in `orm_relationships` (heuristic `hasMany`/`belongsTo` etc.).
-- ✅ Documentation set (`proposal.md`, `design.md`, `spec.md`, `tasks.md`, `verification.md`) updated to reflect shipped work and outstanding gaps.
-- 🔄 Outstanding: richer SQLAlchemy semantics (`back_populates`/`backref`, cascade flags), taint engine consumption of Python ORM tables, dedicated fixtures/tests beyond `tests/fixtures/python/parity_sample.py`, FastAPI parameter metadata, Django edge cases.
+- ✅ SQLAlchemy relationships capture inverse `back_populates`/`backref` semantics with cascade heuristics; Django relationships recorded as before.
+- ✅ Memory cache preloads the Python ORM/routes/validator tables for taint analysis.
+- ✅ Documentation set (`proposal.md`, `design.md`, `spec.md`, `tasks.md`, `verification.md`) updated to reflect shipped work and remaining gaps.
+- 🔄 Outstanding: integrate Python ORM data into the taint analyzer (`python_orm_*` tables), expand fixtures/tests beyond `tests/fixtures/python/parity_sample.py`, capture FastAPI parameter metadata, add Django edge-case coverage.
 - 🔄 Logging still omits file path in annotation warnings (line number only).
 
 ## What’s Working
 - End-to-end indexing (`aud full --offline`) completes on current code; `.pf/repo_index.db` shows 4,020 Python rows in `type_annotations`.
 - `resolved_imports` entries appear in `refs` table (e.g., local modules mapped to relative `.py` paths).
-- Framework tables contain data for SQLAlchemy models, Pydantic validators, Flask/FastAPI routes, and blueprints; verified via sqlite queries.
+- Framework tables contain data for SQLAlchemy models (with inverse relationships), Pydantic validators, Flask/FastAPI routes, and blueprints; verified via sqlite queries.
 - OpenSpec validation passes (`openspec validate add-python-extraction-parity --strict`).
 
 ## Known Gaps / Next Steps
-- `openspec/.../tasks.md:529` – parse `back_populates`/`backref` to enrich relationship metadata.
-- `openspec/.../tasks.md:904` – wire taint analyzer to load new Python ORM tables / relationship graph.
+- `openspec/.../tasks.md:904` – wire taint analyzer to consume `python_orm_models`, `python_orm_fields`, and `orm_relationships` during propagation.
 - `openspec/.../tasks.md:812`+ – author focused fixtures (`sqlalchemy_app.py`, `pydantic_app.py`, etc.) and tests (`tests/test_python_framework_extraction.py`).
 - `openspec/.../tasks.md:35` – minimal fixture for early type-hint verification still outstanding if needed for regression harness.
 - Performance benchmarking tasks (tasks.md:375) remain TODO; collect data once framework enhancements settle.
