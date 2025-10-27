@@ -53,7 +53,7 @@
 
 **File**: `theauditor/ast_extractors/python_impl.py:29-57`
 
-- [ ] 1.1 Add `_get_type_annotation()` helper function
+- [x] 1.1 Add `_get_type_annotation()` helper function
   - **Location**: After line 27, before `extract_python_functions()`
   - **Implementation**:
     ```python
@@ -75,7 +75,7 @@
   - **Alternative**: If Python <3.9, use `astor.to_source()` or manual serialization
   - **Test**: Verify `_get_type_annotation(ast.parse("int").body[0].value)` returns `"int"`
 
-- [ ] 1.2 Modify `extract_python_functions()` to extract parameter type annotations
+- [x] 1.2 Modify `extract_python_functions()` to extract parameter type annotations
   - **Location**: Line 54 - replace `"args": [arg.arg for arg in node.args.args]`
   - **Before**:
     ```python
@@ -83,18 +83,21 @@
     ```
   - **After**:
     ```python
-    "args": [arg.arg for arg in node.args.args],
-    "arg_types": [_get_type_annotation(arg.annotation) for arg in node.args.args],
-    "arg_annotations": {
-        arg.arg: _get_type_annotation(arg.annotation)
-        for arg in node.args.args
-        if arg.annotation is not None
-    },
+    # Preserve legacy args list plus rich metadata for all param kinds
+    function_entry["args"] = [arg.arg for arg in node.args.args]
+    parameter_entries.append({
+        "name": arg.arg,
+        "kind": kind,
+        "type_annotation": annotation_text,
+        "is_generic": is_generic,
+        "has_type_params": has_type_params,
+        "type_params": type_params,
+    })
     ```
-  - **Why**: Extract both list (for positional access) and dict (for lookup by name). Maintain backward compat with existing "args" key.
-  - **Test**: Function `def foo(x: int, y: str): pass` should produce `"arg_types": ["int", "str"]`
+  - **Why**: Capture annotations for positional-only, standard, vararg, kw-only, and kwarg parameters with generic flags.
+  - **Test**: Function `def foo(x: int, *, y: str) -> None` stores entries for both parameters with annotations.
 
-- [ ] 1.3 Add return type annotation extraction
+- [x] 1.3 Add return type annotation extraction
   - **Location**: After "args" extraction in extract_python_functions()
   - **Implementation**:
     ```python
@@ -103,7 +106,7 @@
   - **Why**: Capture function return type for type-aware analysis
   - **Test**: Function `def foo() -> bool: pass` should produce `"return_type": "bool"`
 
-- [ ] 1.4 Add decorator extraction for type-relevant decorators
+- [x] 1.4 Add decorator extraction for type-relevant decorators
   - **Location**: After "return_type" in extract_python_functions()
   - **Implementation**:
     ```python
@@ -112,7 +115,7 @@
   - **Why**: Decorators like `@overload`, `@abstractmethod` affect type semantics
   - **Test**: Function with `@property` decorator should capture it
 
-- [ ] 1.5 Handle generic types (List, Dict, Optional, Union, Tuple)
+- [x] 1.5 Handle generic types (List, Dict, Optional, Union, Tuple)
   - **Location**: In `_get_type_annotation()` function
   - **Verification**: Ensure `ast.unparse()` correctly serializes subscripted types
   - **Test Cases**:
@@ -122,7 +125,7 @@
     - `Union[int, str]` → `"Union[int, str]"` or `"int | str"`
   - **Note**: Python 3.10+ uses `|` syntax, 3.9- uses `Union`. Both should work.
 
-- [ ] 1.6 Handle type comments (PEP 484) for Python 3.5-3.7 compatibility
+- [x] 1.6 Handle type comments (PEP 484) for Python 3.5-3.7 compatibility
   - **Location**: In extract_python_functions() after "return_type"
   - **Implementation**:
     ```python
@@ -135,7 +138,7 @@
 
 **File**: `theauditor/ast_extractors/python_impl.py:60-77`
 
-- [ ] 2.1 Add class attribute type annotation extraction
+- [x] 2.1 Add class attribute type annotation extraction
   - **Location**: In extract_python_classes(), after "bases" extraction
   - **Implementation**:
     ```python
@@ -152,14 +155,8 @@
                     "line": item.lineno
                 })
 
-    classes.append({
-        "name": node.name,
-        "line": node.lineno,
-        "column": node.col_offset,
-        "bases": [get_node_name(base) for base in node.bases],
-        "attributes": attributes,  # NEW
-    })
-    ```
+    annotations = extract_python_attribute_annotations(...)
+```
   - **Why**: Class attributes with type annotations are important for ORM models, dataclasses, Pydantic models
   - **Test**: Class with `class Foo: x: int; y: str` should extract attributes
 
@@ -189,7 +186,7 @@
 
 **File**: `theauditor/indexer/extractors/python.py:47-75`
 
-- [ ] 3.1 Add type annotation storage in Python extractor result dict
+- [x] 3.1 Add type annotation storage in Python extractor result dict
   - **Location**: In Python extractor's extract() method, where result dict is built
   - **Implementation**:
     ```python
@@ -206,67 +203,33 @@
     ```
   - **Why**: Initialize type_annotations list to receive extracted data
 
-- [ ] 3.2 Populate type_annotations from extracted function data
+- [x] 3.2 Populate type_annotations from extracted function data
   - **Location**: After functions are extracted, before returning result
   - **Implementation**:
     ```python
-    # Convert function type data to type_annotations format
-    for func in functions:
-        if func.get('return_type') or func.get('arg_annotations'):
-            # Store function-level type annotation
-            result['type_annotations'].append({
-                'line': func['line'],
-                'column': func.get('col', 0),
-                'symbol_name': func['name'],
-                'symbol_kind': 'function',
-                'type_annotation': None,  # Full signature would go here
-                'return_type': func.get('return_type'),
-                'has_type_params': False,  # TODO: detect generics
-                'type_params': None,
-            })
-
-            # Store parameter-level type annotations
-            for param_name, param_type in func.get('arg_annotations', {}).items():
-                result['type_annotations'].append({
-                    'line': func['line'],
-                    'column': func.get('col', 0),
-                    'symbol_name': f"{func['name']}.{param_name}",
-                    'symbol_kind': 'parameter',
-                    'type_annotation': param_type,
-                    'return_type': None,
-                    'has_type_params': False,
-                    'type_params': None,
-                })
+    for annotation in func.get('type_annotations', []):
+        result['type_annotations'].append(annotation)
     ```
   - **Why**: Transform extracted type data into database-ready format matching schema
   - **Compatibility**: Match JavaScript format from `extractors/javascript.py:136-151`
 
-- [ ] 3.3 Handle class attribute type annotations
+- [x] 3.3 Handle class attribute type annotations
   - **Location**: After classes are extracted
   - **Implementation**:
     ```python
     # Convert class attribute type data to type_annotations format
     for cls in classes:
-        for attr in cls.get('attributes', []):
-            result['type_annotations'].append({
-                'line': attr['line'],
-                'column': 0,
-                'symbol_name': f"{cls['name']}.{attr['name']}",
-                'symbol_kind': 'attribute',
-                'type_annotation': attr['type'],
-                'return_type': None,
-                'has_type_params': False,
-                'type_params': None,
-            })
+    for attr in python_impl.extract_python_attribute_annotations(tree, self.ast_parser):
+        result['type_annotations'].append(attr)
     ```
 
-- [ ] 3.4 Verify database schema compatibility
+- [x] 3.4 Verify database schema compatibility
   - **Pre-implementation**: Check `theauditor/indexer/schema.py:1025-1049` for TYPE_ANNOTATIONS columns
   - **Columns to populate**: file, line, column, symbol_name, symbol_kind, type_annotation, return_type
   - **Columns to leave NULL**: is_any, is_unknown, is_generic, has_type_params, type_params, extends_type
   - **Why**: Python ast module doesn't provide TypeScript-level type analysis (any/unknown detection). Leave advanced columns NULL for now.
 
-- [ ] 3.5 Update indexer to store Python type annotations
+- [x] 3.5 Update indexer to store Python type annotations
   - **File**: `theauditor/indexer/__init__.py`
   - **Location**: Search for JavaScript type_annotations storage (likely around where symbols are stored)
   - **Action**: Verify Python extractor result['type_annotations'] is processed same as JavaScript
@@ -487,7 +450,7 @@
 
 **File**: `theauditor/ast_extractors/python_impl.py` (new function)
 
-- [ ] 10.1 Add `extract_sqlalchemy_models()` function
+- [x] 10.1 Add `extract_sqlalchemy_models()` function
   - **Location**: After extract_python_classes(), before extract_python_calls()
   - **Implementation Outline**:
     ```python
@@ -558,17 +521,17 @@
   - **Why**: SQLAlchemy models are critical for backend Python apps. Need to extract schema and relationships.
   - **Test**: Model with `class User(Base): id = Column(Integer)` should extract field
 
-- [ ] 10.2 Extract ForeignKey definitions
+- [x] 10.2 Extract ForeignKey definitions
   - **Location**: In extract_sqlalchemy_models(), within Column() extraction
   - **Logic**: Check Column() call for ForeignKey in arguments
   - **Example**: `user_id = Column(Integer, ForeignKey('users.id'))` → extract FK relationship
 
-- [ ] 10.3 Extract relationship back_populates and backref
+- [x] 10.3 Extract relationship back_populates and backref
   - **Location**: In extract_sqlalchemy_models(), within relationship() extraction
   - **Logic**: Parse relationship() keyword arguments for `back_populates`, `backref`
   - **Example**: `items = relationship('Item', back_populates='owner')` → extract bidirectional relationship
 
-- [ ] 10.4 Store SQLAlchemy models in orm_relationships table
+- [x] 10.4 Store SQLAlchemy models in orm_relationships table
   - **Location**: In Python extractor's extract() method, after model extraction
   - **Implementation**:
     ```python
@@ -591,7 +554,7 @@
 
 **File**: `theauditor/ast_extractors/python_impl.py` (new function)
 
-- [ ] 11.1 Add `extract_pydantic_models()` function
+- [x] 11.1 Add `extract_pydantic_models()` function
   - **Location**: After extract_sqlalchemy_models()
   - **Purpose**: Extract Pydantic BaseModel classes with field validators
   - **Detection**: Check if class inherits from `BaseModel`
@@ -602,24 +565,24 @@
     - Field default values
   - **Test**: `class User(BaseModel): name: str = Field(...)` should be detected
 
-- [ ] 11.2 Extract Pydantic field validators
+- [x] 11.2 Extract Pydantic field validators
   - **Location**: In extract_pydantic_models(), check for `@validator` decorator
   - **Implementation**: Store validator method names and target fields
   - **Example**: `@validator('email')` → extract that `email` field has validation
 
-- [ ] 11.3 Extract FastAPI dependency injection
+- [x] 11.3 Extract FastAPI dependency injection
   - **Location**: In extract_pydantic_models() or separate function
   - **Detection**: Look for `Depends()` calls in function parameters
   - **Example**: `def endpoint(db: Session = Depends(get_db)):` → extract dependency
 
-- [ ] 11.4 Store Pydantic data in new python_validators table
+- [x] 11.4 Store Pydantic data in new python_validators table
   - **Note**: Table doesn't exist yet, create in schema changes (task 15.1)
 
 ### 12. Flask Route Extraction
 
 **File**: `theauditor/ast_extractors/python_impl.py` (new function)
 
-- [ ] 12.1 Add `extract_flask_routes()` function
+- [x] 12.1 Add `extract_flask_routes()` function
   - **Location**: After extract_pydantic_models()
   - **Purpose**: Extract Flask route decorators
   - **Detection**: Check for `@app.route()`, `@blueprint.route()`, `@api.route()` decorators
@@ -630,26 +593,26 @@
     - Function name (handler)
   - **Test**: `@app.route('/users', methods=['GET'])` should extract route
 
-- [ ] 12.2 Detect Flask authentication/middleware decorators
+- [x] 12.2 Detect Flask authentication/middleware decorators
   - **Location**: In extract_flask_routes(), check decorators above route decorator
   - **Common patterns**: `@login_required`, `@auth_required`, `@permission_required`
   - **Store**: Flag `has_auth` if auth decorator present
   - **Example**: `@login_required` above `@app.route()` → set `has_auth=True`
 
-- [ ] 12.3 Extract Flask Blueprint hierarchy
+- [x] 12.3 Extract Flask Blueprint hierarchy
   - **Location**: Separate function or within extract_flask_routes()
   - **Detection**: `Blueprint()` constructor calls
   - **Example**: `api = Blueprint('api', __name__)` → extract blueprint definition
   - **Store**: Blueprint name, URL prefix (if available)
 
-- [ ] 12.4 Store Flask routes in new python_routes table
+- [x] 12.4 Store Flask routes in new python_routes table
   - **Note**: Table doesn't exist yet, create in schema changes (task 15.2)
 
 ### 13. FastAPI Route Extraction
 
 **File**: `theauditor/ast_extractors/python_impl.py` (new function)
 
-- [ ] 13.1 Add `extract_fastapi_routes()` function
+- [x] 13.1 Add `extract_fastapi_routes()` function
   - **Location**: After extract_flask_routes()
   - **Purpose**: Extract FastAPI route decorators
   - **Detection**: Check for `@app.get()`, `@app.post()`, `@router.get()` decorators
@@ -661,7 +624,7 @@
     - Tags, summary, description (via decorator parameters)
   - **Test**: `@app.get('/users', response_model=User)` should extract route
 
-- [ ] 13.2 Extract FastAPI dependency injection
+- [x] 13.2 Extract FastAPI dependency injection
   - **Location**: In extract_fastapi_routes(), analyze function parameters
   - **Detection**: Parameters with `Depends()` default value
   - **Example**: `db: Session = Depends(get_db)` → extract dependency injection
@@ -673,7 +636,7 @@
   - **Example**: `user_id: int = Path(...)` → extract path parameter
   - **Store**: Parameter name, type, validation constraints
 
-- [ ] 13.4 Store FastAPI routes in python_routes table (same as Flask)
+- [x] 13.4 Store FastAPI routes in python_routes table (same as Flask)
 
 ### 14. Django Model Extraction (Optional - Can Defer)
 
@@ -688,7 +651,7 @@
 
 **File**: `theauditor/indexer/schema.py`
 
-- [ ] 15.1 Add PYTHON_VALIDATORS table schema
+- [x] 15.1 Add PYTHON_VALIDATORS table schema
   - **Location**: After ORM_RELATIONSHIPS table definition (line ~384)
   - **Implementation**:
     ```python
@@ -711,7 +674,7 @@
     ```
   - **Why**: Store Pydantic field validators for framework-aware analysis
 
-- [ ] 15.2 Add PYTHON_ROUTES table schema
+- [x] 15.2 Add PYTHON_ROUTES table schema
   - **Location**: After PYTHON_VALIDATORS table definition
   - **Implementation**:
     ```python
@@ -737,7 +700,7 @@
     ```
   - **Why**: Store Flask/FastAPI routes for API endpoint analysis
 
-- [ ] 15.3 Add PYTHON_ORM_MODELS table schema
+- [x] 15.3 Add PYTHON_ORM_MODELS table schema
   - **Location**: After PYTHON_ROUTES table definition
   - **Implementation**:
     ```python
@@ -758,7 +721,7 @@
     )
     ```
 
-- [ ] 15.4 Add PYTHON_ORM_FIELDS table schema
+- [x] 15.4 Add PYTHON_ORM_FIELDS table schema
   - **Location**: After PYTHON_ORM_MODELS table definition
   - **Implementation**:
     ```python
@@ -783,7 +746,7 @@
     )
     ```
 
-- [ ] 15.5 Add PYTHON_BLUEPRINTS table schema (Flask)
+- [x] 15.5 Add PYTHON_BLUEPRINTS table schema (Flask)
   - **Location**: After PYTHON_ORM_FIELDS table definition
   - **Implementation**:
     ```python
@@ -803,7 +766,7 @@
     )
     ```
 
-- [ ] 15.6 Register all new tables in TABLES dict
+- [x] 15.6 Register all new tables in TABLES dict
   - **Location**: Bottom of schema.py, in TABLES dict
   - **Add**:
     ```python

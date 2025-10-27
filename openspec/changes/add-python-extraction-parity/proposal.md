@@ -10,7 +10,7 @@ TheAuditor's Python extraction is 75-85% behind JavaScript/TypeScript extraction
 
 1. **Type Extraction Gap**: 247 Python files indexed, 0 type annotations extracted. 69 TypeScript type annotations extracted. Python codebase **HAS** type hints (verified via grep), but the extractor ignores them entirely (`python_impl.py:54` extracts only `arg.arg`, not `arg.annotation`).
 
-2. **Framework Table Gap**: 20 JavaScript/TypeScript-specific database tables (react_components, vue_hooks, type_annotations, orm_relationships, class_properties, env_var_usage, import_styles, etc.). 0 Python-specific tables (verified via database query).
+2. **Framework Table Gap**: 20 JavaScript/TypeScript-specific database tables (react_components, vue_hooks, type_annotations, orm_relationships, class_properties, env_var_usage, import_styles, etc.). Python leverages generic `api_endpoints`, `orm_relationships`, etc. but has 0 Python-specific tables for Flask/FastAPI/Pydantic semantics (verified via database query).
 
 3. **Code Infrastructure Gap**: JavaScript extraction has 7,514 lines of code (TypeScript Compiler API semantic analysis). Python extraction has 1,615 lines (basic ast module syntactic parsing). 4.7x gap.
 
@@ -19,7 +19,7 @@ TheAuditor's Python extraction is 75-85% behind JavaScript/TypeScript extraction
 ### Real-World Impact
 
 - **Type hints ignored**: Python codebase uses type hints (`def parse_file(self, file_path: Path, language: str = None) -> Any:`), but these are completely invisible to TheAuditor. Zero semantic value extracted.
-- **Framework blind spots**: Flask routes, FastAPI dependencies, SQLAlchemy relationships, Pydantic validators - all invisible. No framework-specific analysis exists.
+- **Framework blind spots**: Current Python extractor only captures basic Flask/FastAPI route metadata (method/path/auth) and misses deeper signals like FastAPI dependencies, SQLAlchemy relationships, and Pydantic validators. No dedicated Python ORM/context tables exist.
 - **Taint analysis gaps**: No import path resolution means Python cross-file taint tracking is fundamentally broken. JavaScript has `resolved_imports` dict, Python has nothing.
 - **Intelligence degradation**: FCE (Focused Context Extraction) and RCA (Root Cause Analysis) produce inferior results for Python projects due to missing metadata.
 
