@@ -905,7 +905,7 @@
 
 - [x] 24.1 Enhance SQLAlchemy relationship extraction with bidirectional tracking
 - [x] 24.2 Extract Django ForeignKey, ManyToMany, OneToOne relationships
-- [ ] 24.3 Build relationship graph for taint analysis FK traversal
+- [ ] 24.3 Wire taint analyzer to consume `python_orm_models`, `python_orm_fields`, and `orm_relationships` for Python FK traversal
 - [x] 24.4 Store in existing orm_relationships table
 
 ### 25. Testing - Phase 3
