@@ -131,6 +131,9 @@ class IndexerOrchestrator:
             "cfg_statements": 0,
             # Type annotations
             "type_annotations": 0,
+            "type_annotations_typescript": 0,
+            "type_annotations_python": 0,
+            "type_annotations_rust": 0,
             # Configuration
             "frameworks": 0,
             "package_configs": 0,
@@ -345,8 +348,18 @@ class IndexerOrchestrator:
             base_msg += f", {self.counts['vue_directives']} Vue directives"
 
         # TypeScript type system
-        if self.counts.get('type_annotations', 0) > 0:
-            base_msg += f", {self.counts['type_annotations']} TypeScript type annotations"
+        annotation_summaries = []
+        ts_annotations = self.counts.get('type_annotations_typescript', 0)
+        py_annotations = self.counts.get('type_annotations_python', 0)
+        rs_annotations = self.counts.get('type_annotations_rust', 0)
+        if ts_annotations:
+            annotation_summaries.append(f"{ts_annotations} TypeScript")
+        if py_annotations:
+            annotation_summaries.append(f"{py_annotations} Python")
+        if rs_annotations:
+            annotation_summaries.append(f"{rs_annotations} Rust")
+        if annotation_summaries:
+            base_msg += ", type annotations: " + ", ".join(annotation_summaries)
 
         print(base_msg)
 
@@ -874,6 +887,24 @@ class IndexerOrchestrator:
                     annotation.get('return_type'),
                     annotation.get('extends_type')
                 )
+
+                language = (annotation.get('language') or '').lower()
+                if not language:
+                    ext = Path(file_path).suffix.lower()
+                    if ext in {'.ts', '.tsx', '.js', '.jsx'}:
+                        language = 'typescript'
+                    elif ext == '.py':
+                        language = 'python'
+                    elif ext == '.rs':
+                        language = 'rust'
+
+                if language in {'typescript', 'javascript'}:
+                    self.counts['type_annotations_typescript'] += 1
+                elif language == 'python':
+                    self.counts['type_annotations_python'] += 1
+                elif language == 'rust':
+                    self.counts['type_annotations_rust'] += 1
+
                 self.counts['type_annotations'] += 1
 
         # Store ORM queries

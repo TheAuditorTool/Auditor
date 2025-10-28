@@ -8,8 +8,8 @@ Schema Contract Compliance: v1.1+ (Fail-Fast, direct schema-bound queries)
 """
 
 import sqlite3
-import json
-from typing import List, Dict, Any, Optional
+from collections import defaultdict
+from typing import List, Dict, Any, Optional, Set
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
@@ -99,7 +99,9 @@ class ReactComponentAnalyzer:
             return []
 
         conn = sqlite3.connect(self.context.db_path)
+        conn.row_factory = sqlite3.Row
         self.cursor = conn.cursor()
+        self._bootstrap_component_metadata()
 
         try:
             # Run all component checks (schema contract guarantees tables exist)
@@ -173,47 +175,39 @@ class ReactComponentAnalyzer:
 
     def _check_missing_memoization(self):
         """Check for components that should be memoized but aren't."""
-        self.cursor.execute("""
-            SELECT c.file, c.name, c.type, c.start_line,
-                   c.hooks_used, c.props_type
-            FROM react_components c
-            WHERE c.type != 'memo'
-              AND c.has_jsx = 1
-              AND (
-                  c.hooks_used LIKE '%useCallback%'
-                  OR c.hooks_used LIKE '%useMemo%'
-                  OR c.props_type LIKE '%data%'
-                  OR c.props_type LIKE '%items%'
-                  OR c.props_type LIKE '%list%'
-              )
-        """)
+        performance_tokens = set(self.patterns.PERFORMANCE_PROPS)
+        memo_tokens = set(self.patterns.MEMO_CANDIDATES)
 
-        for row in self.cursor.fetchall():
-            file, name, comp_type, line, hooks, props = row
+        for component in self.components:
+            if component['type'] == 'memo' or not component['has_jsx']:
+                continue
 
-            # Check if name suggests it should be memoized
-            should_memo = False
-            reason = ''
+            name = component['name'] or ''
+            basename = self._component_basename(name)
+            normalized_basename = basename.lower()
+            key = self._component_key(component['file'], name)
 
-            if hooks and ('useCallback' in hooks or 'useMemo' in hooks):
-                should_memo = True
+            hooks = self.component_hooks.get(key, set())
+            dependency_tokens = self.component_dependencies.get(key, set())
+            prop_tokens = self._extract_prop_tokens(component['props_type'])
+
+            reason: Optional[str] = None
+            if hooks.intersection({'useCallback', 'useMemo'}):
                 reason = 'uses optimization hooks'
-            elif any(pattern in name.lower() for pattern in self.patterns.MEMO_CANDIDATES):
-                should_memo = True
+            elif any(normalized_basename.endswith(token) for token in memo_tokens):
                 reason = 'renders list/table items'
-            elif props and any(prop in props for prop in self.patterns.PERFORMANCE_PROPS):
-                should_memo = True
+            elif (dependency_tokens | prop_tokens).intersection(performance_tokens):
                 reason = 'receives data props'
 
-            if should_memo:
+            if reason:
                 self.findings.append(StandardFinding(
                     rule_name='react-missing-memo',
                     message=f'Component {name} {reason} but is not memoized',
-                    file_path=file,
-                    line=line,
+                    file_path=component['file'],
+                    line=component['start_line'] or 1,
                     severity=Severity.LOW,
                     category='react-performance',
-                    snippet=f'{comp_type} {name}',
+                    snippet=f"{component['type']} {name}",
                     confidence=Confidence.MEDIUM,
                     cwe_id='CWE-1050'
                 ))
@@ -247,29 +241,36 @@ class ReactComponentAnalyzer:
 
     def _check_missing_display_names(self):
         """Check for anonymous components without display names."""
-        self.cursor.execute("""
-            SELECT file, name, type, start_line
-            FROM react_components
-            WHERE (type IN ('arrow', 'anonymous')
-                   OR name IN ('anonymous', '_', 'Component'))
-              AND name NOT LIKE '%Component%'
-              AND name NOT LIKE '%Container%'
-        """)
+        for component in self.components:
+            name = component['name'] or ''
+            comp_type = component['type']
+            if not name:
+                continue
 
-        for row in self.cursor.fetchall():
-            file, name, comp_type, line = row
+            basename = self._component_basename(name)
+            normalized = basename.lower()
 
-            self.findings.append(StandardFinding(
-                rule_name='react-missing-display-name',
-                message=f'Component lacks meaningful display name: {name}',
-                file_path=file,
-                line=line,
-                severity=Severity.LOW,
-                category='react-component',
-                snippet=f'{comp_type} component: {name}',
-                confidence=Confidence.MEDIUM,
-                cwe_id='CWE-1078'
-            ))
+            is_anonymous_type = comp_type in ('arrow', 'anonymous')
+            is_placeholder_name = normalized in {'anonymous', '_', 'component'}
+
+            if not (is_anonymous_type or is_placeholder_name):
+                continue
+
+            if 'component' in normalized or 'container' in normalized:
+                continue
+
+            if not self._has_meaningful_display_name(basename):
+                self.findings.append(StandardFinding(
+                    rule_name='react-missing-display-name',
+                    message=f'Component lacks meaningful display name: {name}',
+                    file_path=component['file'],
+                    line=component['start_line'] or 1,
+                    severity=Severity.LOW,
+                    category='react-component',
+                    snippet=f'{comp_type} component: {name}',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-1078'
+                ))
 
     def _check_component_naming(self):
         """Check for poor component naming conventions."""
@@ -395,33 +396,137 @@ class ReactComponentAnalyzer:
 
     def _check_component_hierarchy(self):
         """Check for potential component hierarchy issues."""
-        self.cursor.execute("""
-            SELECT file,
-                   SUM(CASE WHEN name LIKE '%Container%' THEN 1 ELSE 0 END) as containers,
-                   SUM(CASE WHEN name LIKE '%Component%' THEN 1 ELSE 0 END) as components,
-                   SUM(CASE WHEN name LIKE '%Page%' THEN 1 ELSE 0 END) as pages,
-                   COUNT(*) as total
-            FROM react_components
-            GROUP BY file
-            HAVING total > 2
-        """)
+        for file_path, components in self.components_by_file.items():
+            total = len(components)
+            if total <= 2:
+                continue
 
-        for row in self.cursor.fetchall():
-            file, containers, components, pages, total = row
+            containers = 0
+            components_count = 0
+            pages = 0
 
-            # Check for mixed hierarchy levels
-            if pages > 0 and components > 0:
+            for component in components:
+                basename = self._component_basename(component['name']).lower()
+                if basename.endswith('container'):
+                    containers += 1
+                if basename.endswith('component'):
+                    components_count += 1
+                if basename.endswith('page'):
+                    pages += 1
+
+            if pages > 0 and components_count > 0:
+                first_line = min((comp['start_line'] or 1) for comp in components)
                 self.findings.append(StandardFinding(
                     rule_name='react-mixed-hierarchy',
                     message='File mixes page-level and component-level React components',
-                    file_path=file,
-                    line=1,
+                    file_path=file_path,
+                    line=first_line,
                     severity=Severity.LOW,
                     category='react-component',
-                    snippet=f'Pages: {pages}, Components: {components}',
+                    snippet=f'Pages: {pages}, Components: {components_count}, Containers: {containers}',
                     confidence=Confidence.LOW,
                     cwe_id='CWE-1066'
                 ))
+
+
+    # ------------------------------------------------------------------
+    # Metadata bootstrap & helpers
+    # ------------------------------------------------------------------
+
+    def _bootstrap_component_metadata(self) -> None:
+        """Load component-level metadata and relationship tables once."""
+        self.components: List[Dict[str, Any]] = []
+        self.components_by_file: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+
+        self.cursor.execute("""
+            SELECT file, name, type, start_line, end_line, has_jsx, props_type
+            FROM react_components
+        """)
+
+        for row in self.cursor.fetchall():
+            component = {
+                'file': row['file'],
+                'name': row['name'],
+                'type': row['type'],
+                'start_line': row['start_line'],
+                'end_line': row['end_line'],
+                'has_jsx': bool(row['has_jsx']),
+                'props_type': row['props_type'],
+            }
+            self.components.append(component)
+            self.components_by_file[component['file']].append(component)
+
+        self.component_hooks = self._load_component_hooks()
+        self.component_dependencies = self._load_component_dependencies()
+
+    def _load_component_hooks(self) -> Dict[tuple, Set[str]]:
+        """Return mapping of components to hooks used."""
+        hooks: Dict[tuple, Set[str]] = defaultdict(set)
+        self.cursor.execute("""
+            SELECT component_file, component_name, hook_name
+            FROM react_component_hooks
+        """)
+        for row in self.cursor.fetchall():
+            key = self._component_key(row['component_file'], row['component_name'])
+            hooks[key].add(row['hook_name'])
+        return hooks
+
+    def _load_component_dependencies(self) -> Dict[tuple, Set[str]]:
+        """Return mapping of components to dependency tokens."""
+        dependencies: Dict[tuple, Set[str]] = defaultdict(set)
+        self.cursor.execute("""
+            SELECT hook_file, hook_component, dependency_name
+            FROM react_hook_dependencies
+        """)
+        for row in self.cursor.fetchall():
+            normalized = self._normalize_dependency_name(row['dependency_name'])
+            if not normalized:
+                continue
+            key = self._component_key(row['hook_file'], row['hook_component'])
+            dependencies[key].add(normalized)
+        return dependencies
+
+    @staticmethod
+    def _component_key(file_path: str, name: Optional[str]) -> tuple:
+        return (file_path, name or '')
+
+    @staticmethod
+    def _component_basename(name: Optional[str]) -> str:
+        if not name:
+            return ''
+        return name.split('.')[-1]
+
+    @staticmethod
+    def _normalize_dependency_name(name: Optional[str]) -> Optional[str]:
+        if not name:
+            return None
+        token = name.split('.')[-1].strip()
+        return token.lower() if token else None
+
+    @staticmethod
+    def _extract_prop_tokens(props: Optional[str]) -> Set[str]:
+        if not props:
+            return set()
+        tokens: Set[str] = set()
+        current: List[str] = []
+        for char in props:
+            if char.isalpha():
+                current.append(char.lower())
+            else:
+                if current:
+                    tokens.add(''.join(current))
+                    current = []
+        if current:
+            tokens.add(''.join(current))
+        return tokens
+
+    def _has_meaningful_display_name(self, name: str) -> bool:
+        lowered = name.lower()
+        if lowered in self.patterns.ANONYMOUS_PATTERNS:
+            return False
+        if any(lowered.endswith(suffix.lower()) for suffix in self.patterns.COMPONENT_SUFFIXES):
+            return True
+        return len(name) >= 3 and any(char.isalpha() for char in name)
 
 
 # ============================================================================

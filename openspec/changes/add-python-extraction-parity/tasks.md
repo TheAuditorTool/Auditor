@@ -32,11 +32,11 @@
   - Document how JavaScript stores type annotations
   - Verify Python extractor can follow same pattern
   - Check indexer/__init__.py for type_annotations storage logic
-- [ ] 0.7 Test Python type hint extraction with minimal fixture
+- [x] 0.7 Test Python type hint extraction with minimal fixture
   - Create `tests/fixtures/python/type_test.py` with 5 functions using type hints
   - Run manual AST walk to verify annotation nodes are accessible
   - Document findings in verification.md
-- [ ] 0.8 Verify no blocking dependencies or conflicts
+- [x] 0.8 Verify no blocking dependencies or conflicts
   - Check for any code that assumes Python has no type annotations
   - Check taint analyzer for Python type assumptions
   - Verify adding type annotations won't break existing code
@@ -809,41 +809,41 @@
 
 **Fixtures**: Create in `tests/fixtures/python/`
 
-- [ ] 17.1 Create `sqlalchemy_app.py` - SQLAlchemy models
+- [x] 17.1 Create `sqlalchemy_app.py` - SQLAlchemy models
   - **Content**: Define 3+ models with relationships, ForeignKeys, different column types
   - **Purpose**: Test SQLAlchemy model extraction
 
-- [ ] 17.2 Create `pydantic_app.py` - Pydantic models
+- [x] 17.2 Create `pydantic_app.py` - Pydantic models
   - **Content**: Define 3+ BaseModel classes with validators, Field definitions
   - **Purpose**: Test Pydantic model extraction
 
-- [ ] 17.3 Create `flask_app.py` - Flask routes
+- [x] 17.3 Create `flask_app.py` - Flask routes
   - **Content**: Define 5+ routes with different methods, auth decorators, blueprints
   - **Purpose**: Test Flask route extraction
 
-- [ ] 17.4 Create `fastapi_app.py` - FastAPI routes
+- [x] 17.4 Create `fastapi_app.py` - FastAPI routes
   - **Content**: Define 5+ routes with dependencies, path parameters, response models
   - **Purpose**: Test FastAPI route extraction
 
 **Test Cases**: Create in `tests/test_python_framework_extraction.py`
 
-- [ ] 17.5 Test SQLAlchemy model extraction
+- [x] 17.5 Test SQLAlchemy model extraction
   - **Test**: Index sqlalchemy_app.py, query python_orm_models and python_orm_fields tables
   - **Assertions**: Models extracted, fields extracted, relationships in orm_relationships table
 
-- [ ] 17.6 Test Pydantic model extraction
+- [x] 17.6 Test Pydantic model extraction
   - **Test**: Index pydantic_app.py, query python_validators table
   - **Assertions**: BaseModel classes detected, validators extracted
 
-- [ ] 17.7 Test Flask route extraction
+- [x] 17.7 Test Flask route extraction
   - **Test**: Index flask_app.py, query python_routes table
   - **Assertions**: Routes extracted, methods correct, auth flags set, blueprints tracked
 
-- [ ] 17.8 Test FastAPI route extraction
+- [x] 17.8 Test FastAPI route extraction
   - **Test**: Index fastapi_app.py, query python_routes table
   - **Assertions**: Routes extracted, dependencies tracked, response models recorded
 
-- [ ] 17.9 Test cross-framework compatibility
+- [x] 17.9 Test cross-framework compatibility
   - **Test**: Index file with Flask + SQLAlchemy together
   - **Assertion**: Both extracted without conflicts
 
@@ -905,15 +905,15 @@
 
 - [x] 24.1 Enhance SQLAlchemy relationship extraction with bidirectional tracking
 - [x] 24.2 Extract Django ForeignKey, ManyToMany, OneToOne relationships
-- [ ] 24.3 Wire taint analyzer to consume `python_orm_models`, `python_orm_fields`, and `orm_relationships` for Python FK traversal
+- [x] 24.3 Wire taint analyzer to consume `python_orm_models`, `python_orm_fields`, and `orm_relationships` for Python FK traversal
 - [x] 24.4 Store in existing orm_relationships table
 
 ### 25. Testing - Phase 3
 
-- [ ] 25.1 Create fixtures for import resolution
-- [ ] 25.2 Create fixtures for ORM relationships
-- [ ] 25.3 Write test cases
-- [ ] 25.4 Regression testing
+- [x] 25.1 Create fixtures for import resolution
+- [x] 25.2 Create fixtures for ORM relationships
+- [x] 25.3 Write test cases
+- [x] 25.4 Regression testing
 
 ### 26. Documentation - Phase 3
 

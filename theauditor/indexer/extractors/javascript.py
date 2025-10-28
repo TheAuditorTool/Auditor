@@ -171,6 +171,7 @@ class JavaScriptExtractor(BaseExtractor):
                                 'column': func.get('col', func.get('column', 0)),
                                 'symbol_name': func.get('name', ''),
                                 'symbol_kind': 'function',
+                                'language': 'typescript',
                                 'type_annotation': func.get('type_annotation'),
                                 'is_any': func.get('is_any', False),
                                 'is_unknown': func.get('is_unknown', False),
