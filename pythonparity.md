@@ -40,6 +40,16 @@
 - Performance benchmarking tasks (tasks.md:375) remain TODO; collect data once framework enhancements settle.
 - Update CLAUDE.md once broader framework coverage/limitations are locked in (tasks.md:866).
 
+## Realworld Fixture (Do Not Remove)
+- **Location**: `tests/fixtures/python/realworld_project/` – synthetic app covering SQLAlchemy models, FastAPI + Flask routes, Pydantic validators, config imports, and service/ repository layers. The code never runs; it exists solely for extraction parity.
+- **Database verification**:
+  * `SELECT COUNT(*) FROM type_annotations WHERE file LIKE 'realworld_project/%'` → confirms annotation coverage from the fixture (expect double-digit rows).
+  * `SELECT model_name FROM python_orm_models WHERE file LIKE 'realworld_project/%'` → includes `Organization`, `User`, `Profile`, `AuditLog`.
+  * `SELECT framework, method, pattern, dependencies FROM python_routes WHERE file LIKE 'realworld_project/%'` → FastAPI routes expose dependencies `['get_repository', 'get_email_service']`; Flask blueprint surfaces under `blueprint='admin'`.
+  * `SELECT model_name, validator_method, validator_type FROM python_validators WHERE file LIKE 'realworld_project/%'` → `AccountPayload.timezone_supported` (field) and `AccountPayload.title_matches_role` (root).
+- **Regression harness**: `pytest tests/test_python_realworld_project.py -q` copies the fixture into a temp project, runs `IndexerOrchestrator`, and asserts the queries above plus resolved-import coverage. Keep this test alongside the fixture whenever parity logic changes.
+- **Dogfood usage**: When running `aud full --offline`, the fixture piggy-backs on the repo and guarantees that new extraction features (annotations, ORM relationships, dependency parsing) immediately materialize in `.pf/repo_index.db`. Never delete or rename the fixture directories; append new scenarios under the same package so historical counts remain comparable.
+
 ## Session Timeline
 
 ### Session 1 (Initiation)
