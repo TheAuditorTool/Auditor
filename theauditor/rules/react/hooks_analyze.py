@@ -107,6 +107,7 @@ class ReactHooksAnalyzer:
             return []
 
         conn = sqlite3.connect(self.context.db_path)
+        conn.row_factory = sqlite3.Row
         self.cursor = conn.cursor()
 
         try:
@@ -303,7 +304,7 @@ class ReactHooksAnalyzer:
             SELECT file, line, component_name, callback_body
             FROM react_hooks
             WHERE hook_name = 'useEffect'
-              AND (callback_body LIKE '%async%' OR callback_body LIKE '%await%')
+              AND callback_body IS NOT NULL
         """)
 
         for row in self.cursor.fetchall():
@@ -331,23 +332,24 @@ class ReactHooksAnalyzer:
             FROM react_hooks
             WHERE hook_name = 'useCallback'
               AND dependency_array = '[]'
-              AND callback_body LIKE '%setState%'
+              AND callback_body IS NOT NULL
         """)
 
         for row in self.cursor.fetchall():
             file, line, hook, component, deps, callback = row
 
-            self.findings.append(StandardFinding(
-                rule_name='react-stale-closure',
-                message='useCallback with setState and empty deps may cause stale closures',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='react-hooks',
-                snippet='useCallback with setState and []',
-                confidence=Confidence.MEDIUM,
-                cwe_id='CWE-367'
-            ))
+            if 'setState' in (callback or ''):
+                self.findings.append(StandardFinding(
+                    rule_name='react-stale-closure',
+                    message='useCallback with setState and empty deps may cause stale closures',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category='react-hooks',
+                    snippet='useCallback with setState and []',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-367'
+                ))
 
     def _check_cleanup_consistency(self):
         """Check for inconsistent cleanup patterns."""
@@ -433,19 +435,26 @@ class ReactHooksAnalyzer:
 
     def _check_custom_hook_violations(self):
         """Check custom hooks for violations."""
-        self.cursor.execute("""
+        builtin_hooks = [
+            'useState', 'useEffect', 'useContext',
+            'useReducer', 'useCallback', 'useMemo',
+            'useRef', 'useLayoutEffect', 'useImperativeHandle',
+            'useDebugValue', 'useId', 'useTransition',
+            'useDeferredValue', 'useSyncExternalStore'
+        ]
+        placeholders = ",".join("?" for _ in builtin_hooks)
+
+        self.cursor.execute(f"""
             SELECT DISTINCT file, hook_name, component_name, line
             FROM react_hooks
-            WHERE hook_name LIKE 'use%'
-              AND hook_name NOT IN ('useState', 'useEffect', 'useContext',
-                                    'useReducer', 'useCallback', 'useMemo',
-                                    'useRef', 'useLayoutEffect', 'useImperativeHandle',
-                                    'useDebugValue', 'useId', 'useTransition',
-                                    'useDeferredValue', 'useSyncExternalStore')
-        """)
+            WHERE hook_name NOT IN ({placeholders})
+        """, builtin_hooks)
 
         for row in self.cursor.fetchall():
             file, hook, component, line = row
+
+            if not hook or not hook.startswith('use'):
+                continue
 
             # Check if it starts with lowercase after 'use'
             if len(hook) > 3 and hook[3].islower():

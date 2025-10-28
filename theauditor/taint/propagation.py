@@ -26,6 +26,7 @@ from .database import (
 )
 from .interprocedural import trace_inter_procedural_flow_insensitive
 from .registry import TaintRegistry
+from .orm_utils import enhance_python_fk_taint
 
 
 # DELETED: is_sanitizer() function (14 lines)
@@ -393,6 +394,8 @@ def trace_from_source(
             else:
                 record_tainted_function(start_display_name, element)
 
+        enhance_python_fk_taint(cursor, cache, tainted_by_function)
+
         if debug_mode:
             debug_repr = {
                 name: {
@@ -526,6 +529,8 @@ def trace_from_source(
                 record_tainted_function(func_display, var_name)
             else:
                 record_tainted_function(start_display_name, element)
+
+        enhance_python_fk_taint(cursor, cache, tainted_by_function)
 
         if debug_mode:
             debug_repr = {

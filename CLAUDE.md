@@ -73,7 +73,7 @@ print('Cross-file: NO')
 
 ### ALWAYS USE THESE (WSL/Windows-compatible):
 
-✅ `python` (not python3) - Windows Python 3.13
+✅ `python` (not python3) - Windows Python 3.13 / Use pwhshell 7 not the regular powershell for shell.
 ✅ `C:/Users/santa/Desktop/TheAuditor` - Forward slashes work in WSL
 ✅ `.venv/Scripts/python.exe` - Windows-style Python executable
 ✅ `.venv/Scripts/aud.exe` - Installed executables in Scripts/
@@ -288,6 +288,14 @@ class YourLanguageExtractor(BaseExtractor):
     def extract(self, file_info, content, tree):
         # Return dict with symbols, imports, etc.
 ```
+### Python Framework Extraction (Parity Work)
+
+- **ORM models**: SQLAlchemy and Django definitions populate `python_orm_models`, `python_orm_fields`, and the shared `orm_relationships` table (bidirectional rows with cascade flags).
+- **HTTP routes**: Flask blueprints/routes and FastAPI handlers land in `python_routes` (method, auth flag, dependency metadata) and `python_blueprints`.
+- **Validation**: Pydantic decorators produce entries in `python_validators` with field vs root classification for sanitizer parity.
+- **Import resolution**: `resolved_imports` maps aliases to module paths so `refs` rows point at actual files (mirrors JS parity).
+- **Verification**: Fixtures under `tests/fixtures/python/` pair with `pytest tests/test_python_framework_extraction.py` to guard regressions.
+
 ### ABSOLUTE PROHIBITION: Fallback Logic & Regex
 
 **NO FALLBACKS. NO REGEX. NO MIGRATIONS. NO EXCEPTIONS.**

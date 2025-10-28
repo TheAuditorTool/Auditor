@@ -8,7 +8,7 @@ TheAuditor's Python extraction is 75-85% behind JavaScript/TypeScript extraction
 
  Evidence of Gap
 
-1. **Type Extraction Gap (Resolved in code, docs pending)**: Python extraction now populates 4,020 rows in `type_annotations` (aud full --offline run on 2025-10-27) matching parameter and return hints, reducing the original 0-row gap against TypeScript. Documentation/spec alignment was outstanding before this update.
+1. **Type Extraction Gap (Resolved in code, docs pending)**: Python extraction now populates 4,321 rows in `type_annotations` (aud full --offline run on 2025-10-28) matching parameter and return hints, reducing the original 0-row gap against TypeScript. Documentation/spec alignment was outstanding before this update.
 
 2. **Framework Table Gap (Mostly closed)**: New Python-specific tables (`python_orm_models`, `python_orm_fields`, `python_routes`, `python_blueprints`, `python_validators`) are live and flushed via `DatabaseManager`. JavaScript still has broader coverage (React/Vue tables, etc.), but Python frameworks now have dedicated storage instead of relying solely on generic tables.
 
@@ -20,7 +20,7 @@ TheAuditor's Python extraction is 75-85% behind JavaScript/TypeScript extraction
 
 - **Type hints surfaced**: Function and attribute annotations now flow into `type_annotations`, unlocking richer symbol metadata for Python parity customers.
 - **Framework coverage**: Flask/FastAPI routes, SQLAlchemy models, Pydantic validators, and Django relationships are captured with dedicated tables, enabling downstream analyzers to query Python frameworks similarly to JavaScript counterparts.
-- **Remaining gaps**: Python taint analyzer has not yet been wired to use the new ORM tables, and relationship extraction lacks detailed `back_populates`/`backref` semantics, limiting deeper data-flow accuracy.
+- **Remaining gaps**: Relationship extraction still relies on heuristics for detailed `back_populates`/`backref` semantics, limiting deeper data-flow accuracy.
 - **Operational considerations**: Import resolution populates `resolved_imports`, improving cross-file context, but semantic analysis (inference, type narrowing) still trails the TypeScript compiler integration.
 
 ### Current Status (2025-10-28)
@@ -29,9 +29,9 @@ TheAuditor's Python extraction is 75-85% behind JavaScript/TypeScript extraction
 - ✅ Framework tables (`python_orm_models`, `python_orm_fields`, `python_routes`, `python_blueprints`, `python_validators`) are populated during indexing.
 - ✅ `resolved_imports` mirrors JavaScript structure, enabling cross-file lookups.
 - ✅ Memory cache preloads Python ORM/routes/validator tables so taint analysis sees the new data without disk round-trips.
+- ✅ Taint propagation uses the preloaded metadata (`enhance_python_fk_taint` expands bindings such as `user.posts`, `post.tags`, `organization.users`).
 - ✅ SQLAlchemy relationship metadata captures inverse `back_populates`/`backref` links with cascade heuristics (join semantics still heuristic).
-- 🔄 Taint analyzer still ignores new Python ORM data (follow-up).
-- 🔄 Test coverage limited to `tests/fixtures/python/parity_sample.py`; broader fixtures and assertions remain TODO.
+- 🔄 Test coverage limited to purpose-built fixtures (`tests/fixtures/python/*.py`); broader real-world samples remain TODO.
 
 ### Why This Matters
 
@@ -49,7 +49,7 @@ This proposal adds Python extraction features to achieve parity with JavaScript/
 
 **Goal**: Extract Python type hints to populate `type_annotations` table
 
-**Status (2025-10-27)**: Implemented in core extraction pipeline; Python type hints now populate `type_annotations`, pending downstream consumers.
+**Status (2025-10-28)**: Implemented in core extraction pipeline; Python type hints now populate `type_annotations` and are consumed by downstream taint preprocessing.
 
 **Changes**:
 - `theauditor/ast_extractors/python_impl.py:29-57` - Add type annotation extraction to `extract_python_functions()`
@@ -74,7 +74,7 @@ This proposal adds Python extraction features to achieve parity with JavaScript/
 
 **Goal**: Add Python framework extraction matching JavaScript's React/Vue framework support
 
-**Status (2025-10-27)**: Extraction and storage for SQLAlchemy, Django, Pydantic, Flask, and FastAPI are live; further enhancements (e.g., richer relationship semantics) are tracked as follow-ups.
+**Status (2025-10-28)**: Extraction and storage for SQLAlchemy, Django, Pydantic, Flask, and FastAPI are live; taint propagation consumes the ORM data, while richer relationship semantics remain follow-up work.
 
 **Changes**:
 - `theauditor/ast_extractors/python_impl.py` - Add new extraction functions:
@@ -98,7 +98,7 @@ This proposal adds Python extraction features to achieve parity with JavaScript/
 
 **Goal**: Add import resolution and ORM relationship graph to match JavaScript capabilities
 
-**Status (2025-10-27)**: Import resolution and ORM extraction are in place; taint-engine consumption and richer `back_populates`/`backref` handling remain open.
+**Status (2025-10-28)**: Import resolution, ORM extraction, and taint-engine consumption are in place; richer `back_populates`/`backref` handling remains open.
 
 **Changes**:
 - `theauditor/ast_extractors/python_impl.py` - Import path resolution:
