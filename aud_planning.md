@@ -209,6 +209,12 @@ AI Agent Prompts: External prompts must explicitly instruct the AI agent to use 
 Integrating planning state directly into TheAuditor's database elevates it to an AI agent enablement platform. This database-centric, deterministic approach provides unparalleled speed, reliability, and ground-truth verification essential for effective AI automation. It fully realizes TheAuditor's "truth courier" mission as a tool designed for AI agents.
 
 
+
+
+
+
+
+
 ------
 
 # TheAuditor Planning Feature - Amendment 1: Handling Greenfield Development
@@ -290,3 +296,90 @@ This amendment clarifies how `aud planning` handles greenfield development by fo
 ```eof
 
 This amendment addresses the greenfield scenario by outlining a workflow where the AI agent uses your existing tools (`query`/`blueprint`) to gather *factual context* from analogous parts of the codebase, informing its generation of the *new* code, which is then tracked and verified using the database-centric planning system. It keeps `aud planning` deterministic while providing the necessary structure and verification loop. Does this align with your thinking?
+
+
+
+
+----
+
+Amendment 2
+
+Okay, here is an amendment document for `aud_planning.md` incorporating the task-based code checkpointing feature using `git diff` and the separate `planning.db`.
+
+---
+
+# TheAuditor Planning Feature - Amendment 2: Task-Based Code Checkpointing
+
+**Version:** 1.0 (Amends Design Doc v1.2 & Amendment 1)
+**Date:** 2025-10-29
+**Author:** Gemini (incorporating feedback from TheAuditorA)
+
+## A.2.1. Problem Statement: Lack of Granular, Task-Oriented Code History
+
+While `aud planning` provides task tracking, it lacks a mechanism to capture the code state *associated with* specific tasks or edits made during a task's execution. Standard Git commits provide history, but often group multiple small changes or don't align directly with individual tasks in `aud planning`, making it difficult to revert just the changes related to a single failed or exploratory task without affecting unrelated edits. This is particularly relevant when AI agents make multiple incremental changes for a single task.
+
+## A.2.2. Guiding Principles (Reiteration)
+
+* **Database is the Source of Truth:** Planning state and associated history reside in a persistent database.
+* **Leverage Existing Tools:** Utilize robust external tools like Git where appropriate, rather than reinventing core functionality.
+* **Task-Oriented Context:** History should be directly linked to tasks defined in `aud planning`.
+* **Complement Git:** This feature acts as a task-aware "local undo" or session history, complementing, **not replacing**, Git for permanent version control.
+
+## A.2.3. Proposed Solution: Git-Diff-Based Checkpointing in `planning.db`
+
+Introduce an optional checkpointing system integrated with `aud planning` that uses `git diff` to capture code changes related to specific tasks and stores them in a **separate, dedicated database (`planning.db`)**.
+
+1.  **Separate Database (`planning.db`):**
+    * **Rationale:** To prevent planning state and checkpoint history from being overwritten by `aud index` (which rebuilds `repo_index.db`) or archived by `aud full` (which moves `repo_index.db`).
+    * **Implementation:** All tables related to `aud planning` (`plans`, `plan_tasks`, `plan_specs`, and the new checkpoint tables) will reside in `.pf/planning.db`. `aud planning` commands will operate exclusively on this database.
+
+2.  **Checkpointing Workflow:**
+    * **(Optional Trigger) Task Start:** When a task status is set to `in_progress` (via `aud planning update-task`), optionally snapshot the current state of relevant files (verbatim text) into a new `code_snapshots` table in `planning.db`, linked to the `task_id`. This serves as the baseline.
+    * **(Optional Trigger) Post-Edit/Task Update:** After an agent makes an edit *or* when a task status is updated (e.g., to `done` or `failed`), the system can:
+        * Run `git diff HEAD -- <filename>` (or `git diff --no-index <previous_snapshot> <current_file>`) for the modified file(s).
+        * Store the raw textual output of `git diff` in a new `code_diffs` table in `planning.db`, linked to the `task_id` and a sequence number/timestamp.
+
+3.  **Rewind Functionality:**
+    * A new command, `aud planning rewind --task-id X [--to {base|edit_N|before_edit_N}]`, will allow reverting code changes associated with a task.
+    * **Mechanism:**
+        * Retrieve the baseline snapshot and relevant diffs from `planning.db`.
+        * Option A (Restore Forward): Restore the baseline snapshot to the working directory, then sequentially apply the stored diffs up to the desired point using `git apply` or `patch`.
+        * Option B (Reverse Apply): Attempt to apply diffs in reverse using `git apply --reverse` or `patch -R`. (More prone to conflicts).
+        * The command should likely prompt the user or require a flag like `--force` to modify the working directory.
+        * Recommend running `aud index` after rewinding to sync `repo_index.db`.
+
+## A.2.4. New Database Schema (`planning.db`)
+
+(Adds to existing `plans`, `plan_tasks`, `plan_specs` which are moved here from `repo_index.db`)
+
+* **`code_snapshots` Table:**
+    * `snapshot_id` (INTEGER, PK)
+    * `task_id` (INTEGER, FK -> plan_tasks.task_id)
+    * `file_path` (TEXT)
+    * `content` (TEXT): Full file content at the time of snapshot.
+    * `created_at` (TIMESTAMP)
+    * `snapshot_type` (TEXT): e.g., 'task_start_base'.
+
+* **`code_diffs` Table:**
+    * `diff_id` (INTEGER, PK)
+    * `task_id` (INTEGER, FK -> plan_tasks.task_id)
+    * `sequence` (INTEGER): Order of diffs within a task.
+    * `file_path` (TEXT): File the diff applies to.
+    * `diff_content` (TEXT): Raw output from `git diff`.
+    * `created_at` (TIMESTAMP)
+
+## A.2.5. Refinements to Design Document v1.2
+
+* **Section 3.1 (Database-Centric State):** Update to specify state resides in `.pf/planning.db`, separate from `repo_index.db`.
+* **Section 4 (Database Schema):** Move existing tables to `planning.db` definition and add `code_snapshots` and `code_diffs` tables.
+* **Section 5 (CLI Commands):** Add definition for `aud planning rewind`. Update `update-task` to potentially trigger snapshot/diff creation (perhaps via a `--checkpoint` flag).
+* **Section 9 (Implementation Considerations):** Add points about managing the separate `planning.db` connection, handling potential `git diff`/`git apply` errors, and storage implications. Emphasize interaction with user's Git state (working directory, staging area).
+
+## A.2.6. Benefits and Challenges
+
+* **Benefits:** Provides task-specific, granular code history; allows rollback of individual task attempts without complex Git maneuvers; leverages robust `git diff` functionality.
+* **Challenges:** Determining *what* to diff against (`HEAD` vs. previous snapshot); managing storage space for baselines and diffs; handling potential conflicts when applying diffs (`git apply`); ensuring clear interaction with the user's Git working directory and staging area.
+
+## A.2.7. Conclusion
+
+Adding optional, Git-diff-based checkpointing stored in a separate `planning.db` enhances `aud planning` by providing a task-oriented code history and rewind capability. This leverages existing Git functionality for diffing and patching while integrating tightly with the planning system's task structure, offering finer-grained control than standard Git commits alone. The separation into `planning.db` ensures persistence across code indexing operations.
