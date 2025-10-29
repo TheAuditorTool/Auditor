@@ -1,3 +1,43 @@
+###
+
+Contributing to TheAuditor
+
+Thank you for your interest in contributing!
+
+Contributions for TheAuditor are temporarily PAUSED.
+
+We are currently in the process of setting up a new, formal legal entity to hold the project's IP. This is a necessary step to support our dual-licensing model (AGPL + Commercial).
+
+During this legal transition, we cannot accept or merge ANY pull requests.
+
+We will be implementing a formal Contributor License Agreement (CLA) bot shortly. Once that is active, we will happily review all contributions.
+
+Please feel free to fork the repo and work on your changes, but we will not be able to merge them until our new legal structure is in place.
+
+Thank you for your understanding.
+
+TheAuditor Team
+Getting Started
+
+
+###
+
+We are especially looking for help with support for:
+
+GraphQL
+
+Java / Spring
+
+Go
+
+Ruby on Rails
+
+If you're unsure where to start, check out the "good first issue" or "help wanted" labels in the Issues tab.
+
+Thank you for your understanding and for helping to build TheAuditor!
+
+
+
 # Contributing to TheAuditor
 
 Thank you for your interest in contributing to TheAuditor! We're excited to have you join our mission to bring ground truth to AI-assisted development. This guide will help you get started with contributing to the project.
