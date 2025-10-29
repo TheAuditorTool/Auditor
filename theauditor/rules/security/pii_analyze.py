@@ -11,9 +11,12 @@ This implementation:
 - Provides confidence scoring based on context
 - Maps all findings to privacy regulations (15 major regulations)
 - Supports international PII formats (50+ countries)
+- Relies on normalized endpoint/storage metadata to reduce substring-based noise
 """
 
+import re
 import sqlite3
+from functools import lru_cache
 from typing import List, Set, Dict, Optional, Tuple
 from pathlib import Path
 from enum import Enum
@@ -802,6 +805,65 @@ def _organize_pii_patterns() -> Dict[str, Set[str]]:
         'quasi': QUASI_IDENTIFIERS
     }
 
+
+_CAMEL_CASE_TOKEN_RE = re.compile(r'[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+')
+
+
+def _split_identifier_tokens(value: Optional[str]) -> List[str]:
+    """Split an identifier or arbitrary string into normalized tokens."""
+    if not value:
+        return []
+
+    tokens: List[str] = []
+
+    for chunk in re.split(r'[^0-9A-Za-z]+', value):
+        if not chunk:
+            continue
+        tokens.extend(_CAMEL_CASE_TOKEN_RE.findall(chunk))
+
+    return [token.lower() for token in tokens if token]
+
+
+@lru_cache(maxsize=4096)
+def _pattern_tokens(pattern: str) -> Tuple[str, ...]:
+    return tuple(_split_identifier_tokens(pattern))
+
+
+def _match_pattern_tokens(tokens: Set[str], pattern: str) -> bool:
+    pattern_tokens = _pattern_tokens(pattern)
+    if not pattern_tokens:
+        return False
+    if len(pattern_tokens) == 1:
+        return pattern_tokens[0] in tokens
+    return all(token in tokens for token in pattern_tokens)
+
+
+def _detect_pii_matches(text: Optional[str], pii_categories: Dict[str, Set[str]]) -> List[Tuple[str, str]]:
+    tokens = set(_split_identifier_tokens(text))
+    if not tokens:
+        return []
+
+    matches: List[Tuple[str, str]] = []
+
+    for category, patterns in pii_categories.items():
+        for pattern in patterns:
+            if _match_pattern_tokens(tokens, pattern):
+                matches.append((pattern, category))
+
+    return matches
+
+
+def _detect_specific_pattern(text: Optional[str], patterns: Set[str]) -> Optional[str]:
+    tokens = set(_split_identifier_tokens(text))
+    if not tokens:
+        return None
+
+    for pattern in patterns:
+        if _match_pattern_tokens(tokens, pattern):
+            return pattern
+
+    return None
+
 # ============================================================================
 # HELPER: Determine Confidence
 # ============================================================================
@@ -914,12 +976,7 @@ def _detect_pii_in_logging(cursor, pii_categories: Dict) -> List[StandardFinding
             if not args:
                 continue
 
-            # Check for PII patterns in arguments
-            detected_pii = []
-            for category, patterns in pii_categories.items():
-                for pattern in patterns:
-                    if pattern in args.lower():
-                        detected_pii.append((pattern, category))
+            detected_pii = _detect_pii_matches(args, pii_categories)
 
             if detected_pii:
                 # Get the most critical PII type
@@ -976,12 +1033,7 @@ def _detect_pii_in_errors(cursor, pii_categories: Dict) -> List[StandardFinding]
             in_error_context = cursor.fetchone()[0] > 0
 
             if in_error_context:
-                # Check for PII in error response
-                detected_pii = []
-                for category, patterns in pii_categories.items():
-                    for pattern in patterns:
-                        if pattern in args.lower():
-                            detected_pii.append((pattern, category))
+                detected_pii = _detect_pii_matches(args, pii_categories)
 
                 if detected_pii:
                     pii_pattern, pii_category = detected_pii[0]
@@ -1029,24 +1081,24 @@ def _detect_pii_in_urls(cursor, pii_categories: Dict) -> List[StandardFinding]:
 
             # Never put these in URLs
             critical_url_pii = {'password', 'ssn', 'credit_card', 'api_key', 'token',
-                               'bank_account', 'passport', 'drivers_license'}
+                                'bank_account', 'passport', 'drivers_license'}
 
-            for pii in critical_url_pii:
-                if pii in args.lower():
-                    findings.append(StandardFinding(
-                        rule_name='pii-in-url',
-                        message=f'Critical PII in URL: {pii}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        confidence=Confidence.HIGH,
-                        category='privacy',
-                        snippet=f'{func}(...{pii}=...)',
-                        cwe_id='CWE-598',  # Use of GET Request Method with Sensitive Query Strings
-                        additional_info={
-                            'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value]
-                        }
-                    ))
+            matched = _detect_specific_pattern(args, critical_url_pii)
+            if matched:
+                findings.append(StandardFinding(
+                    rule_name='pii-in-url',
+                    message=f'Critical PII in URL: {matched}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    category='privacy',
+                    snippet=f'{func}(...{matched}=...)',
+                    cwe_id='CWE-598',  # Use of GET Request Method with Sensitive Query Strings
+                    additional_info={
+                        'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value]
+                    }
+                ))
 
     return findings
 
@@ -1074,36 +1126,34 @@ def _detect_unencrypted_pii(cursor, pii_categories: Dict) -> List[StandardFindin
             if not args:
                 continue
 
-            # Check for critical PII
-            for pii in must_encrypt:
-                if pii in args.lower():
-                    # Check if encryption is nearby
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM function_call_args
-                        WHERE file = ?
-                          AND ABS(line - ?) <= 5
-                          AND (callee_function LIKE '%encrypt%'
-                               OR callee_function LIKE '%hash%'
-                               OR callee_function LIKE '%bcrypt%')
-                    """, [file, line])
+            matched = _detect_specific_pattern(args, must_encrypt)
+            if matched:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM function_call_args
+                    WHERE file = ?
+                      AND ABS(line - ?) <= 5
+                      AND (callee_function LIKE '%encrypt%'
+                           OR callee_function LIKE '%hash%'
+                           OR callee_function LIKE '%bcrypt%')
+                """, [file, line])
 
-                    has_encryption = cursor.fetchone()[0] > 0
+                has_encryption = cursor.fetchone()[0] > 0
 
-                    if not has_encryption:
-                        findings.append(StandardFinding(
-                            rule_name='pii-unencrypted-storage',
-                            message=f'Unencrypted {pii} being stored',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.CRITICAL,
-                            confidence=Confidence.HIGH,
-                            category='privacy',
-                            snippet=f'{func}(...{pii}...)',
-                            cwe_id='CWE-311',  # Missing Encryption of Sensitive Data
-                            additional_info={
-                                'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value]
-                            }
-                        ))
+                if not has_encryption:
+                    findings.append(StandardFinding(
+                        rule_name='pii-unencrypted-storage',
+                        message=f'Unencrypted {matched} being stored',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        confidence=Confidence.HIGH,
+                        category='privacy',
+                        snippet=f'{func}(...{matched}...)',
+                        cwe_id='CWE-311',  # Missing Encryption of Sensitive Data
+                        additional_info={
+                            'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value]
+                        }
+                    ))
 
     return findings
 
@@ -1430,19 +1480,14 @@ def _detect_pii_in_apis(cursor, pii_categories: Dict) -> List[StandardFinding]:
 
     # Get all API endpoints
     cursor.execute("""
-        SELECT file, line, method, path
+        SELECT file, line, method, pattern
         FROM api_endpoints
-        WHERE path IS NOT NULL
+        WHERE pattern IS NOT NULL
         ORDER BY file, line
     """)
 
-    for file, line, method, path in cursor.fetchall():
-        # Check for PII in API path
-        detected_pii = []
-        for category, patterns in pii_categories.items():
-            for pattern in patterns:
-                if pattern in path.lower():
-                    detected_pii.append((pattern, category))
+    for file, line, method, route_pattern in cursor.fetchall():
+        detected_pii = _detect_pii_matches(route_pattern, pii_categories)
 
         if detected_pii:
             pii_pattern, pii_category = detected_pii[0]
@@ -1464,7 +1509,7 @@ def _detect_pii_in_apis(cursor, pii_categories: Dict) -> List[StandardFinding]:
                 severity=severity,
                 confidence=confidence,
                 category='privacy',
-                snippet=f'{method} {path} [{pii_pattern}]',
+                snippet=f'{method} {route_pattern} [{pii_pattern}]',
                 cwe_id='CWE-598',
                 additional_info={
                     'regulations': [r.value for r in regulations],

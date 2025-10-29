@@ -10,9 +10,11 @@ This implementation:
 - Implements multi-layer detection
 - Provides confidence scoring
 - Maps all findings to CWE IDs
+- Tokenizes call metadata from the normalized database to avoid substring collisions
 """
 
 import sqlite3
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -141,6 +143,24 @@ SECURITY_KEYWORDS = frozenset([
     'signature', 'sign', 'verify',
     'certificate', 'cert'
 ])
+
+
+_CAMEL_CASE_TOKEN_RE = re.compile(r'[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+')
+
+
+def _split_identifier_tokens(value: Optional[str]) -> List[str]:
+    """Split identifiers into normalized, lowercase tokens."""
+    if not value:
+        return []
+
+    tokens: List[str] = []
+
+    for chunk in re.split(r'[^0-9A-Za-z]+', value):
+        if not chunk:
+            continue
+        tokens.extend(_CAMEL_CASE_TOKEN_RE.findall(chunk))
+
+    return [token.lower() for token in tokens if token]
 
 # Non-security context keywords (for reducing false positives)
 NON_SECURITY_KEYWORDS = frozenset([
@@ -401,22 +421,22 @@ def _find_weak_hash_algorithms(cursor) -> List[StandardFinding]:
 # ============================================================================
 
 def _contains_alias(text: Optional[str], alias: str) -> bool:
-    """Check if text contains a cryptographic alias (no regex)."""
+    """Check if the identifier or argument contains a crypto alias token."""
     if not text:
         return False
-    lowered = text.lower()
 
-    # Special handling for DES variants with function call syntax
-    if alias in {'des', 'des3', 'tripledes', 'des-ede3', 'des-ede'}:
-        return any(
-            keyword in lowered for keyword in (
-                'des(', 'des3(', 'tripledes(', 'des-ede3(', 'des-ede('
-            )
-        )
+    text_tokens = set(_split_identifier_tokens(text))
+    if not text_tokens:
+        return False
 
-    # Simple substring matching for other aliases
-    alias_lower = alias.lower()
-    return alias_lower in lowered
+    alias_tokens = _split_identifier_tokens(alias)
+    if not alias_tokens:
+        return False
+
+    if len(alias_tokens) == 1:
+        return alias_tokens[0] in text_tokens
+
+    return all(token in text_tokens for token in alias_tokens)
 
 
 def _find_weak_encryption_algorithms(cursor) -> List[StandardFinding]:
