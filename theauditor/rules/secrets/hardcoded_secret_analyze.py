@@ -5,6 +5,7 @@ This rule demonstrates a JUSTIFIED HYBRID approach because:
 2. Base64 decoding and verification requires runtime processing
 3. Pattern matching for secret formats needs regex evaluation
 4. Sequential/keyboard pattern detection is algorithmic
+5. Normalized assignment metadata distinguishes literal secrets from dynamic sources
 
 Follows gold standard patterns (v1.1+ schema contract compliance):
 - Frozensets for O(1) pattern matching
@@ -109,6 +110,12 @@ URL_PROTOCOLS = frozenset([
     'http://', 'https://', 'ftp://', 'sftp://',
     'ssh://', 'git://', 'file://', 'data://'
 ])
+
+# Regex for detecting string literals (supports Python & JS styles)
+STRING_LITERAL_RE = re.compile(
+    r'^(?P<prefix>[rubfRUBF]*)(?P<quote>"""|\'\'\'|"|\'|`)(?P<body>.*)(?P=quote)$',
+    re.DOTALL
+)
 
 # Database protocols for connection strings
 DB_PROTOCOLS = frozenset([
@@ -261,8 +268,11 @@ def _find_secret_assignments(cursor) -> List[StandardFinding]:
     """, params)
 
     for file, line, var, value in cursor.fetchall():
-        # Clean the value
-        clean_value = value.strip().strip('\'"')
+        literal_value = _extract_string_literal(value)
+        if literal_value is None:
+            continue
+
+        clean_value = literal_value.strip()
 
         # Check for weak passwords first
         if var.lower() in ['password', 'passwd', 'pwd'] and clean_value.lower() in WEAK_PASSWORDS:
@@ -513,6 +523,37 @@ def _get_suspicious_files(cursor) -> List[str]:
 
     # Return unique files
     return list(set(suspicious_files))
+
+
+def _extract_string_literal(expr: str) -> Optional[str]:
+    """
+    Extract the inner value of a string literal expression.
+
+    Supports Python prefixes (r/u/b) and JavaScript/TypeScript string forms.
+    Returns ``None`` when the expression is not a static literal (e.g. function
+    calls, template strings, or f-strings).
+    """
+    if not expr:
+        return None
+
+    expr = expr.strip()
+    match = STRING_LITERAL_RE.match(expr)
+    if not match:
+        return None
+
+    prefix = match.group('prefix') or ''
+    quote = match.group('quote')
+    body = match.group('body')
+
+    # f-strings interpolate runtime data; they are not static literals
+    if any(ch.lower() == 'f' for ch in prefix):
+        return None
+
+    # Skip template literals with interpolation
+    if quote == '`' and '${' in body:
+        return None
+
+    return body
 
 
 def _is_likely_secret(value: str) -> bool:
