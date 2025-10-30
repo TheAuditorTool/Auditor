@@ -134,8 +134,8 @@ METADATA = RuleMetadata(
 ## 📊 AUDIT PROGRESS TRACKING
 
 **Current Folder**: github_actions/
-**Current File**: artifact_poisoning.py
-**Files Completed**: 17/62
+**Current File**: excessive_permissions.py
+**Files Completed**: 18/62
 
 ### Completed Files:
 - [x] auth/jwt_analyze.py - Passed inspection
@@ -155,6 +155,7 @@ METADATA = RuleMetadata(
 - [x] frameworks/flask_analyze.py - Passed inspection
 - [x] frameworks/nextjs_analyze.py - Passed inspection
 - [x] frameworks/react_analyze.py - Passed inspection
+- [x] github_actions/artifact_poisoning.py - Passed inspection
 
 
 ## 🎯 AUDIT ONBOARDING FOR FUTURE SESSIONS
