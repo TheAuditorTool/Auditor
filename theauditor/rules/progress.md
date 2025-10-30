@@ -134,8 +134,8 @@ METADATA = RuleMetadata(
 ## 📊 AUDIT PROGRESS TRACKING
 
 **Current Folder**: deployment/
-**Current File**: aws_cdk_s3_public_analyze.py
-**Files Completed**: 7/62
+**Current File**: compose_analyze.py
+**Files Completed**: 9/62
 
 ### Completed Files:
 - [x] auth/jwt_analyze.py - Passed inspection
@@ -145,6 +145,8 @@ METADATA = RuleMetadata(
 - [x] build/bundle_analyze.py - Passed inspection
 - [x] deployment/aws_cdk_encryption_analyze.py - Passed inspection
 - [x] deployment/aws_cdk_iam_wildcards_analyze.py - Passed inspection
+- [x] deployment/aws_cdk_s3_public_analyze.py - Passed inspection
+- [x] deployment/aws_cdk_sg_open_analyze.py - Passed inspection
 
 
 ## 🎯 AUDIT ONBOARDING FOR FUTURE SESSIONS

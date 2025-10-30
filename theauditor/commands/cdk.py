@@ -1,7 +1,7 @@
 """AWS CDK Infrastructure-as-Code security analysis commands.
 
-Commands for analyzing AWS CDK Python code, detecting infrastructure
-security misconfigurations before deployment.
+Commands for analyzing AWS CDK (Python, TypeScript, JavaScript) code, detecting
+infrastructure security misconfigurations before deployment.
 """
 
 import json
@@ -18,15 +18,16 @@ logger = setup_logger(__name__)
 def cdk():
     """Analyze AWS CDK Infrastructure-as-Code security.
 
-    Detects security misconfigurations in AWS Cloud Development Kit (CDK) Python
-    code before deployment. Findings are written to the database for querying.
+    Detects security misconfigurations in AWS Cloud Development Kit (CDK) code
+    (Python, TypeScript, JavaScript) before deployment. Findings are written to
+    the database for querying.
 
     Prerequisites:
         Run indexing first to extract CDK constructs:
           aud index       (recommended - full project indexing)
 
     Typical Workflow:
-        1. aud index                     # Extract CDK constructs from Python files
+        1. aud index                     # Extract CDK constructs from all files
         2. aud cdk analyze               # Detect security issues (writes to DB)
         3. Query .pf/repo_index.db       # Read findings from cdk_findings table
 
@@ -125,7 +126,8 @@ def analyze(root, db, severity, output_format, output):
 
     Prerequisites:
       - Run 'aud index' first to populate cdk_constructs table
-      - CDK Python files must import aws_cdk
+      - Python CDK: Files must import aws_cdk or from aws_cdk
+      - TypeScript/JavaScript CDK: Files must import from aws-cdk-lib
     """
     from ..aws_cdk.analyzer import AWSCdkAnalyzer
 

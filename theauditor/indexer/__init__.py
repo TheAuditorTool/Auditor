@@ -1415,6 +1415,58 @@ class IndexerOrchestrator:
                     self.counts['python_wtforms_fields'] = 0
                 self.counts['python_wtforms_fields'] += 1
 
+        if 'python_celery_tasks' in extracted:
+            for celery_task in extracted['python_celery_tasks']:
+                self.db_manager.add_python_celery_task(
+                    file_path,
+                    celery_task.get('line', 0),
+                    celery_task.get('task_name', ''),
+                    celery_task.get('decorator_name', 'task'),
+                    celery_task.get('arg_count', 0),
+                    celery_task.get('bind', False),
+                    celery_task.get('serializer'),  # nullable
+                    celery_task.get('max_retries'),  # nullable
+                    celery_task.get('rate_limit'),  # nullable
+                    celery_task.get('time_limit'),  # nullable
+                    celery_task.get('queue')  # nullable
+                )
+                if 'python_celery_tasks' not in self.counts:
+                    self.counts['python_celery_tasks'] = 0
+                self.counts['python_celery_tasks'] += 1
+
+        if 'python_celery_task_calls' in extracted:
+            for task_call in extracted['python_celery_task_calls']:
+                self.db_manager.add_python_celery_task_call(
+                    file_path,
+                    task_call.get('line', 0),
+                    task_call.get('caller_function', '<module>'),
+                    task_call.get('task_name', ''),
+                    task_call.get('invocation_type', 'delay'),
+                    task_call.get('arg_count', 0),
+                    task_call.get('has_countdown', False),
+                    task_call.get('has_eta', False),
+                    task_call.get('queue_override')  # nullable
+                )
+                if 'python_celery_task_calls' not in self.counts:
+                    self.counts['python_celery_task_calls'] = 0
+                self.counts['python_celery_task_calls'] += 1
+
+        if 'python_celery_beat_schedules' in extracted:
+            for beat_schedule in extracted['python_celery_beat_schedules']:
+                self.db_manager.add_python_celery_beat_schedule(
+                    file_path,
+                    beat_schedule.get('line', 0),
+                    beat_schedule.get('schedule_name', ''),
+                    beat_schedule.get('task_name', ''),
+                    beat_schedule.get('schedule_type', 'unknown'),
+                    beat_schedule.get('schedule_expression'),  # nullable
+                    beat_schedule.get('args'),  # nullable
+                    beat_schedule.get('kwargs')  # nullable
+                )
+                if 'python_celery_beat_schedules' not in self.counts:
+                    self.counts['python_celery_beat_schedules'] = 0
+                self.counts['python_celery_beat_schedules'] += 1
+
         if 'python_validators' in extracted:
             for validator in extracted['python_validators']:
                 self.db_manager.add_python_validator(

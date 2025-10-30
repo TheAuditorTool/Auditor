@@ -1024,21 +1024,28 @@ aud full                       # Includes all Terraform analysis
 
 ### AWS CDK Analysis (`theauditor/aws_cdk/`)
 
-**Purpose:** Infrastructure as Code (IaC) security analysis for AWS Cloud Development Kit (Python) configurations.
+**Purpose:** Infrastructure as Code (IaC) security analysis for AWS Cloud Development Kit (Python, TypeScript, JavaScript) configurations.
 
-TheAuditor provides complete CDK support with database-first architecture and zero fallbacks, enabling security analysis of cloud infrastructure definitions written in Python.
+TheAuditor provides complete CDK support with database-first architecture and zero fallbacks, enabling security analysis of cloud infrastructure definitions written in Python, TypeScript, and JavaScript.
 
 **Components:**
 
-1. **CDK Extractor** (`theauditor/ast_extractors/python/cdk_extractor.py`):
-   - Python AST-based CDK construct detection
-   - Extracts S3 buckets, RDS instances, security groups, IAM policies
-   - Uses ast.unparse() for property value serialization
-   - Handles missing construct names (nullable fields)
+1. **CDK Extractors**:
+   - **Python** (`theauditor/ast_extractors/python/cdk_extractor.py`):
+     - Python AST-based CDK construct detection
+     - Extracts S3 buckets, RDS instances, security groups, IAM policies
+     - Uses ast.unparse() for property value serialization
+     - Handles missing construct names (nullable fields)
+   - **TypeScript/JavaScript** (`theauditor/ast_extractors/javascript/security_extractors.js`):
+     - Detects `new X(...)` expressions from aws-cdk-lib imports
+     - Extracts construct properties from object literals
+     - Handles namespace imports, named imports, and direct imports
+     - Integrated into 5-layer JavaScript extraction pipeline
 
-2. **PythonExtractor Integration** (`theauditor/indexer/extractors/python.py`):
-   - CDK extraction integrated into existing Python extractor
-   - Automatic detection on all Python files (no import check overhead)
+2. **Extractor Integration**:
+   - **Python** (`theauditor/indexer/extractors/python.py`): CDK extraction integrated into Python extractor
+   - **JavaScript** (`theauditor/indexer/extractors/javascript.py`): CDK extraction integrated into JavaScript extractor
+   - Automatic detection on all .py, .ts, .js files
    - Generates unique construct_id: `{file}::L{line}::{class}::{name}`
    - Populates 3 database tables: cdk_constructs, cdk_construct_properties, cdk_findings
 
@@ -1092,6 +1099,7 @@ aud full                       # Includes all CDK analysis (Stage 2)
 
 **Detection Examples:**
 
+Python:
 ```python
 # CRITICAL: Public S3 bucket detected
 bucket = s3.Bucket(self, "MyBucket", public_read_access=True)
@@ -1102,9 +1110,19 @@ db = rds.DatabaseInstance(self, "DB", storage_encrypted=False)
 # CRITICAL: Open security group
 sg = ec2.SecurityGroup(self, "SG")
 sg.add_ingress_rule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22))
+```
 
-# HIGH: IAM wildcard permissions
-policy = iam.PolicyStatement(actions=["*"], resources=["*"])
+TypeScript:
+```typescript
+// CRITICAL: Public S3 bucket detected
+new s3.Bucket(this, "MyBucket", { publicReadAccess: true });
+
+// HIGH: Unencrypted RDS instance
+new rds.DatabaseInstance(this, "DB", { storageEncrypted: false });
+
+// CRITICAL: Open security group
+const sg = new ec2.SecurityGroup(this, "SG", { vpc });
+sg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22));
 ```
 
 ### Framework Detection (`theauditor/framework_detector.py`)

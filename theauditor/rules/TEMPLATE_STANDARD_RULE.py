@@ -4,6 +4,18 @@
 RULE TEMPLATE DOCUMENTATION
 ================================================================================
 
+⚠️ CRITICAL: FUNCTION NAMING REQUIREMENT
+--------------------------------------------------------------------------------
+Your rule function MUST start with 'find_' prefix:
+  ✅ def find_sql_injection(context: StandardRuleContext)
+  ✅ def find_hardcoded_secrets(context: StandardRuleContext)
+  ❌ def analyze(context: StandardRuleContext)  # WRONG - Won't be discovered!
+  ❌ def detect_xss(context: StandardRuleContext)  # WRONG - Must start with find_
+
+The orchestrator ONLY discovers functions starting with 'find_'. Any other
+name will be silently ignored and your rule will never run.
+--------------------------------------------------------------------------------
+
 ⚠️ CRITICAL: StandardFinding PARAMETER NAMES
 --------------------------------------------------------------------------------
 ALWAYS use these EXACT parameter names when creating findings:
@@ -12,7 +24,7 @@ ALWAYS use these EXACT parameter names when creating findings:
   ✅ cwe_id=        (NOT cwe=)
   ✅ severity=Severity.HIGH (NOT severity='HIGH')
 
-Using wrong names will cause RUNTIME CRASHES. See examples at line 233.
+Using wrong names will cause RUNTIME CRASHES. See examples at line 250.
 --------------------------------------------------------------------------------
 
 This template is for STANDARD RULES that analyze backend code, databases, or
@@ -124,10 +136,11 @@ class YourRulePatterns:
 # MAIN DETECTION FUNCTION - REQUIRED SIGNATURE
 # ============================================================================
 # This is the entry point called by the orchestrator.
+# Function name MUST start with 'find_' (orchestrator requirement).
 # Signature MUST be: (context: StandardRuleContext) -> List[StandardFinding]
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def find_your_rule_name(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect [YOUR VULNERABILITY TYPE] using database-only approach.
 
     REQUIRED DOCSTRING STRUCTURE:
@@ -169,15 +182,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     cursor = conn.cursor()
 
     try:
-        # Check if required tables exist (graceful degradation)
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        available_tables = {row[0] for row in cursor.fetchall()}
-
-        if 'function_call_args' not in available_tables:
-            # Table doesn't exist - return empty (don't error)
-            return findings
-
-        # Run detection checks (modular functions for clarity)
+        # NO TABLE CHECKS - Database MUST be correct (ZERO FALLBACK POLICY)
+        # If query fails, it means database is wrong and SHOULD crash
         findings.extend(_check_dangerous_calls(cursor, patterns))
         findings.extend(_check_user_input_flow(cursor, patterns))
         # Add more checks as needed
@@ -332,11 +338,11 @@ def _get_framework_safe_sinks(conn, framework_name: str) -> frozenset:
 # ============================================================================
 #
 # 1. Test on plant project:
-#    python -c "from theauditor.rules.your_rule import analyze;
+#    python -c "from theauditor.rules.your_rule import find_your_rule_name;
 #               from theauditor.rules.base import StandardRuleContext;
 #               from pathlib import Path;
 #               ctx = StandardRuleContext(db_path='C:/Users/santa/Desktop/plant/.pf/repo_index.db');
-#               findings = analyze(ctx);
+#               findings = find_your_rule_name(ctx);
 #               print(f'Found {len(findings)} issues');
 #               [print(f'  {f.file_path}:{f.line} - {f.message}') for f in findings[:5]]"
 #
