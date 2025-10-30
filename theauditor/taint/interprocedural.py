@@ -89,6 +89,15 @@ def trace_inter_procedural_flow_insensitive(
         }
 
     paths: List[TaintPath] = []
+
+    # PHASE 3: Two-Pass Hybrid Architecture (Stage 2)
+    # Flow graph stores predecessor links for path reconstruction
+    taint_flow_graph: Dict[tuple[str, str, str], Set[tuple[str, str, str]]] = defaultdict(set)
+
+    # PHASE 3: Initialize source var in flow graph
+    source_state = (source_file, source_function, source_var)
+    taint_flow_graph[source_state].add(("SOURCE", "SOURCE", origin_source["pattern"]))
+
     debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_DEBUG")
 
     if debug:
@@ -96,14 +105,15 @@ def trace_inter_procedural_flow_insensitive(
         print(f"  Source '{source_var}' in {source_function} at {source_file}:{source_line}", file=sys.stderr)
 
     # Worklist stores the state to be processed:
-    # (current_var, current_function, current_file, depth, path_so_far)
-    worklist: List[tuple[str, str, str, int, list]] = [(source_var, source_function, source_file, 0, [])]
+    # (current_var, current_function, current_file, depth)
+    # PHASE 3: Removed path from worklist (now in taint_flow_graph)
+    worklist: List[tuple[str, str, str, int]] = [(source_var, source_function, source_file, 0)]
 
     # visited prevents re-processing the same state (file, function, var) to avoid cycles.
     visited: Set[tuple[str, str, str]] = set()
 
     while worklist:
-        current_var, current_func, current_file, depth, path = worklist.pop(0)
+        current_var, current_func, current_file, depth = worklist.pop(0)
 
         if depth > max_depth:
             continue
@@ -152,8 +162,26 @@ def trace_inter_procedural_flow_insensitive(
                     if sink_hit:
                         if debug:
                             print(f"[INTER-PROCEDURAL-S2] VULNERABILITY FOUND: '{current_var}' reaches sink '{sink['pattern']}'", file=sys.stderr)
-                        vuln_path = path + [{"type": "sink_reached", "func": current_func, "var": current_var, "sink": sink["pattern"], "line": sink["line"]}]
-                        paths.append(TaintPath(source=origin_source.copy(), sink=sink, path=vuln_path))
+
+                        # PHASE 3: Reconstruct path using taint_flow_graph
+                        reconstructed_path = _reconstruct_path(
+                            taint_flow_graph,
+                            current_file,
+                            current_func,
+                            current_var,
+                            origin_source["pattern"]
+                        )
+
+                        # Add final sink_reached step
+                        reconstructed_path.append({
+                            "type": "sink_reached",
+                            "func": current_func,
+                            "var": current_var,
+                            "sink": sink["pattern"],
+                            "line": sink["line"]
+                        })
+
+                        paths.append(TaintPath(source=origin_source.copy(), sink=sink, path=reconstructed_path))
 
         # 2. Propagate taint to other functions (cross-file).
         # Find all function calls within the current function that use the tainted variable as an argument.
@@ -203,7 +231,7 @@ def trace_inter_procedural_flow_insensitive(
             if debug and callee_file != current_file:
                 print(f"[INTER-PROCEDURAL-S2] Cross-file call: {current_file} -> {callee_file} ({current_func} -> {callee_func})", file=sys.stderr)
 
-            new_path = path + [{"type": "argument_pass", "from_file": current_file, "from_func": current_func, "to_file": callee_file, "to_func": callee_func, "var": current_var, "param": param_name, "line": call_line}]
+            # PHASE 3: Remove new_path construction (now use flow graph)
 
             propagated_names: Set[str] = set()
             if param_name:
@@ -223,7 +251,12 @@ def trace_inter_procedural_flow_insensitive(
                 propagated_names.add(param_name or current_var)
 
             for propagated_var in propagated_names:
-                worklist.append((propagated_var, callee_func, callee_file, depth + 1, new_path))
+                # PHASE 3: Record predecessor in flow graph
+                target_state = (callee_file, callee_func, propagated_var)
+                source_state = (current_file, current_func, current_var)
+                taint_flow_graph[target_state].add(source_state)
+
+                worklist.append((propagated_var, callee_func, callee_file, depth + 1))
 
         # 3. Propagate taint through return values.
         # Find if the current tainted variable is returned by the current function.
@@ -251,10 +284,102 @@ def trace_inter_procedural_flow_insensitive(
                 caller_file = caller_file.replace('\\', '/')
                 if debug:
                     print(f"[INTER-PROCEDURAL-S2] Return flow: '{current_var}' from {current_func} is assigned to '{target_var}' in {caller_func} at {caller_file}:{call_line}", file=sys.stderr)
-                new_path = path + [{"type": "return_flow", "from_file": current_file, "from_func": current_func, "to_file": caller_file, "to_func": caller_func, "return_var": current_var, "target_var": target_var, "line": call_line}]
-                worklist.append((target_var, caller_func, caller_file, depth + 1, new_path))
+
+                # PHASE 3: Record predecessor in flow graph
+                target_state = (caller_file, caller_func, target_var)
+                source_state = (current_file, current_func, current_var)
+                taint_flow_graph[target_state].add(source_state)
+
+                worklist.append((target_var, caller_func, caller_file, depth + 1))
 
     return paths
+
+
+def _reconstruct_path(
+    flow_graph: Dict[tuple[str, str, str], Set[tuple[str, str, str]]],
+    sink_file: str,
+    sink_func: str,
+    sink_var: str,
+    source_pattern: str,
+    max_depth: int = 20
+) -> List[Dict[str, Any]]:
+    """
+    PHASE 2: Reconstruct taint propagation path by backtracking through flow graph.
+
+    Args:
+        flow_graph: Predecessor map {(file, func, var) -> {(source_file, source_func, source_var), ...}}
+        sink_file: File containing the sink
+        sink_func: Function containing the sink
+        sink_var: Variable that reached the sink
+        source_pattern: Original source pattern to stop at
+        max_depth: Maximum backtracking depth to prevent infinite loops
+
+    Returns:
+        List of path steps from source to sink, in forward chronological order
+    """
+    path = []
+    current = (sink_file, sink_func, sink_var)
+    visited = set()
+    depth = 0
+
+    debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
+
+    if debug:
+        print(f"[PATH-RECON] Starting reconstruction from sink: {sink_func}.{sink_var} at {sink_file}", file=sys.stderr)
+
+    while current in flow_graph and depth < max_depth:
+        if current in visited:
+            if debug:
+                print(f"[PATH-RECON] Cycle detected at {current[1]}.{current[2]}", file=sys.stderr)
+            break
+        visited.add(current)
+
+        predecessors = flow_graph[current]
+        if not predecessors:
+            if debug:
+                print(f"[PATH-RECON] No predecessors for {current[1]}.{current[2]}", file=sys.stderr)
+            break
+
+        # Pick first predecessor (could enumerate all for multiple paths)
+        predecessor = next(iter(predecessors))
+
+        # Stop if we've reached the source
+        if predecessor[2] == source_pattern or predecessor[1] == "SOURCE":
+            if debug:
+                print(f"[PATH-RECON] Reached source: {predecessor[2]}", file=sys.stderr)
+            break
+
+        # Determine step type based on file/func change
+        if predecessor[0] != current[0] or predecessor[1] != current[1]:
+            # Cross-function flow
+            step_type = "cfg_call"
+        else:
+            # Intra-function flow
+            step_type = "intra_procedural_flow"
+
+        path.append({
+            "type": step_type,
+            "from_file": predecessor[0],
+            "from_func": predecessor[1],
+            "from_var": predecessor[2],
+            "to_file": current[0],
+            "to_func": current[1],
+            "to_var": current[2]
+        })
+
+        if debug:
+            print(f"[PATH-RECON] Step {depth}: {predecessor[1]}.{predecessor[2]} -> {current[1]}.{current[2]} ({step_type})", file=sys.stderr)
+
+        current = predecessor
+        depth += 1
+
+    # Reverse to get forward chronological order (source -> sink)
+    path = list(reversed(path))
+
+    if debug:
+        print(f"[PATH-RECON] Reconstructed {len(path)} steps", file=sys.stderr)
+
+    return path
 
 
 def trace_inter_procedural_flow_cfg(
@@ -302,6 +427,12 @@ def trace_inter_procedural_flow_cfg(
     # Key: (file, func, var) -> Value: {(source_file, source_func, source_var), ...}
     taint_flow_graph: Dict[tuple[str, str, str], Set[tuple[str, str, str]]] = defaultdict(set)
 
+    # PHASE 2: Initialize source vars in flow graph
+    # Mark source vars as originating from SOURCE marker
+    for source_var in source_vars:
+        source_state = (source_file, source_function, source_var)
+        taint_flow_graph[source_state].add(("SOURCE", "SOURCE", source_info["pattern"]))
+
     debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
 
     if debug:
@@ -346,6 +477,10 @@ def trace_inter_procedural_flow_cfg(
 
         # PHASE 1: Callback override logic removed (depended on call_path)
         # Callbacks will be handled through flow graph reconstruction in Phase 2
+
+        # Keep raw names for callback detection (line 676 uses these)
+        raw_func_name = current_func
+        raw_file = current_file
 
         original_func_name = current_func
         normalized_file = current_file.replace("\\", "/")
@@ -415,14 +550,25 @@ def trace_inter_procedural_flow_cfg(
                                 if debug:
                                     print(f"[INTER-CFG-S3] VULNERABILITY FOUND: '{tainted_var}' reaches sink '{sink['pattern']}' via intra-procedural flow", file=sys.stderr)
 
-                                # PHASE 2 TODO: Reconstruct path using taint_flow_graph
-                                # For now, create path with placeholder - will be replaced in Phase 2
-                                vuln_path = [
-                                    {"type": "TODO_PHASE2", "note": "Path reconstruction will be implemented in Phase 2"},
-                                    {"type": "sink_reached", "func": current_func, "var": tainted_var, "sink": sink["pattern"], "line": sink["line"]}
-                                ]
+                                # PHASE 2: Reconstruct path using taint_flow_graph
+                                reconstructed_path = _reconstruct_path(
+                                    taint_flow_graph,
+                                    current_file,
+                                    current_func,
+                                    tainted_var,
+                                    source_info["pattern"]
+                                )
 
-                                path_obj = TaintPath(source=source_info.copy(), sink=sink, path=vuln_path)
+                                # Add final sink_reached step
+                                reconstructed_path.append({
+                                    "type": "sink_reached",
+                                    "func": current_func,
+                                    "var": tainted_var,
+                                    "sink": sink["pattern"],
+                                    "line": sink["line"]
+                                })
+
+                                path_obj = TaintPath(source=source_info.copy(), sink=sink, path=reconstructed_path)
                                 path_obj.flow_sensitive = True
                                 paths.append(path_obj)
                                 break  # Found path for this sink, stop checking other vars
