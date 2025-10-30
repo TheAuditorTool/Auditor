@@ -1,0 +1,33 @@
+name: NPM Publish Vulnerable
+
+# VULN: pull_request_target with NPM_TOKEN access
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  contents: write  # VULN: Write permissions in untrusted context
+  packages: write  # VULN: Can publish to npm/GitHub Packages
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # VULN: Early checkout of untrusted PR code
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # VULN: Unpinned action with secrets
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+      - run: npm test
+
+      # VULN: Publishing from untrusted PR context with NPM_TOKEN
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
