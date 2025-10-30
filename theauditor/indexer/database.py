@@ -442,6 +442,20 @@ class DatabaseManager:
                     if batch:
                         print(f"[DEBUG] Table '{table_name}' has {len(batch)} pending records", file=sys.stderr)
 
+                # If cdk_constructs failure, show actual construct_ids
+                if "cdk_constructs.construct_id" in str(e):
+                    if 'cdk_constructs' in self.generic_batches:
+                        print(f"[DEBUG] CDK construct_ids in batch:", file=sys.stderr)
+                        from collections import Counter
+                        construct_ids = [record[0] for record in self.generic_batches['cdk_constructs']]
+                        duplicates = {k: v for k, v in Counter(construct_ids).items() if v > 1}
+                        for construct_id in sorted(set(construct_ids)):
+                            count = construct_ids.count(construct_id)
+                            if count > 1:
+                                print(f"[DEBUG]   DUPLICATE (x{count}): {construct_id}", file=sys.stderr)
+                            else:
+                                print(f"[DEBUG]   {construct_id}", file=sys.stderr)
+
             if batch_idx is not None:
                 raise RuntimeError(f"Batch insert failed at file index {batch_idx}: {e}")
             else:
@@ -905,6 +919,54 @@ class DatabaseManager:
             field_type,
             1 if has_validators else 0,
             1 if has_custom_validator else 0
+        ))
+
+    def add_python_celery_task(self, file_path: str, line: int, task_name: str, decorator_name: str,
+                               arg_count: int, bind: bool, serializer: str, max_retries: int,
+                               rate_limit: str, time_limit: int, queue: str):
+        """Add a Celery task definition to the batch."""
+        self.generic_batches['python_celery_tasks'].append((
+            file_path,
+            line,
+            task_name,
+            decorator_name,
+            arg_count,
+            1 if bind else 0,
+            serializer,  # nullable
+            max_retries,  # nullable
+            rate_limit,  # nullable
+            time_limit,  # nullable
+            queue  # nullable
+        ))
+
+    def add_python_celery_task_call(self, file_path: str, line: int, caller_function: str, task_name: str,
+                                      invocation_type: str, arg_count: int, has_countdown: bool,
+                                      has_eta: bool, queue_override: str):
+        """Add a Celery task invocation to the batch."""
+        self.generic_batches['python_celery_task_calls'].append((
+            file_path,
+            line,
+            caller_function,
+            task_name,
+            invocation_type,
+            arg_count,
+            1 if has_countdown else 0,
+            1 if has_eta else 0,
+            queue_override  # nullable
+        ))
+
+    def add_python_celery_beat_schedule(self, file_path: str, line: int, schedule_name: str, task_name: str,
+                                         schedule_type: str, schedule_expression: str, args: str, kwargs: str):
+        """Add a Celery Beat periodic schedule to the batch."""
+        self.generic_batches['python_celery_beat_schedules'].append((
+            file_path,
+            line,
+            schedule_name,
+            task_name,
+            schedule_type,
+            schedule_expression,  # nullable
+            args,  # nullable
+            kwargs  # nullable
         ))
 
     def add_sql_object(self, file_path: str, kind: str, name: str):

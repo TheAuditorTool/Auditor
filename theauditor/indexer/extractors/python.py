@@ -98,6 +98,10 @@ class PythonExtractor(BaseExtractor):
             # WTForms validation
             'python_wtforms_forms': [],  # WTForms form definitions
             'python_wtforms_fields': [],  # WTForms field definitions
+            # Celery background tasks
+            'python_celery_tasks': [],  # Celery task definitions
+            'python_celery_task_calls': [],  # Celery task invocations
+            'python_celery_beat_schedules': [],  # Celery Beat periodic schedules
         }
         seen_symbols = set()
         
@@ -262,6 +266,21 @@ class PythonExtractor(BaseExtractor):
                 wtforms_fields = python_impl.extract_wtforms_fields(tree, self.ast_parser)
                 if wtforms_fields:
                     result['python_wtforms_fields'].extend(wtforms_fields)
+
+                # Celery Tasks
+                celery_tasks = python_impl.extract_celery_tasks(tree, self.ast_parser)
+                if celery_tasks:
+                    result['python_celery_tasks'].extend(celery_tasks)
+
+                # Celery Task Calls
+                celery_task_calls = python_impl.extract_celery_task_calls(tree, self.ast_parser)
+                if celery_task_calls:
+                    result['python_celery_task_calls'].extend(celery_task_calls)
+
+                # Celery Beat Schedules
+                celery_beat_schedules = python_impl.extract_celery_beat_schedules(tree, self.ast_parser)
+                if celery_beat_schedules:
+                    result['python_celery_beat_schedules'].extend(celery_beat_schedules)
 
                 # AWS CDK Infrastructure-as-Code constructs
                 cdk_constructs = python_impl.extract_python_cdk_constructs(tree, self.ast_parser)

@@ -124,6 +124,9 @@ from .framework_extractors import (
     extract_drf_serializer_fields,
     extract_wtforms_forms,
     extract_wtforms_fields,
+    extract_celery_tasks,
+    extract_celery_task_calls,
+    extract_celery_beat_schedules,
     # Constants and helpers (for backward compatibility)
     FASTAPI_HTTP_METHODS,
     _extract_fastapi_dependencies,
@@ -196,6 +199,9 @@ __all__ = [
     'extract_drf_serializer_fields',
     'extract_wtforms_forms',
     'extract_wtforms_fields',
+    'extract_celery_tasks',
+    'extract_celery_task_calls',
+    'extract_celery_beat_schedules',
     # CFG extractor
     'extract_python_cfg',
     # CDK extractor
