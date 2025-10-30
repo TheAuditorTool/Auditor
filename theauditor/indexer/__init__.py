@@ -1467,6 +1467,22 @@ class IndexerOrchestrator:
                     self.counts['python_celery_beat_schedules'] = 0
                 self.counts['python_celery_beat_schedules'] += 1
 
+        if 'python_generators' in extracted:
+            for generator in extracted['python_generators']:
+                self.db_manager.add_python_generator(
+                    file_path,
+                    generator.get('line', 0),
+                    generator.get('generator_type', 'function'),
+                    generator.get('name', ''),
+                    generator.get('yield_count', 0),
+                    generator.get('has_yield_from', False),
+                    generator.get('has_send', False),
+                    generator.get('is_infinite', False)
+                )
+                if 'python_generators' not in self.counts:
+                    self.counts['python_generators'] = 0
+                self.counts['python_generators'] += 1
+
         if 'python_validators' in extracted:
             for validator in extracted['python_validators']:
                 self.db_manager.add_python_validator(
