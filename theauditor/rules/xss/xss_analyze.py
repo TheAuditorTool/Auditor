@@ -180,13 +180,17 @@ def _check_response_methods(conn, safe_sinks: FrozenSet[str], frameworks: Set[st
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
-        WHERE (f.callee_function LIKE 'res.%'
-               OR f.callee_function LIKE 'response.%')
-          AND f.argument_index = 0
+        WHERE f.argument_index = 0
+          AND f.callee_function IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter in Python: Check if function is a response method
+        is_response_method = func.startswith('res.') or func.startswith('response.')
+        if not is_response_method:
+            continue
+
         # CRITICAL: Skip if it's a framework-safe sink
         if func in safe_sinks:
             continue
@@ -236,13 +240,17 @@ def _check_dom_manipulation(conn, safe_sinks: FrozenSet[str]) -> List[StandardFi
     cursor.execute("""
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
-        WHERE (a.target_var LIKE '%.innerHTML%'
-               OR a.target_var LIKE '%.outerHTML%')
+        WHERE a.target_var IS NOT NULL
           AND a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, target, source in cursor.fetchall():
+        # Filter in Python: Check for innerHTML or outerHTML
+        has_dangerous_property = '.innerHTML' in target or '.outerHTML' in target
+        if not has_dangerous_property:
+            continue
+
         # Check for user input
         has_user_input = any(src in (source or '') for src in USER_INPUT_SOURCES)
         has_sanitizer = any(san in (source or '') for san in COMMON_SANITIZERS)
@@ -288,12 +296,16 @@ def _check_dom_manipulation(conn, safe_sinks: FrozenSet[str]) -> List[StandardFi
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
-        WHERE f.callee_function LIKE '%insertAdjacentHTML%'
-          AND f.argument_index = 1
+        WHERE f.argument_index = 1
+          AND f.callee_function IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter in Python: Check for insertAdjacentHTML
+        if 'insertAdjacentHTML' not in func:
+            continue
+
         has_user_input = any(src in (args or '') for src in USER_INPUT_SOURCES)
         has_sanitizer = any(san in (args or '') for san in COMMON_SANITIZERS)
 
@@ -351,11 +363,16 @@ def _check_dangerous_functions(conn) -> List[StandardFinding]:
         FROM function_call_args f
         WHERE f.callee_function IN ('setTimeout', 'setInterval')
           AND f.argument_index = 0
-          AND (f.argument_expr LIKE '"%' OR f.argument_expr LIKE "'%")
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter in Python: Check if argument is a string literal
+        is_string_literal = args.startswith('"') or args.startswith("'")
+        if not is_string_literal:
+            continue
+
         # String argument to setTimeout/setInterval is evaluated
         has_user_input = any(src in (args or '') for src in USER_INPUT_SOURCES)
 
@@ -387,11 +404,15 @@ def _check_react_dangerouslysetinnerhtml(conn) -> List[StandardFinding]:
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
-        WHERE a.source_expr LIKE '%dangerouslySetInnerHTML%'
+        WHERE a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, source in cursor.fetchall():
+        # Filter in Python: Check for dangerouslySetInnerHTML
+        if 'dangerouslySetInnerHTML' not in (source or ''):
+            continue
+
         # Check if user input is involved
         has_user_input = any(src in (source or '') for src in USER_INPUT_SOURCES)
         has_props = 'props.' in (source or '') or 'this.props' in (source or '')
@@ -421,14 +442,19 @@ def _check_react_dangerouslysetinnerhtml(conn) -> List[StandardFinding]:
     # If we have React component data, do deeper analysis
     if cursor.fetchone():
         cursor.execute("""
-            SELECT f.file, f.line, f.argument_expr
+            SELECT f.file, f.line, f.callee_function, f.param_name, f.argument_expr
             FROM function_call_args f
-            WHERE f.callee_function LIKE '%dangerouslySetInnerHTML%'
-               OR f.param_name = 'dangerouslySetInnerHTML'
+            WHERE f.callee_function IS NOT NULL
+               OR f.param_name IS NOT NULL
             ORDER BY f.file, f.line
         """)
 
-        for file, line, args in cursor.fetchall():
+        for file, line, callee, param, args in cursor.fetchall():
+            # Filter in Python: Check for dangerouslySetInnerHTML
+            is_dangerous = ('dangerouslySetInnerHTML' in (callee or '')) or (param == 'dangerouslySetInnerHTML')
+            if not is_dangerous:
+                continue
+
             if args and '__html' in args:
                 has_user_input = any(src in args for src in USER_INPUT_SOURCES)
                 if has_user_input:
@@ -504,29 +530,39 @@ def _check_angular_bypass(conn) -> List[StandardFinding]:
         'bypassSecurityTrustResourceUrl'
     ]
 
-    for method in bypass_methods:
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function LIKE ?
-              AND f.argument_index = 0
-            ORDER BY f.file, f.line
-        """, [f'%{method}%'])
+    # Fetch all function calls, filter in Python
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.argument_index = 0
+          AND f.callee_function IS NOT NULL
+        ORDER BY f.file, f.line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            has_user_input = any(src in (args or '') for src in USER_INPUT_SOURCES)
+    for file, line, func, args in cursor.fetchall():
+        # Filter in Python: Check if function contains any bypass method
+        matched_method = None
+        for method in bypass_methods:
+            if method in func:
+                matched_method = method
+                break
 
-            if has_user_input:
-                findings.append(StandardFinding(
-                    rule_name='xss-angular-bypass',
-                    message=f'XSS: Angular {method} with user input bypasses security',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='xss',
-                    snippet=f'{func}({args[:60]}...)' if len(args or '') > 60 else f'{func}({args})',
-                    cwe_id='CWE-79'
-                ))
+        if not matched_method:
+            continue
+
+        has_user_input = any(src in (args or '') for src in USER_INPUT_SOURCES)
+
+        if has_user_input:
+            findings.append(StandardFinding(
+                rule_name='xss-angular-bypass',
+                message=f'XSS: Angular {matched_method} with user input bypasses security',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='xss',
+                snippet=f'{func}({args[:60]}...)' if len(args or '') > 60 else f'{func}({args})',
+                cwe_id='CWE-79'
+            ))
 
     return findings
 
@@ -546,34 +582,44 @@ def _check_jquery_methods(conn) -> List[StandardFinding]:
         '.replaceWith', '.wrap', '.wrapInner'
     ]
 
-    for method in jquery_dangerous_methods:
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function LIKE ?
-              AND f.argument_index = 0
-            ORDER BY f.file, f.line
-        """, [f'%{method}%'])
+    # Fetch all function calls, filter in Python
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.argument_index = 0
+          AND f.callee_function IS NOT NULL
+        ORDER BY f.file, f.line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            # Check if it's actually jQuery ($ or jQuery prefix)
-            if '$' not in func and 'jQuery' not in func:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if it's actually jQuery ($ or jQuery prefix)
+        if '$' not in func and 'jQuery' not in func:
+            continue
 
-            has_user_input = any(src in (args or '') for src in USER_INPUT_SOURCES)
-            has_sanitizer = any(san in (args or '') for san in COMMON_SANITIZERS)
+        # Filter in Python: Check if function contains any dangerous jQuery method
+        matched_method = None
+        for method in jquery_dangerous_methods:
+            if method in func:
+                matched_method = method
+                break
 
-            if has_user_input and not has_sanitizer:
-                findings.append(StandardFinding(
-                    rule_name='xss-jquery-dom',
-                    message=f'XSS: jQuery {method} with user input',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='xss',
-                    snippet=f'{func}({args[:60]}...)' if len(args or '') > 60 else f'{func}({args})',
-                    cwe_id='CWE-79'
-                ))
+        if not matched_method:
+            continue
+
+        has_user_input = any(src in (args or '') for src in USER_INPUT_SOURCES)
+        has_sanitizer = any(san in (args or '') for san in COMMON_SANITIZERS)
+
+        if has_user_input and not has_sanitizer:
+            findings.append(StandardFinding(
+                rule_name='xss-jquery-dom',
+                message=f'XSS: jQuery {matched_method} with user input',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='xss',
+                snippet=f'{func}({args[:60]}...)' if len(args or '') > 60 else f'{func}({args})',
+                cwe_id='CWE-79'
+            ))
 
     return findings
 
@@ -619,11 +665,15 @@ def _check_template_injection(conn, frameworks: Set[str]) -> List[StandardFindin
             SELECT f.file, f.line, f.callee_function, f.argument_expr
             FROM function_call_args f
             WHERE f.callee_function IN ('ejs.render', 'ejs.compile', 'res.render')
-              AND f.argument_expr LIKE '%<%-%'
+              AND f.argument_expr IS NOT NULL
             ORDER BY f.file, f.line
         """)
 
         for file, line, func, args in cursor.fetchall():
+            # Filter in Python: Check for unescaped EJS syntax
+            if '<%-%' not in args:
+                continue
+
             # <%- is unescaped in EJS
             findings.append(StandardFinding(
                 rule_name='xss-ejs-unescaped',
@@ -649,34 +699,43 @@ def _check_direct_user_input_to_sink(conn, safe_sinks: FrozenSet[str]) -> List[S
     cursor = conn.cursor()
 
     # Find direct taint source to sink flows
-    for dangerous_sink in UNIVERSAL_DANGEROUS_SINKS:
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function LIKE ?
-              AND f.argument_index = 0
-            ORDER BY f.file, f.line
-        """, [f'%{dangerous_sink}%'])
+    cursor.execute("""
+        SELECT f.file, f.line, f.callee_function, f.argument_expr
+        FROM function_call_args f
+        WHERE f.argument_index = 0
+          AND f.callee_function IS NOT NULL
+        ORDER BY f.file, f.line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            # Skip if it's a safe sink (shouldn't happen but be defensive)
-            if func in safe_sinks:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Skip if it's a safe sink (shouldn't happen but be defensive)
+        if func in safe_sinks:
+            continue
 
-            # Direct check for user input patterns
-            for source in USER_INPUT_SOURCES:
-                if source in (args or ''):
-                    findings.append(StandardFinding(
-                        rule_name='xss-direct-taint',
-                        message=f'XSS: Direct user input ({source}) to dangerous sink ({dangerous_sink})',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category='xss',
-                        snippet=f'{func}({source}...)',
-                        cwe_id='CWE-79'
-                    ))
-                    break
+        # Filter in Python: Check if function contains any dangerous sink
+        matched_sink = None
+        for dangerous_sink in UNIVERSAL_DANGEROUS_SINKS:
+            if dangerous_sink in func:
+                matched_sink = dangerous_sink
+                break
+
+        if not matched_sink:
+            continue
+
+        # Direct check for user input patterns
+        for source in USER_INPUT_SOURCES:
+            if source in (args or ''):
+                findings.append(StandardFinding(
+                    rule_name='xss-direct-taint',
+                    message=f'XSS: Direct user input ({source}) to dangerous sink ({matched_sink})',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category='xss',
+                    snippet=f'{func}({source}...)',
+                    cwe_id='CWE-79'
+                ))
+                break
 
     return findings
 
@@ -694,13 +753,22 @@ def _check_url_javascript_protocol(conn) -> List[StandardFinding]:
     cursor.execute("""
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
-        WHERE (a.target_var LIKE '%.href%' OR a.target_var LIKE '%.src%')
-          AND (a.source_expr LIKE '%javascript:%'
-               OR a.source_expr LIKE '%data:text/html%')
+        WHERE a.target_var IS NOT NULL
+          AND a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, target, source in cursor.fetchall():
+        # Filter in Python: Check for href or src assignment
+        is_url_property = '.href' in target or '.src' in target
+        if not is_url_property:
+            continue
+
+        # Filter in Python: Check for javascript: or data: protocol
+        has_dangerous_protocol = 'javascript:' in source or 'data:text/html' in source
+        if not has_dangerous_protocol:
+            continue
+
         has_user_input = any(src in (source or '') for src in USER_INPUT_SOURCES)
 
         if has_user_input:
@@ -717,18 +785,22 @@ def _check_url_javascript_protocol(conn) -> List[StandardFinding]:
 
     # Check setAttribute for href/src
     cursor.execute("""
-        SELECT f1.file, f1.line, f1.argument_expr as attr_name, f2.argument_expr as attr_value
+        SELECT f1.file, f1.line, f1.callee_function, f1.argument_expr as attr_name, f2.argument_expr as attr_value
         FROM function_call_args f1
         JOIN function_call_args f2 ON f1.file = f2.file AND f1.line = f2.line
-        WHERE f1.callee_function LIKE '%.setAttribute%'
-          AND f1.argument_index = 0
-          AND f2.callee_function LIKE '%.setAttribute%'
+        WHERE f1.argument_index = 0
           AND f2.argument_index = 1
           AND f1.argument_expr IN ("'href'", '"href"', "'src'", '"src"')
+          AND f1.callee_function IS NOT NULL
+          AND f2.callee_function IS NOT NULL
         ORDER BY f1.file, f1.line
     """)
 
-    for file, line, attr, value in cursor.fetchall():
+    for file, line, callee, attr, value in cursor.fetchall():
+        # Filter in Python: Check if both callees are setAttribute
+        if 'setAttribute' not in callee:
+            continue
+
         if 'javascript:' in (value or '') or 'data:text/html' in (value or ''):
             has_user_input = any(src in value for src in USER_INPUT_SOURCES)
 
@@ -760,13 +832,17 @@ def _check_postmessage_xss(conn) -> List[StandardFinding]:
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
-        WHERE f.callee_function LIKE '%postMessage%'
-          AND f.argument_index = 1
+        WHERE f.argument_index = 1
           AND (f.argument_expr = "'*'" OR f.argument_expr = '"*"')
+          AND f.callee_function IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, target_origin in cursor.fetchall():
+        # Filter in Python: Check for postMessage
+        if 'postMessage' not in func:
+            continue
+
         findings.append(StandardFinding(
             rule_name='xss-postmessage-origin',
             message="XSS: postMessage with targetOrigin '*' allows any origin",
@@ -779,30 +855,45 @@ def _check_postmessage_xss(conn) -> List[StandardFinding]:
         ))
 
     # Check message event handlers without origin validation
+    message_data_patterns = ['event.data', 'message.data']
+    dangerous_operations = ['.innerHTML', 'eval(', 'Function(']
+
     cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
+        SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
-        WHERE (a.source_expr LIKE '%event.data%'
-               OR a.source_expr LIKE '%message.data%')
-          AND (a.target_var LIKE '%.innerHTML%'
-               OR a.source_expr LIKE '%eval(%'
-               OR a.source_expr LIKE '%Function(%')
+        WHERE a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
-    for file, line, source in cursor.fetchall():
+    for file, line, target, source in cursor.fetchall():
+        # Filter in Python: Check if source contains message data
+        has_message_data = any(pattern in source for pattern in message_data_patterns)
+        if not has_message_data:
+            continue
+
+        # Filter in Python: Check if target or source contains dangerous operation
+        has_dangerous_op = any(op in (target or '') for op in dangerous_operations) or \
+                          any(op in source for op in dangerous_operations)
+        if not has_dangerous_op:
+            continue
+
         # Check if there's origin validation
         # This is a heuristic - look for event.origin check nearby
+        origin_patterns = ['event.origin', 'message.origin']
+
         cursor.execute("""
-            SELECT COUNT(*)
-            FROM assignments a2
-            WHERE a2.file = ?
-              AND ABS(a2.line - ?) <= 5
-              AND (a2.source_expr LIKE '%event.origin%'
-                   OR a2.source_expr LIKE '%message.origin%')
+            SELECT source_expr
+            FROM assignments
+            WHERE file = ?
+              AND ABS(line - ?) <= 5
+              AND source_expr IS NOT NULL
         """, [file, line])
 
-        has_origin_check = cursor.fetchone()[0] > 0
+        has_origin_check = False
+        for (nearby_source,) in cursor.fetchall():
+            if any(pattern in nearby_source for pattern in origin_patterns):
+                has_origin_check = True
+                break
 
         if not has_origin_check:
             findings.append(StandardFinding(
@@ -817,3 +908,16 @@ def _check_postmessage_xss(conn) -> List[StandardFinding]:
             ))
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_xss_issues(context)

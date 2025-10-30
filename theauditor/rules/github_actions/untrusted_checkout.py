@@ -65,12 +65,17 @@ def find_untrusted_checkout_sequence(context: StandardRuleContext) -> List[Stand
         cursor.execute("""
             SELECT workflow_path, workflow_name, on_triggers
             FROM github_workflows
-            WHERE on_triggers LIKE '%pull_request_target%'
+            WHERE on_triggers IS NOT NULL
         """)
 
         for workflow_row in cursor.fetchall():
             workflow_path = workflow_row['workflow_path']
             workflow_name = workflow_row['workflow_name']
+            on_triggers = workflow_row['on_triggers'] or ''
+
+            # Filter in Python: Check for pull_request_target trigger
+            if 'pull_request_target' not in on_triggers:
+                continue
 
             # Step 2: Check all jobs in this workflow for early checkout
             cursor.execute("""
@@ -155,11 +160,13 @@ def _check_untrusted_ref(step_id: str, with_args: str, cursor) -> bool:
         FROM github_step_references
         WHERE step_id = ?
         AND reference_location = 'with'
-        AND reference_path LIKE 'github.event.pull_request.head%'
+        AND reference_path IS NOT NULL
     """, (step_id,))
 
-    if cursor.fetchone():
-        return True
+    # Filter in Python: Check if reference_path starts with untrusted prefix
+    for (reference_path,) in cursor.fetchall():
+        if reference_path.startswith('github.event.pull_request.head'):
+            return True
 
     return False
 

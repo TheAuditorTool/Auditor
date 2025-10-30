@@ -68,12 +68,17 @@ def find_artifact_poisoning_risk(context: StandardRuleContext) -> List[StandardF
         cursor.execute("""
             SELECT workflow_path, workflow_name, on_triggers
             FROM github_workflows
-            WHERE on_triggers LIKE '%pull_request_target%'
+            WHERE on_triggers IS NOT NULL
         """)
 
         for workflow_row in cursor.fetchall():
             workflow_path = workflow_row['workflow_path']
             workflow_name = workflow_row['workflow_name']
+            on_triggers = workflow_row['on_triggers'] or ''
+
+            # Filter in Python: Check for pull_request_target trigger
+            if 'pull_request_target' not in on_triggers:
+                continue
 
             # Find upload jobs (jobs with actions/upload-artifact)
             cursor.execute("""
