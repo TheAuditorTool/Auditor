@@ -1171,3 +1171,79 @@ Implement Marshmallow schema extraction with parity to Node.js validation framew
 **Session Duration:** ~45 minutes (including 2 debugging cycles)
 
 **Next Session:** DRF Serializers (Block 2, Session 2 of 3)
+
+---
+
+## Interlude: Python callee_file_path Taint Fix (2025-10-30)
+
+**NOT part of Phase 2 (extraction parity) - Infrastructure fix for taint analysis**
+
+### Problem
+Taint AI reported Python extractor was NOT populating `callee_file_path` in `function_call_args` table, making cross-file taint analysis impossible. TypeScript had 99.85% population, Python had 0%.
+
+### Root Cause
+`extract_python_calls_with_args()` in `core_extractors.py:487` was creating call records but never looked up callee file paths from resolved imports. The `_resolve_imports()` method existed and worked correctly, but wasn't being passed to the call extractor.
+
+### Fix Applied
+**Modified 2 files:**
+
+1. **theauditor/ast_extractors/python/core_extractors.py** (+68 lines)
+   - Added `resolved_imports` parameter to `extract_python_calls_with_args()` signature
+   - Added cross-file resolution logic (lines 528-540):
+     - Strategy 1: Direct name lookup (trace_from_source → theauditor/taint/propagation.py)
+     - Strategy 2: Module.method lookup (service.create → service module path)
+     - Strategy 3: Dotted prefix (obj.method → try "obj" in imports)
+   - Added `callee_file_path` to returned call dict
+
+2. **theauditor/indexer/extractors/python.py** (+7 lines)
+   - Bypass base AST parser to call Python extractor directly with `resolved_imports`
+   - Pass `result.get('resolved_imports', {})` computed at line 104
+
+### Results (verified on TheAuditor self-analysis)
+**Before:** 0% populated (all NULL)
+**After:** 18% populated (5,625 / 30,805 calls)
+
+**Breakdown:**
+- Project calls (cross-file within TheAuditor): 97 (0.3%)
+- Stdlib calls (sqlite3, pytest, pathlib, etc.): 5,528 (17.9%)
+- Unresolved (stdlib without local files): 25,180 (81.8%)
+
+**Cross-file examples working:**
+```
+theauditor/commands/planning.py:288
+  verify_task() → verification.verify_task_spec
+  resolved to: theauditor/planning/verification.py
+
+theauditor/indexer/extractors/python.py:339
+  extract() → python_impl.extract_pydantic_validators
+  resolved to: theauditor/ast_extractors/python/__init__.py
+```
+
+**Comparison to Plant (Node.js):**
+- Plant: 85% populated (15,131 / 17,699 calls)
+- Controller → Service flow working: `account.controller.ts:15` → `accountService.listAccounts` → resolved to `account.service.ts`
+
+### Impact on Taint Analysis
+**Unblocked:** Stage 3 interprocedural taint analysis can now:
+- Traverse cross-file Python calls (97 project calls available)
+- Build multi-hop taint paths (Controller → Service → Database)
+- Reconstruct taint flows using `_reconstruct_path()` in interprocedural.py
+
+**Why 18% vs TypeScript's 85%?**
+- Python has more stdlib imports (5,528 vs ~2,000 for Node.js)
+- TheAuditor uses lots of external packages (click, pathlib, ast) that resolve to package names, not files
+- This is EXPECTED - cross-file project calls (97) are what matter for taint analysis
+
+### Files Modified (pythonparity branch)
+- theauditor/ast_extractors/python/core_extractors.py (+68 lines)
+- theauditor/indexer/extractors/python.py (+7 lines)
+
+**Code Stats:** +75 lines total
+
+**Status:** Fix complete and verified. Taint AI can now proceed with cross-file Python taint analysis.
+
+---
+
+## Resuming Phase 2: Block 2 - Validation Frameworks
+
+**Where we left off:** Session 16 (Marshmallow) complete, next is Session 17 (DRF Serializers)

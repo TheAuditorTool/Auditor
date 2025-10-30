@@ -1,0 +1,34 @@
+name: Unpinned Setup Node
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # VULN: Unpinned to mutable @v3 tag (should use SHA)
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      # VULN: Unpinned pnpm action with secrets
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - run: pnpm install
+
+      # VULN: Using secrets with unpinned actions
+      - run: pnpm test
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      # VULN: Third-party action from external org with mutable version
+      - uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

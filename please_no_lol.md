@@ -987,3 +987,179 @@ Once BOTH blockers resolved:
 
 **Architecture Status**: ✅ Complete and verified
 **Production Readiness**: ⏳ Waiting for data layer fixes
+
+---
+
+## TEST FIXTURES FOR VERIFICATION
+
+Since real-world projects (TheAuditor, Plant) don't demonstrate cross-file taint flows, dedicated test fixtures were created to verify both fixes work correctly.
+
+### Python Cross-File Taint Fixture
+
+**Location**: `tests/fixtures/python/cross_file_taint/`
+
+**Structure**:
+```
+controller.py  (SOURCES: request.args, request.json, URL params)
+    ↓
+service.py     (PROPAGATION: SearchService methods)
+    ↓
+database.py    (SINKS: cursor.execute, sqlite3 operations)
+```
+
+**Test Paths**:
+1. `request.args.get('query')` → `search_service.search()` → `cursor.execute(sql)`
+2. `request.view_args['user_id']` → `search_service.get_user_by_id()` → `cursor.execute(sql)`
+3. `request.json.get('filter')` → `search_service.filter_records()` → `cursor.execute(sql)`
+
+**Verifies**:
+- ✅ Python callee_file_path resolution (pythonparity's fix)
+- ✅ Stage 3 cross-file traversal
+- ✅ Path reconstruction through 3 files
+- ✅ SQL injection detection with cross-file propagation
+
+**Files Created**:
+- `controller.py` (62 lines) - Flask endpoints with taint sources
+- `service.py` (51 lines) - Business logic that propagates taint
+- `database.py` (93 lines) - Database operations with SQL injection sinks
+
+---
+
+### TypeScript Cross-File Taint Fixture
+
+**Location**: `tests/fixtures/typescript/cross_file_taint/`
+
+**Structure**:
+```
+controller.ts  (SOURCES: req.query, req.params, req.body)
+    ↓
+service.ts     (PROPAGATION: SearchService methods)
+    ↓
+database.ts    (SINKS: connection.query IN TRY BLOCKS)
+```
+
+**Test Paths**:
+1. `req.query.search` → `searchService.search()` → `connection.query(sql)` [lines 30-42 try block]
+2. `req.params.id` → `searchService.getUserById()` → `connection.execute(sql)` [lines 51-63 try block]
+3. `req.body.filter` → `searchService.filterRecords()` → `connection.query(sql)` [lines 72-84 try block]
+4. Nested try blocks [lines 117-138]
+5. Try-finally blocks [lines 147-156]
+
+**CRITICAL: All sinks are inside try blocks** to specifically test the TypeScript CFG fix that ensures try block bodies have proper line ranges (e.g., lines 30-42) instead of single-line markers (e.g., line 30 only).
+
+**Verifies**:
+- ✅ TypeScript callee_file_path resolution (already working)
+- ✅ CFG try block fix (ultrathink's fix - typescript_impl.py:2091-2136)
+- ✅ PathAnalyzer finds sinks inside try blocks
+- ✅ Stage 3 cross-file traversal
+- ✅ Path reconstruction through 3 files
+- ✅ SQL injection detection with try block CFG support
+
+**Files Created**:
+- `controller.ts` (83 lines) - Express controllers with taint sources
+- `service.ts` (86 lines) - Service layer that propagates taint
+- `database.ts` (168 lines) - Database operations with sinks IN TRY BLOCKS
+- `package.json` - Dependencies for TypeScript compilation
+- `tsconfig.json` - TypeScript configuration
+- `README.md` - Documentation of test cases
+
+---
+
+## VERIFICATION INSTRUCTIONS
+
+### 1. Index Test Fixtures
+
+**Python**:
+```bash
+cd tests/fixtures/python/cross_file_taint
+aud index
+```
+
+**TypeScript** (requires reindex with CFG fix):
+```bash
+cd tests/fixtures/typescript/cross_file_taint
+aud index
+```
+
+### 2. Run Taint Analysis
+
+**Python**:
+```bash
+cd tests/fixtures/python/cross_file_taint
+aud taint
+```
+
+**Expected Results**:
+- Cross-file paths: 3+ (controller → service → database)
+- Stage 3 paths with reconstruction: 3+ paths with new step types
+- SQL injection vulnerabilities detected
+
+**TypeScript**:
+```bash
+cd tests/fixtures/typescript/cross_file_taint
+aud taint
+```
+
+**Expected Results**:
+- Cross-file paths: 5+ (controller → service → database)
+- Stage 3 paths with reconstruction: 5+ paths with new step types
+- Sinks found inside try blocks (lines 35, 56, 77, etc.)
+- SQL injection vulnerabilities detected
+
+### 3. Verify Database Quality
+
+**Python - Check callee_file_path**:
+```python
+import sqlite3
+conn = sqlite3.connect('.pf/repo_index.db')
+cursor = conn.cursor()
+
+cursor.execute('''
+    SELECT file, callee_function, callee_file_path
+    FROM function_call_args
+    WHERE callee_file_path LIKE '%service%'
+       OR callee_file_path LIKE '%database%'
+''')
+for row in cursor.fetchall():
+    print(f'{row[0]} → {row[1]} (resolved: {row[2]})')
+```
+
+**Expected**: All cross-file calls have populated callee_file_path
+
+**TypeScript - Check CFG try blocks**:
+```python
+import sqlite3
+conn = sqlite3.connect('.pf/repo_index.db')
+cursor = conn.cursor()
+
+cursor.execute('''
+    SELECT function_name, start_line, end_line
+    FROM cfg_blocks
+    WHERE block_type = 'try'
+       AND file LIKE '%database.ts'
+''')
+for row in cursor.fetchall():
+    span = row[2] - row[1]
+    print(f'{row[0]}: lines {row[1]}-{row[2]} (span: {span} lines)')
+```
+
+**Expected**: Try blocks span multiple lines (>5), not single-line markers
+
+---
+
+## SUCCESS CRITERIA
+
+### Python Fix (pythonparity)
+- ✅ callee_file_path populated for cross-file calls
+- ✅ Stage 3 traverses controller → service → database
+- ✅ Cross-file taint paths appear in taint_analysis.json
+- ✅ Path reconstruction shows 3-hop flow
+
+### TypeScript Fix (ultrathink)
+- ✅ Try blocks span proper line ranges (not single-line)
+- ✅ PathAnalyzer finds sinks at lines 35, 56, 77 (inside try blocks)
+- ✅ Stage 3 traverses controller → service → database
+- ✅ Cross-file taint paths appear in taint_analysis.json
+- ✅ Path reconstruction shows 3-hop flow with try blocks
+
+**Final Verdict Pending**: Run `aud index && aud taint` on fixtures after next reindex to confirm both fixes work end-to-end.

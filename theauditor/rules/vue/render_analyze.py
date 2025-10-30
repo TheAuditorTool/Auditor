@@ -152,24 +152,28 @@ def _get_vue_files(cursor) -> Set[str]:
 
     # Check files table by extension
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT DISTINCT path, ext
         FROM files
-        WHERE path LIKE '%.vue'
-           OR (path LIKE '%.js%' AND path LIKE '%vue%')
-           OR (path LIKE '%.ts%' AND path LIKE '%vue%')
+        WHERE ext IN ('.vue', '.js', '.ts')
     """)
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Filter in Python for Vue files
+    for path, ext in cursor.fetchall():
+        path_lower = path.lower()
+        if ext == '.vue' or (ext in ('.js', '.ts') and 'vue' in path_lower):
+            vue_files.add(path)
 
     # Also check for Vue patterns in symbols
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT DISTINCT path, name
         FROM symbols
-        WHERE name LIKE '%Vue%'
-           OR name LIKE '%v-for%'
-           OR name LIKE '%v-if%'
-           OR name LIKE '%template%'
+        WHERE name IS NOT NULL
     """)
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    # Filter in Python for Vue patterns
+    for path, name in cursor.fetchall():
+        if any(pattern in name for pattern in ['Vue', 'v-for', 'v-if', 'template']):
+            vue_files.add(path)
 
     return vue_files
 

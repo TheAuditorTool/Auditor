@@ -252,6 +252,15 @@ Session 16 - Marshmallow Schemas ✅ COMPLETE (2025-10-30)
 
 **Validation Block Status:** 1/3 sessions done (Marshmallow ✅, DRF pending, validation patterns pending)
 
+**Interlude: Python callee_file_path Infrastructure Fix** (2025-10-30)
+- NOT part of Phase 2 scope - urgent taint analysis fix
+- Python extractor was populating 0% of callee_file_path (TypeScript: 99.85%)
+- Fixed extract_python_calls_with_args() to use resolved_imports for cross-file resolution
+- Result: Python now 18% populated (5,625 / 30,805 calls), 97 cross-file project calls working
+- Unblocked Stage 3 interprocedural taint analysis (Controller → Service → Database flows)
+- Files modified: core_extractors.py (+68), python.py (+7)
+- See pythonparity.md "Interlude: Python callee_file_path Taint Fix" for full details
+
 **Phase 2.5: Background Tasks & Templates** - PROPOSED
 - Focus: Celery tasks, Jinja2/Django templates
 - Estimated: 2-3 sessions

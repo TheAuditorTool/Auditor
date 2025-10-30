@@ -1,0 +1,35 @@
+name: Node Script Injection
+
+on:
+  pull_request_target:
+  issue_comment:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # VULN: PR title directly in shell script (command injection)
+      - name: Check PR title
+        run: |
+          echo "Analyzing PR: ${{ github.event.pull_request.title }}"
+          npm run lint -- --message "${{ github.event.pull_request.title }}"
+
+      # VULN: Issue comment body in script (attacker-controlled)
+      - name: Process comment
+        if: github.event_name == 'issue_comment'
+        run: |
+          COMMENT="${{ github.event.comment.body }}"
+          echo "Processing: $COMMENT"
+          npm run process -- "$COMMENT"
+
+      # VULN: Branch name in script (can contain shell metacharacters)
+      - name: Deploy preview
+        run: |
+          BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
+          npm run deploy -- --branch $BRANCH_NAME --env preview
