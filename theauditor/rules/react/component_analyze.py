@@ -314,15 +314,26 @@ class ReactComponentAnalyzer:
 
     def _check_no_jsx_components(self):
         """Check for components that don't return JSX."""
+        # JOIN with react_component_hooks to check if component uses hooks
         self.cursor.execute("""
-            SELECT file, name, type, start_line, has_jsx, hooks_used
-            FROM react_components
-            WHERE has_jsx = 0
-              AND (hooks_used IS NULL OR hooks_used = '[]')
+            SELECT
+                rc.file,
+                rc.name,
+                rc.type,
+                rc.start_line,
+                rc.has_jsx,
+                COUNT(rch.hook_name) as hook_count
+            FROM react_components rc
+            LEFT JOIN react_component_hooks rch
+                ON rc.file = rch.component_file
+                AND rc.name = rch.component_name
+            WHERE rc.has_jsx = 0
+            GROUP BY rc.file, rc.name, rc.type, rc.start_line, rc.has_jsx
+            HAVING hook_count = 0
         """)
 
         for row in self.cursor.fetchall():
-            file, name, comp_type, line, has_jsx, hooks = row
+            file, name, comp_type, line, has_jsx, hook_count = row
 
             self.findings.append(StandardFinding(
                 rule_name='react-no-jsx',

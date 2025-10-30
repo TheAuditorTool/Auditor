@@ -147,13 +147,17 @@
 - [x] 14.7 Create `python_django_views`, `python_django_forms`, `python_django_form_fields`, `python_django_admin`, `python_django_middleware` tables (5 tables added)
 - [x] 14.8 Build Django test fixtures (Sessions 12-15, ~543 lines across 4 fixtures)
 
-### 15. Add Celery Task Extraction ✅ COMPLETE (Session 19)
-- [x] 15.1 Add `extract_celery_tasks()` to `framework_extractors.py` (105 lines)
-- [x] 15.2 Detect `@task`, `@shared_task`, `@app.task` decorators
-- [x] 15.3 Extract task name, queue, retry settings, rate_limit, time_limit, serializer
-- [ ] 15.4 Detect task chains (`chain()`, `group()`, `chord()`) (DEFERRED - complex AST pattern)
-- [x] 15.5 Create `python_celery_tasks` table in schema.py (11 columns, 4 indexes)
-- [x] 15.6 Build Celery test fixture (135 lines, 15 tasks)
+### 15. Add Celery Block Extraction ✅ COMPLETE (Sessions 19-21 - Block 3)
+- [x] 15.1 Add `extract_celery_tasks()` to `framework_extractors.py` (Session 19, 105 lines)
+- [x] 15.2 Detect `@task`, `@shared_task`, `@app.task` decorators (Session 19)
+- [x] 15.3 Extract task name, queue, retry settings, rate_limit, time_limit, serializer (Session 19)
+- [x] 15.4 Detect task invocations: `delay()`, `apply_async()`, Canvas primitives (Session 20, 102 lines)
+- [x] 15.5 Add `extract_celery_task_calls()` - chain(), group(), chord() detection (Session 20)
+- [x] 15.6 Add `extract_celery_beat_schedules()` - periodic tasks, crontab, @periodic_task (Session 21, 116 lines)
+- [x] 15.7 Create 3 Celery tables: python_celery_tasks, python_celery_task_calls, python_celery_beat_schedules (11 indexes total)
+- [x] 15.8 Build 3 Celery test fixtures (411 lines total: 135 tasks + 156 calls + 120 schedules)
+
+**Block 3 Summary:** 3 new Celery tables, 829 lines production code, 411 lines test fixtures, comprehensive coverage (tasks, invocations, schedules)
 
 ### 15A. **ADDITIONAL WORK: Validation Frameworks Block (Sessions 16-18) ✅ COMPLETE**
 **NOTE:** Sessions 16-18 were NOT in the original Phase 2 proposal. Added as focused work block for validation framework parity.

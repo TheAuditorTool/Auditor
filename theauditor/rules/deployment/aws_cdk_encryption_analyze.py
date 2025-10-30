@@ -77,12 +77,12 @@ def _check_unencrypted_rds(cursor) -> List[StandardFinding]:
         construct_id = row['construct_id']
         construct_name = row['construct_name'] or 'UnnamedDB'
 
-        # Check if storage_encrypted property exists
+        # Check if storage_encrypted (Python) or storageEncrypted (TypeScript/JavaScript) property exists
         cursor.execute("""
             SELECT property_value_expr, line
             FROM cdk_construct_properties
             WHERE construct_id = ?
-              AND property_name = 'storage_encrypted'
+              AND (property_name = 'storage_encrypted' OR property_name = 'storageEncrypted')
         """, (construct_id,))
 
         prop_row = cursor.fetchone()

@@ -281,7 +281,7 @@ aud planning rewind 1 --checkpoint "pre-migration"
 
 #### CDK: AWS Infrastructure Security Analysis
 
-Analyze AWS Cloud Development Kit (Python) infrastructure code for security misconfigurations before deployment.
+Analyze AWS Cloud Development Kit (Python, TypeScript, JavaScript) infrastructure code for security misconfigurations before deployment.
 
 ```bash
 # Run full CDK security analysis
@@ -302,7 +302,42 @@ aud cdk analyze --format json --output cdk_findings.json
 
 **Workflow**: CDK analysis runs automatically in `aud full` pipeline (Stage 2, after Terraform). Findings written to `.pf/raw/cdk_findings.json` and correlated by FCE with application code vulnerabilities.
 
-See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, context, planning, and CDK walkthroughs.
+#### workflows: GitHub Actions CI/CD Security Analysis
+
+Analyze GitHub Actions workflows for supply-chain vulnerabilities, privilege escalation, and CI/CD pipeline attacks.
+
+```bash
+# Run workflow security analysis
+aud workflows analyze
+
+# Filter by severity
+aud workflows analyze --severity critical
+
+# Export findings
+aud workflows analyze --output workflow_security.json
+```
+
+**Detects**:
+- **Untrusted code execution** - CRITICAL severity for `pull_request_target` with early checkout of untrusted PR code
+- **Script injection** - CRITICAL severity for PR metadata (title, body, branch names) interpolated into shell scripts
+- **Unpinned actions with secrets** - HIGH severity for mutable action versions (@main, @v1) exposing secrets
+- **Excessive permissions** - CRITICAL severity for write permissions (`contents`, `packages`, `id-token`) in untrusted contexts
+- **Artifact poisoning** - CRITICAL severity for untrusted builds deployed without validation
+- **External workflow risks** - HIGH severity for external reusable workflows with `secrets: inherit`
+
+**Attack Patterns Covered**:
+- **CWE-284**: Improper Access Control (untrusted checkout sequences)
+- **CWE-829**: Untrusted Supply Chain (unpinned third-party actions)
+- **CWE-77**: Command Injection (PR data in run scripts)
+- **CWE-269**: Privilege Management (excessive workflow permissions)
+- **CWE-200**: Information Exposure (secret leaks to external workflows)
+- **CWE-494**: Integrity Check Missing (artifact poisoning chains)
+
+**Workflow**: GitHub Actions analysis runs automatically in `aud full` pipeline (Stage 2). Workflows extracted to `.pf/raw/github_workflows.json` with AI-optimized chunks in `.pf/readthis/`. Findings correlated by FCE with application code and infrastructure vulnerabilities.
+
+**Taint Integration**: PR/issue data registered as taint sources, shell execution as sinks. Enables cross-file flow analysis from workflow inputs to dangerous sinks.
+
+See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, context, planning, CDK, and workflows walkthroughs.
 
 ---
 
