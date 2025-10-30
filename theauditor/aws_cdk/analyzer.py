@@ -7,6 +7,7 @@ Follows the same pattern as TerraformAnalyzer for architectural consistency.
 import logging
 import sqlite3
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from dataclasses import dataclass
@@ -107,45 +108,76 @@ class AWSCdkAnalyzer:
             db_path=str(self.db_path),
         )
 
-    def _is_cdk_rule(self, finding: StandardFinding) -> bool:
+    def _is_cdk_rule(self, finding: dict) -> bool:
         """Check if finding comes from a CDK rule.
 
-        CDK rules have rule_id starting with 'aws-cdk-'.
-        """
-        return finding.rule_id.startswith('aws-cdk-')
+        CDK rules have rule_name starting with 'aws-cdk-'.
 
-    def _convert_findings(self, standard_findings: List[StandardFinding]) -> List[CdkFinding]:
-        """Convert StandardFinding objects to CdkFinding format."""
+        Args:
+            finding: Dictionary from orchestrator.run_database_rules()
+                     Note: orchestrator converts StandardFinding.rule_name → dict['rule']
+        """
+        # StandardFinding.to_dict() converts rule_name → 'rule' key
+        rule_name = finding.get('rule', '')
+        return rule_name.startswith('aws-cdk-')
+
+    def _convert_findings(self, standard_findings: List[dict]) -> List[CdkFinding]:
+        """Convert finding dictionaries from orchestrator to CdkFinding format.
+
+        Args:
+            standard_findings: List of finding dicts from orchestrator.run_database_rules()
+                              Note: StandardFinding.to_dict() converts:
+                              - rule_name → 'rule'
+                              - file_path → 'file'
+                              - snippet → 'code_snippet'
+                              - cwe_id → 'cwe'
+                              - additional_info → 'details_json' (as JSON string)
+        """
         cdk_findings: List[CdkFinding] = []
 
         for finding in standard_findings:
-            additional = getattr(finding, 'additional_info', None) or {}
+            # Parse additional_info from details_json if present
+            import json
+            details_json = finding.get('details_json')
+            if details_json and isinstance(details_json, str):
+                try:
+                    additional = json.loads(details_json)
+                except json.JSONDecodeError:
+                    additional = {}
+            else:
+                additional = finding.get('additional_info') or {}
+
             construct_id = additional.get('construct_id')
             remediation = additional.get('remediation', '')
 
             cdk_findings.append(
                 CdkFinding(
                     finding_id=self._build_finding_id(finding),
-                    file_path=finding.file_path,
+                    file_path=finding.get('file', ''),  # 'file' not 'file_path'
                     construct_id=construct_id,
-                    category=finding.category,
-                    severity=self._normalize_severity(getattr(finding, 'severity', 'info')),
-                    title=finding.message,
-                    description=finding.message,
-                    line=getattr(finding, 'line', 0) or 0,
+                    category=finding.get('category', ''),
+                    severity=self._normalize_severity(finding.get('severity', 'info')),
+                    title=finding.get('message', ''),
+                    description=finding.get('message', ''),
+                    line=finding.get('line', 0) or 0,
                     remediation=remediation
                 )
             )
 
         return cdk_findings
 
-    def _build_finding_id(self, finding: StandardFinding) -> str:
-        """Generate unique finding ID."""
+    def _build_finding_id(self, finding: dict) -> str:
+        """Generate unique finding ID.
+
+        Args:
+            finding: Dictionary from orchestrator.run_database_rules()
+                     Note: dict keys are 'rule' and 'file', not 'rule_name' and 'file_path'
+        """
         parts = [
             'cdk',
-            finding.rule_id,
-            finding.file_path,
-            str(getattr(finding, 'line', 0) or 0)
+            finding.get('rule', ''),  # 'rule' not 'rule_name'
+            finding.get('file', ''),  # 'file' not 'file_path'
+            str(finding.get('line', 0) or 0)
         ]
         hash_input = '::'.join(parts)
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, hash_input))
@@ -196,22 +228,27 @@ class AWSCdkAnalyzer:
                 ))
 
                 # Write to findings_consolidated table (for FCE correlation)
+                # Schema: id (auto-increment), file, line, column, rule, tool, message,
+                #         severity, category, confidence, code_snippet, cwe, timestamp, details_json
                 cursor.execute("""
-                    INSERT OR REPLACE INTO findings_consolidated (
-                        finding_id, tool, category, severity, message,
-                        file_path, line_number, confidence, cwe, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO findings_consolidated (
+                        file, line, column, rule, tool, message,
+                        severity, category, confidence, code_snippet, cwe, timestamp, details_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    finding.finding_id,
-                    'cdk',
-                    finding.category,
-                    finding.severity,
-                    finding.title,
                     finding.file_path,
                     finding.line,
-                    'high',
-                    None,  # CWE can be added to metadata
-                    None   # Additional metadata as JSON
+                    0,  # column (CDK doesn't have column info)
+                    finding.finding_id,  # rule identifier (unique per finding type)
+                    'cdk',
+                    finding.title,
+                    finding.severity,
+                    finding.category,
+                    'high',  # confidence
+                    finding.description[:200] if finding.description else '',  # code_snippet (use description snippet)
+                    None,  # CWE can be added later
+                    datetime.now().isoformat(),  # timestamp
+                    None   # details_json (additional metadata as JSON)
                 ))
 
             conn.commit()

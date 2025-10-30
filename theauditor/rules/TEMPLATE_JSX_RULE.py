@@ -4,6 +4,18 @@
 RULE TEMPLATE DOCUMENTATION
 ================================================================================
 
+⚠️ CRITICAL: FUNCTION NAMING REQUIREMENT
+--------------------------------------------------------------------------------
+Your rule function MUST start with 'find_' prefix:
+  ✅ def find_jsx_injection(context: StandardRuleContext)
+  ✅ def find_react_xss(context: StandardRuleContext)
+  ❌ def analyze(context: StandardRuleContext)  # WRONG - Won't be discovered!
+  ❌ def detect_xss(context: StandardRuleContext)  # WRONG - Must start with find_
+
+The orchestrator ONLY discovers functions starting with 'find_'. Any other
+name will be silently ignored and your rule will never run.
+--------------------------------------------------------------------------------
+
 ⚠️ CRITICAL: StandardFinding PARAMETER NAMES
 --------------------------------------------------------------------------------
 ALWAYS use these EXACT parameter names when creating findings:
@@ -12,7 +24,7 @@ ALWAYS use these EXACT parameter names when creating findings:
   ✅ cwe_id=        (NOT cwe=)
   ✅ severity=Severity.CRITICAL (NOT severity='CRITICAL')
 
-Using wrong names will cause RUNTIME CRASHES. See examples at line 280+.
+Using wrong names will cause RUNTIME CRASHES. See examples at line 297+.
 --------------------------------------------------------------------------------
 
 This template is for JSX-SPECIFIC RULES that analyze React/Vue components and
@@ -163,9 +175,10 @@ class JSXSecurityPatterns:
 # MAIN DETECTION FUNCTION - JSX-SPECIFIC
 # ============================================================================
 # This queries *_jsx tables, NOT standard tables.
+# Function name MUST start with 'find_' (orchestrator requirement).
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def find_your_jsx_vulnerability(context: StandardRuleContext) -> List[StandardFinding]:
     """Detect JSX-specific security issues using preserved JSX data.
 
     CRITICAL: This rule queries JSX-SPECIFIC TABLES:
@@ -205,16 +218,8 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         if not _is_react_or_vue_app(conn):
             return findings  # Skip if not React/Vue
 
-        # Check if JSX tables exist (graceful degradation)
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        # Filter in Python: Find tables ending with '_jsx'
-        jsx_tables = {row[0] for row in cursor.fetchall() if row[0].endswith('_jsx')}
-
-        if not jsx_tables:
-            # No JSX tables - indexer didn't run JSX pass
-            return findings
-
+        # NO TABLE CHECKS - Database MUST have JSX tables (ZERO FALLBACK POLICY)
+        # If JSX tables missing, database is wrong and SHOULD crash
         # Run JSX-specific detection
         findings.extend(_check_jsx_element_injection(conn, patterns))
         findings.extend(_check_jsx_attribute_injection(conn, patterns))
@@ -491,10 +496,10 @@ def _is_vue_app(conn) -> bool:
 #               print('JSX tables:', [r[0] for r in c.fetchall()])"
 #
 # 2. Test on plant project:
-#    python -c "from theauditor.rules.your_jsx_rule import analyze;
+#    python -c "from theauditor.rules.your_jsx_rule import find_your_jsx_vulnerability;
 #               from theauditor.rules.base import StandardRuleContext;
 #               ctx = StandardRuleContext(db_path='plant/.pf/repo_index.db');
-#               findings = analyze(ctx);
+#               findings = find_your_jsx_vulnerability(ctx);
 #               print(f'Found {len(findings)} JSX issues');
 #               [print(f'  {f.file_path}:{f.line} - {f.message}') for f in findings[:5]]"
 #
