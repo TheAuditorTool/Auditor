@@ -1630,6 +1630,74 @@ Workset-based analysis for efficient processing:
 - Dependency tracking for impact analysis
 - Cached results for unchanged files
 
+## Planning System
+
+**NEW in v1.4.2-RC1**: Database-centric implementation planning with verification and audit trail.
+
+### Overview
+
+The Planning System (`aud planning`) provides task tracking, specification-based verification, and git-based audit trails for implementation workflows. It's designed as a **truth courier for implementation state** - tracking what's planned, what's done, and verifying completion against the codebase.
+
+**Design Philosophy**:
+- Database is single source of truth (no markdown files)
+- Verification runs against indexed code (`repo_index.db`)
+- Git snapshots provide immutable audit trail
+- All state queryable via SQL
+
+### Architecture
+
+#### Separate Database (planning.db)
+
+Planning state lives in `.pf/planning.db`, **separate from** `.pf/repo_index.db`:
+
+**Why Separate?**
+- `repo_index.db` is regenerated fresh on every `aud full` run
+- `planning.db` persists across runs (plans don't disappear)
+- Different query patterns (OLTP vs OLAP)
+- Clear separation: code facts vs project management
+
+**Schema** (5 tables):
+```sql
+plans              -- Implementation plans (id, name, status, metadata)
+plan_tasks         -- Tasks within plans (id, plan_id, task_number, status, spec_id)
+plan_specs         -- YAML verification specs (id, plan_id, spec_yaml, spec_type)
+code_snapshots     -- Git snapshots at checkpoints (id, plan_id, git_ref, files_json)
+code_diffs         -- Full unified diffs (id, snapshot_id, file_path, diff_text)
+```
+
+#### CLI Commands
+
+7 subcommands following Click command group pattern:
+
+| Command | Purpose |
+|---------|---------|
+| `init` | Create plan, auto-initialize planning.db |
+| `show` | Display plan/tasks with status |
+| `add-task` | Add task with optional YAML spec |
+| `update-task` | Update status/assignee |
+| `verify-task` | Run verification against spec |
+| `archive` | Archive plan with final snapshot |
+| `rewind` | Show rollback commands |
+
+### Verification Integration
+
+Bridges with RefactorRuleEngine - verification specs are YAML refactor profiles that run against `repo_index.db` to check task completion with file:line precision.
+
+### Example Workflow
+
+```bash
+aud planning init --name "JWT Migration"
+aud planning add-task 1 --title "Secure JWT signing" --spec jwt_spec.yaml
+# Make code changes, then re-index
+aud index
+aud planning verify-task 1 1 --verbose
+# Output: 21 violations found, snapshot created
+```
+
+See [aud_planning.md](aud_planning.md) for complete architecture details.
+
+---
+
 ## Contributing to TheAuditor
 
 ### Adding Language Support

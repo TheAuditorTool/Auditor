@@ -25,6 +25,12 @@ NEVER EVER FUCKING TOUCH MY GIT WITH YOUR DUMBASS FUCKING "CO AUTHORED BY CLAUDE
 
 **ALWAYS** use Python with sqlite3 import. The sqlite3 command is not installed in WSL.
 
+## CRITICAL WINDOWS BUG!!
+When "Error: File has been unexpectedly modified. Read it again before attempting to write it." happens?
+windows bug. when it happens?? "There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths
+with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this
+file."
+
 ```python
 # CORRECT - Always use this pattern
 cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
@@ -293,7 +299,7 @@ class YourLanguageExtractor(BaseExtractor):
 - **ORM models**: SQLAlchemy and Django definitions populate `python_orm_models`, `python_orm_fields`, and the shared `orm_relationships` table (bidirectional rows with cascade flags).
 - **HTTP routes**: Flask blueprints/routes and FastAPI handlers land in `python_routes` (method, auth flag, dependency metadata) and `python_blueprints`.
 - **Validation**: Pydantic decorators produce entries in `python_validators` with field vs root classification for sanitizer parity.
-- **Import resolution**: `resolved_imports` maps aliases to module paths so `refs` rows point at actual files (mirrors JS parity).
+- **Import resolution**: Python imports are stored in the `refs` table with `.py` file paths as targets (no separate resolved_imports dict/table exists).
 - **Verification**: Fixtures under `tests/fixtures/python/` pair with `pytest tests/test_python_framework_extraction.py` to guard regressions.
 
 ### ABSOLUTE PROHIBITION: Fallback Logic & Regex

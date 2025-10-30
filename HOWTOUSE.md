@@ -1113,6 +1113,219 @@ aud deps --upgrade-all
 
 ---
 
+### Implementation Planning & Verification
+
+**NEW in v1.4.2-RC1**: Track implementation plans, verify task completion against specs, and maintain audit trail.
+
+The Planning System (`aud planning`) provides database-centric task management with specification-based verification and git snapshots for audit trails.
+
+#### Creating and Managing Plans
+
+**Create a plan:**
+```bash
+# Initialize a new implementation plan
+aud planning init --name "API Migration" --description "Migrate to REST v2"
+# Output: Created plan 1: API Migration
+```
+
+**Add tasks with verification specs:**
+```bash
+# Add task with YAML verification spec
+aud planning add-task 1 --title "Migrate auth endpoints" --spec jwt_migration.yaml
+
+# Add simple task without spec
+aud planning add-task 1 --title "Update documentation"
+
+# Add task with assignee
+aud planning add-task 1 --title "Review changes" --assigned-to "Alice"
+```
+
+**View plan and tasks:**
+```bash
+# Show plan summary
+aud planning show 1
+
+# Show plan with all tasks
+aud planning show 1 --tasks
+
+# Show detailed information
+aud planning show 1 --tasks --verbose
+```
+
+#### Verification Specs (YAML)
+
+Verification specs are YAML refactor profiles that define expected code patterns. Planning system runs them through RefactorRuleEngine to verify task completion:
+
+```yaml
+# jwt_migration.yaml
+refactor_name: JWT Security Migration
+description: Ensure JWT signing uses environment secrets
+rules:
+  - id: jwt-sign-secret
+    description: JWT sign should use process.env.JWT_SECRET
+    match:
+      identifiers: [jwt.sign]
+    expect:
+      identifiers: [process.env.JWT_SECRET]
+```
+
+**Run verification:**
+```bash
+# Verify task completion against spec
+aud planning verify-task 1 1 --verbose
+
+# Auto-update task status based on result
+aud planning verify-task 1 1 --auto-update
+```
+
+**Verification output:**
+```
+Verifying task 1...
+
+Verification complete:
+  Total violations: 21
+
+Violations by rule:
+  jwt-sign-secret: 21 violations
+    - backend/src/services/auth.service.ts:247
+    - backend/src/services/auth.service.ts:253
+    - backend/src/services/auth.service.ts:405
+    ... and 18 more
+Snapshot created: 52a4a089
+```
+
+#### Task Management
+
+**Update task status:**
+```bash
+# Mark task as in progress
+aud planning update-task 1 1 --status in_progress
+
+# Mark task as completed
+aud planning update-task 1 1 --status completed
+
+# Mark as blocked
+aud planning update-task 1 1 --status blocked
+```
+
+**Update task assignee:**
+```bash
+# Reassign task
+aud planning update-task 1 2 --assigned-to "Bob"
+```
+
+#### Git Snapshots and Audit Trail
+
+Planning system creates git snapshots at key checkpoints for audit trail:
+
+**Automatic snapshots:**
+- `verify-task` creates snapshot on verification failure (rollback point)
+- `archive` creates final snapshot with deployment notes
+
+**Manual snapshots:**
+```bash
+# Archive completed plan with notes
+aud planning archive 1 --notes "Deployed to production 2025-10-30"
+# Output: Plan 1 archived successfully
+#         Final snapshot: a857d295
+#         Files affected: 4
+```
+
+**View rollback instructions:**
+```bash
+# List all snapshots for a plan
+aud planning rewind 1
+
+# Show rollback commands for specific checkpoint
+aud planning rewind 1 --checkpoint "pre-migration"
+# Output: To revert to this state, run:
+#           git checkout 52a4a089
+```
+
+**Note**: `rewind` only shows git commands - it does NOT execute them. User reviews before applying.
+
+#### Complete Workflow Example
+
+```bash
+# 1. Create plan
+aud planning init --name "JWT Security Migration"
+
+# 2. Add tasks with verification specs
+aud planning add-task 1 --title "Secure JWT signing" --spec jwt_spec.yaml
+aud planning add-task 1 --title "Add JWT expiration" --spec jwt_expiry_spec.yaml
+
+# 3. Make code changes for task 1
+# ... edit files ...
+
+# 4. Re-index to update database
+aud index
+
+# 5. Verify task completion
+aud planning verify-task 1 1 --verbose
+# Output: 21 violations found (needs more work)
+
+# 6. Fix violations and re-verify
+# ... fix issues ...
+aud index
+aud planning verify-task 1 1 --auto-update
+# Output: 0 violations, task status updated to completed
+
+# 7. Continue with remaining tasks
+aud planning show 1 --tasks
+# Shows task 1 completed, task 2 pending
+
+# 8. Archive when all tasks done
+aud planning archive 1 --notes "Migration complete, deployed 2025-10-30"
+```
+
+#### Database Structure
+
+Planning state lives in `.pf/planning.db` (separate from `repo_index.db`):
+
+**Why separate?**
+- `repo_index.db` is regenerated fresh on every `aud full` run
+- `planning.db` persists across runs (plans don't disappear)
+- Different query patterns (OLTP vs OLAP)
+
+**Tables:**
+- `plans` - Implementation plans (id, name, status, metadata)
+- `plan_tasks` - Tasks within plans (task_number, status, spec_id)
+- `plan_specs` - YAML verification specs
+- `code_snapshots` - Git snapshots at checkpoints (git_ref, files)
+- `code_diffs` - Full unified diffs for audit trail
+
+#### Use Cases
+
+**Complex Refactors:**
+```bash
+# Track multi-step refactoring with verification
+aud planning init --name "Product Price Migration"
+aud planning add-task 1 --title "Move price to variant" --spec pricing_spec.yaml
+# ... implement and verify each step ...
+```
+
+**Deployment Audit Trail:**
+```bash
+# Maintain deployment history
+aud planning archive 1 --notes "v2.0 deployed 2025-10-30, 47 files changed"
+aud planning rewind 1  # Show snapshots for rollback if needed
+```
+
+**Ensure Migration Completeness:**
+```bash
+# Use verification specs to ensure no old patterns remain
+aud planning verify-task 1 1 --verbose
+# Checks entire codebase against spec, reports all violations
+```
+
+**Performance:**
+- Plan creation: <50ms
+- Task queries: <10ms
+- Verification: 100ms-5s (depends on spec complexity)
+- Archive with snapshots: 200ms-2s
+
+---
+
 ## Architecture: Truth Courier vs Insights
 
 ### Understanding the Separation of Concerns
