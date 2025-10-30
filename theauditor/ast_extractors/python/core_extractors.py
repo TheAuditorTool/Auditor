@@ -963,3 +963,104 @@ def extract_python_context_managers(tree: Dict, parser_self) -> List[Dict[str, A
                 })
 
     return context_managers
+
+
+def extract_generators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract Python generator patterns.
+
+    Detects:
+    - Generator functions (functions with yield/yield from)
+    - Generator expressions (x for x in iterable)
+    - yield patterns (yield, yield value, yield from)
+    - send() usage (bidirectional communication)
+    - Infinite generators (while True with yield - DoS risk)
+
+    Security relevance:
+    - DoS: Infinite generators without break conditions
+    - Memory leaks: Unclosed generators holding resources
+    - Taint tracking: Data flow through yield/send
+    - Resource exhaustion: Generator expressions in hot paths
+    """
+    generators = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return generators
+
+    # Track which function we're currently in
+    current_function = None
+
+    for node in ast.walk(actual_tree):
+        # Track current function context
+        if isinstance(node, ast.FunctionDef):
+            current_function = node.name
+
+            # Check if function is a generator (contains yield)
+            has_yield = False
+            has_yield_from = False
+            yield_count = 0
+            has_send = False
+            is_infinite = False
+
+            for child in ast.walk(node):
+                # Count yield statements
+                if isinstance(child, ast.Yield):
+                    has_yield = True
+                    yield_count += 1
+                elif isinstance(child, ast.YieldFrom):
+                    has_yield_from = True
+                    yield_count += 1
+
+                # Detect send() calls (bidirectional communication)
+                if isinstance(child, ast.Call):
+                    if isinstance(child.func, ast.Attribute):
+                        if child.func.attr == 'send':
+                            has_send = True
+
+                # Detect infinite generator pattern: while True: yield
+                if isinstance(child, ast.While):
+                    if isinstance(child.test, ast.Constant) and child.test.value is True:
+                        # Check if while True body contains yield
+                        for body_node in ast.walk(child):
+                            if isinstance(body_node, (ast.Yield, ast.YieldFrom)):
+                                is_infinite = True
+                                break
+
+            # Record generator function
+            if has_yield or has_yield_from:
+                generators.append({
+                    "line": node.lineno,
+                    "generator_type": "function",
+                    "name": node.name,
+                    "yield_count": yield_count,
+                    "has_yield_from": has_yield_from,
+                    "has_send": has_send,
+                    "is_infinite": is_infinite,
+                })
+
+        # Detect generator expressions: (x for x in iterable)
+        elif isinstance(node, ast.GeneratorExp):
+            # Get context (function or module level)
+            context = current_function or '<module>'
+
+            # Try to extract generator expression source
+            expr_str = '<generator>'
+            try:
+                if hasattr(ast, 'unparse'):
+                    expr_str = ast.unparse(node)
+                    # Truncate if too long
+                    if len(expr_str) > 100:
+                        expr_str = expr_str[:100] + '...'
+            except:
+                pass
+
+            generators.append({
+                "line": node.lineno,
+                "generator_type": "expression",
+                "name": expr_str,
+                "yield_count": 1,  # Generator expressions always yield once per iteration
+                "has_yield_from": False,
+                "has_send": False,
+                "is_infinite": False,  # Generator expressions are bounded by their iterable
+            })
+
+    return generators

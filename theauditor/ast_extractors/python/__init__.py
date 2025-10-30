@@ -105,6 +105,7 @@ from .core_extractors import (
     extract_python_dicts,
     extract_python_decorators,
     extract_python_context_managers,
+    extract_generators,
 )
 
 from .framework_extractors import (
@@ -183,6 +184,7 @@ __all__ = [
     'extract_python_dicts',
     'extract_python_decorators',
     'extract_python_context_managers',
+    'extract_generators',
     # Framework extractors
     'extract_sqlalchemy_definitions',
     'extract_django_definitions',

@@ -1035,6 +1035,26 @@ PYTHON_CELERY_BEAT_SCHEDULES = TableSchema(
     ]
 )
 
+PYTHON_GENERATORS = TableSchema(
+    name="python_generators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("generator_type", "TEXT", nullable=False),        # 'function' or 'expression'
+        Column("name", "TEXT", nullable=False),                  # Function name or expression string
+        Column("yield_count", "INTEGER", default="0"),           # Number of yield statements
+        Column("has_yield_from", "BOOLEAN", default="0"),        # Uses yield from (delegation)
+        Column("has_send", "BOOLEAN", default="0"),              # Uses send() (bidirectional)
+        Column("is_infinite", "BOOLEAN", default="0"),           # while True: yield (DoS risk)
+    ],
+    primary_key=["file", "line", "name"],
+    indexes=[
+        ("idx_python_generators_file", ["file"]),
+        ("idx_python_generators_type", ["generator_type"]),
+        ("idx_python_generators_infinite", ["is_infinite"]),
+    ]
+)
+
 # ============================================================================
 # SQL & DATABASE TABLES
 # ============================================================================
@@ -2446,6 +2466,7 @@ TABLES: Dict[str, TableSchema] = {
     "python_celery_tasks": PYTHON_CELERY_TASKS,
     "python_celery_task_calls": PYTHON_CELERY_TASK_CALLS,
     "python_celery_beat_schedules": PYTHON_CELERY_BEAT_SCHEDULES,
+    "python_generators": PYTHON_GENERATORS,
 
     # SQL & database
     "sql_objects": SQL_OBJECTS,

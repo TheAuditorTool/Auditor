@@ -102,6 +102,8 @@ class PythonExtractor(BaseExtractor):
             'python_celery_tasks': [],  # Celery task definitions
             'python_celery_task_calls': [],  # Celery task invocations
             'python_celery_beat_schedules': [],  # Celery Beat periodic schedules
+            # Generators
+            'python_generators': [],  # Generator functions and expressions
         }
         seen_symbols = set()
         
@@ -281,6 +283,11 @@ class PythonExtractor(BaseExtractor):
                 celery_beat_schedules = python_impl.extract_celery_beat_schedules(tree, self.ast_parser)
                 if celery_beat_schedules:
                     result['python_celery_beat_schedules'].extend(celery_beat_schedules)
+
+                # Generators
+                generators = python_impl.extract_generators(tree, self.ast_parser)
+                if generators:
+                    result['python_generators'].extend(generators)
 
                 # AWS CDK Infrastructure-as-Code constructs
                 cdk_constructs = python_impl.extract_python_cdk_constructs(tree, self.ast_parser)
