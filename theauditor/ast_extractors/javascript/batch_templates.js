@@ -412,6 +412,7 @@ async function main() {
                     const apiEndpoints = extractAPIEndpoints(functionCallArgs);
                     const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                     const sqlQueries = extractSQLQueries(functionCallArgs);
+                    const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
 
                     let vueComponents = [];
                     let vueHooks = [];
@@ -479,6 +480,7 @@ async function main() {
                             routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
+                            cdk_constructs: cdkConstructs,
                             vue_components: vueComponents,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
@@ -903,6 +905,7 @@ try {
                 const apiEndpoints = extractAPIEndpoints(functionCallArgs);
                 const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                 const sqlQueries = extractSQLQueries(functionCallArgs);
+                const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
 
                 let vueComponents = [];
                 let vueHooks = [];
@@ -969,6 +972,7 @@ try {
                         routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
+                        cdk_constructs: cdkConstructs,
                         vue_components: vueComponents,
                         vue_hooks: vueHooks,
                         vue_directives: vueDirectives,

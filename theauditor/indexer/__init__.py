@@ -53,6 +53,7 @@ from .database import DatabaseManager
 from .extractors import ExtractorRegistry
 from .extractors.docker import DockerExtractor
 from .extractors.generic import GenericExtractor
+from .extractors.github_actions import GitHubWorkflowExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -91,11 +92,13 @@ class IndexerOrchestrator:
         # Special extractors that don't follow standard extension mapping
         self.docker_extractor = DockerExtractor(root_path, self.ast_parser)
         self.generic_extractor = GenericExtractor(root_path, self.ast_parser)
+        self.github_workflow_extractor = GitHubWorkflowExtractor(root_path, self.ast_parser)
 
         # Inject db_manager into special extractors (Phase 3C fix)
         # GenericExtractor uses database-first architecture and needs direct access
         self.docker_extractor.db_manager = self.db_manager
         self.generic_extractor.db_manager = self.db_manager
+        self.github_workflow_extractor.db_manager = self.db_manager
 
         # Inject db_manager into registry extractors that need it
         # PrismaExtractor and any other database-first extractors
@@ -138,6 +141,8 @@ class IndexerOrchestrator:
             "frameworks": 0,
             "package_configs": 0,
             "config_files": 0,
+            # CI/CD
+            "github_workflows": 0,
         }
 
     def _detect_frameworks_inline(self) -> List[Dict]:
@@ -780,9 +785,11 @@ class IndexerOrchestrator:
         # Check special extractors first (by filename pattern)
         if self.docker_extractor.should_extract(file_path):
             return self.docker_extractor
+        if self.github_workflow_extractor.should_extract(file_path):
+            return self.github_workflow_extractor
         if self.generic_extractor.should_extract(file_path):
             return self.generic_extractor
-        
+
         # Use registry for standard extension-based extraction
         return self.extractor_registry.get_extractor(file_path, file_ext)
     
@@ -851,7 +858,44 @@ class IndexerOrchestrator:
                     query.get('extraction_source', 'code_execute')  # Phase 3B: source tagging
                 )
                 self.counts['sql_queries'] += 1
-        
+
+        # Store CDK constructs (AWS Infrastructure-as-Code)
+        if 'cdk_constructs' in extracted:
+            for construct in extracted['cdk_constructs']:
+                line = construct.get('line', 0)
+                cdk_class = construct.get('cdk_class', '')
+                construct_name = construct.get('construct_name')
+
+                # Generate composite key: {file}::L{line}::{class}::{name}
+                construct_id = f"{file_path}::L{line}::{cdk_class}::{construct_name or 'unnamed'}"
+
+                # DEBUG: Log construct_id generation
+                if os.environ.get('THEAUDITOR_CDK_DEBUG') == '1':
+                    print(f"[CDK-INDEX] Generating construct_id: {construct_id}")
+                    print(f"[CDK-INDEX]   file_path={file_path}, line={line}, cdk_class={cdk_class}, construct_name={construct_name}")
+
+                # Add CDK construct record
+                self.db_manager.add_cdk_construct(
+                    file_path=file_path,
+                    line=line,
+                    cdk_class=cdk_class,
+                    construct_name=construct_name,
+                    construct_id=construct_id
+                )
+
+                # Add CDK construct properties
+                for prop in construct.get('properties', []):
+                    self.db_manager.add_cdk_construct_property(
+                        construct_id=construct_id,
+                        property_name=prop.get('name', ''),
+                        property_value_expr=prop.get('value_expr', ''),
+                        line=prop.get('line', line)
+                    )
+
+                if 'cdk_constructs' not in self.counts:
+                    self.counts['cdk_constructs'] = 0
+                self.counts['cdk_constructs'] += 1
+
         # Store symbols
         if 'symbols' in extracted:
             import json
@@ -1195,6 +1239,119 @@ class IndexerOrchestrator:
                     self.counts['python_blueprints'] = 0
                 self.counts['python_blueprints'] += 1
 
+        if 'python_django_views' in extracted:
+            for django_view in extracted['python_django_views']:
+                self.db_manager.add_python_django_view(
+                    file_path,
+                    django_view.get('line', 0),
+                    django_view.get('view_class_name', ''),
+                    django_view.get('view_type', ''),
+                    django_view.get('base_view_class'),
+                    django_view.get('model_name'),
+                    django_view.get('template_name'),
+                    django_view.get('has_permission_check', False),
+                    django_view.get('http_method_names'),
+                    django_view.get('has_get_queryset_override', False)
+                )
+                if 'python_django_views' not in self.counts:
+                    self.counts['python_django_views'] = 0
+                self.counts['python_django_views'] += 1
+
+        if 'python_django_forms' in extracted:
+            for django_form in extracted['python_django_forms']:
+                self.db_manager.add_python_django_form(
+                    file_path,
+                    django_form.get('line', 0),
+                    django_form.get('form_class_name', ''),
+                    django_form.get('is_model_form', False),
+                    django_form.get('model_name'),
+                    django_form.get('field_count', 0),
+                    django_form.get('has_custom_clean', False)
+                )
+                if 'python_django_forms' not in self.counts:
+                    self.counts['python_django_forms'] = 0
+                self.counts['python_django_forms'] += 1
+
+        if 'python_django_form_fields' in extracted:
+            for form_field in extracted['python_django_form_fields']:
+                self.db_manager.add_python_django_form_field(
+                    file_path,
+                    form_field.get('line', 0),
+                    form_field.get('form_class_name', ''),
+                    form_field.get('field_name', ''),
+                    form_field.get('field_type', ''),
+                    form_field.get('required', True),
+                    form_field.get('max_length'),
+                    form_field.get('has_custom_validator', False)
+                )
+                if 'python_django_form_fields' not in self.counts:
+                    self.counts['python_django_form_fields'] = 0
+                self.counts['python_django_form_fields'] += 1
+
+        if 'python_django_admin' in extracted:
+            for django_admin in extracted['python_django_admin']:
+                self.db_manager.add_python_django_admin(
+                    file_path,
+                    django_admin.get('line', 0),
+                    django_admin.get('admin_class_name', ''),
+                    django_admin.get('model_name'),
+                    django_admin.get('list_display'),
+                    django_admin.get('list_filter'),
+                    django_admin.get('search_fields'),
+                    django_admin.get('readonly_fields'),
+                    django_admin.get('has_custom_actions', False)
+                )
+                if 'python_django_admin' not in self.counts:
+                    self.counts['python_django_admin'] = 0
+                self.counts['python_django_admin'] += 1
+
+        if 'python_django_middleware' in extracted:
+            for django_middleware in extracted['python_django_middleware']:
+                self.db_manager.add_python_django_middleware(
+                    file_path,
+                    django_middleware.get('line', 0),
+                    django_middleware.get('middleware_class_name', ''),
+                    django_middleware.get('has_process_request', False),
+                    django_middleware.get('has_process_response', False),
+                    django_middleware.get('has_process_exception', False),
+                    django_middleware.get('has_process_view', False),
+                    django_middleware.get('has_process_template_response', False)
+                )
+                if 'python_django_middleware' not in self.counts:
+                    self.counts['python_django_middleware'] = 0
+                self.counts['python_django_middleware'] += 1
+
+        if 'python_marshmallow_schemas' in extracted:
+            for marshmallow_schema in extracted['python_marshmallow_schemas']:
+                self.db_manager.add_python_marshmallow_schema(
+                    file_path,
+                    marshmallow_schema.get('line', 0),
+                    marshmallow_schema.get('schema_class_name', ''),
+                    marshmallow_schema.get('field_count', 0),
+                    marshmallow_schema.get('has_nested_schemas', False),
+                    marshmallow_schema.get('has_custom_validators', False)
+                )
+                if 'python_marshmallow_schemas' not in self.counts:
+                    self.counts['python_marshmallow_schemas'] = 0
+                self.counts['python_marshmallow_schemas'] += 1
+
+        if 'python_marshmallow_fields' in extracted:
+            for marshmallow_field in extracted['python_marshmallow_fields']:
+                self.db_manager.add_python_marshmallow_field(
+                    file_path,
+                    marshmallow_field.get('line', 0),
+                    marshmallow_field.get('schema_class_name', ''),
+                    marshmallow_field.get('field_name', ''),
+                    marshmallow_field.get('field_type', ''),
+                    marshmallow_field.get('required', False),
+                    marshmallow_field.get('allow_none', False),
+                    marshmallow_field.get('has_validate', False),
+                    marshmallow_field.get('has_custom_validator', False)
+                )
+                if 'python_marshmallow_fields' not in self.counts:
+                    self.counts['python_marshmallow_fields'] = 0
+                self.counts['python_marshmallow_fields'] += 1
+
         if 'python_validators' in extracted:
             for validator in extracted['python_validators']:
                 self.db_manager.add_python_validator(
@@ -1208,6 +1365,233 @@ class IndexerOrchestrator:
                 if 'python_validators' not in self.counts:
                     self.counts['python_validators'] = 0
                 self.counts['python_validators'] += 1
+
+        # Phase 2.2: Store advanced Python patterns
+
+        if 'python_decorators' in extracted:
+            for decorator in extracted['python_decorators']:
+                self.db_manager.add_python_decorator(
+                    file_path,
+                    decorator.get('line', 0),
+                    decorator.get('decorator_name', ''),
+                    decorator.get('decorator_type', ''),
+                    decorator.get('target_type', ''),
+                    decorator.get('target_name', ''),
+                    decorator.get('is_async', False)
+                )
+                if 'python_decorators' not in self.counts:
+                    self.counts['python_decorators'] = 0
+                self.counts['python_decorators'] += 1
+
+        if 'python_context_managers' in extracted:
+            for ctx_mgr in extracted['python_context_managers']:
+                self.db_manager.add_python_context_manager(
+                    file_path,
+                    ctx_mgr.get('line', 0),
+                    ctx_mgr.get('context_type', ''),
+                    ctx_mgr.get('context_expr'),
+                    ctx_mgr.get('as_name'),
+                    ctx_mgr.get('is_async', False),
+                    ctx_mgr.get('is_custom', False)
+                )
+                if 'python_context_managers' not in self.counts:
+                    self.counts['python_context_managers'] = 0
+                self.counts['python_context_managers'] += 1
+
+        if 'python_async_functions' in extracted:
+            for async_func in extracted['python_async_functions']:
+                self.db_manager.add_python_async_function(
+                    file_path,
+                    async_func.get('line', 0),
+                    async_func.get('function_name', ''),
+                    async_func.get('has_await', False),
+                    async_func.get('await_count', 0),
+                    async_func.get('has_async_with', False),
+                    async_func.get('has_async_for', False)
+                )
+                if 'python_async_functions' not in self.counts:
+                    self.counts['python_async_functions'] = 0
+                self.counts['python_async_functions'] += 1
+
+        if 'python_await_expressions' in extracted:
+            for await_expr in extracted['python_await_expressions']:
+                self.db_manager.add_python_await_expression(
+                    file_path,
+                    await_expr.get('line', 0),
+                    await_expr.get('await_expr', ''),
+                    await_expr.get('containing_function')
+                )
+                if 'python_await_expressions' not in self.counts:
+                    self.counts['python_await_expressions'] = 0
+                self.counts['python_await_expressions'] += 1
+
+        if 'python_async_generators' in extracted:
+            for async_gen in extracted['python_async_generators']:
+                # Serialize target_vars list to JSON if it's a list
+                target_vars = async_gen.get('target_vars')
+                if isinstance(target_vars, list):
+                    target_vars = json.dumps(target_vars)
+
+                self.db_manager.add_python_async_generator(
+                    file_path,
+                    async_gen.get('line', 0),
+                    async_gen.get('generator_type', ''),
+                    target_vars,
+                    async_gen.get('iterable_expr'),
+                    async_gen.get('function_name')
+                )
+                if 'python_async_generators' not in self.counts:
+                    self.counts['python_async_generators'] = 0
+                self.counts['python_async_generators'] += 1
+
+        if 'python_pytest_fixtures' in extracted:
+            for fixture in extracted['python_pytest_fixtures']:
+                self.db_manager.add_python_pytest_fixture(
+                    file_path,
+                    fixture.get('line', 0),
+                    fixture.get('fixture_name', ''),
+                    fixture.get('scope', 'function'),
+                    fixture.get('has_autouse', False),
+                    fixture.get('has_params', False)
+                )
+                if 'python_pytest_fixtures' not in self.counts:
+                    self.counts['python_pytest_fixtures'] = 0
+                self.counts['python_pytest_fixtures'] += 1
+
+        if 'python_pytest_parametrize' in extracted:
+            for parametrize in extracted['python_pytest_parametrize']:
+                # Serialize parameter_names list to JSON if it's a list
+                param_names = parametrize.get('parameter_names', [])
+                if isinstance(param_names, list):
+                    param_names = json.dumps(param_names)
+
+                self.db_manager.add_python_pytest_parametrize(
+                    file_path,
+                    parametrize.get('line', 0),
+                    parametrize.get('test_function', ''),
+                    param_names,
+                    parametrize.get('argvalues_count', 0)
+                )
+                if 'python_pytest_parametrize' not in self.counts:
+                    self.counts['python_pytest_parametrize'] = 0
+                self.counts['python_pytest_parametrize'] += 1
+
+        if 'python_pytest_markers' in extracted:
+            for marker in extracted['python_pytest_markers']:
+                # Serialize marker_args list to JSON if it's a list
+                marker_args = marker.get('marker_args', [])
+                if isinstance(marker_args, list):
+                    marker_args = json.dumps(marker_args)
+
+                self.db_manager.add_python_pytest_marker(
+                    file_path,
+                    marker.get('line', 0),
+                    marker.get('test_function', ''),
+                    marker.get('marker_name', ''),
+                    marker_args
+                )
+                if 'python_pytest_markers' not in self.counts:
+                    self.counts['python_pytest_markers'] = 0
+                self.counts['python_pytest_markers'] += 1
+
+        if 'python_mock_patterns' in extracted:
+            for mock in extracted['python_mock_patterns']:
+                self.db_manager.add_python_mock_pattern(
+                    file_path,
+                    mock.get('line', 0),
+                    mock.get('mock_type', ''),
+                    mock.get('target'),
+                    mock.get('in_function'),
+                    mock.get('is_decorator', False)
+                )
+                if 'python_mock_patterns' not in self.counts:
+                    self.counts['python_mock_patterns'] = 0
+                self.counts['python_mock_patterns'] += 1
+
+        if 'python_protocols' in extracted:
+            for protocol in extracted['python_protocols']:
+                # Serialize methods list to JSON if it's a list
+                methods = protocol.get('methods', [])
+                if isinstance(methods, list):
+                    methods = json.dumps(methods)
+
+                self.db_manager.add_python_protocol(
+                    file_path,
+                    protocol.get('line', 0),
+                    protocol.get('protocol_name', ''),
+                    methods,
+                    protocol.get('is_runtime_checkable', False)
+                )
+                if 'python_protocols' not in self.counts:
+                    self.counts['python_protocols'] = 0
+                self.counts['python_protocols'] += 1
+
+        if 'python_generics' in extracted:
+            for generic in extracted['python_generics']:
+                # Serialize type_params list to JSON if it's a list
+                type_params = generic.get('type_params', [])
+                if isinstance(type_params, list):
+                    type_params = json.dumps(type_params)
+
+                self.db_manager.add_python_generic(
+                    file_path,
+                    generic.get('line', 0),
+                    generic.get('class_name', ''),
+                    type_params
+                )
+                if 'python_generics' not in self.counts:
+                    self.counts['python_generics'] = 0
+                self.counts['python_generics'] += 1
+
+        if 'python_typed_dicts' in extracted:
+            for typed_dict in extracted['python_typed_dicts']:
+                # Serialize fields list to JSON if it's a list
+                fields = typed_dict.get('fields', [])
+                if isinstance(fields, list):
+                    fields = json.dumps(fields)
+
+                self.db_manager.add_python_typed_dict(
+                    file_path,
+                    typed_dict.get('line', 0),
+                    typed_dict.get('typeddict_name', ''),
+                    fields
+                )
+                if 'python_typed_dicts' not in self.counts:
+                    self.counts['python_typed_dicts'] = 0
+                self.counts['python_typed_dicts'] += 1
+
+        if 'python_literals' in extracted:
+            for literal in extracted['python_literals']:
+                # Extract the appropriate name field based on usage context
+                name = literal.get('parameter_name') or literal.get('function_name') or literal.get('variable_name')
+
+                self.db_manager.add_python_literal(
+                    file_path,
+                    literal.get('line', 0),
+                    literal.get('usage_context', ''),
+                    name,
+                    literal.get('literal_type', '')
+                )
+                if 'python_literals' not in self.counts:
+                    self.counts['python_literals'] = 0
+                self.counts['python_literals'] += 1
+
+        if 'python_overloads' in extracted:
+            for overload in extracted['python_overloads']:
+                # Serialize variants list to JSON if it's a list
+                variants = overload.get('variants', [])
+                if isinstance(variants, list):
+                    variants = json.dumps(variants)
+
+                self.db_manager.add_python_overload(
+                    file_path,
+                    overload.get('function_name', ''),
+                    overload.get('overload_count', 0),
+                    variants
+                )
+                if 'python_overloads' not in self.counts:
+                    self.counts['python_overloads'] = 0
+                self.counts['python_overloads'] += 1
 
         if 'react_hooks' in extracted:
             for hook in extracted['react_hooks']:
@@ -1448,32 +1832,6 @@ class IndexerOrchestrator:
                     self.counts['terraform_outputs'] = 0
                 self.counts['terraform_outputs'] += 1
 
-        # AWS CDK constructs
-        if 'cdk_constructs' in extracted:
-            for construct in extracted['cdk_constructs']:
-                self.db_manager.add_cdk_construct(
-                    file_path=file_path,  # Orchestrator adds file_path context
-                    line=construct['line'],
-                    cdk_class=construct['cdk_class'],
-                    construct_name=construct.get('construct_name'),
-                    construct_id=construct['construct_id']
-                )
-                if 'cdk_constructs' not in self.counts:
-                    self.counts['cdk_constructs'] = 0
-                self.counts['cdk_constructs'] += 1
-
-        # AWS CDK construct properties
-        if 'cdk_construct_properties' in extracted:
-            for prop in extracted['cdk_construct_properties']:
-                self.db_manager.add_cdk_construct_property(
-                    construct_id=prop['construct_id'],
-                    property_name=prop['property_name'],
-                    property_value_expr=prop['property_value_expr'],
-                    line=prop['line']
-                )
-                if 'cdk_construct_properties' not in self.counts:
-                    self.counts['cdk_construct_properties'] = 0
-                self.counts['cdk_construct_properties'] += 1
 
     def _cleanup_extractors(self):
         """Call cleanup() on all registered extractors.

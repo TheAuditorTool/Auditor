@@ -520,6 +520,376 @@ PYTHON_VALIDATORS = TableSchema(
     ]
 )
 
+# Phase 2.2: Advanced Python patterns (decorators, async, testing, types)
+
+PYTHON_DECORATORS = TableSchema(
+    name="python_decorators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("decorator_name", "TEXT", nullable=False),
+        Column("decorator_type", "TEXT", nullable=False),  # property, staticmethod, framework, custom, etc.
+        Column("target_type", "TEXT", nullable=False),     # function, class
+        Column("target_name", "TEXT", nullable=False),
+        Column("is_async", "BOOLEAN", default="0"),
+    ],
+    primary_key=["file", "line", "decorator_name", "target_name"],
+    indexes=[
+        ("idx_python_decorators_file", ["file"]),
+        ("idx_python_decorators_type", ["decorator_type"]),
+        ("idx_python_decorators_target", ["target_name"]),
+    ]
+)
+
+PYTHON_CONTEXT_MANAGERS = TableSchema(
+    name="python_context_managers",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("context_type", "TEXT", nullable=False),  # with, async_with, custom_class
+        Column("context_expr", "TEXT"),                  # Expression in with statement
+        Column("as_name", "TEXT"),                       # as variable name
+        Column("is_async", "BOOLEAN", default="0"),
+        Column("is_custom", "BOOLEAN", default="0"),     # Custom __enter__/__exit__ class
+    ],
+    # No primary key - multiple context managers on same line is valid (with a, b: ...)
+    indexes=[
+        ("idx_python_context_managers_file", ["file"]),
+        ("idx_python_context_managers_type", ["context_type"]),
+        ("idx_python_context_managers_line", ["file", "line"]),  # For line lookups
+    ]
+)
+
+PYTHON_ASYNC_FUNCTIONS = TableSchema(
+    name="python_async_functions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("has_await", "BOOLEAN", default="0"),
+        Column("await_count", "INTEGER", default="0"),
+        Column("has_async_with", "BOOLEAN", default="0"),
+        Column("has_async_for", "BOOLEAN", default="0"),
+    ],
+    primary_key=["file", "line", "function_name"],
+    indexes=[
+        ("idx_python_async_functions_file", ["file"]),
+        ("idx_python_async_functions_name", ["function_name"]),
+    ]
+)
+
+PYTHON_AWAIT_EXPRESSIONS = TableSchema(
+    name="python_await_expressions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("await_expr", "TEXT", nullable=False),
+        Column("containing_function", "TEXT"),
+    ],
+    indexes=[
+        ("idx_python_await_expressions_file", ["file"]),
+        ("idx_python_await_expressions_function", ["containing_function"]),
+    ]
+)
+
+PYTHON_ASYNC_GENERATORS = TableSchema(
+    name="python_async_generators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("generator_type", "TEXT", nullable=False),  # async_for, async_generator_function
+        Column("target_vars", "TEXT"),                      # JSON list for async_for
+        Column("iterable_expr", "TEXT"),                    # For async_for
+        Column("function_name", "TEXT"),                    # For async_generator_function
+    ],
+    indexes=[
+        ("idx_python_async_generators_file", ["file"]),
+        ("idx_python_async_generators_type", ["generator_type"]),
+    ]
+)
+
+PYTHON_PYTEST_FIXTURES = TableSchema(
+    name="python_pytest_fixtures",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("fixture_name", "TEXT", nullable=False),
+        Column("scope", "TEXT", default="'function'"),  # function, class, module, session
+        Column("has_autouse", "BOOLEAN", default="0"),
+        Column("has_params", "BOOLEAN", default="0"),
+    ],
+    primary_key=["file", "line", "fixture_name"],
+    indexes=[
+        ("idx_python_pytest_fixtures_file", ["file"]),
+        ("idx_python_pytest_fixtures_name", ["fixture_name"]),
+        ("idx_python_pytest_fixtures_scope", ["scope"]),
+    ]
+)
+
+PYTHON_PYTEST_PARAMETRIZE = TableSchema(
+    name="python_pytest_parametrize",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("test_function", "TEXT", nullable=False),
+        Column("parameter_names", "TEXT", nullable=False),  # JSON list
+        Column("argvalues_count", "INTEGER", default="0"),
+    ],
+    indexes=[
+        ("idx_python_pytest_parametrize_file", ["file"]),
+        ("idx_python_pytest_parametrize_function", ["test_function"]),
+    ]
+)
+
+PYTHON_PYTEST_MARKERS = TableSchema(
+    name="python_pytest_markers",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("test_function", "TEXT", nullable=False),
+        Column("marker_name", "TEXT", nullable=False),
+        Column("marker_args", "TEXT"),  # JSON list
+    ],
+    indexes=[
+        ("idx_python_pytest_markers_file", ["file"]),
+        ("idx_python_pytest_markers_name", ["marker_name"]),
+    ]
+)
+
+PYTHON_MOCK_PATTERNS = TableSchema(
+    name="python_mock_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("mock_type", "TEXT", nullable=False),  # decorator, patch, Mock, MagicMock, AsyncMock
+        Column("target", "TEXT"),
+        Column("in_function", "TEXT"),
+        Column("is_decorator", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_mock_patterns_file", ["file"]),
+        ("idx_python_mock_patterns_type", ["mock_type"]),
+    ]
+)
+
+PYTHON_PROTOCOLS = TableSchema(
+    name="python_protocols",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("protocol_name", "TEXT", nullable=False),
+        Column("methods", "TEXT"),  # JSON list of method names
+        Column("is_runtime_checkable", "BOOLEAN", default="0"),
+    ],
+    primary_key=["file", "protocol_name"],
+    indexes=[
+        ("idx_python_protocols_file", ["file"]),
+        ("idx_python_protocols_name", ["protocol_name"]),
+    ]
+)
+
+PYTHON_GENERICS = TableSchema(
+    name="python_generics",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("type_params", "TEXT"),  # JSON list of type parameter names
+    ],
+    primary_key=["file", "class_name"],
+    indexes=[
+        ("idx_python_generics_file", ["file"]),
+        ("idx_python_generics_name", ["class_name"]),
+    ]
+)
+
+PYTHON_TYPED_DICTS = TableSchema(
+    name="python_typed_dicts",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("typeddict_name", "TEXT", nullable=False),
+        Column("fields", "TEXT"),  # JSON list of field dicts: {field_name, field_type, is_required}
+    ],
+    primary_key=["file", "typeddict_name"],
+    indexes=[
+        ("idx_python_typed_dicts_file", ["file"]),
+        ("idx_python_typed_dicts_name", ["typeddict_name"]),
+    ]
+)
+
+PYTHON_LITERALS = TableSchema(
+    name="python_literals",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("usage_context", "TEXT", nullable=False),  # parameter, return, variable
+        Column("name", "TEXT"),                            # parameter_name, function_name, or variable_name
+        Column("literal_type", "TEXT", nullable=False),    # Full Literal annotation
+    ],
+    indexes=[
+        ("idx_python_literals_file", ["file"]),
+        ("idx_python_literals_context", ["usage_context"]),
+    ]
+)
+
+PYTHON_OVERLOADS = TableSchema(
+    name="python_overloads",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("overload_count", "INTEGER", nullable=False),
+        Column("variants", "TEXT", nullable=False),  # JSON list of variant dicts: {line, param_types[], return_type}
+    ],
+    primary_key=["file", "function_name"],
+    indexes=[
+        ("idx_python_overloads_file", ["file"]),
+        ("idx_python_overloads_name", ["function_name"]),
+    ]
+)
+
+# Django framework-specific patterns
+PYTHON_DJANGO_VIEWS = TableSchema(
+    name="python_django_views",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("view_class_name", "TEXT", nullable=False),
+        Column("view_type", "TEXT", nullable=False),          # list, detail, create, update, delete, form, template, redirect, base
+        Column("base_view_class", "TEXT"),                    # ListView, DetailView, CreateView, etc.
+        Column("model_name", "TEXT"),                         # Associated model (if any)
+        Column("template_name", "TEXT"),                      # Template path
+        Column("has_permission_check", "BOOLEAN", default="0"),  # @permission_required, @login_required on dispatch()
+        Column("http_method_names", "TEXT"),                  # Comma-separated allowed methods (GET, POST, etc.)
+        Column("has_get_queryset_override", "BOOLEAN", default="0"),  # SQL injection surface
+    ],
+    primary_key=["file", "line", "view_class_name"],
+    indexes=[
+        ("idx_python_django_views_file", ["file"]),
+        ("idx_python_django_views_type", ["view_type"]),
+        ("idx_python_django_views_model", ["model_name"]),
+        ("idx_python_django_views_no_perm", ["has_permission_check"]),  # Find views without auth
+    ]
+)
+
+PYTHON_DJANGO_FORMS = TableSchema(
+    name="python_django_forms",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("form_class_name", "TEXT", nullable=False),
+        Column("is_model_form", "BOOLEAN", default="0"),
+        Column("model_name", "TEXT"),                    # For ModelForm
+        Column("field_count", "INTEGER", default="0"),   # Validation surface area
+        Column("has_custom_clean", "BOOLEAN", default="0"),  # Custom validation logic
+    ],
+    primary_key=["file", "line", "form_class_name"],
+    indexes=[
+        ("idx_python_django_forms_file", ["file"]),
+        ("idx_python_django_forms_model", ["is_model_form"]),
+        ("idx_python_django_forms_no_validators", ["has_custom_clean"]),  # Forms without validation
+    ]
+)
+
+PYTHON_DJANGO_FORM_FIELDS = TableSchema(
+    name="python_django_form_fields",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("form_class_name", "TEXT", nullable=False),
+        Column("field_name", "TEXT", nullable=False),
+        Column("field_type", "TEXT", nullable=False),    # CharField, EmailField, IntegerField, etc.
+        Column("required", "BOOLEAN", default="1"),      # Default is required
+        Column("max_length", "INTEGER"),                 # DoS risk if unbounded
+        Column("has_custom_validator", "BOOLEAN", default="0"),  # clean_<field> method exists
+    ],
+    primary_key=["file", "line", "form_class_name", "field_name"],
+    indexes=[
+        ("idx_python_django_form_fields_file", ["file"]),
+        ("idx_python_django_form_fields_form", ["form_class_name"]),
+        ("idx_python_django_form_fields_type", ["field_type"]),
+        ("idx_python_django_form_fields_no_length", ["max_length"]),  # Find unbounded fields
+    ]
+)
+
+PYTHON_DJANGO_ADMIN = TableSchema(
+    name="python_django_admin",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("admin_class_name", "TEXT", nullable=False),
+        Column("model_name", "TEXT"),                        # Associated model from admin.site.register()
+        Column("list_display", "TEXT"),                      # Comma-separated field names shown in list view
+        Column("list_filter", "TEXT"),                       # Comma-separated filter fields
+        Column("search_fields", "TEXT"),                     # Comma-separated searchable fields
+        Column("readonly_fields", "TEXT"),                   # Comma-separated read-only fields
+        Column("has_custom_actions", "BOOLEAN", default="0"),  # Custom bulk actions defined
+    ],
+    primary_key=["file", "line", "admin_class_name"],
+    indexes=[
+        ("idx_python_django_admin_file", ["file"]),
+        ("idx_python_django_admin_model", ["model_name"]),
+        ("idx_python_django_admin_actions", ["has_custom_actions"]),
+    ]
+)
+
+PYTHON_DJANGO_MIDDLEWARE = TableSchema(
+    name="python_django_middleware",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("middleware_class_name", "TEXT", nullable=False),
+        Column("has_process_request", "BOOLEAN", default="0"),       # Pre-view processing
+        Column("has_process_response", "BOOLEAN", default="0"),      # Post-view processing
+        Column("has_process_exception", "BOOLEAN", default="0"),     # Exception handling
+        Column("has_process_view", "BOOLEAN", default="0"),          # View-level processing
+        Column("has_process_template_response", "BOOLEAN", default="0"),  # Template processing
+    ],
+    primary_key=["file", "line", "middleware_class_name"],
+    indexes=[
+        ("idx_python_django_middleware_file", ["file"]),
+        ("idx_python_django_middleware_request", ["has_process_request"]),
+    ]
+)
+
+PYTHON_MARSHMALLOW_SCHEMAS = TableSchema(
+    name="python_marshmallow_schemas",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("schema_class_name", "TEXT", nullable=False),
+        Column("field_count", "INTEGER", default="0"),               # Validation surface area
+        Column("has_nested_schemas", "BOOLEAN", default="0"),        # ma.Nested references
+        Column("has_custom_validators", "BOOLEAN", default="0"),     # @validates decorators
+    ],
+    primary_key=["file", "line", "schema_class_name"],
+    indexes=[
+        ("idx_python_marshmallow_schemas_file", ["file"]),
+        ("idx_python_marshmallow_schemas_name", ["schema_class_name"]),
+    ]
+)
+
+PYTHON_MARSHMALLOW_FIELDS = TableSchema(
+    name="python_marshmallow_fields",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("schema_class_name", "TEXT", nullable=False),
+        Column("field_name", "TEXT", nullable=False),
+        Column("field_type", "TEXT", nullable=False),                # String, Integer, Email, Nested, etc.
+        Column("required", "BOOLEAN", default="0"),                  # required=True flag
+        Column("allow_none", "BOOLEAN", default="0"),                # allow_none=True flag
+        Column("has_validate", "BOOLEAN", default="0"),              # validate= keyword arg
+        Column("has_custom_validator", "BOOLEAN", default="0"),      # @validates('field_name') decorator
+    ],
+    primary_key=["file", "line", "schema_class_name", "field_name"],
+    indexes=[
+        ("idx_python_marshmallow_fields_file", ["file"]),
+        ("idx_python_marshmallow_fields_schema", ["schema_class_name"]),
+        ("idx_python_marshmallow_fields_required", ["required"]),
+    ]
+)
+
 # ============================================================================
 # SQL & DATABASE TABLES
 # ============================================================================
@@ -1430,6 +1800,158 @@ CDK_FINDINGS = TableSchema(
 )
 
 # ============================================================================
+# GITHUB ACTIONS WORKFLOW TABLES (CI/CD Security Analysis)
+# ============================================================================
+
+GITHUB_WORKFLOWS = TableSchema(
+    name="github_workflows",
+    columns=[
+        Column("workflow_path", "TEXT", nullable=False, primary_key=True),  # .github/workflows/ci.yml
+        Column("workflow_name", "TEXT"),  # Name from 'name:' field or filename
+        Column("on_triggers", "TEXT", nullable=False),  # JSON array of trigger events
+        Column("permissions", "TEXT"),  # JSON object of workflow-level permissions
+        Column("concurrency", "TEXT"),  # JSON object of concurrency settings
+        Column("env", "TEXT"),  # JSON object of workflow-level env vars
+    ],
+    indexes=[
+        ("idx_github_workflows_path", ["workflow_path"]),
+        ("idx_github_workflows_name", ["workflow_name"]),
+    ]
+)
+
+GITHUB_JOBS = TableSchema(
+    name="github_jobs",
+    columns=[
+        Column("job_id", "TEXT", nullable=False, primary_key=True),  # PK: workflow_path||':'||job_key
+        Column("workflow_path", "TEXT", nullable=False),  # FK to github_workflows
+        Column("job_key", "TEXT", nullable=False),  # Job key from YAML (e.g., 'build', 'test')
+        Column("job_name", "TEXT"),  # Optional name: field
+        Column("runs_on", "TEXT"),  # JSON array of runner labels (supports matrix)
+        Column("strategy", "TEXT"),  # JSON object of matrix strategy
+        Column("permissions", "TEXT"),  # JSON object of job-level permissions
+        Column("env", "TEXT"),  # JSON object of job-level env vars
+        Column("if_condition", "TEXT"),  # Conditional expression for job execution
+        Column("timeout_minutes", "INTEGER"),  # Job timeout
+        Column("uses_reusable_workflow", "BOOLEAN", default="0"),  # True if uses: workflow.yml
+        Column("reusable_workflow_path", "TEXT"),  # Path to reusable workflow if used
+    ],
+    indexes=[
+        ("idx_github_jobs_workflow", ["workflow_path"]),
+        ("idx_github_jobs_key", ["job_key"]),
+        ("idx_github_jobs_reusable", ["uses_reusable_workflow"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["workflow_path"],
+            foreign_table="github_workflows",
+            foreign_columns=["workflow_path"]
+        )
+    ]
+)
+
+GITHUB_JOB_DEPENDENCIES = TableSchema(
+    name="github_job_dependencies",
+    columns=[
+        Column("job_id", "TEXT", nullable=False),  # FK to github_jobs
+        Column("needs_job_id", "TEXT", nullable=False),  # FK to github_jobs (dependency)
+    ],
+    primary_key=["job_id", "needs_job_id"],
+    indexes=[
+        ("idx_github_job_deps_job", ["job_id"]),
+        ("idx_github_job_deps_needs", ["needs_job_id"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["job_id"],
+            foreign_table="github_jobs",
+            foreign_columns=["job_id"]
+        ),
+        ForeignKey(
+            local_columns=["needs_job_id"],
+            foreign_table="github_jobs",
+            foreign_columns=["job_id"]
+        ),
+    ]
+)
+
+GITHUB_STEPS = TableSchema(
+    name="github_steps",
+    columns=[
+        Column("step_id", "TEXT", nullable=False, primary_key=True),  # PK: job_id||':'||sequence_order
+        Column("job_id", "TEXT", nullable=False),  # FK to github_jobs
+        Column("sequence_order", "INTEGER", nullable=False),  # Step order within job (0-indexed)
+        Column("step_name", "TEXT"),  # Optional name: field
+        Column("uses_action", "TEXT"),  # Action reference (e.g., 'actions/checkout@v4')
+        Column("uses_version", "TEXT"),  # Version/ref extracted from uses (e.g., 'v4', 'main', 'sha')
+        Column("run_script", "TEXT"),  # Shell script content from run: field
+        Column("shell", "TEXT"),  # Shell type (bash, pwsh, python, etc.)
+        Column("env", "TEXT"),  # JSON object of step-level env vars
+        Column("with_args", "TEXT"),  # JSON object of action inputs (with: field)
+        Column("if_condition", "TEXT"),  # Conditional expression for step execution
+        Column("timeout_minutes", "INTEGER"),  # Step timeout
+        Column("continue_on_error", "BOOLEAN", default="0"),  # Continue on failure
+    ],
+    indexes=[
+        ("idx_github_steps_job", ["job_id"]),
+        ("idx_github_steps_sequence", ["job_id", "sequence_order"]),
+        ("idx_github_steps_action", ["uses_action"]),
+        ("idx_github_steps_version", ["uses_version"]),  # Find mutable tags (main, v1)
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["job_id"],
+            foreign_table="github_jobs",
+            foreign_columns=["job_id"]
+        )
+    ]
+)
+
+GITHUB_STEP_OUTPUTS = TableSchema(
+    name="github_step_outputs",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),  # AUTOINCREMENT
+        Column("step_id", "TEXT", nullable=False),  # FK to github_steps
+        Column("output_name", "TEXT", nullable=False),  # Output key
+        Column("output_expression", "TEXT", nullable=False),  # Value expression
+    ],
+    indexes=[
+        ("idx_github_step_outputs_step", ["step_id"]),
+        ("idx_github_step_outputs_name", ["output_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["step_id"],
+            foreign_table="github_steps",
+            foreign_columns=["step_id"]
+        )
+    ]
+)
+
+GITHUB_STEP_REFERENCES = TableSchema(
+    name="github_step_references",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),  # AUTOINCREMENT
+        Column("step_id", "TEXT", nullable=False),  # FK to github_steps
+        Column("reference_location", "TEXT", nullable=False),  # 'run', 'env', 'with', 'if'
+        Column("reference_type", "TEXT", nullable=False),  # 'github', 'secrets', 'env', 'needs', 'steps'
+        Column("reference_path", "TEXT", nullable=False),  # Full path (e.g., 'github.event.pull_request.head.sha')
+    ],
+    indexes=[
+        ("idx_github_step_refs_step", ["step_id"]),
+        ("idx_github_step_refs_type", ["reference_type"]),
+        ("idx_github_step_refs_path", ["reference_path"]),
+        ("idx_github_step_refs_location", ["reference_location"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["step_id"],
+            foreign_table="github_steps",
+            foreign_columns=["step_id"]
+        )
+    ]
+)
+
+# ============================================================================
 # BUILD ANALYSIS TABLES
 # ============================================================================
 
@@ -1750,6 +2272,29 @@ TABLES: Dict[str, TableSchema] = {
     "python_blueprints": PYTHON_BLUEPRINTS,
     "python_validators": PYTHON_VALIDATORS,
 
+    # Python Phase 2.2: Advanced patterns
+    "python_decorators": PYTHON_DECORATORS,
+    "python_context_managers": PYTHON_CONTEXT_MANAGERS,
+    "python_async_functions": PYTHON_ASYNC_FUNCTIONS,
+    "python_await_expressions": PYTHON_AWAIT_EXPRESSIONS,
+    "python_async_generators": PYTHON_ASYNC_GENERATORS,
+    "python_pytest_fixtures": PYTHON_PYTEST_FIXTURES,
+    "python_pytest_parametrize": PYTHON_PYTEST_PARAMETRIZE,
+    "python_pytest_markers": PYTHON_PYTEST_MARKERS,
+    "python_mock_patterns": PYTHON_MOCK_PATTERNS,
+    "python_protocols": PYTHON_PROTOCOLS,
+    "python_generics": PYTHON_GENERICS,
+    "python_typed_dicts": PYTHON_TYPED_DICTS,
+    "python_literals": PYTHON_LITERALS,
+    "python_overloads": PYTHON_OVERLOADS,
+    "python_django_views": PYTHON_DJANGO_VIEWS,
+    "python_django_forms": PYTHON_DJANGO_FORMS,
+    "python_django_form_fields": PYTHON_DJANGO_FORM_FIELDS,
+    "python_django_admin": PYTHON_DJANGO_ADMIN,
+    "python_django_middleware": PYTHON_DJANGO_MIDDLEWARE,
+    "python_marshmallow_schemas": PYTHON_MARSHMALLOW_SCHEMAS,
+    "python_marshmallow_fields": PYTHON_MARSHMALLOW_FIELDS,
+
     # SQL & database
     "sql_objects": SQL_OBJECTS,
     "sql_queries": SQL_QUERIES,
@@ -1809,6 +2354,14 @@ TABLES: Dict[str, TableSchema] = {
     "cdk_constructs": CDK_CONSTRUCTS,
     "cdk_construct_properties": CDK_CONSTRUCT_PROPERTIES,
     "cdk_findings": CDK_FINDINGS,
+
+    # GitHub Actions (CI/CD Security)
+    "github_workflows": GITHUB_WORKFLOWS,
+    "github_jobs": GITHUB_JOBS,
+    "github_job_dependencies": GITHUB_JOB_DEPENDENCIES,
+    "github_steps": GITHUB_STEPS,
+    "github_step_outputs": GITHUB_STEP_OUTPUTS,
+    "github_step_references": GITHUB_STEP_REFERENCES,
 
     # Build analysis
     "package_configs": PACKAGE_CONFIGS,

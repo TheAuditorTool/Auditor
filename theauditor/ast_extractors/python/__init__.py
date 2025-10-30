@@ -103,6 +103,8 @@ from .core_extractors import (
     extract_python_properties,
     extract_python_calls,
     extract_python_dicts,
+    extract_python_decorators,
+    extract_python_context_managers,
 )
 
 from .framework_extractors import (
@@ -111,6 +113,13 @@ from .framework_extractors import (
     extract_django_definitions,
     extract_pydantic_validators,
     extract_flask_blueprints,
+    extract_django_cbvs,
+    extract_django_forms,
+    extract_django_form_fields,
+    extract_django_admin,
+    extract_django_middleware,
+    extract_marshmallow_schemas,
+    extract_marshmallow_fields,
     # Constants and helpers (for backward compatibility)
     FASTAPI_HTTP_METHODS,
     _extract_fastapi_dependencies,
@@ -124,6 +133,30 @@ from .cfg_extractor import (
 from .cdk_extractor import (
     # AWS CDK Infrastructure-as-Code extraction
     extract_python_cdk_constructs,
+)
+
+from .async_extractors import (
+    # Async pattern extraction
+    extract_async_functions,
+    extract_await_expressions,
+    extract_async_generators,
+)
+
+from .testing_extractors import (
+    # Testing pattern extraction
+    extract_pytest_fixtures,
+    extract_pytest_parametrize,
+    extract_pytest_markers,
+    extract_mock_patterns,
+)
+
+from .type_extractors import (
+    # Advanced type extraction
+    extract_protocols,
+    extract_generics,
+    extract_typed_dicts,
+    extract_literals,
+    extract_overloads,
 )
 
 # Backward compatibility: re-export all functions at package level
@@ -141,13 +174,37 @@ __all__ = [
     'extract_python_properties',
     'extract_python_calls',
     'extract_python_dicts',
+    'extract_python_decorators',
+    'extract_python_context_managers',
     # Framework extractors
     'extract_sqlalchemy_definitions',
     'extract_django_definitions',
     'extract_pydantic_validators',
     'extract_flask_blueprints',
+    'extract_django_cbvs',
+    'extract_django_forms',
+    'extract_django_form_fields',
+    'extract_django_admin',
+    'extract_django_middleware',
+    'extract_marshmallow_schemas',
+    'extract_marshmallow_fields',
     # CFG extractor
     'extract_python_cfg',
     # CDK extractor
     'extract_python_cdk_constructs',
+    # Async extractors
+    'extract_async_functions',
+    'extract_await_expressions',
+    'extract_async_generators',
+    # Testing extractors
+    'extract_pytest_fixtures',
+    'extract_pytest_parametrize',
+    'extract_pytest_markers',
+    'extract_mock_patterns',
+    # Type extractors
+    'extract_protocols',
+    'extract_generics',
+    'extract_typed_dicts',
+    'extract_literals',
+    'extract_overloads',
 ]

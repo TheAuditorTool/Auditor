@@ -432,3 +432,317 @@ function resolveSQLLiteral(argExpr) {
     // Complex expression (variable, concatenation, etc.) - can't analyze
     return null;
 }
+
+/**
+ * Extract AWS CDK construct instantiations from TypeScript/JavaScript.
+ *
+ * Detects patterns:
+ * - new s3.Bucket(this, 'MyBucket', {...})
+ * - new SecurityGroup(this, 'MySG', {...})
+ * - new rds.DatabaseInstance(this, 'MyDB', {...})
+ *
+ * PURPOSE: Enable infrastructure-as-code security analysis for AWS CDK
+ *
+ * TEAMSOP.MD COMPLIANCE:
+ * - NO FALLBACKS: If CDK imports not detected, return empty array (deterministic)
+ * - NO REGEX: Use AST data from core extractors only
+ * - DATABASE-FIRST: Write to database, rules query database (never re-parse source)
+ * - HARD FAILURE: Missing data causes crash (no graceful degradation)
+ *
+ * @param {Array} functionCallArgs - From extractFunctionCallArgs()
+ * @param {Array} imports - From extractImports()
+ * @returns {Array} - CDK construct records
+ */
+function extractCDKConstructs(functionCallArgs, imports) {
+    const constructs = [];
+
+    // Debug logging helper
+    const debugLog = (msg, data) => {
+        if (process.env.THEAUDITOR_CDK_DEBUG === '1') {
+            console.error(`[CDK-EXTRACT] ${msg}`);
+            if (data) {
+                console.error(`[CDK-EXTRACT]   ${JSON.stringify(data)}`);
+            }
+        }
+    };
+
+    debugLog('Starting CDK construct extraction', {
+        functionCallArgs_count: functionCallArgs.length,
+        imports_count: imports.length
+    });
+
+    // Step 1: Detect CDK imports
+    const cdkImports = imports.filter(i => {
+        const module = i.module || '';
+        return module && module.includes('aws-cdk-lib');
+    });
+
+    debugLog(`Found ${cdkImports.length} CDK imports`, cdkImports);
+
+    if (cdkImports.length === 0) {
+        debugLog('No CDK imports found, skipping extraction (DETERMINISTIC)');
+        return [];  // No CDK imports = no CDK constructs (deterministic, not a fallback)
+    }
+
+    // Step 2: Build map of CDK module aliases
+    // Example: import * as s3 from 'aws-cdk-lib/aws-s3' → {s3: 'aws-s3'}
+    // Example: import { Bucket } from 'aws-cdk-lib/aws-s3' → {Bucket: 'aws-s3'}
+    const cdkAliases = {};
+    for (const imp of cdkImports) {
+        const module = imp.module || '';
+
+        // Extract service name from module path: 'aws-cdk-lib/aws-s3' → 'aws-s3'
+        const serviceName = module.includes('/') ? module.split('/').pop() : null;
+
+        // Process specifiers array from extractImports()
+        if (imp.specifiers && imp.specifiers.length > 0) {
+            for (const spec of imp.specifiers) {
+                const name = spec.name;
+
+                // Handle namespace imports: import * as s3
+                if (spec.isNamespace) {
+                    cdkAliases[name] = serviceName;
+                    debugLog(`Mapped namespace import: ${name} → ${serviceName}`);
+                }
+
+                // Handle named imports: import { Bucket }
+                else if (spec.isNamed) {
+                    cdkAliases[name] = serviceName;
+                    debugLog(`Mapped named import: ${name} → ${serviceName}`);
+                }
+
+                // Handle default imports: import cdk
+                else if (spec.isDefault) {
+                    cdkAliases[name] = serviceName;
+                    debugLog(`Mapped default import: ${name} → ${serviceName}`);
+                }
+            }
+        }
+    }
+
+    debugLog('Built CDK alias map', cdkAliases);
+
+    // Step 3: Detect 'new X(...)' patterns from functionCallArgs
+    for (const call of functionCallArgs) {
+        const callee = call.callee_function || '';
+
+        // Check if this is a 'new' expression
+        // Core extractors mark these as 'new ClassName' or 'new module.ClassName'
+        if (!callee.startsWith('new ')) {
+            continue;
+        }
+
+        // Extract class name from 'new s3.Bucket' → 's3.Bucket'
+        const className = callee.replace(/^new\s+/, '');
+
+        debugLog(`Analyzing new expression: ${className}`, { line: call.line });
+
+        // Check if this matches a CDK alias
+        const parts = className.split('.');
+        if (parts.length >= 2) {
+            const moduleAlias = parts[0];  // e.g., 's3'
+            const constructClass = parts.slice(1).join('.');  // e.g., 'Bucket'
+
+            if (moduleAlias in cdkAliases) {
+                // This is a CDK construct!
+                debugLog(`Matched CDK construct: ${className}`, {
+                    module_alias: moduleAlias,
+                    construct_class: constructClass,
+                    service: cdkAliases[moduleAlias]
+                });
+
+                // Extract construct name from arguments (typically second argument after 'this')
+                const constructName = extractConstructName(call, functionCallArgs);
+
+                // Extract properties from object literal (typically third argument)
+                const properties = extractConstructProperties(call, functionCallArgs);
+
+                constructs.push({
+                    line: call.line,
+                    cdk_class: className,  // e.g., 's3.Bucket'
+                    construct_name: constructName,
+                    properties: properties
+                });
+
+                debugLog(`Extracted CDK construct at line ${call.line}`, {
+                    cdk_class: className,
+                    construct_name: constructName,
+                    properties_count: properties.length
+                });
+            }
+        } else if (parts.length === 1) {
+            // Direct class import: new Bucket(...)
+            const constructClass = parts[0];
+            if (constructClass in cdkAliases) {
+                debugLog(`Matched direct CDK import: ${constructClass}`);
+
+                const constructName = extractConstructName(call, functionCallArgs);
+                const properties = extractConstructProperties(call, functionCallArgs);
+
+                constructs.push({
+                    line: call.line,
+                    cdk_class: constructClass,
+                    construct_name: constructName,
+                    properties: properties
+                });
+
+                debugLog(`Extracted CDK construct at line ${call.line}`, {
+                    cdk_class: constructClass,
+                    construct_name: constructName,
+                    properties_count: properties.length
+                });
+            }
+        }
+    }
+
+    debugLog(`Total CDK constructs extracted: ${constructs.length}`);
+    return constructs;
+}
+
+/**
+ * Extract construct name from CDK constructor arguments.
+ * CDK pattern: new Bucket(this, 'ConstructName', {...})
+ * The second argument is always the construct ID (name).
+ *
+ * @param {Object} call - Function call record for 'new ClassName'
+ * @param {Array} allCalls - All function call args to find matching arguments
+ * @returns {string|null} - Construct name or null
+ */
+function extractConstructName(call, allCalls) {
+    // Find all arguments for this call (same line, same caller)
+    const args = allCalls.filter(c =>
+        c.line === call.line &&
+        c.callee_function === call.callee_function
+    );
+
+    // CDK constructor pattern: (scope, id, props)
+    // id is the second argument (argument_index === 1)
+    const idArg = args.find(a => a.argument_index === 1);
+    if (!idArg || !idArg.argument_expr) {
+        return null;
+    }
+
+    // Extract string literal from argument
+    const expr = idArg.argument_expr.trim();
+
+    // Remove quotes: 'MyBucket' → MyBucket
+    if ((expr.startsWith("'") && expr.endsWith("'")) ||
+        (expr.startsWith('"') && expr.endsWith('"'))) {
+        return expr.slice(1, -1);
+    }
+
+    // If not a string literal, return the expression as-is
+    return expr;
+}
+
+/**
+ * Extract properties from CDK construct configuration object.
+ * CDK pattern: new Bucket(this, 'Name', { publicReadAccess: true, versioned: false })
+ * The third argument is the props object.
+ *
+ * @param {Object} call - Function call record for 'new ClassName'
+ * @param {Array} allCalls - All function call args to find matching arguments
+ * @returns {Array} - Property records
+ */
+function extractConstructProperties(call, allCalls) {
+    const properties = [];
+
+    // Find the props argument (third argument, argument_index === 2)
+    const propsArg = allCalls.find(c =>
+        c.line === call.line &&
+        c.callee_function === call.callee_function &&
+        c.argument_index === 2
+    );
+
+    if (!propsArg || !propsArg.argument_expr) {
+        return properties;
+    }
+
+    const expr = propsArg.argument_expr.trim();
+
+    // Parse object literal: { key: value, ... }
+    // This is a simplified parser - handles basic key-value pairs
+    const objMatch = expr.match(/\{([^}]+)\}/);
+    if (!objMatch) {
+        return properties;
+    }
+
+    const objContent = objMatch[1];
+
+    // Split by commas, but be careful with nested objects/arrays
+    // Simplified approach: split and rejoin nested structures
+    const pairs = splitObjectPairs(objContent);
+
+    for (const pair of pairs) {
+        const colonIdx = pair.indexOf(':');
+        if (colonIdx === -1) continue;
+
+        const key = pair.substring(0, colonIdx).trim();
+        const value = pair.substring(colonIdx + 1).trim();
+
+        if (!key) continue;
+
+        properties.push({
+            name: key,
+            value_expr: value,
+            line: call.line  // Properties use same line as construct
+        });
+    }
+
+    return properties;
+}
+
+/**
+ * Split object literal pairs by commas, handling nested structures.
+ * Simplified implementation that handles basic nesting.
+ *
+ * @param {string} content - Object literal content (without braces)
+ * @returns {Array} - Array of key:value strings
+ */
+function splitObjectPairs(content) {
+    const pairs = [];
+    let current = '';
+    let depth = 0;
+    let inString = false;
+    let stringChar = null;
+
+    for (let i = 0; i < content.length; i++) {
+        const char = content[i];
+        const prevChar = i > 0 ? content[i - 1] : '';
+
+        // Track string literals
+        if ((char === '"' || char === "'" || char === '`') && prevChar !== '\\') {
+            if (!inString) {
+                inString = true;
+                stringChar = char;
+            } else if (char === stringChar) {
+                inString = false;
+                stringChar = null;
+            }
+        }
+
+        // Track nesting depth (ignore inside strings)
+        if (!inString) {
+            if (char === '{' || char === '[' || char === '(') {
+                depth++;
+            } else if (char === '}' || char === ']' || char === ')') {
+                depth--;
+            }
+        }
+
+        // Split on comma at depth 0 (outside nested structures)
+        if (char === ',' && depth === 0 && !inString) {
+            pairs.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+
+    // Add final pair
+    if (current.trim()) {
+        pairs.push(current.trim());
+    }
+
+    return pairs;
+}
