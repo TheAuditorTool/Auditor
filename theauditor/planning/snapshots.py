@@ -15,7 +15,7 @@ import platform
 IS_WINDOWS = platform.system() == "Windows"
 
 
-def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, manager=None) -> Dict:
+def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, task_id: int = None, manager=None) -> Dict:
     """
     Create a code snapshot at the current git state.
 
@@ -23,6 +23,7 @@ def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, manager
         plan_id: Plan ID to associate snapshot with
         checkpoint_name: Name for this checkpoint (e.g., "pre-refactor", "post-migration")
         repo_root: Repository root directory
+        task_id: Optional task ID for sequence tracking
         manager: Optional PlanningManager instance to persist snapshot
 
     Returns:
@@ -30,6 +31,7 @@ def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, manager
             - git_ref: Current git commit SHA
             - files_affected: List of modified file paths
             - diffs: List of diffs with added/removed line counts
+            - sequence: Sequence number if task_id provided
 
     Raises:
         subprocess.CalledProcessError: If git commands fail
@@ -116,10 +118,20 @@ def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, manager
         files_json = json.dumps(files_affected)
         cursor = manager.conn.cursor()
 
+        # Calculate sequence number for task if task_id provided
+        sequence = None
+        if task_id:
+            cursor.execute("""
+                SELECT MAX(sequence) FROM code_snapshots WHERE task_id = ?
+            """, (task_id,))
+            max_seq = cursor.fetchone()[0]
+            sequence = (max_seq or 0) + 1
+            snapshot_data['sequence'] = sequence
+
         cursor.execute("""
-            INSERT INTO code_snapshots (plan_id, checkpoint_name, timestamp, git_ref, files_json)
-            VALUES (?, ?, ?, ?, ?)
-        """, (plan_id, checkpoint_name, snapshot_data['timestamp'], git_ref, files_json))
+            INSERT INTO code_snapshots (plan_id, task_id, sequence, checkpoint_name, timestamp, git_ref, files_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (plan_id, task_id, sequence, checkpoint_name, snapshot_data['timestamp'], git_ref, files_json))
 
         snapshot_id = cursor.lastrowid
 
@@ -157,7 +169,7 @@ def load_snapshot(snapshot_id: int, manager) -> Optional[Dict]:
 
     # Load snapshot metadata
     cursor.execute("""
-        SELECT id, plan_id, checkpoint_name, timestamp, git_ref, files_json
+        SELECT id, plan_id, task_id, sequence, checkpoint_name, timestamp, git_ref, files_json
         FROM code_snapshots
         WHERE id = ?
     """, (snapshot_id,))
@@ -169,10 +181,12 @@ def load_snapshot(snapshot_id: int, manager) -> Optional[Dict]:
     snapshot_data = {
         'snapshot_id': row[0],
         'plan_id': row[1],
-        'checkpoint_name': row[2],
-        'timestamp': row[3],
-        'git_ref': row[4],
-        'files_affected': json.loads(row[5]) if row[5] else []
+        'task_id': row[2],
+        'sequence': row[3],
+        'checkpoint_name': row[4],
+        'timestamp': row[5],
+        'git_ref': row[6],
+        'files_affected': json.loads(row[7]) if row[7] else []
     }
 
     # Load diffs

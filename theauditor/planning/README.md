@@ -2,6 +2,10 @@
 
 The planning system provides database-centric task tracking with deterministic verification, integrated directly with TheAuditor's indexed codebase.
 
+**NEW FEATURE**: Incremental edit tracking with sequence numbers!
+
+Track every AI edit within a task - something git can't do for uncommitted changes!
+
 ## Quick Start
 
 ```bash
@@ -152,34 +156,52 @@ aud index && aud planning verify-task 1 1 --auto-update
 aud planning archive 1 --notes "Auth migration complete, deployed v2.0"
 ```
 
-### Checkpoint-Driven Development
+### Checkpoint-Driven Development (Incremental Tracking)
 
-For complex changes with rollback points:
+**The Problem Git Can't Solve:** You make 3 incremental edits to `auth.ts` (add imports, add handler, add error handling). Git only sees 1 uncommitted change. If edit 3 breaks things, you can't easily revert to "after edit 2".
+
+**The Solution:** Planning checkpoints with sequence tracking.
 
 ```bash
-# 1. Add task
-aud planning add-task 1 --title "Refactor database layer"
+# 1. Initialize plan and task
+aud planning init --name "Implement OAuth Flow"
+aud planning add-task 1 --title "Add OAuth routes"
 
-# 2. Make partial changes
-# [Modify 10 files]
+# 2. Make edit 1: Add imports
+[modify auth.ts - add import statements]
+aud planning checkpoint 1 1 --name "added-imports"
+# Checkpoint created: sequence 1
 
-# 3. Verify (creates snapshot if violations exist)
-aud planning verify-task 1 1
-# Snapshot created: abc123de
+# 3. Make edit 2: Add route handler
+[modify auth.ts - add route handler function]
+aud planning checkpoint 1 1  # Auto-generates "edit_2"
+# Checkpoint created: sequence 2
 
-# 4. Continue work
-# [Modify 10 more files]
+# 4. Make edit 3: Add error handling
+[modify auth.ts - add try/catch blocks]
+aud planning checkpoint 1 1 --name "added-error-handling"
+# Checkpoint created: sequence 3
 
-# 5. If things break, check available snapshots
-aud planning rewind 1
+# 5. View all checkpoints
+aud planning show-diff 1 1
+# Output:
+#   [1] added-imports
+#   [2] edit_2
+#   [3] added-error-handling
 
-# 6. Rollback to snapshot if needed
-aud planning rewind 1 --checkpoint "verify-task-1-failed"
-# Shows git commands to revert
+# 6. If edit 3 broke things, rewind to after edit 2
+aud planning rewind 1 1 --to 2
+# Shows which checkpoints apply: [1] and [2], stops before [3]
 
-# 7. Execute rollback
-git checkout abc123de
+# 7. View the exact diff at checkpoint 2
+aud planning show-diff 1 1 --sequence 2
+# Shows full unified diff as of edit 2
+
+# 8. Rollback if needed (execute the git commands shown)
+git checkout <commit-sha-from-rewind>
 ```
+
+**Key Insight:** Each checkpoint stores the full git diff at that point. Sequence numbers let you say "I want the code state after edit 2" even though all 3 edits are uncommitted changes to the same file.
 
 ## Database Schema
 
@@ -216,10 +238,13 @@ git checkout abc123de
 - `id`: Primary key
 - `plan_id`: Foreign key to plans
 - `task_id`: Foreign key to plan_tasks (nullable)
+- `sequence`: Auto-incrementing sequence number per task (NEW)
 - `checkpoint_name`: Descriptive name
 - `timestamp`: When snapshot was created
 - `git_ref`: Git commit SHA
 - `files_json`: JSON array of affected files
+
+**Key Feature:** `sequence` enables incremental tracking. Task 1 can have sequences 1,2,3 while Task 2 also has sequences 1,2,3. Sequences are per-task, not global.
 
 **code_diffs** - Full git diffs for snapshots
 - `id`: Primary key
@@ -299,16 +324,82 @@ Creates final git snapshot and marks plan as archived.
 
 ### rewind
 
-Show rollback instructions for a plan.
+Show rollback instructions for a plan or task.
 
 ```bash
 aud planning rewind PLAN_ID [--checkpoint "checkpoint-name"]
+aud planning rewind PLAN_ID TASK_NUMBER [--to SEQUENCE]
 ```
 
-Without `--checkpoint`: Lists all snapshots
-With `--checkpoint`: Shows git commands to rollback
+**Plan-level rewind:**
+- Without `--checkpoint`: Lists all plan snapshots
+- With `--checkpoint`: Shows git commands to rollback
+
+**Task-level rewind (NEW - Granular Control):**
+- Without `--to`: Lists all task checkpoints with sequence numbers
+- With `--to N`: Shows commands to rewind to sequence N (e.g., `--to 2` for edit_2)
 
 **Safety**: Only displays commands, does not execute them.
+
+### checkpoint (NEW)
+
+Create incremental snapshot after editing code.
+
+```bash
+aud planning checkpoint PLAN_ID TASK_NUMBER [--name "checkpoint-name"]
+```
+
+Use this after each edit to track incremental changes within a task. Each checkpoint gets an auto-incrementing sequence number (1, 2, 3...).
+
+**Auto-naming:** If `--name` omitted, generates names like `edit_2`, `edit_3`, etc.
+
+**The Brilliant Insight:** Git can't distinguish 3 incremental edits to an uncommitted file. Planning checkpoints can.
+
+Example:
+```bash
+# AI makes edit 1
+[modify auth.ts]
+aud planning checkpoint 1 1 --name "added-imports"  # Sequence 1
+
+# AI makes edit 2
+[modify auth.ts again]
+aud planning checkpoint 1 1  # Auto-generates "edit_2", Sequence 2
+
+# AI makes edit 3
+[modify auth.ts again]
+aud planning checkpoint 1 1 --name "added-error-handling"  # Sequence 3
+```
+
+### show-diff (NEW)
+
+View stored diffs for a task.
+
+```bash
+aud planning show-diff PLAN_ID TASK_NUMBER [--sequence N] [--file FILENAME]
+```
+
+Lists all checkpoints for a task, or displays the diff for a specific checkpoint.
+
+Options:
+- No options: Lists all checkpoints with sequence numbers
+- `--sequence N`: Shows full diff for checkpoint N
+- `--file FILENAME`: Filter diffs to specific file (works with --sequence)
+
+Example:
+```bash
+# List all checkpoints
+aud planning show-diff 1 1
+# Output:
+#   [1] added-imports
+#   [2] edit_2
+#   [3] added-error-handling
+
+# View specific checkpoint's diff
+aud planning show-diff 1 1 --sequence 2
+
+# View diffs for specific file only
+aud planning show-diff 1 1 --sequence 2 --file auth.ts
+```
 
 ## Integration with Other Commands
 

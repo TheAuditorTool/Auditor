@@ -2364,6 +2364,7 @@ CODE_SNAPSHOTS = TableSchema(
         Column("id", "INTEGER", nullable=False, primary_key=True),
         Column("plan_id", "INTEGER", nullable=False),
         Column("task_id", "INTEGER"),
+        Column("sequence", "INTEGER"),
         Column("checkpoint_name", "TEXT", nullable=False),
         Column("timestamp", "TEXT", nullable=False),
         Column("git_ref", "TEXT"),
@@ -2372,6 +2373,7 @@ CODE_SNAPSHOTS = TableSchema(
     indexes=[
         ("idx_code_snapshots_plan", ["plan_id"]),
         ("idx_code_snapshots_task", ["task_id"]),
+        ("idx_code_snapshots_task_sequence", ["task_id", "sequence"]),
         ("idx_code_snapshots_timestamp", ["timestamp"]),
     ],
     foreign_keys=[
