@@ -969,6 +969,72 @@ PYTHON_WTFORMS_FIELDS = TableSchema(
     ]
 )
 
+PYTHON_CELERY_TASKS = TableSchema(
+    name="python_celery_tasks",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("task_name", "TEXT", nullable=False),
+        Column("decorator_name", "TEXT", nullable=False),         # task, shared_task, app.task
+        Column("arg_count", "INTEGER", default="0"),              # Injection surface area
+        Column("bind", "BOOLEAN", default="0"),                   # bind=True (task instance access)
+        Column("serializer", "TEXT", nullable=True),              # pickle = RCE risk, json = safe
+        Column("max_retries", "INTEGER", nullable=True),          # Retry configuration
+        Column("rate_limit", "TEXT", nullable=True),              # Rate limiting (DoS protection)
+        Column("time_limit", "INTEGER", nullable=True),           # Time limit (DoS protection)
+        Column("queue", "TEXT", nullable=True),                   # Task queue (privilege separation)
+    ],
+    primary_key=["file", "line", "task_name"],
+    indexes=[
+        ("idx_python_celery_tasks_file", ["file"]),
+        ("idx_python_celery_tasks_name", ["task_name"]),
+        ("idx_python_celery_tasks_serializer", ["serializer"]),
+        ("idx_python_celery_tasks_queue", ["queue"]),
+    ]
+)
+
+PYTHON_CELERY_TASK_CALLS = TableSchema(
+    name="python_celery_task_calls",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("caller_function", "TEXT", nullable=False),            # Function calling the task
+        Column("task_name", "TEXT", nullable=False),                  # Task being invoked
+        Column("invocation_type", "TEXT", nullable=False),            # delay, apply_async, chain, group, chord, s, si
+        Column("arg_count", "INTEGER", default="0"),                  # Number of arguments passed
+        Column("has_countdown", "BOOLEAN", default="0"),              # apply_async with countdown=
+        Column("has_eta", "BOOLEAN", default="0"),                    # apply_async with eta=
+        Column("queue_override", "TEXT", nullable=True),              # apply_async with queue= (bypass protection)
+    ],
+    primary_key=["file", "line", "caller_function", "task_name", "invocation_type"],
+    indexes=[
+        ("idx_python_celery_task_calls_file", ["file"]),
+        ("idx_python_celery_task_calls_task", ["task_name"]),
+        ("idx_python_celery_task_calls_type", ["invocation_type"]),
+        ("idx_python_celery_task_calls_caller", ["caller_function"]),
+    ]
+)
+
+PYTHON_CELERY_BEAT_SCHEDULES = TableSchema(
+    name="python_celery_beat_schedules",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("schedule_name", "TEXT", nullable=False),            # Key in beat_schedule dict
+        Column("task_name", "TEXT", nullable=False),                # Task to execute
+        Column("schedule_type", "TEXT", nullable=False),            # crontab, interval, periodic_task
+        Column("schedule_expression", "TEXT", nullable=True),       # Cron expression or interval
+        Column("args", "TEXT", nullable=True),                      # JSON-encoded task args
+        Column("kwargs", "TEXT", nullable=True),                    # JSON-encoded task kwargs
+    ],
+    primary_key=["file", "line", "schedule_name"],
+    indexes=[
+        ("idx_python_celery_beat_schedules_file", ["file"]),
+        ("idx_python_celery_beat_schedules_task", ["task_name"]),
+        ("idx_python_celery_beat_schedules_type", ["schedule_type"]),
+    ]
+)
+
 # ============================================================================
 # SQL & DATABASE TABLES
 # ============================================================================
@@ -2377,6 +2443,9 @@ TABLES: Dict[str, TableSchema] = {
     "python_drf_serializer_fields": PYTHON_DRF_SERIALIZER_FIELDS,
     "python_wtforms_forms": PYTHON_WTFORMS_FORMS,
     "python_wtforms_fields": PYTHON_WTFORMS_FIELDS,
+    "python_celery_tasks": PYTHON_CELERY_TASKS,
+    "python_celery_task_calls": PYTHON_CELERY_TASK_CALLS,
+    "python_celery_beat_schedules": PYTHON_CELERY_BEAT_SCHEDULES,
 
     # SQL & database
     "sql_objects": SQL_OBJECTS,
