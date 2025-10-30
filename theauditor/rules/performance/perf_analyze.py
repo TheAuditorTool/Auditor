@@ -233,16 +233,17 @@ def _find_queries_in_loops(cursor) -> List[StandardFinding]:
     db_ops_list = list(DB_OPERATIONS)
     placeholders = ','.join('?' * len(db_ops_list))
 
-    # Find all loop blocks
-    cursor.execute("""
-        SELECT file, function_name, start_line, end_line
-        FROM cfg_blocks
-        WHERE block_type IN ('loop', 'for_loop', 'while_loop', 'do_while')
-           OR block_type LIKE '%loop%'
-        ORDER BY file, start_line
-    """)
+    # Find all loop blocks - fetch all cfg_blocks, filter in Python
+    query = build_query('cfg_blocks', ['file', 'function_name', 'start_line', 'end_line', 'block_type'],
+                       order_by="file, start_line")
+    cursor.execute(query)
 
-    loops = cursor.fetchall()
+    # Filter for loop blocks in Python
+    loops = []
+    for file, function, start_line, end_line, block_type in cursor.fetchall():
+        block_lower = block_type.lower()
+        if block_type in ('loop', 'for_loop', 'while_loop', 'do_while') or 'loop' in block_lower:
+            loops.append((file, function, start_line, end_line))
 
     for file, function, loop_start, loop_end in loops:
         # Find DB operations within loop
@@ -257,17 +258,15 @@ def _find_queries_in_loops(cursor) -> List[StandardFinding]:
         """, [file, loop_start, loop_end] + db_ops_list)
 
         for line, operation, args in cursor.fetchall():
-            # Check for nested loops
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM cfg_blocks
-                WHERE file = ?
-                  AND start_line < ?
-                  AND end_line > ?
-                  AND block_type LIKE '%loop%'
-            """, (file, loop_start, loop_end))
+            # Check for nested loops - fetch and filter in Python
+            nested_query = build_query('cfg_blocks', ['block_type'],
+                                      where="file = ? AND start_line < ? AND end_line > ?")
+            cursor.execute(nested_query, (file, loop_start, loop_end))
 
-            nested_count = cursor.fetchone()[0]
+            nested_count = 0
+            for (block_type,) in cursor.fetchall():
+                if 'loop' in block_type.lower():
+                    nested_count += 1
             severity = Severity.CRITICAL if nested_count > 0 else Severity.HIGH
 
             findings.append(StandardFinding(
@@ -319,12 +318,15 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
     """Find expensive operations that should be moved outside loops."""
     findings = []
 
-    # Get all loops
-    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line'],
-                       where="block_type LIKE '%loop%'")
+    # Get all loops - fetch all cfg_blocks, filter in Python
+    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line', 'block_type'])
     cursor.execute(query)
 
-    loops = cursor.fetchall()
+    # Filter for loop blocks in Python
+    loops = []
+    for file, start_line, end_line, block_type in cursor.fetchall():
+        if 'loop' in block_type.lower():
+            loops.append((file, start_line, end_line))
 
     for file, loop_start, loop_end in loops:
         # Check for expensive operations
@@ -375,40 +377,40 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
     """Find inefficient string concatenation in loops (O(n²) complexity)."""
     findings = []
 
-    # Find loops
-    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line', 'function_name'],
-                       where="block_type LIKE '%loop%'")
+    # Find loops - fetch all cfg_blocks, filter in Python
+    query = build_query('cfg_blocks', ['file', 'start_line', 'end_line', 'function_name', 'block_type'])
     cursor.execute(query)
 
-    loops = cursor.fetchall()
+    # Filter for loop blocks in Python
+    loops = []
+    for file, start_line, end_line, function, block_type in cursor.fetchall():
+        if 'loop' in block_type.lower():
+            loops.append((file, start_line, end_line, function))
 
     for file, loop_start, loop_end, function in loops:
-        # Find string concatenation assignments within loop
+        # Find assignments within loop, filter for string concat in Python
         query = build_query('assignments', ['line', 'target_var', 'source_expr'],
-                           where="""file = ?
-              AND line >= ?
-              AND line <= ?
-              AND (
-                  source_expr LIKE '%+=%'
-                  OR source_expr LIKE '%+ %'
-                  OR source_expr LIKE '% + %'
-                  OR source_expr LIKE '%concat%'
-              )
-              AND (
-                  target_var LIKE '%str%'
-                  OR target_var LIKE '%text%'
-                  OR target_var LIKE '%result%'
-                  OR target_var LIKE '%output%'
-                  OR target_var LIKE '%html%'
-                  OR target_var LIKE '%message%'
-                  OR source_expr LIKE '"%'
-                  OR source_expr LIKE "'%"
-                  OR source_expr LIKE '`%'
-              )""",
+                           where="file = ? AND line >= ? AND line <= ?",
                            order_by="line")
         cursor.execute(query, (file, loop_start, loop_end))
 
+        # String variable name patterns
+        string_var_patterns = frozenset(['str', 'text', 'result', 'output', 'html', 'message'])
+
         for line, var_name, expr in cursor.fetchall():
+            # Check for concat operations in Python
+            if not expr or not any(op in expr for op in ['+=', '+', 'concat']):
+                continue
+
+            # Check if var_name or expr suggests string operation
+            var_lower = var_name.lower()
+            expr_lower = expr.lower()
+
+            is_string_var = any(pattern in var_lower for pattern in string_var_patterns)
+            has_string_literal = any(quote in expr for quote in ['"', "'", '`'])
+
+            if not (is_string_var or has_string_literal):
+                continue
             # Check if it looks like string concatenation
             if any(op in expr for op in ['+', '+=', 'concat']):
                 findings.append(StandardFinding(
@@ -480,23 +482,25 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
     """Find operations without proper limits that could cause memory issues."""
     findings = []
 
-    # Check for database queries without limits
+    # Check for database queries without limits - fetch and filter in Python
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                       where="""callee_function IN ('find', 'findMany', 'findAll', 'select', 'query', 'all')
-          AND (argument_expr IS NULL OR argument_expr = '' OR (
-              argument_expr NOT LIKE '%limit%'
-              AND argument_expr NOT LIKE '%take%'
-              AND argument_expr NOT LIKE '%first%'
-              AND argument_expr NOT LIKE '%pageSize%'
-              AND argument_expr NOT LIKE '%max%'
-          ))""",
+                       where="callee_function IN ('find', 'findMany', 'findAll', 'select', 'query', 'all')",
                        order_by="file, line")
     cursor.execute(query)
+
+    # Pagination keywords
+    pagination_keywords = frozenset(['limit', 'take', 'first', 'pagesize', 'max'])
 
     for file, line, operation, args in cursor.fetchall():
         # Skip if it's a count or single-result operation
         if operation in ['findOne', 'findUnique', 'first', 'get']:
             continue
+
+        # Check if args has pagination keywords in Python
+        if args:
+            args_lower = args.lower()
+            if any(keyword in args_lower for keyword in pagination_keywords):
+                continue  # Has pagination, skip
 
         findings.append(StandardFinding(
             rule_name='perf-unbounded-query',
@@ -509,20 +513,21 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
             cwe_id='CWE-770'  # Allocation of Resources Without Limits
         ))
 
-    # Check for readFile on potentially large files
+    # Check for readFile on potentially large files - fetch and filter in Python
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                       where="""callee_function IN ('readFile', 'readFileSync', 'read')
-          AND (
-              argument_expr LIKE '%.log%'
-              OR argument_expr LIKE '%.csv%'
-              OR argument_expr LIKE '%.json%'
-              OR argument_expr LIKE '%.xml%'
-              OR argument_expr LIKE '%.sql%'
-              OR argument_expr LIKE '%.txt%'
-          )""")
+                       where="callee_function IN ('readFile', 'readFileSync', 'read')")
     cursor.execute(query)
 
+    # Large file extensions
+    large_file_extensions = frozenset(['.log', '.csv', '.json', '.xml', '.sql', '.txt'])
+
     for file, line, operation, file_arg in cursor.fetchall():
+        # Check for large file extensions in Python
+        if not file_arg:
+            continue
+        file_arg_lower = file_arg.lower()
+        if not any(ext in file_arg_lower for ext in large_file_extensions):
+            continue
         findings.append(StandardFinding(
             rule_name='perf-large-file-read',
             message=f'Reading potentially large file entirely into memory',
@@ -629,21 +634,25 @@ def _find_unoptimized_taint_flows(cursor) -> List[StandardFinding]:
     """Find unoptimized taint flows (e.g., req.body → res.send without validation)."""
     findings = []
 
-    # Find direct req → res flows
+    # Find direct req → res flows - fetch symbols, self-join in Python
     # NOTE: Self-join requires manual SQL since build_query() doesn't support aliases
     # Schema contract guarantees symbols table exists
     cursor.execute("""
         SELECT DISTINCT s1.path, s1.line, s1.name as source, s2.name as sink
         FROM symbols s1
         JOIN symbols s2 ON s1.path = s2.path
-        WHERE s1.name LIKE 'req.%'
-          AND s2.name LIKE 'res.%'
-          AND ABS(s1.line - s2.line) <= 5
+        WHERE ABS(s1.line - s2.line) <= 5
           AND s1.line < s2.line
         ORDER BY s1.path, s1.line
     """)
 
+    # Filter for req/res patterns in Python
+    taint_flows = []
     for file, line, source, sink in cursor.fetchall():
+        if source.startswith('req.') and sink.startswith('res.'):
+            taint_flows.append((file, line, source, sink))
+
+    for file, line, source, sink in taint_flows:
         # Check for particularly dangerous combinations
         if 'req.body' in source and 'res.send' in sink:
             severity = Severity.CRITICAL
@@ -720,13 +729,16 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
     """Find operations on large objects that could cause performance issues."""
     findings = []
 
-    # Find JSON operations on large data
+    # Find JSON operations on large data - fetch and filter in Python
     query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                       where="(source_expr LIKE '%JSON.parse%' OR source_expr LIKE '%JSON.stringify%') AND LENGTH(source_expr) > 500",
+                       where="LENGTH(source_expr) > 500",
                        order_by="file, line")
     cursor.execute(query)
 
     for file, line, var_name, expr in cursor.fetchall():
+        # Check for JSON operations in Python
+        if not expr or not any(json_op in expr for json_op in ['JSON.parse', 'JSON.stringify']):
+            continue
         expr_len = len(expr)
 
         if expr_len > 2000:
@@ -749,14 +761,17 @@ def _find_large_object_operations(cursor) -> List[StandardFinding]:
             cwe_id='CWE-770'
         ))
 
-    # Find very long assignment expressions (potential large object copies)
+    # Find very long assignment expressions (potential large object copies) - filter in Python
     query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                       where="LENGTH(source_expr) > 1000 AND (source_expr LIKE '%{%}%' OR source_expr LIKE '%[%]%')",
+                       where="LENGTH(source_expr) > 1000",
                        order_by="LENGTH(source_expr) DESC",
                        limit=10)
     cursor.execute(query)
 
     for file, line, var_name, expr in cursor.fetchall():
+        # Check for object/array literals in Python
+        if not expr or not ('{' in expr or '[' in expr):
+            continue
         findings.append(StandardFinding(
             rule_name='perf-large-object-copy',
             message=f'Large object assignment to {var_name} may impact memory',

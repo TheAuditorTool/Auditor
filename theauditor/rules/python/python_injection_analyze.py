@@ -492,33 +492,42 @@ class InjectionAnalyzer:
 
     def _check_raw_sql_construction(self):
         """Check for SQL constructed in assignments."""
+        from theauditor.indexer.schema import build_query
+
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                           order_by="file, line")
+        self.cursor.execute(query)
+
         # Look for SQL keyword assignments
         sql_keyword_list = list(self.patterns.SQL_KEYWORDS)
-        for keyword in sql_keyword_list[:10]:  # Check top keywords to avoid too many queries
-            self.cursor.execute("""
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE source_expr LIKE ?
-                  AND (source_expr LIKE '%+%'
-                       OR source_expr LIKE '%.format(%'
-                       OR source_expr LIKE '%f"%'
-                       OR source_expr LIKE "%f'%")
-                ORDER BY file, line
-            """, [f'%{keyword}%'])
+        for file, line, var, expr in self.cursor.fetchall():
+            if not expr:
+                continue
 
-            for file, line, var, expr in self.cursor.fetchall():
-                # Check if this looks like SQL construction
-                if any(kw in expr.upper() for kw in ['SELECT', 'INSERT', 'UPDATE', 'DELETE']):
-                    self.findings.append(StandardFinding(
-                        rule_name='python-sql-string-building',
-                        message=f'SQL query built with string concatenation in {var}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='injection',
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-89'
-                    ))
+            # Check for SQL keywords in expr
+            expr_upper = expr.upper()
+            has_sql_keyword = any(keyword in expr_upper for keyword in sql_keyword_list[:10])
+            if not has_sql_keyword:
+                continue
+
+            # Check for string formatting
+            has_formatting = any(pattern in expr for pattern in ['+', '.format(', 'f"', "f'"])
+            if not has_formatting:
+                continue
+
+            # Check if this looks like SQL construction
+            if any(kw in expr_upper for kw in ['SELECT', 'INSERT', 'UPDATE', 'DELETE']):
+                self.findings.append(StandardFinding(
+                    rule_name='python-sql-string-building',
+                    message=f'SQL query built with string concatenation in {var}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='injection',
+                    confidence=Confidence.MEDIUM,
+                    cwe_id='CWE-89'
+                ))
 
 
 # ============================================================================

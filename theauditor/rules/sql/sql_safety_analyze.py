@@ -119,8 +119,7 @@ def _find_update_without_where(cursor) -> List[StandardFinding]:
         SELECT file_path, line_number, query_text
         FROM sql_queries
         WHERE command = 'UPDATE'
-          AND query_text NOT LIKE '%WHERE%'
-          AND query_text NOT LIKE '%where%'
+          AND query_text IS NOT NULL
         ORDER BY file_path, line_number
         LIMIT 15
     """)
@@ -128,7 +127,7 @@ def _find_update_without_where(cursor) -> List[StandardFinding]:
     seen = set()
 
     for file, line, query in cursor.fetchall():
-        # Double-check no WHERE clause
+        # Check for WHERE clause in Python
         query_upper = query.upper()
         if 'WHERE' in query_upper:
             continue
@@ -161,9 +160,7 @@ def _find_delete_without_where(cursor) -> List[StandardFinding]:
         SELECT file_path, line_number, query_text
         FROM sql_queries
         WHERE command = 'DELETE'
-          AND query_text NOT LIKE '%WHERE%'
-          AND query_text NOT LIKE '%where%'
-          AND query_text NOT LIKE '%TRUNCATE%'
+          AND query_text IS NOT NULL
         ORDER BY file_path, line_number
         LIMIT 15
     """)
@@ -171,6 +168,7 @@ def _find_delete_without_where(cursor) -> List[StandardFinding]:
     seen = set()
 
     for file, line, query in cursor.fetchall():
+        # Filter in Python for WHERE and TRUNCATE
         query_upper = query.upper()
         if 'WHERE' in query_upper or 'TRUNCATE' in query_upper:
             continue
@@ -203,9 +201,7 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> List[Standar
         SELECT file_path, line_number, query_text, tables
         FROM sql_queries
         WHERE command = 'SELECT'
-          AND query_text NOT LIKE '%LIMIT%'
-          AND query_text NOT LIKE '%limit%'
-          AND query_text NOT LIKE '%TOP %'
+          AND query_text IS NOT NULL
         ORDER BY file_path, line_number
         LIMIT 30
     """)
@@ -214,6 +210,10 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> List[Standar
 
     for file, line, query, tables in cursor.fetchall():
         query_upper = query.upper()
+
+        # Filter in Python for LIMIT/TOP
+        if 'LIMIT' in query_upper or 'TOP ' in query_upper:
+            continue
 
         # Skip aggregate queries
         if any(agg in query_upper for agg in patterns.AGGREGATE_FUNCTIONS):
@@ -253,7 +253,7 @@ def _find_select_star(cursor) -> List[StandardFinding]:
         SELECT file_path, line_number, query_text, tables
         FROM sql_queries
         WHERE command = 'SELECT'
-          AND (query_text LIKE '%SELECT *%' OR query_text LIKE '%select *%')
+          AND query_text IS NOT NULL
         ORDER BY file_path, line_number
         LIMIT 25
     """)
@@ -263,7 +263,7 @@ def _find_select_star(cursor) -> List[StandardFinding]:
     for file, line, query, tables in cursor.fetchall():
         query_upper = query.upper()
 
-        # Confirm it's really SELECT *
+        # Filter in Python for SELECT *
         if 'SELECT *' not in query_upper and 'SELECT  *' not in query_upper:
             continue
 
@@ -299,37 +299,53 @@ def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> 
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
-        WHERE (callee_function LIKE '%transaction%'
-               OR callee_function LIKE '%begin%'
-               OR callee_function LIKE '%BEGIN%')
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
     """)
 
-    transactions = cursor.fetchall()
+    # Filter in Python for transaction functions
+    transactions = []
+    for file, line, func in cursor.fetchall():
+        func_lower = func.lower()
+        if 'transaction' in func_lower or 'begin' in func_lower:
+            transactions.append((file, line, func))
 
     for file, line, func in transactions:
         # Check for rollback within ±50 lines (proximity search)
         cursor.execute("""
-            SELECT COUNT(*)
+            SELECT callee_function
             FROM function_call_args
             WHERE file = ?
               AND line BETWEEN ? AND ?
-              AND (callee_function LIKE '%rollback%' OR callee_function LIKE '%ROLLBACK%')
+              AND callee_function IS NOT NULL
         """, (file, line, line + 50))
 
-        has_rollback = cursor.fetchone()[0] > 0
+        # Filter in Python for rollback
+        rollback_count = 0
+        for (nearby_func,) in cursor.fetchall():
+            if 'rollback' in nearby_func.lower():
+                rollback_count += 1
+
+        has_rollback = rollback_count > 0
 
         if not has_rollback:
             # Check for error handling nearby (try/catch/except)
             cursor.execute("""
-                SELECT COUNT(*)
+                SELECT name
                 FROM symbols
                 WHERE path = ?
                   AND line BETWEEN ? AND ?
-                  AND (name LIKE '%catch%' OR name LIKE '%except%' OR name LIKE '%finally%')
+                  AND name IS NOT NULL
             """, (file, line - 5, line + 50))
 
-            has_error_handling = cursor.fetchone()[0] > 0
+            # Filter in Python for error handling keywords
+            error_handling_count = 0
+            for (name,) in cursor.fetchall():
+                name_lower = name.lower()
+                if 'catch' in name_lower or 'except' in name_lower or 'finally' in name_lower:
+                    error_handling_count += 1
+
+            has_error_handling = error_handling_count > 0
 
             # Only flag if there's error handling but no rollback
             if has_error_handling:
@@ -356,41 +372,55 @@ def _find_connection_leaks(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
-        WHERE (callee_function LIKE '%connect%'
-               OR callee_function LIKE '%createConnection%'
-               OR callee_function LIKE '%getConnection%')
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
         LIMIT 30
     """)
 
-    connections = cursor.fetchall()
+    # Filter in Python for connection functions
+    connections = []
+    for file, line, func in cursor.fetchall():
+        func_lower = func.lower()
+        if 'connect' in func_lower or 'createconnection' in func_lower or 'getconnection' in func_lower:
+            connections.append((file, line, func))
 
     for file, line, func in connections:
         # Check for close/end/release within 100 lines
         cursor.execute("""
-            SELECT COUNT(*)
+            SELECT callee_function
             FROM function_call_args
             WHERE file = ?
               AND line BETWEEN ? AND ?
-              AND (callee_function LIKE '%close%'
-                   OR callee_function LIKE '%end%'
-                   OR callee_function LIKE '%release%'
-                   OR callee_function LIKE '%destroy%')
+              AND callee_function IS NOT NULL
         """, (file, line, line + 100))
 
-        has_close = cursor.fetchone()[0] > 0
+        # Filter in Python for close methods
+        close_count = 0
+        for (nearby_func,) in cursor.fetchall():
+            func_lower = nearby_func.lower()
+            if 'close' in func_lower or 'end' in func_lower or 'release' in func_lower or 'destroy' in func_lower:
+                close_count += 1
+
+        has_close = close_count > 0
 
         if not has_close:
             # Check for context manager (with/using)
             cursor.execute("""
-                SELECT COUNT(*)
+                SELECT name
                 FROM symbols
                 WHERE path = ?
                   AND line BETWEEN ? AND ?
-                  AND (name LIKE '%with %' OR name LIKE '%using%')
+                  AND name IS NOT NULL
             """, (file, line - 2, line + 2))
 
-            has_context = cursor.fetchone()[0] > 0
+            # Filter in Python for context manager keywords
+            context_count = 0
+            for (name,) in cursor.fetchall():
+                name_lower = name.lower()
+                if 'with ' in name_lower or 'using' in name_lower:
+                    context_count += 1
+
+            has_context = context_count > 0
 
             if not has_context:
                 findings.append(StandardFinding(
@@ -416,13 +446,17 @@ def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> List[Stand
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
-        WHERE (callee_function LIKE '%transaction%'
-               OR callee_function LIKE '%begin%'
-               OR callee_function LIKE '%BEGIN%')
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
     """)
 
-    transactions = cursor.fetchall()
+    # Filter in Python for transaction functions
+    all_funcs = cursor.fetchall()
+    transactions = []
+    for file, line, func in all_funcs:
+        func_lower = func.lower()
+        if 'transaction' in func_lower or 'begin' in func_lower:
+            transactions.append((file, line, func))
 
     # Group by file
     file_transactions = {}
@@ -440,14 +474,21 @@ def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> List[Stand
 
                 # Check if there's a commit between them
                 cursor.execute("""
-                    SELECT COUNT(*)
+                    SELECT callee_function
                     FROM function_call_args
                     WHERE file = ?
                       AND line > ? AND line < ?
-                      AND (callee_function LIKE '%commit%' OR callee_function LIKE '%rollback%')
+                      AND callee_function IS NOT NULL
                 """, (file, line1, line2))
 
-                has_commit_between = cursor.fetchone()[0] > 0
+                # Filter in Python for commit/rollback
+                commit_count = 0
+                for (func,) in cursor.fetchall():
+                    func_lower = func.lower()
+                    if 'commit' in func_lower or 'rollback' in func_lower:
+                        commit_count += 1
+
+                has_commit_between = commit_count > 0
 
                 if not has_commit_between and (line2 - line1) < 100:  # Within 100 lines
                     findings.append(StandardFinding(
@@ -472,16 +513,20 @@ def _find_large_in_clauses(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
-        WHERE (query_text LIKE '%IN (%' OR query_text LIKE '%in (%')
-          AND command != 'UNKNOWN'
+        WHERE command != 'UNKNOWN'
+          AND query_text IS NOT NULL
           AND LENGTH(query_text) > 150
         ORDER BY file_path, line_number
         LIMIT 25
     """)
 
     for file, line, query, command in cursor.fetchall():
-        # Count items in IN clause by counting commas
+        # Filter in Python for IN clauses
         query_upper = query.upper()
+        if ' IN (' not in query_upper and ' IN(' not in query_upper:
+            continue
+
+        # Count items in IN clause by counting commas
         in_pos = query_upper.find(' IN (')
 
         if in_pos == -1:
@@ -537,7 +582,7 @@ def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> List[Standa
         SELECT file_path, line_number, query_text, command, tables
         FROM sql_queries
         WHERE command = 'SELECT'
-          AND query_text LIKE '%WHERE%'
+          AND query_text IS NOT NULL
         ORDER BY file_path, line_number
         LIMIT 30
     """)
@@ -546,6 +591,10 @@ def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> List[Standa
 
     for file, line, query, command, tables in cursor.fetchall():
         query_lower = query.lower()
+
+        # Filter in Python for WHERE clause
+        if 'where' not in query_lower:
+            continue
 
         # Check if WHERE clause uses common unindexed fields
         for field in patterns.UNINDEXED_FIELD_PATTERNS:

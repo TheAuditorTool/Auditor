@@ -120,48 +120,69 @@ def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -
     """Find queries on sensitive tables without tenant filtering."""
     findings = []
 
-    # Check each sensitive table
-    for table in patterns.SENSITIVE_TABLES:
-        # NOTE: frontend/test filtering handled by METADATA
-        # Keep migration check - sensitive table queries in migrations are data seeds, not DDL
-        cursor.execute("""
-            SELECT file_path, line_number, query_text, command
-            FROM sql_queries
-            WHERE command != 'UNKNOWN'
-              AND command IS NOT NULL
-              AND (tables LIKE ? OR query_text LIKE ?)
-              AND file_path NOT LIKE '%migration%'
-            ORDER BY file_path, line_number
-            LIMIT 10
-        """, (f'%{table}%', f'%{table}%'))
+    # Fetch all sql_queries
+    cursor.execute("""
+        SELECT file_path, line_number, query_text, command, tables
+        FROM sql_queries
+        WHERE command != 'UNKNOWN'
+          AND command IS NOT NULL
+        ORDER BY file_path, line_number
+    """)
 
-        for file, line, query, command in cursor.fetchall():
-            query_lower = query.lower()
+    # Check each query for sensitive tables
+    checked_count = 0
+    for file, line, query, command, tables in cursor.fetchall():
+        # Filter migrations in Python
+        if 'migration' in file.lower():
+            continue
 
-            # Check if query has tenant filtering
-            has_tenant = any(field in query_lower for field in patterns.TENANT_FIELDS)
+        # Check if query involves sensitive table
+        query_lower = query.lower()
+        tables_lower = (tables or '').lower()
 
-            if has_tenant:
-                continue  # Query has tenant filtering
+        has_sensitive_table = False
+        for table in patterns.SENSITIVE_TABLES:
+            if table in tables_lower or table in query_lower:
+                has_sensitive_table = True
+                break
 
-            # Determine severity
-            if 'where' in query_lower:
-                severity = Severity.HIGH
-                message = f'{command} on {table} without tenant filtering'
-            else:
-                severity = Severity.CRITICAL
-                message = f'{command} on {table} with NO WHERE clause - cross-tenant leak'
+        if not has_sensitive_table:
+            continue
 
-            findings.append(StandardFinding(
-                rule_name='multi-tenant-missing-filter',
-                message=message,
-                file_path=file,
-                line=line,
-                severity=severity,
-                category='security',
-                snippet=query[:100] + '...' if len(query) > 100 else query,
-                cwe_id='CWE-863'
-            ))
+        checked_count += 1
+        if checked_count > 10:
+            break
+
+        # Check if query has tenant filtering
+        has_tenant = any(field in query_lower for field in patterns.TENANT_FIELDS)
+
+        if has_tenant:
+            continue  # Query has tenant filtering
+
+        # Determine severity - need to identify which sensitive table triggered
+        matched_table = None
+        for table in patterns.SENSITIVE_TABLES:
+            if table in tables_lower or table in query_lower:
+                matched_table = table
+                break
+
+        if 'where' in query_lower:
+            severity = Severity.HIGH
+            message = f'{command} on {matched_table or "sensitive table"} without tenant filtering'
+        else:
+            severity = Severity.CRITICAL
+            message = f'{command} on {matched_table or "sensitive table"} with NO WHERE clause - cross-tenant leak'
+
+        findings.append(StandardFinding(
+            rule_name='multi-tenant-missing-filter',
+            message=message,
+            file_path=file,
+            line=line,
+            severity=severity,
+            category='security',
+            snippet=query[:100] + '...' if len(query) > 100 else query,
+            cwe_id='CWE-863'
+        ))
 
     return findings
 
@@ -173,13 +194,15 @@ def _find_rls_policies_without_using(cursor, patterns: MultiTenantPatterns) -> L
     cursor.execute("""
         SELECT file_path, line_number, query_text
         FROM sql_queries
-        WHERE (query_text LIKE '%CREATE POLICY%' OR query_text LIKE '%create policy%')
-          AND command != 'UNKNOWN'
+        WHERE command != 'UNKNOWN'
         ORDER BY file_path, line_number
     """)
 
     for file, line, query in cursor.fetchall():
+        # Filter for CREATE POLICY in Python
         query_upper = query.upper()
+        if 'CREATE POLICY' not in query_upper and 'create policy' not in query.lower():
+            continue
 
         # Check for USING clause
         if 'USING' not in query_upper:
@@ -224,17 +247,27 @@ def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> List[Standa
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE command IN ('SELECT', 'UPDATE', 'DELETE')
-          AND (query_text LIKE '%WHERE id = %'
-               OR query_text LIKE '%WHERE id=%'
-               OR query_text LIKE '%WHERE "id" = %'
-               OR query_text LIKE '%WHERE `id` = %')
-          AND file_path NOT LIKE '%migration%'
         ORDER BY file_path, line_number
-        LIMIT 15
     """)
 
+    checked_count = 0
     for file, line, query, command in cursor.fetchall():
+        # Filter migrations in Python
+        if 'migration' in file.lower():
+            continue
+
         query_lower = query.lower()
+
+        # Check for WHERE id patterns
+        has_where_id = ('where id = ' in query_lower or 'where id=' in query_lower or
+                       'where "id" = ' in query_lower or 'where `id` = ' in query_lower)
+
+        if not has_where_id:
+            continue
+
+        checked_count += 1
+        if checked_count > 15:
+            break
 
         # Check if it has tenant filtering
         has_tenant = any(field in query_lower for field in patterns.TENANT_FIELDS)
@@ -263,42 +296,53 @@ def _find_missing_rls_context(cursor, patterns: MultiTenantPatterns) -> List[Sta
     cursor.execute("""
         SELECT file, line, callee_function
         FROM function_call_args
-        WHERE (callee_function LIKE '%transaction%'
-               OR callee_function LIKE '%begin%')
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
     """)
 
-    transactions = cursor.fetchall()
+    # Filter in Python for transaction functions
+    transactions = []
+    for file, line, func in cursor.fetchall():
+        func_lower = func.lower()
+        if 'transaction' in func_lower or 'begin' in func_lower:
+            transactions.append((file, line, func))
 
     for file, line, func in transactions:
         # Check for SET LOCAL within transaction scope (±30 lines)
         cursor.execute("""
-            SELECT COUNT(*)
+            SELECT argument_expr
             FROM function_call_args
             WHERE file = ?
               AND line BETWEEN ? AND ?
-              AND argument_expr LIKE '%SET LOCAL%'
-              AND (argument_expr LIKE '%current_facility_id%'
-                   OR argument_expr LIKE '%current_tenant_id%'
-                   OR argument_expr LIKE '%current_account_id%')
+              AND argument_expr IS NOT NULL
         """, (file, line, line + 30))
 
-        has_set_local = cursor.fetchone()[0] > 0
+        # Filter in Python for SET LOCAL patterns
+        has_set_local = False
+        for (arg_expr,) in cursor.fetchall():
+            if 'set local' not in arg_expr.lower():
+                continue
+            if any(tenant in arg_expr.lower() for tenant in ['current_facility_id', 'current_tenant_id', 'current_account_id']):
+                has_set_local = True
+                break
 
         # Also check sql_queries
         if not has_set_local:
             cursor.execute("""
-                SELECT COUNT(*)
+                SELECT query_text
                 FROM sql_queries
                 WHERE file_path = ?
                   AND line_number BETWEEN ? AND ?
-                  AND query_text LIKE '%SET LOCAL%'
-                  AND (query_text LIKE '%current_facility_id%'
-                       OR query_text LIKE '%current_tenant_id%'
-                       OR query_text LIKE '%current_account_id%')
+                  AND query_text IS NOT NULL
             """, (file, line, line + 30))
 
-            has_set_local = cursor.fetchone()[0] > 0
+            # Filter in Python for SET LOCAL patterns
+            for (query_text,) in cursor.fetchall():
+                if 'set local' not in query_text.lower():
+                    continue
+                if any(tenant in query_text.lower() for tenant in ['current_facility_id', 'current_tenant_id', 'current_account_id']):
+                    has_set_local = True
+                    break
 
         if not has_set_local:
             findings.append(StandardFinding(
@@ -323,15 +367,17 @@ def _find_superuser_connections(cursor, patterns: MultiTenantPatterns) -> List[S
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE (target_var LIKE '%DB_USER%'
-               OR target_var LIKE '%DATABASE_USER%'
-               OR target_var LIKE '%POSTGRES_USER%'
-               OR target_var LIKE '%PG_USER%')
+        WHERE target_var IS NOT NULL
           AND source_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, var, expr in cursor.fetchall():
+        # Filter in Python for DB user variables
+        var_upper = var.upper()
+        if not ('DB_USER' in var_upper or 'DATABASE_USER' in var_upper or 'POSTGRES_USER' in var_upper or 'PG_USER' in var_upper):
+            continue
+
         expr_lower = expr.lower()
 
         # Check if value is a superuser
@@ -361,24 +407,37 @@ def _find_raw_query_without_transaction(cursor, patterns: MultiTenantPatterns) -
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.raw%')
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
-        LIMIT 30
     """)
 
-    raw_queries = cursor.fetchall()
+    # Filter in Python for .query/.raw methods
+    raw_queries = []
+    for file, line, func, args in cursor.fetchall():
+        func_lower = func.lower()
+        if '.query' in func_lower or '.raw' in func_lower:
+            raw_queries.append((file, line, func, args))
+            if len(raw_queries) >= 30:
+                break
 
     for file, line, func, args in raw_queries:
         # Check if there's a transaction start within ±30 lines
         cursor.execute("""
-            SELECT COUNT(*)
+            SELECT callee_function
             FROM function_call_args
             WHERE file = ?
               AND line BETWEEN ? AND ?
-              AND (callee_function LIKE '%transaction%' OR callee_function LIKE '%begin%')
+              AND callee_function IS NOT NULL
         """, (file, line - 30, line + 5))
 
-        in_transaction = cursor.fetchone()[0] > 0
+        # Filter in Python for transaction/begin
+        transaction_count = 0
+        for (nearby_func,) in cursor.fetchall():
+            func_lower = nearby_func.lower()
+            if 'transaction' in func_lower or 'begin' in func_lower:
+                transaction_count += 1
+
+        in_transaction = transaction_count > 0
 
         if not in_transaction:
             # Check if query accesses sensitive tables
@@ -409,14 +468,22 @@ def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> Lis
     cursor.execute("""
         SELECT file, line, query_type
         FROM orm_queries
-        WHERE (query_type LIKE '%.findAll%' OR query_type LIKE '%.findOne%')
+        WHERE query_type IS NOT NULL
         ORDER BY file, line
-        LIMIT 40
     """)
 
     seen = set()
+    checked_count = 0
 
     for file, line, query_type in cursor.fetchall():
+        # Filter in Python for findAll/findOne
+        if '.findall' not in query_type.lower() and '.findone' not in query_type.lower():
+            continue
+
+        checked_count += 1
+        if checked_count > 40:
+            break
+
         # Check if model is sensitive
         model_name = query_type.split('.')[0] if '.' in query_type else query_type
         model_lower = model_name.lower()
@@ -428,16 +495,21 @@ def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> Lis
 
         # Check if there's tenant filtering in nearby assignments (within 5 lines)
         cursor.execute("""
-            SELECT COUNT(*)
+            SELECT source_expr
             FROM assignments
             WHERE file = ?
               AND line BETWEEN ? AND ?
-              AND (source_expr LIKE '%facility_id%'
-                   OR source_expr LIKE '%tenant_id%'
-                   OR source_expr LIKE '%account_id%')
+              AND source_expr IS NOT NULL
         """, (file, line - 5, line + 5))
 
-        has_tenant = cursor.fetchone()[0] > 0
+        # Filter in Python for tenant fields
+        tenant_count = 0
+        for (source_expr,) in cursor.fetchall():
+            expr_lower = source_expr.lower()
+            if any(field in expr_lower for field in ['facility_id', 'tenant_id', 'account_id']):
+                tenant_count += 1
+
+        has_tenant = tenant_count > 0
 
         if not has_tenant:
             key = f"{file}:{line}"
@@ -470,13 +542,24 @@ def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) 
         SELECT file_path, line_number, query_text, command, tables
         FROM sql_queries
         WHERE command IN ('INSERT', 'UPDATE', 'DELETE')
-          AND (query_text LIKE '%INSERT INTO%' OR query_text LIKE '%UPDATE%' OR query_text LIKE '%DELETE FROM%')
-          AND file_path NOT LIKE '%migration%'
         ORDER BY file_path, line_number
-        LIMIT 20
     """)
 
+    checked_count = 0
     for file, line, query, command, tables in cursor.fetchall():
+        # Filter migrations and bulk patterns in Python
+        if 'migration' in file.lower():
+            continue
+
+        query_upper = query.upper()
+        has_bulk = ('INSERT INTO' in query_upper or 'UPDATE' in query_upper or 'DELETE FROM' in query_upper)
+        if not has_bulk:
+            continue
+
+        checked_count += 1
+        if checked_count > 20:
+            break
+
         # Check if tables are sensitive
         tables_list = (tables or '').split(',')
         has_sensitive = any(
@@ -527,13 +610,22 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> List[Stan
         SELECT file_path, line_number, query_text, command, tables
         FROM sql_queries
         WHERE command = 'SELECT'
-          AND (query_text LIKE '%JOIN%' OR query_text LIKE '%join%')
-          AND file_path NOT LIKE '%migration%'
         ORDER BY file_path, line_number
-        LIMIT 25
     """)
 
+    checked_count = 0
     for file, line, query, command, tables in cursor.fetchall():
+        # Filter migrations and JOIN patterns in Python
+        if 'migration' in file.lower():
+            continue
+
+        if 'join' not in query.lower():
+            continue
+
+        checked_count += 1
+        if checked_count > 25:
+            break
+
         query_upper = query.upper()
         query_lower = query.lower()
 
@@ -576,13 +668,22 @@ def _find_subquery_without_tenant(cursor, patterns: MultiTenantPatterns) -> List
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE command = 'SELECT'
-          AND query_text LIKE '%(SELECT%'
-          AND file_path NOT LIKE '%migration%'
         ORDER BY file_path, line_number
-        LIMIT 20
     """)
 
+    checked_count = 0
     for file, line, query, command in cursor.fetchall():
+        # Filter migrations and subquery patterns in Python
+        if 'migration' in file.lower():
+            continue
+
+        if '(select' not in query.lower():
+            continue
+
+        checked_count += 1
+        if checked_count > 20:
+            break
+
         query_lower = query.lower()
 
         # Check if subquery has sensitive table

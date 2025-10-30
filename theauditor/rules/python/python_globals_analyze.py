@@ -43,21 +43,22 @@ class GlobalAnalyzer:
         cursor = conn.cursor()
 
         try:
-            cursor.execute(
-                """
-                SELECT file, line, target_var, source_expr
-                FROM assignments
-                WHERE source_expr IS NOT NULL
-                  AND (source_expr LIKE '%{}%'
-                       OR source_expr LIKE '%[]%'
-                       OR source_expr LIKE 'dict(%'
-                       OR source_expr LIKE 'list(%'
-                       OR source_expr LIKE 'set(%')
-                ORDER BY file, line
-                """
-            )
+            from theauditor.indexer.schema import build_query
 
-            candidates = cursor.fetchall()
+            # Fetch all assignments, filter in Python
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                               where="source_expr IS NOT NULL",
+                               order_by="file, line")
+            cursor.execute(query)
+
+            # Filter for mutable literals in Python
+            candidates = []
+            for file, line, var, expr in cursor.fetchall():
+                if not expr:
+                    continue
+                # Check for mutable literal patterns
+                if any(literal in expr for literal in self.patterns.MUTABLE_LITERALS):
+                    candidates.append((file, line, var, expr))
 
             for file, line, var, expr in candidates:
                 var_lower = (var or '').lower()
