@@ -429,6 +429,7 @@ def run_full_pipeline(
         ("terraform", ["provision"]),  # Terraform provisioning graph - MUST run after graph build-dfg
         ("terraform", ["analyze"]),  # Terraform security analysis (database-first)
         ("cdk", ["analyze"]),  # AWS CDK security analysis (database-first)
+        ("workflows", ["analyze"]),  # GitHub Actions workflow security analysis (database-first)
         ("graph", ["analyze"]),
         ("graph", ["viz", "--view", "full", "--include-analysis"]),
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
@@ -448,7 +449,7 @@ def run_full_pipeline(
     
     for cmd_name, extra_args in command_order:
         # Check if command exists (dynamic discovery)
-        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands):
+        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands) or (cmd_name == "workflows" and "workflows" in available_commands):
             phase_num += 1
             # Generate human-readable description from command name
             if cmd_name == "index":
@@ -488,6 +489,8 @@ def run_full_pipeline(
                 description = f"{phase_num}. Analyze Terraform security"
             elif cmd_name == "cdk" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze AWS CDK security"
+            elif cmd_name == "workflows" and "analyze" in extra_args:
+                description = f"{phase_num}. Analyze GitHub Actions workflows"
             elif cmd_name == "graph" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze graph"
             elif cmd_name == "graph" and "viz" in extra_args:

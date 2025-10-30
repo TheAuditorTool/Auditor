@@ -293,6 +293,8 @@ from theauditor.commands.docker_analyze import docker_analyze
 from theauditor.commands.structure import structure
 from theauditor.commands.metadata import metadata
 from theauditor.commands.terraform import terraform
+from theauditor.commands.cdk import cdk
+from theauditor.commands.workflows import workflows
 
 # Register simple commands
 cli.add_command(init)
@@ -345,6 +347,8 @@ cli.add_command(graph)
 cli.add_command(cfg)
 cli.add_command(metadata)
 cli.add_command(terraform)
+cli.add_command(cdk)
+cli.add_command(workflows)
 cli.add_command(planning)
 
 # All commands have been migrated to separate modules
