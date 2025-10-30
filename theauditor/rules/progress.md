@@ -133,9 +133,9 @@ METADATA = RuleMetadata(
 
 ## 📊 AUDIT PROGRESS TRACKING
 
-**Current Folder**: github_actions/
-**Current File**: excessive_permissions.py
-**Files Completed**: 18/62
+**Current Folder**: node/
+**Current File**: runtime_issue_analyze.py
+**Files Completed**: 25/62
 
 ### Completed Files:
 - [x] auth/jwt_analyze.py - Passed inspection
@@ -156,6 +156,13 @@ METADATA = RuleMetadata(
 - [x] frameworks/nextjs_analyze.py - Passed inspection
 - [x] frameworks/react_analyze.py - Passed inspection
 - [x] github_actions/artifact_poisoning.py - Passed inspection
+- [x] github_actions/excessive_permissions.py - Passed inspection
+- [x] github_actions/reusable_workflow_risks.py - Passed inspection (user verified)
+- [x] github_actions/script_injection.py - Passed inspection (user verified)
+- [x] github_actions/unpinned_actions.py - Passed inspection (user verified)
+- [x] github_actions/untrusted_checkout.py - Passed inspection (user verified)
+- [x] logic/general_logic_analyze.py - Passed inspection
+- [x] node/async_concurrency_analyze.py - Passed inspection
 
 
 ## 🎯 AUDIT ONBOARDING FOR FUTURE SESSIONS
