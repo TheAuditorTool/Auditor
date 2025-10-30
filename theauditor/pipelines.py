@@ -428,6 +428,7 @@ def run_full_pipeline(
         ("graph", ["build-dfg"]),  # DFG builder - MUST run after graph build
         ("terraform", ["provision"]),  # Terraform provisioning graph - MUST run after graph build-dfg
         ("terraform", ["analyze"]),  # Terraform security analysis (database-first)
+        ("cdk", ["analyze"]),  # AWS CDK security analysis (database-first)
         ("graph", ["analyze"]),
         ("graph", ["viz", "--view", "full", "--include-analysis"]),
         ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
@@ -485,6 +486,8 @@ def run_full_pipeline(
                 description = f"{phase_num}. Build Terraform provisioning graph"
             elif cmd_name == "terraform" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze Terraform security"
+            elif cmd_name == "cdk" and "analyze" in extra_args:
+                description = f"{phase_num}. Analyze AWS CDK security"
             elif cmd_name == "graph" and "analyze" in extra_args:
                 description = f"{phase_num}. Analyze graph"
             elif cmd_name == "graph" and "viz" in extra_args:

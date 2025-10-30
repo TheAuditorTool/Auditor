@@ -1022,6 +1022,91 @@ aud full                       # Includes all Terraform analysis
 - .tfvars parsing for variable values
 - Stack detection from directory structure
 
+### AWS CDK Analysis (`theauditor/aws_cdk/`)
+
+**Purpose:** Infrastructure as Code (IaC) security analysis for AWS Cloud Development Kit (Python) configurations.
+
+TheAuditor provides complete CDK support with database-first architecture and zero fallbacks, enabling security analysis of cloud infrastructure definitions written in Python.
+
+**Components:**
+
+1. **CDK Extractor** (`theauditor/ast_extractors/python/cdk_extractor.py`):
+   - Python AST-based CDK construct detection
+   - Extracts S3 buckets, RDS instances, security groups, IAM policies
+   - Uses ast.unparse() for property value serialization
+   - Handles missing construct names (nullable fields)
+
+2. **PythonExtractor Integration** (`theauditor/indexer/extractors/python.py`):
+   - CDK extraction integrated into existing Python extractor
+   - Automatic detection on all Python files (no import check overhead)
+   - Generates unique construct_id: `{file}::L{line}::{class}::{name}`
+   - Populates 3 database tables: cdk_constructs, cdk_construct_properties, cdk_findings
+
+3. **Security Analyzer** (`theauditor/aws_cdk/analyzer.py`):
+   - 4 auto-discovered rules in rules/deployment/:
+     - Public S3 buckets (public_read_access detection)
+     - Unencrypted storage (RDS, EBS, DynamoDB)
+     - Open security groups (0.0.0.0/0 and ::/0 ingress)
+     - IAM wildcard permissions (*, AdministratorAccess)
+   - Dual-write: cdk_findings + findings_consolidated (FCE integration)
+   - Severity levels: CRITICAL, HIGH, MEDIUM, LOW
+
+4. **CLI Commands** (`theauditor/commands/cdk.py`):
+   - `aud cdk analyze` - Detect CDK security issues
+   - `--severity` filter for critical/high/medium/low
+   - `--format` for text/json output
+
+**Database Schema:**
+
+Three new tables in repo_index.db:
+- `cdk_constructs` - Construct instantiations (construct_id PK, file_path, line, cdk_class, construct_name)
+- `cdk_construct_properties` - Property values per construct (construct_id FK, property_name, property_value_expr, line)
+- `cdk_findings` - Security findings (finding_id PK, category, severity, title, description, remediation)
+
+**Architecture Principles:**
+
+1. **Database-First**: All extracted constructs flow through database tables
+2. **Zero Fallbacks**: Hard fail on schema errors, no try/except, no table checks
+3. **3-Layer File Path Responsibility**: Implementation → Extractor → Orchestrator adds file_path
+4. **Rules Refactoring Compliance**: NO `LIKE '%pattern%'` in SQL WHERE clauses (Python-side filtering)
+5. **FCE Correlation**: Findings dual-written for cross-tool correlation
+6. **StandardRuleContext Contract**: All rules use find_* naming for auto-discovery
+
+**Workflow:**
+```bash
+aud index                      # Extract CDK constructs to database
+aud cdk analyze                # Detect security issues
+aud full                       # Includes all CDK analysis (Stage 2)
+```
+
+**Typical Output:**
+- `.pf/raw/cdk_findings.json` - Security findings
+- `.pf/raw/patterns.json` - Includes CDK findings (integrated with detect-patterns)
+- `cdk_findings` table - Queryable findings for FCE
+- `findings_consolidated` table - Cross-tool correlation
+
+**Performance:**
+- Extraction: ~2-5ms per .py file (AST parsing)
+- Security analysis: ~50ms for 50 constructs (database queries)
+- All database queries with indexed lookups (construct_id, property_name)
+
+**Detection Examples:**
+
+```python
+# CRITICAL: Public S3 bucket detected
+bucket = s3.Bucket(self, "MyBucket", public_read_access=True)
+
+# HIGH: Unencrypted RDS instance
+db = rds.DatabaseInstance(self, "DB", storage_encrypted=False)
+
+# CRITICAL: Open security group
+sg = ec2.SecurityGroup(self, "SG")
+sg.add_ingress_rule(ec2.Peer.anyIpv4(), ec2.Port.tcp(22))
+
+# HIGH: IAM wildcard permissions
+policy = iam.PolicyStatement(actions=["*"], resources=["*"])
+```
+
 ### Framework Detection (`theauditor/framework_detector.py`)
 - Auto-detects Django, Flask, React, Vue, Angular, etc.
 - Applies framework-specific rules
