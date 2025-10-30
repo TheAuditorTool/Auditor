@@ -1,0 +1,91 @@
+refactor_name: Advanced Pattern Verification
+description: Verify complex database query patterns with JOINs
+version: 1.0
+
+rules:
+  - id: api-multiple-auth-controls
+    description: Admin endpoints must have both login_required and admin_required
+    severity: critical
+    match:
+      api_routes: ['/api/admin/*']
+    expect:
+      # Query: SELECT DISTINCT ec.control_name
+      #        FROM api_endpoints e
+      #        JOIN api_endpoint_controls ec ON e.id = ec.endpoint_id
+      #        WHERE e.path LIKE '/api/admin/%'
+      identifiers: [login_required, admin_required]
+
+  - id: sql-multi-table-joins
+    description: Dashboard queries must touch all required tables
+    severity: high
+    match:
+      identifiers: [admin_dashboard_stats]
+    expect:
+      # Query: SELECT DISTINCT sqt.table_name
+      #        FROM sql_queries sq
+      #        JOIN sql_query_tables sqt ON sq.id = sqt.query_id
+      #        WHERE sq.query_text LIKE '%admin_dashboard_stats%'
+      identifiers: [users, orders, payments, products]
+
+  - id: taint-multi-source-tracking
+    description: SQL queries should not use multiple tainted sources
+    severity: critical
+    match:
+      identifiers: [build_user_query]
+    expect_not:
+      # Query: SELECT COUNT(DISTINCT as2.variable_name)
+      #        FROM assignments a
+      #        JOIN assignment_sources as2 ON a.id = as2.assignment_id
+      #        WHERE a.target_var = 'query'
+      # Should return 0 (no multi-source concatenation in SQL)
+      identifiers: [username, email, role]
+
+  - id: react-hook-dependency-count
+    description: useEffect hooks should minimize dependencies
+    severity: medium
+    match:
+      identifiers: [useEffect]
+    expect:
+      # Query: SELECT COUNT(rhd.dependency_name)
+      #        FROM react_hooks rh
+      #        JOIN react_hook_dependencies rhd ON rh.id = rhd.hook_id
+      #        WHERE rhd.dependency_name IN ('userId', 'sessionToken')
+      # Should verify deps exist but aren't excessive
+      identifiers: [userId, sessionToken]
+
+  - id: function-return-taint-flow
+    description: User input should not flow through multiple functions to SQL
+    severity: critical
+    match:
+      identifiers: [execute_dangerous_query]
+    expect_not:
+      # Query: SELECT frs.variable_name
+      #        FROM function_returns fr
+      #        JOIN function_return_sources frs ON fr.id = frs.return_id
+      #        WHERE fr.function_name = 'get_user_input'
+      identifiers: [user_data]
+
+  - id: import-chain-analysis
+    description: Verify flask imports are complete
+    severity: high
+    match:
+      identifiers: [from flask import]
+    expect:
+      # Query: SELECT isn.imported_name
+      #        FROM imports i
+      #        JOIN import_style_names isn ON i.id = isn.import_id
+      #        WHERE i.module = 'flask'
+      identifiers: [Blueprint, request, jsonify, session, g]
+
+  - id: no-star-imports
+    description: Star imports should not be used
+    severity: medium
+    match:
+      identifiers: [from utils import *]
+    expect:
+      # Query: SELECT isn.imported_name
+      #        FROM imports i
+      #        JOIN import_style_names isn ON i.id = isn.import_id
+      #        WHERE isn.imported_name = '*'
+      # Should return 0 rows
+      identifiers: []

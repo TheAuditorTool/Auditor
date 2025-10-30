@@ -1,0 +1,192 @@
+name: typescript_cross_file_taint
+description: |
+  Cross-file taint flow testing for TypeScript.
+
+  Tests multi-hop taint propagation through 3 files:
+  - controller.ts: Taint sources (req.query, req.params, req.body)
+  - service.ts: Business logic propagation layer
+  - database.ts: SQL sinks (in try blocks)
+
+  Critical for verifying:
+  - TypeScript cross-file function call resolution
+  - CFG try block fix (sinks inside try blocks must be found)
+  - Multi-hop taint path reconstruction
+
+verification_rules:
+  - name: typescript_symbols_extracted
+    description: Verify TypeScript symbols extracted from all 3 files
+    query: |
+      SELECT DISTINCT s.name, s.type, s.path
+      FROM symbols s
+      WHERE s.path LIKE '%cross_file_taint%'
+        AND s.type IN ('function', 'class', 'method')
+      ORDER BY s.path, s.name
+    expected_minimum: 10
+
+  - name: cross_file_function_calls
+    description: Verify cross-file function calls are tracked
+    query: |
+      SELECT
+        fc.function_name,
+        fc.callee_function,
+        fc.file,
+        fc.callee_file_path
+      FROM function_calls fc
+      WHERE fc.file LIKE '%cross_file_taint%'
+        AND fc.callee_file_path IS NOT NULL
+        AND fc.callee_file_path != fc.file
+      ORDER BY fc.file, fc.line
+    expected_minimum: 6
+
+  - name: taint_sources_request_params
+    description: Find taint sources from Express request objects
+    query: |
+      SELECT
+        a.target,
+        a.source_expr,
+        a.file,
+        a.line
+      FROM assignments a
+      WHERE a.file LIKE '%cross_file_taint/controller.ts'
+        AND (
+          a.source_expr LIKE '%req.query%'
+          OR a.source_expr LIKE '%req.params%'
+          OR a.source_expr LIKE '%req.body%'
+        )
+      ORDER BY a.line
+    expected_minimum: 3
+
+  - name: database_sinks_in_try_blocks
+    description: Verify SQL sinks inside try blocks are found (CFG fix test)
+    query: |
+      SELECT
+        fc.function_name,
+        fc.callee_function,
+        fc.line
+      FROM function_calls fc
+      WHERE fc.file LIKE '%cross_file_taint/database.ts'
+        AND (
+          fc.callee_function LIKE '%query%'
+          OR fc.callee_function LIKE '%execute%'
+          OR fc.callee_function LIKE '%raw%'
+        )
+      ORDER BY fc.line
+    expected_minimum: 3
+
+  - name: service_layer_propagation
+    description: Verify service layer methods that propagate taint
+    query: |
+      SELECT
+        s.name,
+        s.type,
+        s.line
+      FROM symbols s
+      WHERE s.path LIKE '%cross_file_taint/service.ts'
+        AND s.type IN ('function', 'method')
+      ORDER BY s.line
+    expected_minimum: 3
+
+  - name: controller_to_service_calls
+    description: Verify controller calls service layer (first hop)
+    query: |
+      SELECT
+        fc.function_name AS controller_method,
+        fc.callee_function AS service_method,
+        fc.line
+      FROM function_calls fc
+      WHERE fc.file LIKE '%cross_file_taint/controller.ts'
+        AND fc.callee_function IN ('search', 'getUserById', 'filterRecords')
+      ORDER BY fc.line
+    expected_minimum: 3
+
+  - name: service_to_database_calls
+    description: Verify service calls database layer (second hop)
+    query: |
+      SELECT
+        fc.function_name AS service_method,
+        fc.callee_function AS db_method,
+        fc.line
+      FROM function_calls fc
+      WHERE fc.file LIKE '%cross_file_taint/service.ts'
+        AND (
+          fc.callee_function LIKE '%execute%'
+          OR fc.callee_function LIKE '%query%'
+          OR fc.callee_function LIKE '%raw%'
+        )
+      ORDER BY fc.line
+    expected_minimum: 3
+
+  - name: imports_tracked
+    description: Verify TypeScript import statements are tracked
+    query: |
+      SELECT
+        module_path,
+        imported_names,
+        file
+      FROM imports
+      WHERE file LIKE '%cross_file_taint%'
+      ORDER BY file, line
+    expected_minimum: 4
+
+taint_flow_paths:
+  - path: search_query_path
+    description: "req.query.search → searchService.search() → connection.query()"
+    hops: 3
+    files:
+      - controller.ts
+      - service.ts
+      - database.ts
+    source_line: 24  # controller.ts: const query = req.query.search
+    sink_line: ~25   # database.ts: connection.query(sql) in try block
+
+  - path: user_id_path
+    description: "req.params.id → searchService.getUserById() → connection.execute()"
+    hops: 3
+    files:
+      - controller.ts
+      - service.ts
+      - database.ts
+    source_line: 40  # controller.ts: const userId = req.params.id
+    sink_line: ~52   # database.ts: connection.execute(query) in try block
+
+  - path: filter_expression_path
+    description: "req.body.filter → searchService.filterRecords() → db.raw()"
+    hops: 3
+    files:
+      - controller.ts
+      - service.ts
+      - database.ts
+    source_line: 56  # controller.ts: const filterExpression = req.body.filter
+    sink_line: ~79   # database.ts: db.raw(sql) in try block
+
+critical_tests:
+  - name: cfg_try_block_fix
+    description: |
+      All database operations are in try blocks. This specifically tests
+      that the TypeScript CFG builder properly handles try block bodies
+      (lines 56-67 should span the full block, not single-line markers).
+      If this fails, sinks won't be found and taint analysis will break.
+
+  - name: callee_file_path_resolution
+    description: |
+      Cross-file calls MUST have callee_file_path populated.
+      Without this, cross-file taint propagation is impossible.
+
+  - name: multi_hop_reconstruction
+    description: |
+      Stage 3 taint analysis must reconstruct 3-hop paths:
+      controller → service → database
+      This requires proper taint_flow_graph construction.
+
+expected_findings:
+  - finding: SQL Injection via req.query.search
+    severity: CRITICAL
+    path: controller.ts:24 → service.ts:search → database.ts:query
+
+  - finding: SQL Injection via req.params.id
+    severity: CRITICAL
+    path: controller.ts:40 → service.ts:getUserById → database.ts:execute
+
+  - finding: SQL Injection via req.body.filter
+    severity: CRITICAL
+    path: controller.ts:56 → service.ts:filterRecords → database.ts:raw

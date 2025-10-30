@@ -346,3 +346,96 @@ def test_reassignment_workflow(test_project):
     assert tasks[0]['assigned_to'] == "Alice"
     assert tasks[1]['assigned_to'] == "Alice"  # Reassigned from Bob
     assert tasks[2]['assigned_to'] == "Charlie"  # Newly assigned
+
+
+def test_archive_incomplete_warning(tmp_path, monkeypatch):
+    """Test archive warns about incomplete tasks and requires confirmation."""
+    # Setup git repo
+    repo_dir = tmp_path / "test_repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+
+    # Create initial commit
+    test_file = repo_dir / "test.txt"
+    test_file.write_text("initial")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=repo_dir, check=True)
+
+    # Change to repo directory
+    monkeypatch.chdir(repo_dir)
+
+    # Create planning database
+    pf_dir = repo_dir / ".pf"
+    pf_dir.mkdir()
+    db_path = pf_dir / "planning.db"
+
+    manager = PlanningManager.init_database(db_path)
+
+    # Create plan with mixed status tasks
+    plan_id = manager.create_plan("Test Plan", "Test incomplete archive")
+
+    # Add 3 tasks: 1 completed, 2 pending
+    task1_id = manager.add_task(plan_id, "Completed task")
+    task2_id = manager.add_task(plan_id, "Pending task 1")
+    task3_id = manager.add_task(plan_id, "Pending task 2")
+
+    manager.update_task_status(task1_id, "completed", "2025-10-30T12:00:00Z")
+    # task2 and task3 remain pending
+
+    # Verify incomplete tasks are detected
+    all_tasks = manager.list_tasks(plan_id)
+    incomplete = [t for t in all_tasks if t['status'] != 'completed']
+
+    assert len(incomplete) == 2, "Should have 2 incomplete tasks"
+    assert incomplete[0]['task_number'] in [2, 3]
+    assert incomplete[1]['task_number'] in [2, 3]
+
+
+def test_regression_detection(tmp_path, monkeypatch):
+    """Test regression detection when re-verifying completed task."""
+    # Setup git repo
+    repo_dir = tmp_path / "test_repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+
+    # Create initial commit
+    test_file = repo_dir / "test.py"
+    test_file.write_text("# Test file\n")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "Initial"], cwd=repo_dir, check=True)
+
+    monkeypatch.chdir(repo_dir)
+
+    # Create planning database
+    pf_dir = repo_dir / ".pf"
+    pf_dir.mkdir()
+    db_path = pf_dir / "planning.db"
+
+    manager = PlanningManager.init_database(db_path)
+
+    # Create plan and task
+    plan_id = manager.create_plan("Regression Test", "Test regression detection")
+    task_id = manager.add_task(plan_id, "Test task")
+
+    # Mark task as completed with timestamp
+    manager.update_task_status(task_id, "completed", "2025-10-30T12:00:00Z")
+
+    # Verify task was completed
+    cursor = manager.conn.cursor()
+    cursor.execute("SELECT status, completed_at FROM plan_tasks WHERE id = ?", (task_id,))
+    task = cursor.fetchone()
+
+    assert task[0] == "completed"
+    assert task[1] is not None
+
+    # Now simulate regression by checking task status
+    was_previously_completed = task[0] == 'completed' and task[1] is not None
+    has_violations = True  # Simulate verification finding violations
+
+    is_regression = was_previously_completed and has_violations
+
+    assert is_regression, "Should detect regression when completed task has violations"

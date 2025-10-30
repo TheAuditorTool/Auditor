@@ -120,13 +120,18 @@ def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -
     """Find queries on sensitive tables without tenant filtering."""
     findings = []
 
-    # Fetch all sql_queries
+    # Fetch all sql_queries with tables from junction table
     cursor.execute("""
-        SELECT file_path, line_number, query_text, command, tables
-        FROM sql_queries
-        WHERE command != 'UNKNOWN'
-          AND command IS NOT NULL
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
+               GROUP_CONCAT(sqt.table_name) as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command != 'UNKNOWN'
+          AND sq.command IS NOT NULL
+        GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
+        ORDER BY sq.file_path, sq.line_number
     """)
 
     # Check each query for sensitive tables
@@ -535,14 +540,19 @@ def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) 
     """Find bulk INSERT/UPDATE/DELETE operations without tenant field."""
     findings = []
 
-    # Find bulk operations in sql_queries
+    # Find bulk operations in sql_queries with tables from junction table
     # NOTE: frontend/test filtering handled by METADATA
     # Keep migration check - bulk operations in migrations are schema changes, not tenant data
     cursor.execute("""
-        SELECT file_path, line_number, query_text, command, tables
-        FROM sql_queries
-        WHERE command IN ('INSERT', 'UPDATE', 'DELETE')
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
+               GROUP_CONCAT(sqt.table_name) as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command IN ('INSERT', 'UPDATE', 'DELETE')
+        GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
+        ORDER BY sq.file_path, sq.line_number
     """)
 
     checked_count = 0
@@ -607,10 +617,15 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> List[Stan
     # NOTE: frontend/test filtering handled by METADATA
     # Keep migration check - JOINs in migrations are schema exploration, not queries
     cursor.execute("""
-        SELECT file_path, line_number, query_text, command, tables
-        FROM sql_queries
-        WHERE command = 'SELECT'
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
+               GROUP_CONCAT(sqt.table_name) as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command = 'SELECT'
+        GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
+        ORDER BY sq.file_path, sq.line_number
     """)
 
     checked_count = 0

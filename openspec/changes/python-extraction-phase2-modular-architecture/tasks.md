@@ -176,12 +176,17 @@
 
 **Block Summary:** 6 new validation tables, 1,435 lines production code, 491 lines test fixtures
 
-### 16. Add Generator Extraction
-- [ ] 16.1 Add `extract_generators()` to `core_extractors.py`
-- [ ] 16.2 Detect `yield` statements in functions
-- [ ] 16.3 Detect generator expressions `(x for x in ...)`
-- [ ] 16.4 Create `python_generators` table in schema.py
-- [ ] 16.5 Test against TheAuditor codebase
+### 16. Add Generator Extraction ✅ COMPLETE (Session 22)
+- [x] 16.1 Add `extract_generators()` to `core_extractors.py` (102 lines)
+- [x] 16.2 Detect `yield` statements in functions, `yield from` delegation
+- [x] 16.3 Detect generator expressions `(x for x in ...)`
+- [x] 16.4 Detect `send()` usage (bidirectional communication)
+- [x] 16.5 Detect infinite generators (`while True` with `yield` - DoS risk)
+- [x] 16.6 Create `python_generators` table in schema.py (8 columns, 3 indexes)
+- [x] 16.7 Build test fixture: `utils/generators.py` (130 lines, 18 patterns)
+- [x] 16.8 Verified extraction: 19 generators (14 functions + 5 expressions)
+
+**Session 22 Summary:** 1 new table, 170 lines production code, 130 lines test fixtures
 
 ### 17. Update Memory Cache for New Tables
 - [ ] 17.1 Add loaders for all new tables to `python_memory_cache.py`

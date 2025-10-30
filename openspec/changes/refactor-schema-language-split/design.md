@@ -1,42 +1,63 @@
-# Design Document: Schema Language Split Refactor
+# Design Document: Schema Language Split + Indexer Orchestrator Refactor
 
 **Change ID**: `refactor-schema-language-split`
-**Document Version**: 1.0
-**Last Updated**: 2025-10-30
+**Document Version**: 2.0 (Extended Scope)
+**Last Updated**: 2025-10-31
 
 ## Context
 
-TheAuditor's database schema layer has grown to 2146 lines in a single file (schema.py), containing 70 table definitions spanning Python, Node/JS, Rust, Infrastructure, and Planning domains. This violates the Single Responsibility Principle and creates maintenance overhead.
+TheAuditor's indexer package suffers from two monolithic files that violate architectural principles:
 
-**Current Pain Points**:
+**Problem 1 - Schema Monolith**: schema.py has grown to 2146 lines in a single file, containing 70 table definitions spanning Python, Node/JS, Rust, Infrastructure, and Planning domains. This violates the Single Responsibility Principle and creates maintenance overhead.
+
+**Problem 2 - Orchestrator Monolith**: `__init__.py` contains 2021 lines of orchestration logic. This violates Python conventions where `__init__.py` should contain only imports (~10-20 lines). The single `IndexerOrchestrator` class mixes Python/Node/Rust/Infrastructure orchestration logic.
+
+**Current Pain Points (Schema)**:
 1. Developers must scroll through 2000+ lines to find relevant tables
 2. Language-specific changes (e.g., adding Python ORM field) touch a file containing React/Vue/Terraform tables
 3. No clear separation between core (cross-language) and language-specific schemas
 4. Future language additions (Go, Java, C#) will only increase file size
 
+**Current Pain Points (Orchestrator)**:
+1. `__init__.py` with 2021 lines is a major code smell (anti-pattern)
+2. JSX dual-pass processing (218 lines, React-specific) buried in generic orchestrator
+3. TypeScript batch processing (Node-specific) in generic code
+4. No separation between Python/Node/Rust orchestration logic
+5. Adding new language orchestration requires modifying 2021-line class
+
 **Stakeholders**:
-- **Developers**: Easier navigation, faster table lookup
-- **Architect**: Better code organization, easier reviews
-- **Codebase**: Reduced complexity, improved maintainability
+- **Developers**: Easier navigation, faster lookup, clear language boundaries
+- **Architect**: Better code organization, easier reviews, proper Python usage
+- **Codebase**: Reduced complexity, improved maintainability, scalable architecture
 
 ## Goals / Non-Goals
 
 ### Goals
 
+**Schema**:
 1. **Modularize schema.py** by language/domain into separate files
-2. **Maintain 100% backward compatibility** - zero breaking changes to consumers
-3. **Establish clear categorization** (Core vs Python vs Node vs Infrastructure)
-4. **Enable future scalability** (easy to add new languages/frameworks)
-5. **Preserve all functionality** (query builders, validation, etc.)
+2. **Establish clear categorization** (Core vs Python vs Node vs Infrastructure)
+3. **Preserve all functionality** (query builders, validation, etc.)
+
+**Orchestrator**:
+4. **Fix `__init__.py` code smell** - reduce from 2021 → 20 lines (imports only)
+5. **Modularize IndexerOrchestrator** by language using mixin pattern
+6. **Isolate language-specific logic** (JSX dual-pass = Node, not generic)
+
+**Combined**:
+7. **Maintain 100% backward compatibility** - zero breaking changes to consumers
+8. **Enable future scalability** (easy to add new languages/frameworks)
 
 ### Non-Goals
 
 1. ❌ Refactor database.py (deferred to Phase 2)
-2. ❌ Change database structure or table schemas
-3. ❌ Add new tables or remove existing tables
-4. ❌ Modify query builder functionality
-5. ❌ Add type hints (separate enhancement)
-6. ❌ Change consumer code (50 files remain untouched)
+2. ❌ Refactor extractors (only orchestration, not extraction implementation)
+3. ❌ Change database structure or table schemas
+4. ❌ Add new tables or remove existing tables
+5. ❌ Modify query builder functionality
+6. ❌ Modify orchestration logic (only reorganize, not change)
+7. ❌ Add type hints (separate enhancement)
+8. ❌ Change consumer code (50+ files remain untouched)
 
 ## Architectural Decisions
 
@@ -191,17 +212,73 @@ assert len(TABLES) == 70, f"Expected 70 tables, got {len(TABLES)}"
 
 **Rationale**: Maintains cohesion. Junction tables are tightly coupled to parent tables.
 
+### Decision 8: Orchestrator Mixin Pattern (NEW - Orchestrator Component)
+
+**Question**: How to split `IndexerOrchestrator` (2021 lines) into language-specific modules?
+
+**Options Considered**:
+1. **Mixin Pattern** (CHOSEN): BaseOrchestrator + language-specific mixins
+   - Pros: Same pattern as planned database.py Phase 2, Python MRO handles inheritance
+   - Pros: Each mixin focused on one language, easy to add new languages
+   - Cons: Multiple inheritance complexity (mitigated by Python C3 linearization)
+
+2. **Strategy Pattern**: Separate orchestrator classes, factory selects by language
+   - Pros: No multiple inheritance
+   - Cons: Loses unified interface, requires file type detection before instantiation
+
+3. **Monolithic with Internal Methods**: Keep single class, add `_process_python()`, `_process_node()` methods
+   - Pros: Simpler inheritance
+   - Cons: Doesn't solve the 2021-line problem, still mixed concerns
+
+**Rationale**: Mixin pattern chosen for consistency with database.py Phase 2 plan and proven Python pattern. Python's C3 linearization handles MRO automatically. Each mixin has distinct method names (no conflicts).
+
+**Implementation**:
+```python
+class IndexerOrchestrator(BaseOrchestrator,
+                          PythonOrchestrationMixin,
+                          NodeOrchestrationMixin,
+                          RustOrchestrationMixin,
+                          InfrastructureOrchestrationMixin):
+    """Merged orchestrator via mixin pattern."""
+    pass
+```
+
+### Decision 9: Orchestrator Logic Distribution (NEW - Orchestrator Component)
+
+**Question**: Which logic goes in which orchestrator?
+
+**Core Orchestrator** (400 lines):
+- File walking, AST caching, database coordination
+- Extractor selection (`_select_extractor`)
+- Resource cleanup (`_cleanup_extractors`)
+- Generic processing patterns
+
+**Node Orchestrator** (700 lines - LARGEST):
+- JSX dual-pass processing (lines 434-652) - 218 lines!
+- TypeScript batch processing (lines 258-310)
+- Cross-file parameter resolution (lines 329-336)
+- Node framework detection (Express/React/Vue)
+- **Why largest**: JSX dual-pass is complex React-specific logic
+
+**Python/Rust/Infrastructure Orchestrators** (150-200 lines each):
+- Language-specific framework detection
+- Language-specific extraction delegation
+- Minimal logic (simpler than Node/JSX)
+
+**Guiding Principle**: If logic is specific to one language/ecosystem → language orchestrator. If used by ALL → core orchestrator.
+
 ## Risks / Trade-offs
 
 ### Risk 1: Manual Copy-Paste Errors
 
-**Risk**: Copying 2146 lines from schema.py to 6 files could introduce typos, missed tables, or formatting errors.
+**Risk**: Copying 4167 lines (2146 schema + 2021 orchestrator) to 11 files could introduce typos, missed tables/logic, or formatting errors.
 
 **Mitigation**:
-1. **Automated Extraction**: Use Python script to extract tables by line range (not manual copy-paste)
-2. **Diff Verification**: Compare original schema.py vs merged output to ensure identical
+1. **Automated Extraction**: Use Python script to extract tables/logic by line range (not manual copy-paste)
+2. **Diff Verification**: Compare originals vs merged outputs to ensure identical
 3. **Automated Tests**: `assert len(TABLES) == 70` catches missing tables
 4. **Schema Contract Tests**: test_schema_contract.py validates all table structures
+5. **Integration Tests**: `aud index` + `aud full` verify orchestrator works identically
 
 ### Risk 2: Circular Imports
 
@@ -230,38 +307,80 @@ from .core_schema import CORE_TABLES  # ❌ CIRCULAR
 
 ### Risk 4: Import Path Breakage
 
-**Risk**: 50 consumer files could break if import paths change.
+**Risk**: 50+ consumer files could break if import paths change (schema or orchestrator).
 
 **Mitigation**:
-1. **Stub Pattern**: schema.py remains as entry point, all imports identical
-2. **Smoke Test**: Import all symbols from 50 files before commit
+1. **Stub Pattern**: Both schema.py and `__init__.py` remain as entry points, all imports identical
+2. **Smoke Test**: Import all symbols from 50+ files before commit
 3. **Test Suite**: Existing tests validate imports (test_database_integration.py)
 
-### Trade-off 1: File Count vs Monolithic File
+### Risk 5: Method Resolution Order (MRO) Conflicts (NEW - Orchestrator)
 
-**Before**: 1 file (2146 lines)
-**After**: 8 files (2250 lines total, +104 overhead)
+**Risk**: Multiple inheritance via mixins could cause method conflicts or incorrect MRO.
+
+**Mitigation**:
+1. **Python C3 Linearization**: Python automatically handles MRO via C3 algorithm
+2. **Distinct Method Names**: Each mixin uses distinct method names (no conflicts)
+   - PythonOrchestrationMixin: `_detect_python_frameworks()`, `_process_python_file()`
+   - NodeOrchestrationMixin: `_detect_node_frameworks()`, `_jsx_dual_pass_extraction()`
+   - No method name collisions between mixins
+3. **MRO Testing**: Explicit test to verify `IndexerOrchestrator.__mro__` is correct
+4. **Integration Testing**: `aud index` validates orchestrator works across all languages
+
+### Risk 6: JSX Dual-Pass Logic Move (NEW - Orchestrator)
+
+**Risk**: Moving 218 lines of critical React JSX dual-pass logic could break React analysis.
+
+**Mitigation**:
+1. **Move As-Is**: NO changes to logic, only location changes (lines 434-652 → node_orchestrator.py)
+2. **Existing Test Suite**: `tests/test_jsx_pass.py` validates JSX dual-pass functionality
+3. **Integration Test**: Run `aud index` on React projects, verify JSX tables populated
+4. **Pre/Post Comparison**: Compare JSX table contents before/after refactor (must be identical)
+
+### Trade-off 1: File Count vs Monolithic Files
+
+**Schema Before**: 1 file (2146 lines)
+**Schema After**: 8 files (2250 lines total, +104 overhead = 4.8%)
+
+**Orchestrator Before**: 1 file (2021 lines in `__init__.py`)
+**Orchestrator After**: 6 files (1620 lines total, -401 lines = 19.8% reduction)
+
+**Combined Before**: 2 monolithic files (4167 lines)
+**Combined After**: 14 modular files (3870 lines, -297 lines = 7.1% reduction)
 
 **Analysis**:
-- Pro: Modularity, discoverability, maintainability
-- Con: More files to navigate (8 vs 1)
-- Verdict: Acceptable - 8 files is manageable, 2146-line file is not
+- Pro: Modularity, discoverability, maintainability, proper Python usage
+- Pro: 7% net line reduction from eliminating duplication
+- Con: More files to navigate (14 vs 2)
+- Verdict: Acceptable - 14 well-organized files >> 2 monolithic files
 
 ### Trade-off 2: Stub Overhead vs Direct Imports
 
-**Stub Pattern**: Extra indirection (schema.py → schemas/*.py)
-**Direct Imports**: No indirection, but 50 files need changes
+**Stub Pattern**: Extra indirection (schema.py → schemas/*.py, `__init__.py` → orchestration/*.py)
+**Direct Imports**: No indirection, but 50+ files need changes
 
 **Analysis**:
 - Performance: Negligible (import time, not runtime)
-- Risk: Stub = zero risk, Direct = high risk
-- Verdict: Stub pattern prioritizes safety over purity
+- Risk: Stub = zero risk, Direct = high risk (50+ file changes)
+- Verdict: Stub pattern prioritizes safety over architectural purity
+
+### Trade-off 3: Mixin Pattern vs Strategy Pattern (NEW - Orchestrator)
+
+**Mixin Pattern** (CHOSEN): Multiple inheritance, Python MRO
+**Strategy Pattern**: Separate classes, factory selection
+
+**Analysis**:
+- Mixin Pros: Unified interface, proven pattern, consistent with database.py Phase 2
+- Mixin Cons: Multiple inheritance complexity (mitigated by C3 linearization)
+- Strategy Pros: No multiple inheritance
+- Strategy Cons: Loses unified interface, requires upfront language detection
+- Verdict: Mixin pattern for consistency and proven reliability in Python
 
 ## Migration Plan
 
-### Phase 1: Schema Split (THIS PROPOSAL)
+### Phase 1: Schema Split + Orchestrator Split (THIS PROPOSAL)
 
-**Steps**:
+**Part A - Schema Split**:
 1. Create `theauditor/indexer/schemas/` directory
 2. Create `utils.py` (Column, ForeignKey, TableSchema)
 3. Create `core_schema.py` (26 tables + query builders)
@@ -270,11 +389,24 @@ from .core_schema import CORE_TABLES  # ❌ CIRCULAR
 6. Create `infrastructure_schema.py` (12 tables)
 7. Create `planning_schema.py` (5 tables)
 8. Replace `schema.py` with stub (imports + merge + re-export)
-9. Run validation tests (pytest + smoke tests)
-10. Commit ONLY if all tests pass (single atomic commit)
+
+**Part B - Orchestrator Split**:
+9. Create `theauditor/indexer/orchestration/` directory
+10. Create `core_orchestrator.py` (BaseOrchestrator + file walking + AST caching)
+11. Create `python_orchestrator.py` (Python framework detection + extraction)
+12. Create `node_orchestrator.py` (JSX dual-pass + TypeScript batch + Node frameworks)
+13. Create `rust_orchestrator.py` (Rust extraction delegation)
+14. Create `infrastructure_orchestrator.py` (Docker/Terraform/CDK delegation)
+15. Create merged `IndexerOrchestrator` class (mixin pattern)
+16. Replace `__init__.py` with stub (imports + exports)
+
+**Part C - Validation & Commit**:
+17. Run validation tests (pytest + smoke tests + integration tests)
+18. Commit ONLY if ALL tests pass (single atomic commit)
 
 **Validation Checklist**:
 ```bash
+# Schema Validation
 # 1. Table count
 python -c "from theauditor.indexer.schema import TABLES; assert len(TABLES) == 70"
 
@@ -284,15 +416,29 @@ python -c "from theauditor.indexer.schema import TABLES, build_query, Column, Ta
 # 3. Query builder
 python -c "from theauditor.indexer.schema import build_query; print(build_query('symbols', ['name']))"
 
-# 4. Full test suite
+# Orchestrator Validation
+# 4. Orchestrator import
+python -c "from theauditor.indexer import IndexerOrchestrator, FileWalker, DatabaseManager"
+
+# 5. Orchestrator instantiation
+python -c "from theauditor.indexer import IndexerOrchestrator; orc = IndexerOrchestrator('.', '.pf/repo_index.db'); print('OK')"
+
+# 6. MRO check
+python -c "from theauditor.indexer import IndexerOrchestrator; print(IndexerOrchestrator.__mro__)"
+
+# Combined Validation
+# 7. Full test suite
 pytest tests/ -v
 
-# 5. Integration test
+# 8. Integration test (all languages)
 aud index tests/fixtures/test_project
 aud full tests/fixtures/test_project
+
+# 9. JSX-specific test
+pytest tests/test_jsx_pass.py -v
 ```
 
-**Rollback**: `git revert <commit>` - Single commit for instant rollback.
+**Rollback**: `git revert <commit>` - Single atomic commit for instant rollback.
 
 ### Phase 2: Database Split (SEPARATE PROPOSAL)
 
