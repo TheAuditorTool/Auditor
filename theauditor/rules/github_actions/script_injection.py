@@ -35,6 +35,46 @@ METADATA = RuleMetadata(
     execution_scope='database',
 )
 
+
+def register_taint_patterns(taint_registry):
+    """Register GitHub Actions taint patterns for flow analysis.
+
+    This function is called by the orchestrator to register GitHub Actions
+    specific taint sources (untrusted PR/issue data) and sinks (shell execution).
+
+    Args:
+        taint_registry: TaintRegistry instance from orchestrator
+    """
+    # Sources: Untrusted data from pull requests, issues, comments
+    # These can be controlled by attackers and should never flow to shell commands
+    PR_SOURCES = [
+        'github.event.pull_request.title',
+        'github.event.pull_request.body',
+        'github.event.pull_request.head.ref',  # Branch name
+        'github.event.pull_request.head.label',
+        'github.event.issue.title',
+        'github.event.issue.body',
+        'github.event.comment.body',
+        'github.event.review.body',
+        'github.event.head_commit.message',
+        'github.head_ref',  # Shorthand for branch name
+    ]
+
+    for source in PR_SOURCES:
+        taint_registry.register_source(source, 'github', 'github')
+
+    # Sinks: Shell execution contexts where injection can occur
+    # These are dangerous when they consume untrusted data
+    GITHUB_SINKS = [
+        'run',   # run: scripts in workflow steps
+        'shell', # shell: bash/sh/pwsh
+        'bash',  # bash -c commands
+    ]
+
+    for sink in GITHUB_SINKS:
+        taint_registry.register_sink(sink, 'command_execution', 'github')
+
+
 # Untrusted data paths that should not be in run: scripts
 UNTRUSTED_PATHS: Set[str] = {
     'github.event.pull_request.title',

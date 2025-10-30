@@ -146,12 +146,12 @@ def _check_allow_all_outbound(cursor) -> List[StandardFinding]:
         construct_id = row['construct_id']
         construct_name = row['construct_name'] or 'UnnamedSecurityGroup'
 
-        # Check for allow_all_outbound=True
+        # Check for allow_all_outbound (Python) or allowAllOutbound (TypeScript/JavaScript) = True
         cursor.execute("""
             SELECT property_value_expr, line
             FROM cdk_construct_properties
             WHERE construct_id = ?
-              AND property_name = 'allow_all_outbound'
+              AND (property_name = 'allow_all_outbound' OR property_name = 'allowAllOutbound')
               AND LOWER(property_value_expr) = 'true'
         """, (construct_id,))
 

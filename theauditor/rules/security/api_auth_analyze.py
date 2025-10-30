@@ -213,22 +213,29 @@ class ApiAuthAnalyzer:
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
+        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
-            # Parse controls
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+            # Parse controls from concatenated string
+            controls = controls_str.split('|') if controls_str else []
 
             # Convert to lowercase for matching
-            controls_lower = [str(c).lower() for c in controls]
+            controls_lower = [str(c).lower() for c in controls if c]
             pattern_lower = pattern.lower() if pattern else ''
 
             # Check if this is explicitly a public endpoint
@@ -263,27 +270,32 @@ class ApiAuthAnalyzer:
         sensitive_patterns_lower = [p.lower() for p in self.patterns.SENSITIVE_OPERATIONS]
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
-        # Fetch all api_endpoints, filter in Python
+        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE pattern IS NOT NULL
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE ae.pattern IS NOT NULL
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
             # Check if pattern contains any sensitive operation
             pattern_lower = pattern.lower() if pattern else ''
             if not any(sensitive in pattern_lower for sensitive in sensitive_patterns_lower):
                 continue
 
-            # Parse controls
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
-
-            controls_lower = [str(c).lower() for c in controls]
+            # Parse controls from concatenated string
+            controls = controls_str.split('|') if controls_str else []
+            controls_lower = [str(c).lower() for c in controls if c]
 
             # Check for authentication
             has_auth = any(
@@ -340,21 +352,27 @@ class ApiAuthAnalyzer:
 
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""
-        # Look for basic auth or weak patterns
+        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE controls IS NOT NULL
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            HAVING controls_str IS NOT NULL
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
-
-            controls_str = ' '.join(str(c).lower() for c in controls)
+        for file, line, method, pattern, controls_concat in self.cursor.fetchall():
+            # Parse controls from concatenated string
+            controls = controls_concat.split('|') if controls_concat else []
+            controls_str = ' '.join(str(c).lower() for c in controls if c)
 
             # Check for basic auth (weak)
             if 'basic' in controls_str and 'auth' in controls_str:
@@ -386,25 +404,31 @@ class ApiAuthAnalyzer:
         """Check if state-changing endpoints have CSRF protection."""
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
-        # Fetch all state-changing endpoints, filter in Python
+        # JOIN with api_endpoint_controls to get controls for each endpoint
         self.cursor.execute("""
-            SELECT file, line, method, pattern, controls
-            FROM api_endpoints
-            WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.line,
+                ae.method,
+                ae.pattern,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, line, method, pattern, controls_json in self.cursor.fetchall():
+        for file, line, method, pattern, controls_str in self.cursor.fetchall():
             # Skip if this looks like a pure API endpoint
             if pattern and ('/api/' in pattern or '/v1/' in pattern or '/v2/' in pattern):
                 continue
 
-            try:
-                controls = json.loads(controls_json) if controls_json else []
-            except (json.JSONDecodeError, TypeError):
-                controls = []
-
-            controls_lower = [str(c).lower() for c in controls]
+            # Parse controls from concatenated string
+            controls = controls_str.split('|') if controls_str else []
+            controls_lower = [str(c).lower() for c in controls if c]
 
             # Check for CSRF protection
             has_csrf = any(

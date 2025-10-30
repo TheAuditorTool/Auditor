@@ -75,12 +75,12 @@ def _check_public_read_access(cursor) -> List[StandardFinding]:
         construct_id = row['construct_id']
         construct_name = row['construct_name'] or 'UnnamedBucket'
 
-        # Check if bucket has public_read_access=True
+        # Check if bucket has public_read_access=True (Python) or publicReadAccess=true (TypeScript/JavaScript)
         cursor.execute("""
             SELECT property_value_expr, line
             FROM cdk_construct_properties
             WHERE construct_id = ?
-              AND property_name = 'public_read_access'
+              AND (property_name = 'public_read_access' OR property_name = 'publicReadAccess')
               AND LOWER(property_value_expr) = 'true'
         """, (construct_id,))
 
@@ -124,12 +124,12 @@ def _check_missing_block_public_access(cursor) -> List[StandardFinding]:
         construct_id = row['construct_id']
         construct_name = row['construct_name'] or 'UnnamedBucket'
 
-        # Check if bucket has block_public_access configured
+        # Check if bucket has block_public_access (Python) or blockPublicAccess (TypeScript/JavaScript) configured
         cursor.execute("""
             SELECT property_value_expr
             FROM cdk_construct_properties
             WHERE construct_id = ?
-              AND property_name = 'block_public_access'
+              AND (property_name = 'block_public_access' OR property_name = 'blockPublicAccess')
         """, (construct_id,))
 
         if not cursor.fetchone():

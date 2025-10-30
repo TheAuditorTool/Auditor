@@ -549,20 +549,29 @@ class InputValidationAnalyzer:
 
     def _detect_framework_bypasses(self):
         """Detect framework-specific validation bypasses."""
-        # Check for endpoints without middleware
+        # JOIN with api_endpoint_controls to check for middleware
         self.cursor.execute("""
-            SELECT file, method, pattern, controls
-            FROM api_endpoints
-            WHERE (method IN ('POST', 'PUT', 'PATCH', 'DELETE'))
-              AND (controls IS NULL
-                   OR controls = '[]'
-                   OR controls = '')
-            ORDER BY file, pattern
+            SELECT
+                ae.file,
+                ae.method,
+                ae.pattern,
+                ae.line,
+                GROUP_CONCAT(aec.control_name, '|') as controls_str
+            FROM api_endpoints ae
+            LEFT JOIN api_endpoint_controls aec
+                ON ae.file = aec.endpoint_file
+                AND ae.line = aec.endpoint_line
+            WHERE ae.method IN ('POST', 'PUT', 'PATCH', 'DELETE')
+            GROUP BY ae.file, ae.line, ae.method, ae.pattern
+            ORDER BY ae.file, ae.pattern
         """)
 
-        for file, method, route, controls in self.cursor.fetchall():
-            # Extract line number from file if possible
-            line = 1  # Default line
+        for file, method, route, endpoint_line, controls_str in self.cursor.fetchall():
+            # Check if endpoint has no controls
+            if controls_str:
+                continue  # Has controls, skip
+
+            line = endpoint_line if endpoint_line else 1
 
             self._add_finding(
                 rule_name='missing-middleware',
