@@ -248,7 +248,38 @@ Use it to mark patterns as obsolete/current, measure migration progress, and lab
 **Performance**: <10ms indexed lookups, zero file reads. Query entire call chains across 100k LOC projects instantly.
 **Formats**: Human-readable text, AI-consumable JSON.
 
-See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, and context walkthroughs.
+#### Planning: Implementation Tracking & Verification
+
+Track implementation plans, verify task completion against YAML specs, and maintain an immutable audit trail with git snapshots.
+
+```bash
+# Create a new implementation plan
+aud planning init --name "API Migration" --description "Migrate to REST v2"
+
+# Add task with verification spec
+aud planning add-task 1 --title "Migrate auth endpoints" --spec migration_spec.yaml
+
+# Verify task completion (checks codebase against spec)
+aud planning verify-task 1 1 --verbose --auto-update
+
+# Update task status
+aud planning update-task 1 1 --status completed
+
+# Show plan with all tasks
+aud planning show 1 --tasks --verbose
+
+# Archive completed plan with final snapshot
+aud planning archive 1 --notes "Migration completed"
+
+# Show rollback instructions
+aud planning rewind 1 --checkpoint "pre-migration"
+```
+
+**Verification specs** are YAML refactor profiles that define expected patterns. Planning system runs them through RefactorRuleEngine and reports violations with file:line precision. Each verification creates a git snapshot for audit trail.
+
+**Use cases**: Track complex refactors, ensure migration completeness, maintain deployment audit trail, rollback instructions for failed deployments.
+
+See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, context, and planning walkthroughs.
 
 ---
 

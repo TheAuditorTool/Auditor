@@ -270,6 +270,7 @@ from theauditor.commands.docs import docs
 from theauditor.commands.tool_versions import tool_versions
 from theauditor.commands.init_js import init_js
 from theauditor.commands.init_config import init_config
+from theauditor.commands.planning import planning
 
 # Import ML commands
 from theauditor.commands.ml import learn, suggest, learn_feedback
@@ -344,6 +345,7 @@ cli.add_command(graph)
 cli.add_command(cfg)
 cli.add_command(metadata)
 cli.add_command(terraform)
+cli.add_command(planning)
 
 # All commands have been migrated to separate modules
 
