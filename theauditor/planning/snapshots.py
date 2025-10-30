@@ -102,10 +102,11 @@ def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, manager
             })
             files_affected.append(current_file)
 
+    from datetime import datetime, UTC
     snapshot_data = {
         'git_ref': git_ref,
         'checkpoint_name': checkpoint_name,
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(UTC).isoformat(),
         'files_affected': files_affected,
         'diffs': diffs
     }

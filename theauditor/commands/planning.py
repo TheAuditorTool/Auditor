@@ -15,27 +15,91 @@ logger = setup_logger(__name__)
 @click.group()
 @click.help_option("-h", "--help")
 def planning():
-    """Planning and verification commands for implementation workflows.
+    """Planning and Verification System - Database-Centric Task Management
 
-    Create plans, add tasks with verification specs, track progress, and
-    maintain an immutable audit trail of implementation changes.
+    PURPOSE:
+      The planning system provides deterministic task tracking with spec-based
+      verification. Unlike external tools (Jira, Linear), planning integrates
+      directly with TheAuditor's indexed codebase for instant verification.
 
-    Subcommands:
-      init         - Create a new implementation plan
-      show         - Display plan details and task status
-      add-task     - Add a task to a plan with optional verification spec
-      update-task  - Update task status
-      verify-task  - Verify task completion against spec
-      archive      - Archive completed plan with final snapshot
-      rewind       - Show rollback instructions for a plan
+      Key benefits:
+      - Verification specs query actual code (not developer self-assessment)
+      - Git snapshots create immutable audit trail
+      - Zero external dependencies (offline-first)
+      - Works seamlessly with aud index / aud full workflow
 
-    Typical Workflow:
-      1. aud planning init --name "API Migration"
-      2. aud planning add-task 1 --title "Migrate auth endpoints" --spec spec.yaml
-      3. [Make code changes]
-      4. aud planning verify-task 1 1
-      5. aud planning update-task 1 1 --status completed
-      6. aud planning archive 1
+    QUICK START:
+      # Initialize your first plan
+      aud planning init --name "Migration Plan"
+
+      # Add tasks with verification specs
+      aud planning add-task 1 --title "Task" --spec spec.yaml
+
+      # Make code changes, then verify
+      aud index && aud planning verify-task 1 1 --verbose
+
+    COMMON WORKFLOWS:
+
+      Greenfield Feature Development:
+        1. aud planning init --name "New Feature"
+        2. aud query --api "/users" --format json  # Find analogous patterns
+        3. aud planning add-task 1 --title "Add /products endpoint"
+        4. [Implement feature]
+        5. aud index && aud planning verify-task 1 1
+
+      Refactoring Migration:
+        1. aud planning init --name "Auth0 to Cognito"
+        2. aud planning add-task 1 --title "Migrate routes" --spec auth_spec.yaml
+        3. [Make changes]
+        4. aud index && aud planning verify-task 1 1 --auto-update
+        5. aud planning archive 1 --notes "Deployed to prod"
+
+      Checkpoint-Driven Development:
+        1. aud planning add-task 1 --title "Complex Refactor"
+        2. [Make partial changes]
+        3. aud planning verify-task 1 1  # Creates snapshot on failure
+        4. [Continue work]
+        5. aud planning rewind 1  # Show rollback if needed
+
+    DATABASE STRUCTURE:
+      .pf/planning.db (separate from repo_index.db)
+      - plans              # Top-level plan metadata
+      - plan_tasks         # Individual tasks (auto-numbered 1,2,3...)
+      - plan_specs         # YAML verification specs (RefactorProfile format)
+      - code_snapshots     # Git checkpoint metadata
+      - code_diffs         # Full unified diffs for rollback
+
+    VERIFICATION SPECS:
+      Specs use RefactorProfile YAML format (compatible with aud refactor):
+
+      Example - JWT Secret Migration:
+        refactor_name: Secure JWT Implementation
+        description: Ensure all JWT signing uses env vars
+        rules:
+          - id: jwt-secret-env
+            description: JWT must use process.env.JWT_SECRET
+            match:
+              identifiers: [jwt.sign]
+            expect:
+              identifiers: [process.env.JWT_SECRET]
+
+      See: docs/planning/examples/ for more spec templates
+
+    PREREQUISITES:
+      - Run 'aud init' to create .pf/ directory
+      - Run 'aud index' to build repo_index.db before verify-task
+      - Verification queries indexed code (not raw files)
+
+    COMMANDS:
+      init         Create new plan (auto-creates planning.db)
+      show         Display plan status and task list
+      add-task     Add task with optional YAML spec
+      update-task  Change task status or assignee
+      verify-task  Run spec against indexed code
+      archive      Create final snapshot and mark complete
+      rewind       Show git commands to rollback
+
+    For detailed help: aud planning <command> --help
     """
     pass
 
@@ -106,7 +170,7 @@ def show(plan_id, tasks, verbose):
         task_list = manager.list_tasks(plan_id)
         click.echo(f"\nTasks ({len(task_list)}):")
         for task in task_list:
-            status_icon = "✓" if task['status'] == 'completed' else "○"
+            status_icon = "[X]" if task['status'] == 'completed' else "[ ]"
             click.echo(f"  {status_icon} Task {task['task_number']}: {task['title']}")
             click.echo(f"    Status: {task['status']}")
             if task['assigned_to']:
@@ -291,8 +355,9 @@ def archive(plan_id, notes):
     )
 
     # Update plan status and metadata
+    from datetime import UTC
     metadata = json.loads(plan['metadata_json']) if plan['metadata_json'] else {}
-    metadata['archived_at'] = datetime.utcnow().isoformat()
+    metadata['archived_at'] = datetime.now(UTC).isoformat()
     metadata['final_snapshot_id'] = snapshot.get('snapshot_id')
     if notes:
         metadata['archive_notes'] = notes
