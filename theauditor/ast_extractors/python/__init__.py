@@ -120,6 +120,10 @@ from .framework_extractors import (
     extract_django_middleware,
     extract_marshmallow_schemas,
     extract_marshmallow_fields,
+    extract_drf_serializers,
+    extract_drf_serializer_fields,
+    extract_wtforms_forms,
+    extract_wtforms_fields,
     # Constants and helpers (for backward compatibility)
     FASTAPI_HTTP_METHODS,
     _extract_fastapi_dependencies,
@@ -188,6 +192,10 @@ __all__ = [
     'extract_django_middleware',
     'extract_marshmallow_schemas',
     'extract_marshmallow_fields',
+    'extract_drf_serializers',
+    'extract_drf_serializer_fields',
+    'extract_wtforms_forms',
+    'extract_wtforms_fields',
     # CFG extractor
     'extract_python_cfg',
     # CDK extractor

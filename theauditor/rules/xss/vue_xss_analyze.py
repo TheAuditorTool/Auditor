@@ -596,3 +596,16 @@ def _check_computed_xss(conn) -> List[StandardFinding]:
             ))
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_vue_xss(context)

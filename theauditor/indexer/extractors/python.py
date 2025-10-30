@@ -92,6 +92,12 @@ class PythonExtractor(BaseExtractor):
             # Marshmallow validation framework
             'python_marshmallow_schemas': [],  # Marshmallow schema definitions
             'python_marshmallow_fields': [],  # Marshmallow field definitions
+            # Django REST Framework validation
+            'python_drf_serializers': [],  # DRF serializer definitions
+            'python_drf_serializer_fields': [],  # DRF serializer field definitions
+            # WTForms validation
+            'python_wtforms_forms': [],  # WTForms form definitions
+            'python_wtforms_fields': [],  # WTForms field definitions
         }
         seen_symbols = set()
         
@@ -236,6 +242,26 @@ class PythonExtractor(BaseExtractor):
                 marshmallow_fields = python_impl.extract_marshmallow_fields(tree, self.ast_parser)
                 if marshmallow_fields:
                     result['python_marshmallow_fields'].extend(marshmallow_fields)
+
+                # DRF Serializers
+                drf_serializers = python_impl.extract_drf_serializers(tree, self.ast_parser)
+                if drf_serializers:
+                    result['python_drf_serializers'].extend(drf_serializers)
+
+                # DRF Serializer Fields
+                drf_serializer_fields = python_impl.extract_drf_serializer_fields(tree, self.ast_parser)
+                if drf_serializer_fields:
+                    result['python_drf_serializer_fields'].extend(drf_serializer_fields)
+
+                # WTForms
+                wtforms_forms = python_impl.extract_wtforms_forms(tree, self.ast_parser)
+                if wtforms_forms:
+                    result['python_wtforms_forms'].extend(wtforms_forms)
+
+                # WTForms Fields
+                wtforms_fields = python_impl.extract_wtforms_fields(tree, self.ast_parser)
+                if wtforms_fields:
+                    result['python_wtforms_fields'].extend(wtforms_fields)
 
                 # AWS CDK Infrastructure-as-Code constructs
                 cdk_constructs = python_impl.extract_python_cdk_constructs(tree, self.ast_parser)

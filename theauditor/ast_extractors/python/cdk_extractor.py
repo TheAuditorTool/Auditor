@@ -82,10 +82,18 @@ def _is_cdk_construct_call(node: ast.Call) -> bool:
     """Check if an ast.Call node represents a CDK construct instantiation.
 
     Detects patterns like:
-    - s3.Bucket(...)
-    - ec2.SecurityGroup(...)
-    - aws_cdk.aws_s3.Bucket(...)
-    - rds.DatabaseInstance(...)
+    - s3.Bucket(self, "MyBucket", ...)
+    - ec2.SecurityGroup(self, "MySG", ...)
+    - aws_cdk.aws_s3.Bucket(self, "MyBucket", ...)
+    - rds.DatabaseInstance(self, "MyDB", ...)
+
+    CDK constructs MUST have:
+    1. At least 2 positional arguments (scope, id, ...)
+    2. Second argument must be a string literal (construct ID)
+
+    This excludes factory methods like:
+    - ec2.InstanceType.of(...) - No string ID argument
+    - s3.BucketEncryption.S3_MANAGED - Property access, not a constructor
 
     Args:
         node: AST Call node to check
@@ -98,16 +106,33 @@ def _is_cdk_construct_call(node: ast.Call) -> bool:
         return False
 
     # Check for CDK v2 patterns (aws_cdk.aws_*)
+    matches_pattern = False
     if any(pattern in func_name for pattern in CDK_V2_PATTERNS):
-        return True
-
-    # Check for common aliases (s3., rds., ec2., etc.)
-    # Must start with alias and contain a dot (module.Class pattern)
-    if '.' in func_name:
+        matches_pattern = True
+    elif '.' in func_name:
+        # Check for common aliases (s3., rds., ec2., etc.)
+        # Must start with alias and contain a dot (module.Class pattern)
         module_part = func_name.split('.')[0]
         if module_part in CDK_ALIAS_PATTERNS:
-            return True
+            matches_pattern = True
 
+    if not matches_pattern:
+        return False
+
+    # CRITICAL: Validate CDK constructor signature
+    # CDK constructs MUST have: (scope, id, props)
+    # where id (2nd arg) is a string literal
+    if len(node.args) < 2:
+        return False
+
+    # Check if second argument is a string literal (construct ID)
+    second_arg = node.args[1]
+    if isinstance(second_arg, ast.Constant) and isinstance(second_arg.value, str):
+        return True
+    elif isinstance(second_arg, ast.Str):  # Python <3.8 compatibility
+        return True
+
+    # Not a valid CDK construct call (e.g., factory method like ec2.InstanceType.of)
     return False
 
 
