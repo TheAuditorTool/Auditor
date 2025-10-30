@@ -43,7 +43,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 # Import all implementations
-from . import python_impl, typescript_impl, treesitter_impl
+# CRITICAL: python_impl is aliased to the NEW modular python/ package (Phase 2.1 refactor)
+# OLD: python_impl.py (1594-line monolithic file) - DEPRECATED, kept for rollback only
+# NEW: python/ package (core_extractors.py, framework_extractors.py, cfg_extractor.py, cdk_extractor.py)
+# This import ensures ALL code paths (base AST parser + indexer extractors) use the same module
+# See: theauditor/ast_extractors/python/__init__.py for re-export orchestration
+from . import python as python_impl, typescript_impl, treesitter_impl
 from .base import detect_language
 
 # Import semantic parser if available

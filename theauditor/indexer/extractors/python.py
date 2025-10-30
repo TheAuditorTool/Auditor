@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 from . import BaseExtractor
 from .sql import parse_sql_query
-from theauditor.ast_extractors import python_impl
+from theauditor.ast_extractors import python as python_impl
 from theauditor.ast_extractors.base import get_node_name
 
 
@@ -66,6 +66,8 @@ class PythonExtractor(BaseExtractor):
             'python_routes': [],
             'python_blueprints': [],
             'python_validators': [],
+            'cdk_constructs': [],  # AWS CDK constructs
+            'cdk_construct_properties': [],  # CDK construct properties
         }
         seen_symbols = set()
         
@@ -175,6 +177,33 @@ class PythonExtractor(BaseExtractor):
                     result['python_orm_models'].extend(django_models)
                 if django_relationships:
                     result['orm_relationships'].extend(django_relationships)
+
+                # AWS CDK Infrastructure-as-Code constructs
+                cdk_constructs = python_impl.extract_python_cdk_constructs(tree, self.ast_parser)
+                if cdk_constructs:
+                    # Build construct records with composite IDs
+                    result['cdk_constructs'] = []
+                    result['cdk_construct_properties'] = []
+
+                    for construct in cdk_constructs:
+                        # Generate composite primary key
+                        construct_id = f"{file_info['path']}::L{construct['line']}::{construct['cdk_class']}::{construct.get('construct_name') or 'None'}"
+
+                        result['cdk_constructs'].append({
+                            'construct_id': construct_id,
+                            'line': construct['line'],
+                            'cdk_class': construct['cdk_class'],
+                            'construct_name': construct.get('construct_name')
+                        })
+
+                        # Add properties
+                        for prop in construct.get('properties', []):
+                            result['cdk_construct_properties'].append({
+                                'construct_id': construct_id,
+                                'property_name': prop['name'],
+                                'property_value_expr': prop['value_expr'],
+                                'line': prop['line']
+                            })
 
                 # Extract data flow information for taint analysis
                 assignments = self.ast_parser.extract_assignments(tree)

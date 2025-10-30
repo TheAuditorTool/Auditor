@@ -1,6 +1,16 @@
 """Python AST extraction implementations.
 
-This module contains all Python-specific extraction logic using the built-in ast module.
+DEPRECATION NOTICE (2025-10-30 - Phase 2.1)
+============================================
+This module is DEPRECATED and kept for rollback safety only.
+All functionality has been refactored into modular structure:
+  - theauditor/ast_extractors/python/core_extractors.py
+  - theauditor/ast_extractors/python/framework_extractors.py
+  - theauditor/ast_extractors/python/cfg_extractor.py
+
+Use: `from theauditor.ast_extractors import python as python_impl`
+
+This file will be removed in Phase 2.2 after verification period.
 
 ARCHITECTURAL CONTRACT: File Path Responsibility
 =================================================
