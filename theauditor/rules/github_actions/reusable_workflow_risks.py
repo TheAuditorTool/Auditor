@@ -97,13 +97,16 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> List[St
             # Note: secrets: inherit is not stored in database currently,
             # so we check for explicit secret passing
             cursor.execute("""
-                SELECT COUNT(*) as secret_count
+                SELECT step_id
                 FROM github_step_references
-                WHERE step_id LIKE ?
-                AND reference_type = 'secrets'
-            """, (f"{row['job_id']}::%",))
+                WHERE reference_type = 'secrets'
+                AND step_id IS NOT NULL
+            """)
 
-            secret_count = cursor.fetchone()['secret_count']
+            # Filter in Python: Count step IDs belonging to this job
+            job_prefix = f"{row['job_id']}::"
+            secret_count = sum(1 for (step_id,) in cursor.fetchall()
+                             if step_id.startswith(job_prefix))
 
             # Report finding if external + (mutable OR has secrets)
             if is_mutable or secret_count > 0:

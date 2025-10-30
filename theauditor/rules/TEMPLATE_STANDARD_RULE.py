@@ -266,13 +266,15 @@ def _check_user_input_flow(cursor, patterns: YourRulePatterns) -> List[StandardF
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE source_expr LIKE '%request.%'
-           OR source_expr LIKE '%req.%'
+        WHERE source_expr IS NOT NULL
         ORDER BY file, line
         LIMIT 1000
     """)
 
     for file, line, target, source in cursor.fetchall():
+        # Filter in Python: Check for user input patterns
+        if 'request.' not in source and 'req.' not in source:
+            continue
         # Check if target variable is used in dangerous context
         # (This is simplified - real implementation would query function_call_args)
 

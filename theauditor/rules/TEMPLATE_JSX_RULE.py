@@ -207,8 +207,9 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         # Check if JSX tables exist (graceful degradation)
         cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%_jsx'")
-        jsx_tables = {row[0] for row in cursor.fetchall()}
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        # Filter in Python: Find tables ending with '_jsx'
+        jsx_tables = {row[0] for row in cursor.fetchall() if row[0].endswith('_jsx')}
 
         if not jsx_tables:
             # No JSX tables - indexer didn't run JSX pass
@@ -250,11 +251,15 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> List[St
         FROM symbols_jsx
         WHERE type = 'JSXElement'
           AND jsx_mode = 'preserved'
-          AND name LIKE '%{%'
+          AND name IS NOT NULL
         ORDER BY path, line
     """)
 
     for file, element_name, line, jsx_mode in cursor.fetchall():
+        # Filter in Python: Check if element name contains dynamic variable
+        if '{' not in element_name:
+            continue
+
         # Check if element name is dynamic (contains variable)
         if '{' in element_name and '}' in element_name:
             # Extract variable name
@@ -313,11 +318,15 @@ def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> List[
         FROM symbols_jsx
         WHERE type = 'JSXElement'
           AND jsx_mode = 'preserved'
-          AND name LIKE '%...%'
+          AND name IS NOT NULL
         ORDER BY path, line
     """)
 
     for file, element_name, line in cursor.fetchall():
+        # Filter in Python: Check for spread operator
+        if '...' not in element_name:
+            continue
+
         if '...' in element_name:
             # Extract spread variable name
             import re
@@ -355,12 +364,14 @@ def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> List[Stan
         SELECT file, line, target_var, source_expr
         FROM assignments_jsx
         WHERE jsx_mode = 'preserved'
-          AND (target_var LIKE '%dangerouslySetInnerHTML%'
-               OR target_var LIKE '%__html%')
+          AND target_var IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, target, source in cursor.fetchall():
+        # Filter in Python: Check for dangerous prop patterns
+        if 'dangerouslySetInnerHTML' not in target and '__html' not in target:
+            continue
         # Check for user input in source
         has_user_input = any(src in source for src in patterns.REACT_INPUT_SOURCES)
 
