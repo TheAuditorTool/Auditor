@@ -1456,3 +1456,205 @@ for row in cursor.fetchall():
 - ✅ Path reconstruction shows 3-hop flow with try blocks
 
 **Final Verdict Pending**: Run `aud index && aud taint` on fixtures after next reindex to confirm both fixes work end-to-end.
+
+---
+
+## 📚 APPENDIX: TROUBLESHOOTING & DEBUGGING
+
+### If Reindex Takes Too Long (>20 minutes)
+
+**Problem**: `aud full` hangs or takes extremely long
+**Debug**:
+```bash
+# Check what's running
+ps aux | grep python
+ps aux | grep node
+
+# Check if indexing TypeScript
+ls -lh C:/Users/santa/Desktop/plant/.pf/repo_index.db
+# Should be growing
+
+# Cancel if needed (Ctrl+C), then:
+aud index --verbose
+```
+
+### If TypeScript CFG Fix Didn't Work
+
+**Problem**: After reindex, try blocks still 100% single-line
+**Debug**:
+```bash
+# Verify fix is actually in code
+grep -A5 "tryEndPos" theauditor/ast_extractors/javascript/cfg_extractor.js
+# Should show: const tryEndPos = node.tryBlock ? node.tryBlock.getEnd()
+
+# Check if TypeScript extractor is being called
+grep -r "cfg_extractor.js" theauditor/
+# Should find imports/references
+
+# Manual test on small TypeScript file
+node -e "console.log(require('./theauditor/ast_extractors/javascript/cfg_extractor.js'))"
+```
+
+**If Still Broken**: The fix might not be applied during indexing. Check if there's a compilation/bundling step that needs to run.
+
+### If Python Paths Regressed
+
+**Problem**: After reindex, Python paths drop from 380 to <300
+**Debug**:
+```bash
+# Check if two-pass architecture is active
+grep -n "_reconstruct_path" theauditor/taint/interprocedural.py
+# Should show function definition at ~line 260
+
+# Check if flow graph is being built
+grep -n "taint_flow_graph" theauditor/taint/interprocedural.py
+# Should show initialization and usage
+
+# Run taint analysis with debug
+THEAUDITOR_DEBUG=1 aud taint
+# Look for "sink_reached" step types
+```
+
+**If Regressed**: Check if `raw_func_name` crash bug returned (line 481-483 should have the fix).
+
+### If Test Fixtures Produce 0 Paths
+
+**Problem**: Fixture taint analysis finds no paths
+**Debug**:
+```bash
+# Check if databases were created
+ls -la tests/fixtures/python/cross_file_taint/.pf/
+ls -la tests/fixtures/typescript/cross_file_taint/.pf/
+
+# Verify files were indexed
+cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
+import sqlite3
+conn = sqlite3.connect('tests/fixtures/python/cross_file_taint/.pf/repo_index.db')
+cursor = conn.cursor()
+cursor.execute('SELECT COUNT(*) FROM symbols')
+print(f'Symbols indexed: {cursor.fetchone()[0]}')
+conn.close()
+"
+# Should be >10
+
+# Check for sources and sinks
+grep -n "request.args\|req.query" tests/fixtures/*/controller.*
+grep -n "cursor.execute\|connection.query" tests/fixtures/*/database.*
+# Should find multiple matches
+```
+
+**If 0 Paths**: Taint rules might not match. Check `.pf/raw/sources.json` and `.pf/raw/sinks.json` to verify sources/sinks were detected.
+
+### If Stage 3 Still Produces 0 Paths (TypeScript)
+
+**Problem**: After reindex, TypeScript still has 0 Stage 3 paths
+**Debug**:
+```python
+# Check CFG blocks were created
+cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
+import sqlite3
+conn = sqlite3.connect('C:/Users/santa/Desktop/plant/.pf/repo_index.db')
+cursor = conn.cursor()
+
+# Count CFG blocks per function
+cursor.execute('''
+    SELECT function_name, COUNT(*) as blocks
+    FROM cfg_blocks
+    WHERE file LIKE '%account.service.ts%'
+    GROUP BY function_name
+    ORDER BY blocks DESC
+    LIMIT 5
+''')
+for row in cursor.fetchall():
+    print(f'{row[0]}: {row[1]} blocks')
+
+conn.close()
+"
+# Should show functions with >10 blocks each
+
+# Check if PathAnalyzer is being called
+grep -n "PathAnalyzer\|find_vulnerable_paths" theauditor/taint/
+# Should find usage in interprocedural.py
+```
+
+**If Still 0**: PathAnalyzer might be failing silently. Add debug logging to `interprocedural.py` around line 550 where PathAnalyzer is called.
+
+### Emergency: Revert All Changes
+
+**If Everything is Broken**:
+```bash
+# See what changed
+git diff --stat
+
+# Revert specific files
+git checkout HEAD -- theauditor/taint/interprocedural.py
+git checkout HEAD -- theauditor/taint/propagation.py
+git checkout HEAD -- theauditor/ast_extractors/javascript/cfg_extractor.js
+
+# Or revert entire branch
+git reset --hard origin/main
+```
+
+**Then**: Read this document again, verify each step before re-applying fixes.
+
+---
+
+## 🎓 KNOWLEDGE TRANSFER: KEY LEARNINGS
+
+### Why This Was Complex
+
+1. **Layered Problems**: Architecture fix revealed data layer bugs (Python NULL, TypeScript CFG)
+2. **Language Parity**: Python and TypeScript use different AST APIs but same concepts
+3. **Testing Difficulty**: Real projects lacked exploitable cross-file flows, needed synthetic fixtures
+4. **Interdependence**: All three fixes must work together for full cross-file analysis
+
+### Design Decisions Made
+
+**Decision 1**: Two-pass architecture instead of worklist refactor
+- **Why**: Clean separation of concerns, easier to maintain
+- **Trade-off**: Slightly more memory (flow graph), but simpler code
+
+**Decision 2**: Copy Python CFG pattern for TypeScript fix
+- **Why**: Python CFG was working correctly (0% single-line try blocks)
+- **Trade-off**: None, identical logic just different API
+
+**Decision 3**: Create test fixtures instead of using real projects
+- **Why**: Real projects lacked multi-hop flows, couldn't prove fixes worked
+- **Trade-off**: Extra maintenance, but necessary for verification
+
+### What NOT to Do Tomorrow
+
+❌ **Don't** rewrite the two-pass architecture - it's working
+❌ **Don't** touch Python CFG extraction - it's correct
+❌ **Don't** modify TypeScript CFG beyond lines 257-308 - scope is limited
+❌ **Don't** delete test fixtures - they're the proof
+
+### What TO Do Tomorrow
+
+✅ **DO** run verification commands from this document first
+✅ **DO** test on fixtures before real projects
+✅ **DO** compare before/after database states
+✅ **DO** check for regressions (TheAuditor should stay ~380 paths)
+
+---
+
+## 📝 FINAL CHECKLIST BEFORE COMMIT
+
+- [ ] Read COMMIT_MESSAGE.txt (professional summary)
+- [ ] Verify no "Co-Authored-By: Claude" in commit message
+- [ ] Check git status shows expected files
+- [ ] Run syntax checks (node -c, python -m py_compile)
+- [ ] Verify test fixtures are committed
+- [ ] Review diff one more time
+- [ ] Commit with message from COMMIT_MESSAGE.txt
+- [ ] Push to pythonparity branch (NOT main)
+
+---
+
+**Document Status**: ✅ ATOMIC TRUTH - COMPLETE
+**Last Updated**: 2025-10-31 03:00 (before sleep)
+**Next Session**: Read teamsop.md + this document, then run reindex verification
+**Git Branch**: pythonparity
+**Commit Ready**: YES (review COMMIT_MESSAGE.txt first)
+
+**Sleep well. Everything is documented. Tomorrow will be smooth.** 🌙
