@@ -198,21 +198,20 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 1: Money/Float Arithmetic (Precision Loss)
         # ========================================================
-        # Build parameterized conditions for money terms
+        # Fetch all assignments for money variables, filter in Python
         money_terms_list = list(MONEY_TERMS)
         money_placeholders = ','.join(['?' for _ in MONEY_TERMS])
 
         query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                           where=f"""(target_var IN ({money_placeholders}))
-              AND (source_expr LIKE '%/%'
-                   OR source_expr LIKE '%*%'
-                   OR source_expr LIKE '%parseFloat%'
-                   OR source_expr LIKE '%float(%'
-                   OR source_expr LIKE '%.toFixed%')""",
+                           where=f"target_var IN ({money_placeholders})",
                            order_by="file, line")
         cursor.execute(query, money_terms_list)
 
         for file, line, var_name, expr in cursor.fetchall():
+            # Check for float operations in Python
+            if not ('/' in expr or '*' in expr or 'parseFloat' in expr or
+                    'float(' in expr or '.toFixed' in expr):
+                continue
             findings.append(StandardFinding(
                 rule_name='money-float-arithmetic',
                 message=f'Using float/double for money calculations in {var_name} - precision loss risk',
@@ -229,13 +228,17 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         float_funcs_list = list(FLOAT_FUNCTIONS)
         float_placeholders = ','.join('?' * len(float_funcs_list))
 
+        # Fetch float functions, filter for money terms in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where=f"""callee_function IN ({float_placeholders})
-              AND ({money_arg_conditions})""",
+                           where=f"callee_function IN ({float_placeholders})",
                            order_by="file, line")
         cursor.execute(query, float_funcs_list)
 
         for file, line, func, arg in cursor.fetchall():
+            # Check if argument contains money-related terms in Python
+            arg_lower = arg.lower()
+            if not any(money_term in arg_lower for money_term in MONEY_TERMS):
+                continue
             findings.append(StandardFinding(
                 rule_name='money-float-conversion',
                 message=f'Converting money value to float using {func} - precision loss risk',
@@ -251,18 +254,19 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: Timezone-Naive Datetime Usage
         # ========================================================
+        # Fetch datetime function calls, filter in Python
         datetime_funcs_list = list(DATETIME_FUNCTIONS)
         datetime_placeholders = ','.join('?' * len(datetime_funcs_list))
 
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where=f"""callee_function IN ({datetime_placeholders})
-              AND argument_expr NOT LIKE '%tz%'
-              AND argument_expr NOT LIKE '%timezone%'
-              AND argument_expr NOT LIKE '%UTC%'""",
+                           where=f"callee_function IN ({datetime_placeholders})",
                            order_by="file, line")
         cursor.execute(query, datetime_funcs_list)
 
         for file, line, datetime_func, args in cursor.fetchall():
+            # Check for timezone awareness in Python
+            if 'tz' in args or 'timezone' in args or 'UTC' in args:
+                continue
             findings.append(StandardFinding(
                 rule_name='timezone-naive-datetime',
                 message=f'Using {datetime_func} without timezone awareness',
@@ -278,16 +282,19 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Email Regex Validation (Anti-pattern)
         # ========================================================
+        # Fetch regex function calls, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""(callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')
-                   AND argument_expr LIKE '%@%'
-                   AND (argument_expr LIKE '%email%'
-                        OR argument_expr LIKE '%mail%'
-                        OR argument_expr LIKE '%\\\\@%'))""",
+                           where="callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')",
                            order_by="file, line")
         cursor.execute(query)
 
         for file, line, regex_func, pattern in cursor.fetchall():
+            # Check for email patterns in Python
+            if '@' not in pattern:
+                continue
+            pattern_lower = pattern.lower()
+            if not ('email' in pattern_lower or 'mail' in pattern_lower or '\\@' in pattern):
+                continue
             findings.append(StandardFinding(
                 rule_name='email-regex-validation',
                 message='Using regex for email validation - use proper email validation library',
@@ -303,33 +310,39 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: Division by Zero Risks
         # ========================================================
-        # Look for division operations with risky denominators
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where="""source_expr LIKE '%/%'
-              AND (source_expr LIKE '%count%'
-                   OR source_expr LIKE '%length%'
-                   OR source_expr LIKE '%size%'
-                   OR source_expr LIKE '%.length%'
-                   OR source_expr LIKE '%.size%'
-                   OR source_expr LIKE '%.count%')""",
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                            order_by="file, line")
         cursor.execute(query)
-        # Store results before nested query loop (best practice, not a workaround)
-        division_operations = cursor.fetchall()
+
+        division_operations = []
+        for file, line, target, expr in cursor.fetchall():
+            # Check for division in Python
+            if '/' not in expr:
+                continue
+
+            # Check for risky denominators in Python
+            expr_lower = expr.lower()
+            if not ('count' in expr_lower or 'length' in expr_lower or 'size' in expr_lower or
+                    '.length' in expr or '.size' in expr or '.count' in expr):
+                continue
+
+            division_operations.append((file, line, expr))
 
         for file, line, expr in division_operations:
-            # Try to check if there's a zero check nearby in assignment expressions
+            # Try to check if there's a zero check nearby, filter in Python
             assignments_query = build_query('assignments', ['source_expr'],
-                                           where="""file = ?
-                  AND line BETWEEN ? AND ?
-                  AND (source_expr LIKE '%!= 0%'
-                       OR source_expr LIKE '%> 0%'
-                       OR source_expr LIKE '%if%!= 0%'
-                       OR source_expr LIKE '%if%> 0%')""",
-                                           limit=1)
+                                           where="file = ? AND line BETWEEN ? AND ?")
             cursor.execute(assignments_query, (file, line - 5, line))
 
-            has_check = cursor.fetchone() is not None
+            has_check = False
+            for (check_expr,) in cursor.fetchall():
+                # Check for zero checks in Python
+                if ('!= 0' in check_expr or '> 0' in check_expr or
+                    ('if' in check_expr and '!= 0' in check_expr) or
+                    ('if' in check_expr and '> 0' in check_expr)):
+                    has_check = True
+                    break
 
             if not has_check:
                 findings.append(StandardFinding(
@@ -416,25 +429,37 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Database Connections Without Cleanup
         # ========================================================
+        # Fetch all function calls, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""(callee_function LIKE '%connect%'
-                   OR callee_function LIKE '%createConnection%'
-                   OR callee_function LIKE '%getConnection%')
-              AND callee_function NOT LIKE '%disconnect%'
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args AS fca2
-                  WHERE fca2.file = function_call_args.file
-                    AND (fca2.callee_function LIKE '%close%'
-                         OR fca2.callee_function LIKE '%disconnect%'
-                         OR fca2.callee_function LIKE '%end%'
-                         OR fca2.callee_function LIKE '%release%')
-                    AND fca2.line > function_call_args.line
-                    AND fca2.line < function_call_args.line + 50
-              )""",
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, connect_func in cursor.fetchall():
+        # Build list of connection calls
+        connection_calls = []
+        for file, line, callee in cursor.fetchall():
+            callee_lower = callee.lower()
+            # Check for connection functions (but not disconnect)
+            if (('connect' in callee_lower or 'createconnection' in callee_lower or
+                 'getconnection' in callee_lower) and 'disconnect' not in callee_lower):
+                connection_calls.append((file, line, callee))
+
+        # Now check each for cleanup
+        for file, line, connect_func in connection_calls:
+            # Check for cleanup calls within 50 lines
+            cleanup_query = build_query('function_call_args', ['callee_function'],
+                                       where="file = ? AND line > ? AND line < ?")
+            cursor.execute(cleanup_query, (file, line, line + 50))
+
+            has_cleanup = False
+            for (cleanup_func,) in cursor.fetchall():
+                cleanup_lower = cleanup_func.lower()
+                if ('close' in cleanup_lower or 'disconnect' in cleanup_lower or
+                    'end' in cleanup_lower or 'release' in cleanup_lower):
+                    has_cleanup = True
+                    break
+
+            if has_cleanup:
+                continue
             findings.append(StandardFinding(
                 rule_name='connection-no-close',
                 message=f'Database connection from {connect_func} without explicit cleanup',
@@ -483,24 +508,33 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 8: Sockets Without Cleanup
         # ========================================================
+        # Fetch all function calls, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""(callee_function LIKE '%socket%'
-                   OR callee_function LIKE '%Socket%'
-                   OR callee_function = 'createSocket')
-              AND callee_function NOT LIKE '%close%'
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args AS fca2
-                  WHERE fca2.file = function_call_args.file
-                    AND (fca2.callee_function LIKE '%close%'
-                         OR fca2.callee_function LIKE '%destroy%'
-                         OR fca2.callee_function LIKE '%end%')
-                    AND fca2.line > function_call_args.line
-                    AND fca2.line < function_call_args.line + 50
-              )""",
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, socket_func in cursor.fetchall():
+        socket_calls = []
+        for file, line, callee in cursor.fetchall():
+            callee_lower = callee.lower()
+            # Check for socket functions (but not close)
+            if (('socket' in callee_lower or callee == 'createSocket') and 'close' not in callee_lower):
+                socket_calls.append((file, line, callee))
+
+        # Check each for cleanup
+        for file, line, socket_func in socket_calls:
+            cleanup_query = build_query('function_call_args', ['callee_function'],
+                                       where="file = ? AND line > ? AND line < ?")
+            cursor.execute(cleanup_query, (file, line, line + 50))
+
+            has_cleanup = False
+            for (cleanup_func,) in cursor.fetchall():
+                cleanup_lower = cleanup_func.lower()
+                if 'close' in cleanup_lower or 'destroy' in cleanup_lower or 'end' in cleanup_lower:
+                    has_cleanup = True
+                    break
+
+            if has_cleanup:
+                continue
             findings.append(StandardFinding(
                 rule_name='socket-no-close',
                 message=f'Socket created with {socket_func} but not properly closed',
@@ -516,16 +550,18 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 9: Percentage Calculation Errors
         # ========================================================
-        # Look for patterns like value / 100 * something (missing parentheses)
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where="""(source_expr LIKE '%/ 100 *%'
-                   OR source_expr LIKE '%/100*%'
-                   OR source_expr LIKE '%/ 100.0 *%')
-              AND source_expr NOT LIKE '%(%/ 100%)%'""",
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, expr in cursor.fetchall():
+        for file, line, target, expr in cursor.fetchall():
+            # Check for percentage pattern in Python
+            if not ('/ 100 *' in expr or '/100*' in expr or '/ 100.0 *' in expr):
+                continue
+            # Skip if parentheses present
+            if '(/ 100)' in expr or '( / 100 )' in expr:
+                continue
             findings.append(StandardFinding(
                 rule_name='percentage-calc-error',
                 message='Potential percentage calculation error - missing parentheses around division',
@@ -541,24 +577,29 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 10: Stream Operations Without Cleanup
         # ========================================================
+        # Fetch stream function calls
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""callee_function IN (
-                'createReadStream', 'createWriteStream', 'stream',
-                'fs.createReadStream', 'fs.createWriteStream'
-            )
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args AS fca2
-                  WHERE fca2.file = function_call_args.file
-                    AND (fca2.callee_function IN ('end', 'destroy', 'close', 'finish')
-                         OR fca2.callee_function LIKE '%.on%error%'
-                         OR fca2.callee_function LIKE '%.on%close%')
-                    AND fca2.line > function_call_args.line
-                    AND fca2.line < function_call_args.line + 30
-              )""",
+                           where="callee_function IN ('createReadStream', 'createWriteStream', 'stream', 'fs.createReadStream', 'fs.createWriteStream')",
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, stream_func in cursor.fetchall():
+        stream_calls = list(cursor.fetchall())
+
+        for file, line, stream_func in stream_calls:
+            # Check for cleanup within 30 lines
+            cleanup_query = build_query('function_call_args', ['callee_function'],
+                                       where="file = ? AND line > ? AND line < ?")
+            cursor.execute(cleanup_query, (file, line, line + 30))
+
+            has_cleanup = False
+            for (cleanup_func,) in cursor.fetchall():
+                if (cleanup_func in ('end', 'destroy', 'close', 'finish') or
+                    '.on' in cleanup_func and ('error' in cleanup_func or 'close' in cleanup_func)):
+                    has_cleanup = True
+                    break
+
+            if has_cleanup:
+                continue
             findings.append(StandardFinding(
                 rule_name='stream-no-cleanup',
                 message=f'Stream created with {stream_func} without proper cleanup handlers',
@@ -574,22 +615,32 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 11: Async Operations Without Error Handling
         # ========================================================
+        # Fetch all function calls, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""(callee_function LIKE '%.then%'
-                   OR callee_function = 'await'
-                   OR callee_function LIKE '%Promise%')
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args AS fca2
-                  WHERE fca2.file = function_call_args.file
-                    AND fca2.line BETWEEN function_call_args.line AND function_call_args.line + 5
-                    AND (fca2.callee_function LIKE '%.catch%'
-                         OR fca2.callee_function = 'try')
-              )""",
-                           order_by="file, line",
-                           limit=10)
+                           order_by="file, line")
         cursor.execute(query)
 
-        for file, line, async_func in cursor.fetchall():
+        async_calls = []
+        for file, line, callee in cursor.fetchall():
+            # Check for async patterns in Python
+            if '.then' in callee or callee == 'await' or 'Promise' in callee:
+                async_calls.append((file, line, callee))
+
+        # Limit to 10 to avoid noise
+        for file, line, async_func in async_calls[:10]:
+            # Check for error handling within 5 lines
+            error_query = build_query('function_call_args', ['callee_function'],
+                                     where="file = ? AND line BETWEEN ? AND ?")
+            cursor.execute(error_query, (file, line, line + 5))
+
+            has_error_handling = False
+            for (error_func,) in cursor.fetchall():
+                if '.catch' in error_func or error_func == 'try':
+                    has_error_handling = True
+                    break
+
+            if has_error_handling:
+                continue
             findings.append(StandardFinding(
                 rule_name='async-no-error-handling',
                 message='Async operation without error handling',
@@ -605,25 +656,34 @@ def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 12: Lock/Mutex Without Release
         # ========================================================
+        # Fetch all function calls, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""(callee_function LIKE '%lock%'
-                   OR callee_function LIKE '%Lock%'
-                   OR callee_function LIKE '%acquire%'
-                   OR callee_function LIKE '%mutex%')
-              AND callee_function NOT LIKE '%unlock%'
-              AND callee_function NOT LIKE '%release%'
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args AS fca2
-                  WHERE fca2.file = function_call_args.file
-                    AND (fca2.callee_function LIKE '%unlock%'
-                         OR fca2.callee_function LIKE '%release%')
-                    AND fca2.line > function_call_args.line
-                    AND fca2.line < function_call_args.line + 50
-              )""",
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, lock_func in cursor.fetchall():
+        lock_calls = []
+        for file, line, callee in cursor.fetchall():
+            callee_lower = callee.lower()
+            # Check for lock/mutex acquisition (but not unlock/release)
+            if (('lock' in callee_lower or 'acquire' in callee_lower or 'mutex' in callee_lower) and
+                'unlock' not in callee_lower and 'release' not in callee_lower):
+                lock_calls.append((file, line, callee))
+
+        # Check each for release
+        for file, line, lock_func in lock_calls:
+            release_query = build_query('function_call_args', ['callee_function'],
+                                       where="file = ? AND line > ? AND line < ?")
+            cursor.execute(release_query, (file, line, line + 50))
+
+            has_release = False
+            for (release_func,) in cursor.fetchall():
+                release_lower = release_func.lower()
+                if 'unlock' in release_lower or 'release' in release_lower:
+                    has_release = True
+                    break
+
+            if has_release:
+                continue
             findings.append(StandardFinding(
                 rule_name='lock-no-release',
                 message=f'Lock acquired with {lock_func} but not released',

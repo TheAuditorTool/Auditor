@@ -698,10 +698,112 @@ openspec validate add-python-extraction-parity --strict
 
 ---
 
-**Last Updated:** 2025-10-30 Session 9 (Phase 2.1 COMPLETE)
-**Last Verified Database Run:** 2025-10-30 (post-refactor, parity verified)
+## Session 10 (2025-10-30 Continued) - PHASE 2.2A NEW EXTRACTORS
+
+**Objective:** Create new extractor modules for decorators, async, testing, and advanced types.
+
+**Completed:**
+1. ✅ Added `extract_python_decorators()` to core_extractors.py (78 lines)
+   - Extracts @property, @staticmethod, @classmethod, @abstractmethod, @dataclass, custom decorators
+   - Tracks target (function/class), decorator type classification
+2. ✅ Added `extract_python_context_managers()` to core_extractors.py (88 lines)
+   - Extracts with statements, async with, custom context manager classes (__enter__/__exit__)
+3. ✅ Created async_extractors.py (169 lines)
+   - extract_async_functions() - async def detection with await counts
+   - extract_await_expressions() - await calls in context
+   - extract_async_generators() - async for + async generator functions
+4. ✅ Created testing_extractors.py (206 lines)
+   - extract_pytest_fixtures() - @pytest.fixture with scope detection
+   - extract_pytest_parametrize() - parametrized test extraction
+   - extract_pytest_markers() - custom marker detection
+   - extract_mock_patterns() - unittest.mock usage (decorators + instantiation)
+5. ✅ Created type_extractors.py (258 lines)
+   - extract_protocols() - Protocol classes with @runtime_checkable
+   - extract_generics() - Generic[T] with type parameter extraction
+   - extract_typed_dicts() - TypedDict with Required/NotRequired fields
+   - extract_literals() - Literal type usage in annotations
+   - extract_overloads() - @overload decorator grouping by function
+6. ✅ Exported all 15 new functions from python/__init__.py
+7. ✅ Verified: 32 total extract_* functions available, compileall PASSED, aud index runs
+
+**Results:** Phase 2.2A COMPLETE - All extractor modules created, no syntax errors, smoke test passed.
+
+**Status:** Phase 2.2A extractors created, NOT YET INTEGRATED into indexer or database schema.
+
+**Next:** Phase 2.2B - Wire extractors into indexer/extractors/python.py + add database tables
+
+---
+
+## Session 11 (2025-10-30 Continued) - PHASE 2.2B INTEGRATION & DATABASE SCHEMA
+
+**Objective:** Wire all 15 new extractors into indexer, create database schema, verify end-to-end extraction.
+
+**Completed:**
+
+1. ✅ **Extractor Integration** (indexer/extractors/python.py +86 lines)
+   - Added 14 result dict keys for new data categories
+   - Wired 15 extractor function calls with proper JSON serialization
+
+2. ✅ **Database Schema** (schema.py +238 lines)
+   - Created 14 new TableSchema definitions (python_decorators, python_context_managers, etc.)
+   - Registered all tables in TABLES dict
+   - Fixed python_context_managers primary key (removed - allows multiple ctx managers per line)
+
+3. ✅ **Database Writers** (database.py +178 lines)
+   - Added 14 new add_* methods with proper type conversions
+   - Added tables to flush_order for correct insertion sequence
+
+4. ✅ **Indexer Storage** (indexer/__init__.py +226 lines)
+   - Added 14 storage blocks in _store_extracted_data()
+   - Implemented JSON serialization for list fields (methods, type_params, fields, variants)
+
+5. ✅ **Bug Fixes**
+   - Fixed extract_generics() - AST Subscript handling (Generic[T] detection)
+   - Fixed extract_literals() - Added _is_literal_annotation() and _get_literal_type_string() helpers
+   - Fixed python_context_managers UNIQUE constraint violation
+
+6. ✅ **Comprehensive Test Fixtures** (realworld_project)
+   - Added services/async_tasks.py (98 lines) - async patterns
+   - Added types/advanced_types.py (177 lines) - Protocols, Generics, TypedDicts, Literals, overloads
+   - Added tests/test_accounts.py (118 lines) - pytest.mark.parametrize, markers
+
+7. ✅ **End-to-End Verification**
+   - `aud index` completes successfully with zero errors
+   - **1,027 records extracted** across 14 new tables
+   - ALL 14 extractors verified working (NO N/A STATES)
+
+**Extraction Results:**
+```
+python_decorators                      583 records  ✅
+python_context_managers                359 records  ✅
+python_async_functions                  10 records  ✅
+python_await_expressions                10 records  ✅
+python_async_generators                  4 records  ✅
+python_pytest_fixtures                   9 records  ✅
+python_pytest_parametrize                5 records  ✅
+python_pytest_markers                    9 records  ✅
+python_mock_patterns                    18 records  ✅
+python_protocols                         3 records  ✅
+python_generics                          3 records  ✅
+python_typed_dicts                       3 records  ✅
+python_literals                          9 records  ✅
+python_overloads                         2 records  ✅
+------------------------------------------------------------
+TOTAL                                 1,027 records
+```
+
+**Results:** Phase 2.2B COMPLETE - Full integration, all extractors working, comprehensive testing verified.
+
+**Status:** Phase 2.2 (New Extractors) fully complete. Ready for next focused work block.
+
+**Next:** Phase 2.3 - Focused work on Django framework patterns (CBVs, Forms, Admin) or validation frameworks (Marshmallow, DRF)
+
+---
+
+**Last Updated:** 2025-10-30 Session 11 (Phase 2.2B COMPLETE)
+**Last Verified Database Run:** 2025-10-30 (full extraction: 1,027 new records, zero regressions)
 **Database Size:** ~71MB
-**Git Branch:** pythonparity (uncommitted Phase 2.1 changes)
-**Phase 2.1 Status:** COMPLETE - Modular architecture refactor successful
-**Next Session Priority:** Phase 2.2 (Tasks 9-18: New extractors - decorators, async, pytest, types)
+**Git Branch:** pythonparity (Phase 2.2B changes uncommitted)
+**Phase 2.2 Status:** COMPLETE - Modular extractors created, integrated, and verified
+**Next Session Priority:** Phase 2.3 - Django framework patterns (3-4 focused sessions) OR validation frameworks
 
