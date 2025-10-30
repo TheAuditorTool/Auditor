@@ -193,17 +193,29 @@ def _find_vif_with_vfor(cursor, vue_files: Set[str]) -> List[StandardFinding]:
         SELECT s1.path, s1.line, s1.name
         FROM symbols s1
         WHERE s1.path IN ({file_placeholders})
-          AND s1.name LIKE '%v-for%'
-          AND EXISTS (
-              SELECT 1 FROM symbols s2
-              WHERE s2.path = s1.path
-                AND ABS(s2.line - s1.line) <= 1
-                AND s2.name LIKE '%v-if%'
-          )
+          AND s1.name IS NOT NULL
         ORDER BY s1.path, s1.line
     """, list(vue_files))
 
-    for file, line, _ in cursor.fetchall():
+    # Filter in Python for v-for with adjacent v-if
+    all_symbols = cursor.fetchall()
+    vfor_with_vif = []
+
+    for file, line, name in all_symbols:
+        if 'v-for' not in name:
+            continue
+
+        # Check for v-if within 1 line
+        has_vif = False
+        for file2, line2, name2 in all_symbols:
+            if file2 == file and abs(line2 - line) <= 1 and 'v-if' in name2:
+                has_vif = True
+                break
+
+        if has_vif:
+            vfor_with_vif.append((file, line))
+
+    for file, line in vfor_with_vif:
         findings.append(StandardFinding(
             rule_name='vue-vif-with-vfor',
             message='v-if with v-for on same element - use computed property instead',
@@ -229,52 +241,52 @@ def _find_missing_list_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
         SELECT path, line, name
         FROM symbols
         WHERE path IN ({file_placeholders})
-          AND name LIKE '%v-for%'
-          AND NOT EXISTS (
-              SELECT 1 FROM symbols s2
-              WHERE s2.path = path
-                AND ABS(s2.line - line) <= 2
-                AND (s2.name LIKE '%:key%'
-                     OR s2.name LIKE '%v-bind:key%'
-                     OR s2.name LIKE '%key=%')
-          )
+          AND name IS NOT NULL
         ORDER BY path, line
     """, list(vue_files))
 
-    for file, line, directive in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-missing-key',
-            message='v-for without unique :key - causes rendering issues',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='vue-performance',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1050'
-        ))
+    # Store all symbols
+    all_symbols = cursor.fetchall()
+
+    # Filter in Python for v-for without keys
+    for file, line, name in all_symbols:
+        if 'v-for' not in name:
+            continue
+
+        # Check for adjacent :key within 2 lines
+        has_key = False
+        for file2, line2, name2 in all_symbols:
+            if file2 == file and abs(line2 - line) <= 2:
+                if ':key' in name2 or 'v-bind:key' in name2 or 'key=' in name2:
+                    has_key = True
+                    break
+
+        if not has_key:
+            findings.append(StandardFinding(
+                rule_name='vue-missing-key',
+                message='v-for without unique :key - causes rendering issues',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='vue-performance',
+                confidence=Confidence.MEDIUM,
+                cwe_id='CWE-1050'
+            ))
 
     # Check for index as key
-    cursor.execute(f"""
-        SELECT path, line, name
-        FROM symbols
-        WHERE path IN ({file_placeholders})
-          AND (name LIKE '%:key="index"%'
-               OR name LIKE '%:key="i"%'
-               OR name LIKE '%:key="idx"%')
-        ORDER BY path, line
-    """, list(vue_files))
-
-    for file, line, key_usage in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-index-as-key',
-            message='Using array index as :key - causes issues when list changes',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='vue-performance',
-            confidence=Confidence.HIGH,
-            cwe_id='CWE-1050'
-        ))
+    for file, line, name in all_symbols:
+        # Filter in Python for index key patterns
+        if ':key="index"' in name or ':key="i"' in name or ':key="idx"' in name:
+            findings.append(StandardFinding(
+                rule_name='vue-index-as-key',
+                message='Using array index as :key - causes issues when list changes',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='vue-performance',
+                confidence=Confidence.HIGH,
+                cwe_id='CWE-1050'
+            ))
 
     return findings
 
