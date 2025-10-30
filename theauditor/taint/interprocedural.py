@@ -296,6 +296,12 @@ def trace_inter_procedural_flow_cfg(
         }
 
     paths: List[TaintPath] = []
+
+    # PHASE 1: Two-Pass Hybrid Architecture
+    # Flow graph stores predecessor links for path reconstruction
+    # Key: (file, func, var) -> Value: {(source_file, source_func, source_var), ...}
+    taint_flow_graph: Dict[tuple[str, str, str], Set[tuple[str, str, str]]] = defaultdict(set)
+
     debug = os.environ.get("THEAUDITOR_TAINT_DEBUG") or os.environ.get("THEAUDITOR_CFG_DEBUG")
 
     if debug:
@@ -324,31 +330,22 @@ def trace_inter_procedural_flow_cfg(
         return None
 
     # Worklist stores the state:
-    # (current_file, current_function, tainted_vars_set, depth, call_path)
+    # (current_file, current_function, tainted_vars_set, depth)
+    # PHASE 1: Removed call_path from worklist (now in taint_flow_graph)
     # CRITICAL FIX: Initialize with ENTIRE SET of source variables for unified analysis
-    worklist: List[tuple[str, str, frozenset, int, list]] = [(source_file, source_function, frozenset(source_vars), 0, [])]
+    worklist: List[tuple[str, str, frozenset, int]] = [(source_file, source_function, frozenset(source_vars), 0)]
 
     # visited prevents cycles by tracking (file, function, tainted_vars).
     visited: Set[tuple[str, str, frozenset]] = set()
 
     while worklist:
-        current_file, current_func, tainted_vars, depth, call_path = worklist.pop(0)
+        current_file, current_func, tainted_vars, depth = worklist.pop(0)
 
         if depth > max_depth:
             continue
 
-        raw_file = current_file
-        raw_func_name = current_func
-
-        callback_override = None
-        for entry in reversed(call_path):
-            if entry.get("type") == "cfg_callback" and entry.get("callback_func") == raw_func_name:
-                callback_override = entry
-                break
-
-        if callback_override:
-            current_file = callback_override.get("from_file", current_file)
-            current_func = callback_override.get("from_func", current_func)
+        # PHASE 1: Callback override logic removed (depended on call_path)
+        # Callbacks will be handled through flow graph reconstruction in Phase 2
 
         original_func_name = current_func
         normalized_file = current_file.replace("\\", "/")
@@ -418,8 +415,10 @@ def trace_inter_procedural_flow_cfg(
                                 if debug:
                                     print(f"[INTER-CFG-S3] VULNERABILITY FOUND: '{tainted_var}' reaches sink '{sink['pattern']}' via intra-procedural flow", file=sys.stderr)
 
-                                vuln_path = call_path + [
-                                    {"type": "intra_procedural_flow", "func": current_func, "var": tainted_var},
+                                # PHASE 2 TODO: Reconstruct path using taint_flow_graph
+                                # For now, create path with placeholder - will be replaced in Phase 2
+                                vuln_path = [
+                                    {"type": "TODO_PHASE2", "note": "Path reconstruction will be implemented in Phase 2"},
                                     {"type": "sink_reached", "func": current_func, "var": tainted_var, "sink": sink["pattern"], "line": sink["line"]}
                                 ]
 
@@ -617,25 +616,24 @@ def trace_inter_procedural_flow_cfg(
                     if bounds:
                         final_callback_taint.update(seeded_aliases)
 
-                    callback_path = call_path + [
-                        {
-                            "type": "cfg_callback",
-                            "from_file": current_file,
-                            "from_func": current_func,
-                            "callback_func": cb_name,
-                            "line": call_line,
-                            "captured_vars": sorted(captured_taint),
-                            "seeded_aliases": sorted(seeded_aliases),
-                            "taint_state": sorted(final_callback_taint)
-                        }
-                    ]
+                    # PHASE 1: Record predecessors instead of building callback_path
                     callback_state = frozenset(final_callback_taint)
+
+                    # Record flow graph edges for each tainted var in callback
+                    for cb_var in final_callback_taint:
+                        # Find which source vars contributed to this callback var
+                        for source_var in tainted_vars:
+                            if source_var in callback_taints or source_var in captured_taint:
+                                target_state = (current_file, cb_name, cb_var)
+                                source_state = (current_file, current_func, source_var)
+                                taint_flow_graph[target_state].add(source_state)
+
                     if debug and final_callback_taint != set(tainted_vars):
                         delta = sorted(final_callback_taint - set(tainted_vars))
                         if delta:
                             print(f"[INTER-CFG-S3]   Seeding callback '{cb_name}' with {delta}", file=sys.stderr)
 
-                    worklist.append((current_file, cb_name, callback_state, depth + 1, callback_path))
+                    worklist.append((current_file, cb_name, callback_state, depth + 1))
 
                 if debug:
                     print(f"[INTER-CFG-S3]   No relevant taint mapping for call to {callee_func} at line {call_line}, skipping traversal", file=sys.stderr)
@@ -672,10 +670,26 @@ def trace_inter_procedural_flow_cfg(
             propagated_params.update(alias_params)
 
             if propagated_params:
-                new_path = call_path + [{"type": "cfg_call", "from_file": current_file, "from_func": current_func, "to_file": callee_file, "to_func": effective_callee, "line": call_line, "params": list(propagated_params)}]
+                # PHASE 1: Record predecessors for each propagated param
+                for propagated_param in propagated_params:
+                    # Find which tainted var(s) contributed to this param
+                    for tainted_var in tainted_vars:
+                        # Check if this tainted_var maps to this param via args_mapping
+                        if propagated_param in args_mapping.values():
+                            # Find the caller arg that maps to this param
+                            for caller_arg, callee_param in args_mapping.items():
+                                if callee_param == propagated_param and caller_arg == tainted_var:
+                                    target_state = (callee_file, effective_callee, propagated_param)
+                                    source_state = (current_file, current_func, tainted_var)
+                                    taint_flow_graph[target_state].add(source_state)
+                        # Also check alias_params
+                        elif propagated_param in alias_params:
+                            target_state = (callee_file, effective_callee, propagated_param)
+                            source_state = (current_file, current_func, tainted_var)
+                            taint_flow_graph[target_state].add(source_state)
 
                 # THIS IS THE LINE THAT ENABLES MULTI-HOP TRAVERSAL
-                worklist.append((callee_file, effective_callee, frozenset(propagated_params), depth + 1, new_path))
+                worklist.append((callee_file, effective_callee, frozenset(propagated_params), depth + 1))
 
                 if debug:
                     print(f"[INTER-CFG-S3] TRAVERSING INTO CALLEE: {effective_callee} ({callee_file}) with tainted params {list(propagated_params)}", file=sys.stderr)
@@ -721,7 +735,15 @@ def trace_inter_procedural_flow_cfg(
             # Check if this expanded state was already visited to prevent infinite loops
             new_state_key = (current_file, current_func, frozenset(expanded_tainted))
             if new_state_key not in visited:
-                worklist.append((current_file, current_func, frozenset(expanded_tainted), depth, call_path))
+                # PHASE 1: Record predecessors for newly tainted vars
+                for new_var in new_tainted_in_current_scope:
+                    # Find which existing tainted var(s) contributed to this new var
+                    for existing_var in tainted_vars:
+                        target_state = (current_file, current_func, new_var)
+                        source_state = (current_file, current_func, existing_var)
+                        taint_flow_graph[target_state].add(source_state)
+
+                worklist.append((current_file, current_func, frozenset(expanded_tainted), depth))
                 if debug:
                     print(f"[INTER-CFG-S3] Re-adding current context with expanded tainted set: {list(expanded_tainted)}", file=sys.stderr)
             elif debug:

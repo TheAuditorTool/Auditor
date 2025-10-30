@@ -294,6 +294,11 @@ class DatabaseManager:
                 ('terraform_outputs', 'INSERT'),
                 ('terraform_findings', 'INSERT'),
 
+                # AWS CDK tables (Infrastructure as Code)
+                ('cdk_constructs', 'INSERT'),
+                ('cdk_construct_properties', 'INSERT'),  # Depends on cdk_constructs FK
+                ('cdk_findings', 'INSERT'),
+
                 # Data flow tables (before junction tables)
                 ('assignments', 'INSERT'),
                 ('assignment_sources', 'INSERT'),  # Junction table
@@ -1310,6 +1315,65 @@ class DatabaseManager:
             finding_id, file_path, resource_id, category,
             severity, title, description, graph_context_json,
             remediation, line
+        ))
+
+    # ========================================================================
+    # AWS CDK (Cloud Development Kit) Infrastructure-as-Code Methods
+    # ========================================================================
+
+    def add_cdk_construct(self, file_path: str, line: int, cdk_class: str,
+                         construct_name: Optional[str], construct_id: str):
+        """Add a CDK construct record to the batch.
+
+        Args:
+            file_path: Path to Python file containing construct
+            line: Line number of construct instantiation
+            cdk_class: CDK class name (e.g., 's3.Bucket', 'aws_cdk.aws_s3.Bucket')
+            construct_name: CDK logical ID (nullable - 2nd positional arg)
+            construct_id: Composite key: {file}::L{line}::{class}::{name}
+        """
+        self.generic_batches['cdk_constructs'].append((
+            construct_id, file_path, line, cdk_class, construct_name
+        ))
+
+    def add_cdk_construct_property(self, construct_id: str, property_name: str,
+                                   property_value_expr: str, line: int):
+        """Add a CDK construct property record to the batch.
+
+        Args:
+            construct_id: FK to cdk_constructs.construct_id
+            property_name: Property keyword argument name (e.g., 'public_read_access')
+            property_value_expr: Serialized property value via ast.unparse()
+            line: Line number of property definition
+        """
+        self.generic_batches['cdk_construct_properties'].append((
+            construct_id, property_name, property_value_expr, line
+        ))
+
+    def add_cdk_finding(self, finding_id: str, file_path: str,
+                       construct_id: Optional[str] = None,
+                       category: str = '',
+                       severity: str = 'medium',
+                       title: str = '',
+                       description: str = '',
+                       remediation: str = '',
+                       line: Optional[int] = None):
+        """Add a CDK security finding record to the batch.
+
+        Args:
+            finding_id: Unique finding identifier
+            file_path: Path to CDK file with issue
+            construct_id: Optional FK to cdk_constructs (nullable for file-level findings)
+            category: Finding category (e.g., 'public_exposure', 'missing_encryption')
+            severity: Severity level ('critical', 'high', 'medium', 'low')
+            title: Short finding title
+            description: Detailed finding description
+            remediation: Suggested fix
+            line: Line number of issue
+        """
+        self.generic_batches['cdk_findings'].append((
+            finding_id, file_path, construct_id, category,
+            severity, title, description, remediation, line
         ))
 
     def get_framework_id(self, name, language):

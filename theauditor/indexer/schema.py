@@ -1358,6 +1358,78 @@ TERRAFORM_FINDINGS = TableSchema(
 )
 
 # ============================================================================
+# AWS CDK INFRASTRUCTURE-AS-CODE TABLES
+# ============================================================================
+# CDK construct analysis for cloud infrastructure security
+
+CDK_CONSTRUCTS = TableSchema(
+    name="cdk_constructs",
+    columns=[
+        Column("construct_id", "TEXT", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("cdk_class", "TEXT", nullable=False),  # e.g., 'aws_cdk.aws_s3.Bucket', 's3.Bucket'
+        Column("construct_name", "TEXT"),  # Nullable - CDK logical ID (2nd positional arg)
+    ],
+    indexes=[
+        ("idx_cdk_constructs_file", ["file_path"]),
+        ("idx_cdk_constructs_class", ["cdk_class"]),
+        ("idx_cdk_constructs_line", ["file_path", "line"]),
+    ]
+)
+
+CDK_CONSTRUCT_PROPERTIES = TableSchema(
+    name="cdk_construct_properties",
+    columns=[
+        Column("id", "INTEGER", primary_key=True),  # AUTOINCREMENT
+        Column("construct_id", "TEXT", nullable=False),  # FK to cdk_constructs
+        Column("property_name", "TEXT", nullable=False),  # e.g., 'public_read_access', 'encryption'
+        Column("property_value_expr", "TEXT", nullable=False),  # Serialized via ast.unparse()
+        Column("line", "INTEGER", nullable=False),  # Line number of property definition
+    ],
+    indexes=[
+        ("idx_cdk_props_construct", ["construct_id"]),
+        ("idx_cdk_props_name", ["property_name"]),
+        ("idx_cdk_props_construct_name", ["construct_id", "property_name"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["construct_id"],
+            foreign_table="cdk_constructs",
+            foreign_columns=["construct_id"]
+        )
+    ]
+)
+
+CDK_FINDINGS = TableSchema(
+    name="cdk_findings",
+    columns=[
+        Column("finding_id", "TEXT", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("construct_id", "TEXT"),  # FK to cdk_constructs (nullable for file-level findings)
+        Column("category", "TEXT", nullable=False),  # "public_exposure", "missing_encryption", etc.
+        Column("severity", "TEXT", nullable=False),  # "critical", "high", "medium", "low"
+        Column("title", "TEXT", nullable=False),
+        Column("description", "TEXT", nullable=False),
+        Column("remediation", "TEXT"),
+        Column("line", "INTEGER"),
+    ],
+    indexes=[
+        ("idx_cdk_findings_file", ["file_path"]),
+        ("idx_cdk_findings_construct", ["construct_id"]),
+        ("idx_cdk_findings_severity", ["severity"]),
+        ("idx_cdk_findings_category", ["category"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["construct_id"],
+            foreign_table="cdk_constructs",
+            foreign_columns=["construct_id"]
+        )
+    ]
+)
+
+# ============================================================================
 # BUILD ANALYSIS TABLES
 # ============================================================================
 
@@ -1732,6 +1804,11 @@ TABLES: Dict[str, TableSchema] = {
     "terraform_variable_values": TERRAFORM_VARIABLE_VALUES,
     "terraform_outputs": TERRAFORM_OUTPUTS,
     "terraform_findings": TERRAFORM_FINDINGS,
+
+    # AWS CDK (Infrastructure as Code)
+    "cdk_constructs": CDK_CONSTRUCTS,
+    "cdk_construct_properties": CDK_CONSTRUCT_PROPERTIES,
+    "cdk_findings": CDK_FINDINGS,
 
     # Build analysis
     "package_configs": PACKAGE_CONFIGS,

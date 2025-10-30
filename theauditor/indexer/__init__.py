@@ -1448,6 +1448,33 @@ class IndexerOrchestrator:
                     self.counts['terraform_outputs'] = 0
                 self.counts['terraform_outputs'] += 1
 
+        # AWS CDK constructs
+        if 'cdk_constructs' in extracted:
+            for construct in extracted['cdk_constructs']:
+                self.db_manager.add_cdk_construct(
+                    file_path=file_path,  # Orchestrator adds file_path context
+                    line=construct['line'],
+                    cdk_class=construct['cdk_class'],
+                    construct_name=construct.get('construct_name'),
+                    construct_id=construct['construct_id']
+                )
+                if 'cdk_constructs' not in self.counts:
+                    self.counts['cdk_constructs'] = 0
+                self.counts['cdk_constructs'] += 1
+
+        # AWS CDK construct properties
+        if 'cdk_construct_properties' in extracted:
+            for prop in extracted['cdk_construct_properties']:
+                self.db_manager.add_cdk_construct_property(
+                    construct_id=prop['construct_id'],
+                    property_name=prop['property_name'],
+                    property_value_expr=prop['property_value_expr'],
+                    line=prop['line']
+                )
+                if 'cdk_construct_properties' not in self.counts:
+                    self.counts['cdk_construct_properties'] = 0
+                self.counts['cdk_construct_properties'] += 1
+
     def _cleanup_extractors(self):
         """Call cleanup() on all registered extractors.
 
