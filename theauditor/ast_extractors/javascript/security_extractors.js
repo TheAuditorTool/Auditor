@@ -523,6 +523,11 @@ function extractCDKConstructs(functionCallArgs, imports) {
     debugLog('Built CDK alias map', cdkAliases);
 
     // Step 3: Detect 'new X(...)' patterns from functionCallArgs
+    // CRITICAL: functionCallArgs contains one entry PER ARGUMENT
+    // So new s3.Bucket(this, 'Name', {}) creates 3 entries (args 0, 1, 2)
+    // We must deduplicate to process each construct only ONCE
+    const processedConstructs = new Set();
+
     for (const call of functionCallArgs) {
         const callee = call.callee_function || '';
 
@@ -531,6 +536,13 @@ function extractCDKConstructs(functionCallArgs, imports) {
         if (!callee.startsWith('new ')) {
             continue;
         }
+
+        // Deduplicate: Skip if we've already processed this construct
+        const constructKey = `${call.line}::${callee}`;
+        if (processedConstructs.has(constructKey)) {
+            continue;
+        }
+        processedConstructs.add(constructKey);
 
         // Extract class name from 'new s3.Bucket' → 's3.Bucket'
         const className = callee.replace(/^new\s+/, '');
