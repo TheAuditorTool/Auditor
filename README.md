@@ -83,11 +83,13 @@ All three commands run entirely offline against `.pf/repo_index.db` and `.pf/gra
 
 ### Optional Insights (Still Available)
 
-* 🧠 **Semantic Context Engine**  
+* 🧠 **Semantic Context Engine**
   Teach TheAuditor your business logic via simple YAML. Define refactors, API deprecations, and architecture patterns. It flags obsolete code and tracks migration progress.
 
-* 🔮 **Predictive ML Insights** *(optional)*  
+* 🔮 **Predictive ML Insights** *(always installed, runtime opt-in)*
   Learns from Git churn, past findings, and complexity to predict **likely root causes** and **next files to edit**, helping teams prioritize.
+
+  **NEW in v1.4.2-RC1**: Enhanced temporal intelligence with 4x richer git analysis—now tracks commit frequency, team collaboration patterns, code recency, and sustained activity spans. ML dependencies installed by default but only activate when you train models (`aud learn --enable-git`). Historical data automatically preserved on re-indexing.
 
 ---
 

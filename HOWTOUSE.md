@@ -40,11 +40,8 @@ pip install -e .
 # Verify the installation worked
 aud --version
 
-# Optional: Install with ML capabilities
-# pip install -e ".[ml]"
-
-# For development with all optional dependencies:
-# pip install -e ".[all]"  # Includes Insights module
+# All features (ML, insights) installed by default
+# Activation is runtime opt-in (e.g., aud learn --enable-git)
 ```
 
 **Common Mistakes to Avoid:**
@@ -420,8 +417,8 @@ Run optional interpretive analysis on top of factual audit data:
 # Run all insights modules
 aud insights --mode all
 
-# ML-powered insights (requires pip install -e ".[ml]")
-aud insights --mode ml --ml-train
+# ML-powered insights (runtime opt-in, installed by default)
+aud learn --enable-git --print-stats
 
 # Graph health metrics and recommendations
 aud insights --mode graph
@@ -1698,14 +1695,14 @@ These optional modules add technical scoring and classification:
 
 **Installation:**
 ```bash
-# Base installation (Truth Couriers only)
+# Single installation command (includes all features)
 pip install -e .
 
-# With ML insights (optional)
-pip install -e ".[ml]"
-
-# Development with all dependencies (not for general users)
-# pip install -e ".[all]"
+# All insights (ML, graph, taint, impact) installed by default
+# Activation is runtime opt-in via specific commands:
+# - aud learn --enable-git  (ML training)
+# - aud suggest  (ML predictions)
+# - aud insights --mode graph  (graph health)
 ```
 
 ### Correlation Rules: Detecting YOUR Patterns
@@ -1874,20 +1871,254 @@ test_template: |
       assert password != "admin"
 ```
 
-### ML-Powered Suggestions
+### ML-Powered Predictions (v1.4.2-RC1)
 
-Train models on your codebase patterns:
+TheAuditor's ML module learns from your project's execution history to predict defect probability, likely root causes, and files needing future edits.
+
+**Installation**: ML dependencies installed by default. Activation is runtime opt-in.
+
+#### Quick Start
 
 ```bash
-# Initial training
+# 1. Generate training data (run full pipeline at least once)
+aud full
+
+# 2. Train models on execution history
+aud learn --print-stats
+
+# 3. Train with enhanced git temporal features (recommended)
+aud learn --enable-git --print-stats
+
+# 4. Generate predictions for workset
+aud suggest --print-plan
+
+# 5. Re-train with human feedback (continuous learning)
+aud learn-feedback --feedback-file corrections.json
+```
+
+#### What ML Learns From
+
+**4-Tier Intelligence Architecture**:
+
+1. **Tier 1 - Pipeline.log**: Macro phase timing (which stages took longest, which had critical findings)
+2. **Tier 2 - Journal.ndjson**: Micro event tracking (file touch frequency, finding counts, patch success rates)
+3. **Tier 3 - raw/*.json**: Ground truth findings (taint paths, CVE scores, pattern matches, CFG complexity)
+4. **Tier 4 - Git History** (NEW): Temporal signals
+   - Commit frequency (churn indicator)
+   - Team collaboration patterns (ownership dispersion)
+   - Code recency (staleness detection)
+   - Activity consistency (sustained vs burst patterns)
+
+**Total Features**: 93 dimensions
+- 50+ static code features (complexity, patterns, types)
+- 7 historical execution features (touches, failures, RCA)
+- **4 git temporal features** (commits, authors, recency, activity)
+- 50 text features (path hashing)
+
+#### Three Predictive Models
+
+**1. Root Cause Classifier**
+- **Predicts**: Files likely causing build/test failures
+- **Training data**: Historical FCE failures from journal.ndjson
+- **Output**: Probability [0.0, 1.0] + confidence interval
+- **Use case**: "Which file is probably breaking the build?"
+
+**2. Next Edit Predictor**
+- **Predicts**: Files likely needing future modifications
+- **Training data**: Journal file_touch events + git recency
+- **Output**: Probability [0.0, 1.0] + confidence interval
+- **Use case**: "Which files will I need to update next for this feature?"
+
+**3. Risk Scorer**
+- **Predicts**: Defect probability per file
+- **Training data**: Weighted RCA failures + critical findings + git churn
+- **Output**: Risk score [0.0, 1.0]
+- **Use case**: "Which files are most likely to have bugs?"
+
+#### Training Options
+
+```bash
+# Basic training (uses journal + database features)
 aud learn
 
-# Get improvement suggestions
+# With git temporal features (recommended)
+aud learn --enable-git
+
+# Use diff runs instead of full runs for training
+aud learn --train-on diff
+
+# Use all historical runs (both full and diff)
+aud learn --train-on all
+
+# Print detailed training statistics
+aud learn --print-stats
+
+# Specify window size for journal analysis
+aud learn --window 100
+
+# Custom model output directory
+aud learn --model-dir .custom/ml/
+
+# Re-train with human feedback
+aud learn --feedback corrections.json
+```
+
+#### Human Feedback Format
+
+Correct ML predictions by providing ground truth:
+
+```json
+{
+  "src/auth.py": {
+    "is_risky": true,
+    "is_root_cause": false,
+    "will_need_edit": true
+  },
+  "src/api.ts": {
+    "is_risky": false,
+    "is_root_cause": true,
+    "will_need_edit": false
+  }
+}
+```
+
+Save as `corrections.json` and run:
+```bash
+aud learn-feedback --feedback-file corrections.json --print-stats
+```
+
+ML re-trains with 5x weight on your corrections, improving future predictions.
+
+#### Generating Predictions
+
+```bash
+# Generate predictions for current workset
 aud suggest
 
-# Provide feedback for continuous learning
-aud learn-feedback --accept
+# Print predictions to console
+aud suggest --print-plan
+
+# Custom workset file
+aud suggest --workset .pf/custom_workset.json
+
+# Top 20 files instead of default 10
+aud suggest --topk 20
+
+# Custom output location
+aud suggest --out predictions.json
 ```
+
+#### Output Format
+
+Predictions saved to `.pf/insights/ml_suggestions.json`:
+
+```json
+{
+  "generated_at": "2025-10-31T12:00:00Z",
+  "workset_size": 247,
+  "likely_root_causes": [
+    {
+      "path": "src/auth.py",
+      "score": 0.85,
+      "confidence_std": 0.12
+    }
+  ],
+  "next_files_to_edit": [
+    {
+      "path": "src/api.ts",
+      "score": 0.73,
+      "confidence_std": 0.08
+    }
+  ],
+  "risk": [
+    {
+      "path": "legacy/old_auth.js",
+      "score": 0.91
+    }
+  ]
+}
+```
+
+**Confidence intervals**: Lower `confidence_std` = more reliable prediction.
+
+#### When to Use Git Features
+
+**Enable git features (`--enable-git`) when**:
+- Your project has >100 commits
+- Multiple developers contributing
+- You want to detect stale/abandoned code
+- Team collaboration patterns matter
+
+**Skip git features when**:
+- Fresh repository (<50 commits)
+- Solo developer
+- No git history available
+
+#### Performance Characteristics
+
+- **Training time**: ~5-10 seconds for 500 files
+- **Inference time**: <100ms for 100-file workset
+- **Incremental re-training**: <5 seconds with human feedback
+- **Memory usage**: <50MB
+
+#### Requirements
+
+**Must run BEFORE training**:
+1. `aud full` (at least once) - Generates journal.ndjson
+2. Multiple full runs recommended for better training data
+
+**Error: "No journal.ndjson files found"**
+```bash
+# Solution: Generate training data first
+aud full
+aud learn --enable-git --print-stats
+```
+
+#### How Pipelines.py Decides What Runs
+
+**v1.4.2-RC1 Change**: ML dependencies installed by default, activation at runtime.
+
+**Automatic activation during `aud full`**:
+- IF trained models exist in `.pf/ml/`
+- AND workset has source files
+- THEN automatically runs `aud suggest` at end of pipeline
+- ELSE skips ML (no models = no predictions)
+
+**Manual activation**:
+```bash
+aud learn  # Trains models
+aud suggest  # Generates predictions
+```
+
+**Graceful degradation**:
+- Missing journal data: Clear error with remediation steps
+- Missing git: Trains without git features (90 features instead of 93)
+- Missing models: Suggests running `aud learn` first
+
+#### Integration with AI Assistants
+
+ML suggestions optimized for LLM consumption:
+
+```python
+# AI assistant reads predictions
+import json
+suggestions = json.load(open('.pf/insights/ml_suggestions.json'))
+
+# Prioritize high-risk files
+for file in suggestions['risk'][:5]:
+    print(f"Review {file['path']} (risk: {file['score']:.2%})")
+
+# Focus on likely root causes for debugging
+for file in suggestions['likely_root_causes'][:3]:
+    print(f"Check {file['path']} (root cause prob: {file['score']:.2%})")
+```
+
+**Workflow example**:
+1. User: "Find the bug causing test failures"
+2. AI reads `.pf/insights/ml_suggestions.json`
+3. AI focuses on top 3 "likely_root_causes" files
+4. AI reads those files + cross-references with `.pf/raw/fce.json`
+5. AI identifies actual root cause faster (3 files instead of 247)
 
 ### Development-Specific Flags
 
