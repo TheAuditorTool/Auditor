@@ -1,0 +1,36 @@
+refactor_name: User to Account Model Rename
+description: Rename User model to Account across entire codebase
+version: 1.0
+
+rules:
+  - id: remove-user-model
+    description: Old User model class should not exist
+    severity: critical
+    match:
+      identifiers: [class User, User(Base)]
+    expect:
+      identifiers: []
+
+  - id: add-account-model
+    description: New Account model class must exist
+    severity: critical
+    match:
+      identifiers: [class Account, Account(Base)]
+    expect:
+      identifiers: [Account]
+
+  - id: rename-table
+    description: Table should be renamed from users to accounts
+    severity: critical
+    match:
+      identifiers: [__tablename__]
+    expect:
+      identifiers: [accounts]
+
+  - id: remove-users-table-ref
+    description: Remove references to 'users' table name
+    severity: high
+    match:
+      identifiers: ['users', "users"]
+    expect:
+      identifiers: []

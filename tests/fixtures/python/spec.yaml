@@ -1,0 +1,183 @@
+name: python_fixtures
+description: |
+  Individual Python fixture files testing specific framework patterns:
+  - flask_app.py: Flask blueprints, routes, auth decorators
+  - fastapi_app.py: FastAPI routes, dependency injection, response models
+  - pydantic_app.py: Pydantic validators (field + root), nested models
+  - parity_sample.py: Multi-framework parity (SQLAlchemy + FastAPI + Flask + Pydantic)
+  - sqlalchemy_app.py: ORM models and relationships
+  - cross_file_taint/: Cross-file taint flow tracking
+  - import_resolution/: Import chain resolution
+
+verification_rules:
+  - name: flask_routes_extracted
+    description: Verify Flask routes and decorators from flask_app.py
+    query: |
+      SELECT method, pattern, handler_function
+      FROM python_routes
+      WHERE file LIKE '%flask_app.py'
+      ORDER BY pattern
+    expected_minimum: 6
+
+  - name: flask_blueprints
+    description: Verify Flask blueprint extraction
+    query: |
+      SELECT blueprint_name, url_prefix
+      FROM python_blueprints
+      WHERE file LIKE '%flask_app.py'
+    expected_minimum: 1
+
+  - name: flask_decorators_api_controls
+    description: Verify Flask auth decorators populate api_endpoint_controls
+    query: |
+      SELECT
+        aec.control_name,
+        aec.control_type,
+        pr.pattern
+      FROM api_endpoint_controls aec
+      JOIN python_routes pr
+        ON aec.endpoint_file = pr.file AND aec.endpoint_line = pr.line
+      WHERE aec.endpoint_file LIKE '%flask_app.py'
+      ORDER BY pr.pattern
+    expected_minimum: 6
+
+  - name: fastapi_routes_extracted
+    description: Verify FastAPI routes with dependencies from fastapi_app.py
+    query: |
+      SELECT method, pattern, handler_function, has_deps
+      FROM python_routes
+      WHERE file LIKE '%fastapi_app.py'
+      ORDER BY pattern
+    expected_minimum: 5
+
+  - name: fastapi_dependencies
+    description: Verify FastAPI Depends() extraction
+    query: |
+      SELECT function_name
+      FROM function_calls
+      WHERE callee_function LIKE '%Depends%'
+        AND file LIKE '%fastapi_app.py'
+      GROUP BY function_name
+    expected_minimum: 2
+
+  - name: pydantic_validators_field
+    description: Verify Pydantic field validators from pydantic_app.py
+    query: |
+      SELECT validator_name, field_name
+      FROM python_validators
+      WHERE validator_type = 'field'
+        AND file LIKE '%pydantic_app.py'
+      ORDER BY validator_name
+    expected_minimum: 3
+
+  - name: pydantic_validators_root
+    description: Verify Pydantic root validators from pydantic_app.py
+    query: |
+      SELECT validator_name
+      FROM python_validators
+      WHERE validator_type = 'root'
+        AND file LIKE '%pydantic_app.py'
+    expected_minimum: 1
+
+  - name: parity_sample_orm_models
+    description: Verify parity_sample.py extracts ORM models
+    query: |
+      SELECT model_name, table_name
+      FROM python_orm_models
+      WHERE file LIKE '%parity_sample.py'
+      ORDER BY model_name
+    expected_minimum: 4
+
+  - name: parity_sample_relationships
+    description: Verify parity_sample.py extracts ORM relationships
+    query: |
+      SELECT source_model, target_model, relationship_type
+      FROM orm_relationships
+      WHERE file LIKE '%parity_sample.py'
+      ORDER BY source_model
+    expected_minimum: 6
+
+  - name: parity_sample_routes
+    description: Verify parity_sample.py extracts FastAPI routes
+    query: |
+      SELECT method, pattern
+      FROM python_routes
+      WHERE file LIKE '%parity_sample.py'
+      ORDER BY pattern
+    expected_minimum: 3
+
+  - name: parity_sample_validators
+    description: Verify parity_sample.py extracts Pydantic validators
+    query: |
+      SELECT validator_name, validator_type
+      FROM python_validators
+      WHERE file LIKE '%parity_sample.py'
+      ORDER BY validator_name
+    expected_minimum: 2
+
+  - name: sqlalchemy_orm_extraction
+    description: Verify sqlalchemy_app.py ORM models
+    query: |
+      SELECT model_name, table_name
+      FROM python_orm_models
+      WHERE file LIKE '%sqlalchemy_app.py'
+      ORDER BY model_name
+    expected_minimum: 3
+
+  - name: cross_file_taint_symbols
+    description: Verify cross_file_taint/ directory has symbols across files
+    query: |
+      SELECT DISTINCT s.name, s.type
+      FROM symbols s
+      WHERE s.path LIKE '%cross_file_taint%'
+        AND s.type IN ('function', 'class')
+      ORDER BY s.name
+    expected_minimum: 10
+
+  - name: cross_file_function_calls
+    description: Verify cross-file function calls in cross_file_taint/
+    query: |
+      SELECT callee_function, file
+      FROM function_calls
+      WHERE file LIKE '%cross_file_taint%'
+      GROUP BY callee_function, file
+    expected_minimum: 15
+
+  - name: import_resolution_imports
+    description: Verify import_resolution/ directory imports are tracked
+    query: |
+      SELECT module_path, imported_names
+      FROM imports
+      WHERE file LIKE '%import_resolution%'
+      ORDER BY module_path
+    expected_minimum: 5
+
+coverage_summary:
+  total_fixtures: 7
+  frameworks_tested:
+    - Flask (blueprints, routes, decorators)
+    - FastAPI (routes, dependencies, response models)
+    - Pydantic (validators, nested models)
+    - SQLAlchemy (ORM models, relationships, cascade)
+
+  tables_populated:
+    - python_routes
+    - python_blueprints
+    - api_endpoint_controls
+    - python_orm_models
+    - orm_relationships
+    - python_validators
+    - symbols
+    - imports
+    - function_calls
+    - refs
+
+expected_extraction_totals:
+  flask_routes: 6
+  fastapi_routes: 5
+  parity_routes: 3
+  pydantic_validators: 8+
+  orm_models: 10+
+  orm_relationships: 10+
+  cross_file_symbols: 20+
+  import_statements: 10+

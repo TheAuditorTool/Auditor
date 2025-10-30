@@ -1,16 +1,19 @@
-# Verification Phase Report: Schema Language Split Refactor
+# Verification Phase Report: Schema Language Split + Indexer Orchestrator Refactor
 
-**Document Version**: 1.0
-**Last Updated**: 2025-10-30
+**Document Version**: 2.0 (Extended Scope)
+**Last Updated**: 2025-10-31
 **Status**: PRE-IMPLEMENTATION VERIFICATION
 
 **CRITICAL**: This document MUST be completed and validated BEFORE any code changes.
 
 ## Executive Summary
 
-**Scope**: Refactor schema.py (2146 lines) into language-specific modules with stub pattern.
-**Risk Level**: EXTREME - Core database infrastructure touching 50+ files.
-**Breaking Change**: NO - Stub pattern maintains 100% backward compatibility.
+**Scope**:
+- Refactor schema.py (2146 lines) into language-specific modules with stub pattern
+- Refactor `__init__.py` (2021 lines) into language-specific orchestrators with stub pattern
+
+**Risk Level**: EXTREME - Core indexer infrastructure touching 50+ files.
+**Breaking Change**: NO - Stub pattern maintains 100% backward compatibility for both components.
 
 ## 1. Hypotheses & Verification
 
@@ -39,16 +42,60 @@ Stub will preserve import path.
 ✅ **VERIFIED** - 15+ core tables used by ALL languages (symbols, assignments, function_call_args, etc.).
 4 tables shared between Python/Node (sql_queries, jwt_patterns, orm_relationships, validation_framework_usage).
 
+### Hypothesis 7: `__init__.py` is 2021 lines (NEW - Orchestrator)
+✅ **VERIFIED** - Confirmed via file read:
+```
+2021 theauditor/indexer/__init__.py
+```
+
+### Hypothesis 8: `__init__.py` contains orchestration logic (violates Python conventions)
+✅ **VERIFIED** - `__init__.py` should contain only imports (~10-20 lines), but contains:
+- 2021 lines of orchestration logic
+- Single `IndexerOrchestrator` class with ALL language orchestration mixed
+- JSX dual-pass processing (218 lines, React-specific)
+- TypeScript batch processing (Node-specific)
+- Framework detection (mixed Python/Node)
+
+### Hypothesis 9: Orchestrator can be split using mixin pattern
+✅ **VERIFIED** - Same pattern planned for database.py Phase 2.
+Python MRO (C3 linearization) handles multiple inheritance automatically.
+Each language mixin can have distinct method names (no conflicts).
+
+### Hypothesis 10: JSX dual-pass logic can be moved without changes
+✅ **VERIFIED** - Lines 434-652 are self-contained React-specific logic.
+Can be moved as-is to node_orchestrator.py without modifications.
+Existing test suite (`tests/test_jsx_pass.py`) validates functionality.
+
 ## 2. File Statistics
 
+**Schema Component**:
 ```
 theauditor/indexer/schema.py:     2146 lines
-theauditor/indexer/database.py:   1407 lines
-Total:                            3553 lines
+  - Table Definitions:            70 tables
+  - Utility Functions:            4 (build_query, build_join_query, validate_all_tables, get_table_schema)
+  - Class Definitions:            3 (Column, ForeignKey, TableSchema)
+```
 
-Table Definitions:                ~65 tables
-Utility Functions:                3 (build_query, build_join_query, validate_all_tables)
-Class Definitions:                3 (Column, ForeignKey, TableSchema)
+**Orchestrator Component (NEW)**:
+```
+theauditor/indexer/__init__.py:   2021 lines
+  - Class Definition:             IndexerOrchestrator (1 monolithic class)
+  - Key Methods:                  ~15 methods (index, _process_file, _store_extracted_data, etc.)
+  - JSX Dual-Pass Logic:          218 lines (lines 434-652)
+  - TypeScript Batch Processing:  53 lines (lines 258-310)
+  - Framework Detection:          41 lines (lines 148-188)
+  - Cross-File Resolution:        8 lines (lines 329-336)
+```
+
+**Database Component** (NOT modified in this proposal):
+```
+theauditor/indexer/database.py:   1407 lines (deferred to Phase 2)
+```
+
+**Total Scope**:
+```
+schema.py + __init__.py:          4167 lines → 11 modules + 2 stubs
+Net result:                       ~3870 lines (7% reduction from eliminating duplication)
 ```
 
 ## 3. Complete Table Categorization Matrix
@@ -431,23 +478,269 @@ from theauditor.indexer.schema import TABLES, build_query, Column, TableSchema
 
 **Proof**: Import path identical. All symbols re-exported by stub.
 
+## 7.3 Orchestrator Stub Pattern Design (NEW - Orchestrator Component)
+
+### 7.3.1 `__init__.py` (NEW STUB)
+
+```python
+"""TheAuditor Indexer Package.
+
+This package provides modular, extensible code indexing functionality.
+
+BACKWARD COMPATIBILITY: 100% maintained via stub pattern.
+All existing imports continue to work identically:
+    from theauditor.indexer import IndexerOrchestrator, FileWalker, DatabaseManager
+"""
+
+# Import orchestrator from new location
+from .orchestration.core_orchestrator import IndexerOrchestrator
+
+# Import existing components (unchanged)
+from .core import FileWalker, ASTCache
+from .database import DatabaseManager
+from .extractors import ExtractorRegistry
+
+# Backward compatibility exports
+__all__ = [
+    'IndexerOrchestrator',
+    'FileWalker',
+    'ASTCache',
+    'DatabaseManager',
+    'ExtractorRegistry'
+]
+```
+
+### 7.3.2 Verification of Backward Compatibility
+
+**Before** (consumers):
+```python
+from theauditor.indexer import IndexerOrchestrator, FileWalker, DatabaseManager
+orchestrator = IndexerOrchestrator(root_path, db_path)
+```
+
+**After** (consumers - NO CHANGE):
+```python
+from theauditor.indexer import IndexerOrchestrator, FileWalker, DatabaseManager
+orchestrator = IndexerOrchestrator(root_path, db_path)
+```
+
+**Proof**: Import path identical. All symbols re-exported by stub.
+
+## 7.4 Orchestrator Logic Distribution (NEW - Complete Line Mapping)
+
+### Line-by-Line Breakdown of `__init__.py` (2021 lines)
+
+**Lines 1-60: Imports & Documentation**
+- Module docstring (architectural contract explanation)
+- Standard library imports (os, sys, json, logging, pathlib, typing)
+- Internal imports (config_runtime, ast_parser, config, core, database, extractors)
+- **Destination**: Copy to each orchestrator as needed (duplicated imports acceptable)
+
+**Lines 61-146: IndexerOrchestrator.__init__() - Initialization**
+- Component initialization (ast_parser, ast_cache, db_manager, file_walker, extractor_registry)
+- Special extractor setup (docker, generic, github_workflow)
+- Stats tracking dictionary initialization
+- **Destination**: `core_orchestrator.py` → BaseOrchestrator.__init__()
+
+**Lines 148-188: _detect_frameworks_inline() - Framework Detection**
+- Uses FrameworkDetector to detect all frameworks in project
+- Saves frameworks.json to `.pf/raw/` directory
+- Returns list of framework dictionaries
+- **PROBLEM**: Mixes Python (requirements.txt) and Node (package.json) detection
+- **Destination**: SPLIT into two methods:
+  - Python detection → `python_orchestrator.py::_detect_python_frameworks()`
+  - Node detection → `node_orchestrator.py::_detect_node_frameworks()`
+  - Core calls both and merges results
+
+**Lines 189-229: _store_frameworks() - Store Frameworks to Database**
+- Iterates through self.frameworks and stores to database
+- Registers safe sinks for Express endpoints
+- **Destination**: `core_orchestrator.py` (generic storage, called after detection)
+
+**Lines 230-257: index() - Main Entry Point (Part 1)**
+- Calls _detect_frameworks_inline()
+- Calls file_walker.walk()
+- Prints status messages
+- **Destination**: `core_orchestrator.py::index()` main method
+
+**Lines 258-310: TypeScript Batch Processing + Global Function Params Cache**
+- **CRITICAL NODE-SPECIFIC LOGIC** (53 lines)
+- Separates JS/TS files from other files
+- Batch processes JS/TS files using ast_parser.parse_files_batch()
+- Builds global function parameter cache (Bug #3 fix for cross-file resolution)
+- Injects cache into ast_parser.global_function_params
+- **Destination**: `node_orchestrator.py::_batch_process_js_ts()` (called from core index())
+
+**Lines 312-327: File Processing Loop**
+- Iterates through all files
+- Calls _process_file(file_info, js_ts_cache)
+- Executes batch inserts periodically
+- Final commit
+- **Destination**: `core_orchestrator.py::index()` main method
+
+**Lines 329-336: Cross-File Parameter Resolution (Bug #3 Fix)**
+- **CRITICAL NODE-SPECIFIC LOGIC** (8 lines)
+- Calls JavaScriptExtractor.resolve_cross_file_parameters()
+- Resolves function parameter names across files after indexing complete
+- **Destination**: `node_orchestrator.py::_resolve_cross_file_params()` (called from core index())
+
+**Lines 337-432: Result Reporting & Framework Storage**
+- Builds result message with counts
+- Adds React/Vue component counts if present
+- Stores frameworks to database
+- Returns (counts, stats) tuple
+- **Destination**: `core_orchestrator.py::index()` main method
+
+**Lines 434-652: JSX DUAL-PASS PROCESSING (CRITICAL REACT LOGIC)**
+- **THE MOST CRITICAL NODE-SPECIFIC LOGIC IN THE ENTIRE ORCHESTRATOR** (218 lines!)
+- **PURPOSE**: Process JSX/TSX files in "preserved" mode (second pass)
+- **WHY NECESSARY**:
+  - First pass: JSX transformed to React.createElement() for taint analysis
+  - Second pass: JSX preserved for structural/accessibility analysis
+  - Two different views of same code required for complete analysis
+- **SECTIONS**:
+  - Lines 434-470: Documentation explaining dual-pass necessity
+  - Lines 471-497: Batch parse JSX files in preserved mode
+  - Lines 499-652: Process preserved AST and store to _jsx tables
+    - symbols_jsx (lines 551-557)
+    - assignments_jsx (lines 559-567)
+    - function_call_args_jsx (lines 569-577)
+    - function_returns_jsx (lines 579-588)
+    - CFG extraction for JSX (lines 590-639)
+  - Final flush, commit, statistics reporting (lines 641-652)
+- **Destination**: `node_orchestrator.py::_jsx_dual_pass_extraction()` (complete 218 line block moved as-is)
+
+**Lines 654-658: Generic Batch Flush**
+- Flushes all generic batches (validation_framework_usage, etc.)
+- **Destination**: `core_orchestrator.py::index()` (final cleanup)
+
+**Lines 660-1007: _process_file() - Main File Processing Method**
+- Large method handling all file types
+- Delegates to appropriate extractors based on file extension
+- Stores extracted data using _store_extracted_data()
+- **COMPLEXITY**: Mixed logic for all languages (Python, Node, Rust, Docker, Terraform, etc.)
+- **Destination**: SPLIT by delegation pattern:
+  - Core method in `core_orchestrator.py::_process_file()` (file selection, extractor delegation)
+  - Language-specific storage helpers in respective orchestrators
+
+**Lines 1009-1993: _store_extracted_data() - Data Storage Method**
+- Massive method storing all extracted data to database
+- Handles symbols, refs, routes, SQL, assignments, function calls, returns, React components, etc.
+- **COMPLEXITY**: Mixed storage logic for all languages/frameworks
+- **Destination**: SPLIT by language:
+  - Core storage (symbols, refs, assignments, etc.) → `core_orchestrator.py::_store_extracted_data()`
+  - Python storage (ORM models, routes, validators) → `python_orchestrator.py::_store_python_data()`
+  - Node storage (React components, hooks, API endpoints) → `node_orchestrator.py::_store_node_data()`
+  - Infrastructure storage (Docker, Terraform, CDK) → `infrastructure_orchestrator.py::_store_infrastructure_data()`
+
+**Lines 1995-2021: _cleanup_extractors() - Resource Cleanup**
+- Cleans up extractor resources (closes database connections, etc.)
+- **Destination**: `core_orchestrator.py::_cleanup_extractors()` (generic cleanup)
+
+### Orchestrator Module Structure (NEW)
+
+```
+theauditor/indexer/orchestration/
+├── __init__.py (empty)
+│
+├── core_orchestrator.py (400 lines)
+│   ├── BaseOrchestrator (abstract class)
+│   ├── __init__() - Lines 61-146 (component initialization)
+│   ├── index() - Lines 230-327, 337-432, 654-658 (main orchestration)
+│   ├── _store_frameworks() - Lines 189-229
+│   ├── _process_file() - Lines 660-1007 (core delegation logic)
+│   ├── _store_extracted_data() - Lines 1009-1993 (core storage only)
+│   ├── _cleanup_extractors() - Lines 1995-2021
+│   └── _get_or_parse_ast(), _select_extractor() (helper methods)
+│
+├── python_orchestrator.py (200 lines)
+│   ├── PythonOrchestrationMixin
+│   ├── _detect_python_frameworks() - Lines 148-188 (Python portion)
+│   ├── _store_python_data() - Lines 1009-1993 (Python portions)
+│   └── Helper methods for Python-specific processing
+│
+├── node_orchestrator.py (700 lines) ← LARGEST DUE TO JSX!
+│   ├── NodeOrchestrationMixin
+│   ├── _batch_process_js_ts() - Lines 258-310 (TypeScript batch + global params cache)
+│   ├── _resolve_cross_file_params() - Lines 329-336 (Bug #3 fix)
+│   ├── _jsx_dual_pass_extraction() - Lines 434-652 (CRITICAL 218-line React logic!)
+│   ├── _detect_node_frameworks() - Lines 148-188 (Node portion)
+│   ├── _store_node_data() - Lines 1009-1993 (Node portions)
+│   └── Helper methods for Node-specific processing
+│
+├── rust_orchestrator.py (150 lines)
+│   ├── RustOrchestrationMixin
+│   ├── _store_rust_data() - Lines 1009-1993 (Rust portions)
+│   └── Helper methods for Rust-specific processing
+│
+└── infrastructure_orchestrator.py (150 lines)
+    ├── InfrastructureOrchestrationMixin
+    ├── _store_infrastructure_data() - Lines 1009-1993 (Infrastructure portions)
+    └── Helper methods for Docker/Terraform/CDK processing
+```
+
+### Final Merged Class
+
+```python
+# In core_orchestrator.py
+from .python_orchestrator import PythonOrchestrationMixin
+from .node_orchestrator import NodeOrchestrationMixin
+from .rust_orchestrator import RustOrchestrationMixin
+from .infrastructure_orchestrator import InfrastructureOrchestrationMixin
+
+class IndexerOrchestrator(BaseOrchestrator,
+                          PythonOrchestrationMixin,
+                          NodeOrchestrationMixin,
+                          RustOrchestrationMixin,
+                          InfrastructureOrchestrationMixin):
+    """Merged orchestrator with all language-specific logic via mixin pattern."""
+    pass
+```
+
+### Key Orchestrator Logic Moves Summary
+
+| Original Lines | Logic Description | Destination | Rationale |
+|----------------|-------------------|-------------|-----------|
+| 61-146 | Component initialization | `core_orchestrator.py::__init__()` | Generic setup, all languages use |
+| 148-188 (Python) | Python framework detection | `python_orchestrator.py::_detect_python_frameworks()` | Python-specific (requirements.txt) |
+| 148-188 (Node) | Node framework detection | `node_orchestrator.py::_detect_node_frameworks()` | Node-specific (package.json) |
+| 258-310 | TypeScript batch + params cache | `node_orchestrator.py::_batch_process_js_ts()` | Node-specific optimization |
+| 329-336 | Cross-file param resolution | `node_orchestrator.py::_resolve_cross_file_params()` | Node Bug #3 fix |
+| **434-652** | **JSX dual-pass** | `node_orchestrator.py::_jsx_dual_pass_extraction()` | **React-specific, largest block** |
+| 660-1007 | File processing | `core_orchestrator.py::_process_file()` | Core delegation, all languages |
+| 1009-1993 (core) | Core data storage | `core_orchestrator.py::_store_extracted_data()` | Symbols, refs, assignments |
+| 1009-1993 (Python) | Python data storage | `python_orchestrator.py::_store_python_data()` | ORM, routes, validators |
+| 1009-1993 (Node) | Node data storage | `node_orchestrator.py::_store_node_data()` | React, Vue, endpoints |
+
 ## 8. Risk Analysis
 
 ### 8.1 Critical Risks
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| Import path breakage | LOW | CRITICAL | Stub maintains exact import paths |
+| **Schema Risks** | | | |
+| Import path breakage (schema) | LOW | CRITICAL | Schema stub maintains exact import paths |
 | TABLES registry corruption | MEDIUM | CRITICAL | Strict verification: len(TABLES) == 70 |
 | Column order mismatch | LOW | HIGH | Schema contract tests validate all tables |
-| Table split error | MEDIUM | CRITICAL | Comprehensive verification.md mapping (this doc) |
-| database.py breakage | LOW | CRITICAL | NO changes to database.py in Phase 1 |
-| Circular imports | MEDIUM | HIGH | utils.py has NO table definitions |
+| Table split error | MEDIUM | CRITICAL | Comprehensive table mapping in Section 3 |
+| Circular imports (utils.py) | MEDIUM | HIGH | utils.py has NO table definitions |
 | Missing junction tables | LOW | MEDIUM | All junction tables explicitly listed in matrix |
+| **Orchestrator Risks (NEW)** | | | |
+| Import path breakage (orchestrator) | LOW | CRITICAL | `__init__.py` stub maintains exact import paths |
+| JSX dual-pass logic error | HIGH | CRITICAL | Move 218 lines as-is, NO changes, test with `test_jsx_pass.py` |
+| Method Resolution Order (MRO) conflicts | MEDIUM | HIGH | Python C3 linearization + distinct method names |
+| TypeScript batch processing error | MEDIUM | HIGH | Lines 258-310 moved as-is, verified by integration tests |
+| Cross-file param resolution error | MEDIUM | MEDIUM | Lines 329-336 moved as-is, Bug #3 fix preserved |
+| Framework detection split error | MEDIUM | MEDIUM | Split into Python/Node portions, core merges results |
+| `_process_file()` delegation error | MEDIUM | HIGH | Core method delegates to language mixins correctly |
+| `_store_extracted_data()` split error | HIGH | CRITICAL | Language-specific storage must match original behavior |
+| **Combined Risks** | | | |
+| database.py breakage | LOW | CRITICAL | NO changes to database.py in Phase 1 |
+| Integration test failures | MEDIUM | CRITICAL | `aud index` + `aud full` must produce identical output |
 
 ### 8.2 Blast Radius
 
-**Files Modified**: 6 files
+**Schema Files Modified**: 8 files
 - `theauditor/indexer/schema.py` (2146→100 lines) - STUB
 - `theauditor/indexer/schemas/__init__.py` (NEW - empty)
 - `theauditor/indexer/schemas/utils.py` (NEW - 250 lines)
@@ -457,9 +750,20 @@ from theauditor.indexer.schema import TABLES, build_query, Column, TableSchema
 - `theauditor/indexer/schemas/infrastructure_schema.py` (NEW - 350 lines)
 - `theauditor/indexer/schemas/planning_schema.py` (NEW - 100 lines)
 
-**Files Impacted (imports unchanged)**: 50 files
-- Rules: 27 files (NO changes - imports from stub)
-- Taint: 8 files (NO changes - imports from stub)
+**Orchestrator Files Modified (NEW)**: 6 files
+- `theauditor/indexer/__init__.py` (2021→20 lines) - STUB
+- `theauditor/indexer/orchestration/__init__.py` (NEW - empty)
+- `theauditor/indexer/orchestration/core_orchestrator.py` (NEW - 400 lines)
+- `theauditor/indexer/orchestration/python_orchestrator.py` (NEW - 200 lines)
+- `theauditor/indexer/orchestration/node_orchestrator.py` (NEW - 700 lines)
+- `theauditor/indexer/orchestration/rust_orchestrator.py` (NEW - 150 lines)
+- `theauditor/indexer/orchestration/infrastructure_orchestrator.py` (NEW - 150 lines)
+
+**Total Files Modified/Created**: 14 files (2 modified, 12 created)
+
+**Files Impacted (imports unchanged)**: 50+ files
+- Rules: 27 files (NO changes - imports from stubs)
+- Taint: 8 files (NO changes - imports from stubs)
 - Tests: 6 files (NO changes - imports from stub)
 - Commands: 3 files (NO changes - imports from stub)
 - Planning: 1 file (NO changes - imports from stub)

@@ -1,0 +1,253 @@
+name: terraform_security
+description: |
+  Intentionally vulnerable Terraform configurations for IaC security testing.
+
+  Tests Terraform HCL parsing and detection of:
+  - Public S3 buckets (CRITICAL)
+  - Unencrypted databases (HIGH)
+  - Hardcoded secrets (CRITICAL)
+  - IAM wildcard policies (HIGH)
+  - Open security groups (MEDIUM)
+
+verification_rules:
+  - name: terraform_resources_extracted
+    description: Verify Terraform resources are parsed from vulnerable.tf
+    query: |
+      SELECT
+        resource_type,
+        resource_name,
+        file
+      FROM terraform_resources
+      WHERE file LIKE '%terraform_test%'
+      ORDER BY resource_type
+    expected_minimum: 5
+
+  - name: terraform_attributes_extracted
+    description: Verify resource attributes are extracted
+    query: |
+      SELECT
+        tr.resource_name,
+        ta.attribute_name,
+        ta.attribute_value
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.file LIKE '%terraform_test%'
+      ORDER BY tr.resource_name, ta.attribute_name
+    expected_minimum: 15
+
+  - name: public_s3_bucket_detection
+    description: Find S3 buckets with public-read ACL
+    query: |
+      SELECT
+        tr.resource_name,
+        ta.attribute_value AS acl_value
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_s3_bucket'
+        AND ta.attribute_name = 'acl'
+        AND ta.attribute_value = 'public-read'
+    expected_minimum: 1
+
+  - name: unencrypted_database_detection
+    description: Find RDS instances without storage encryption
+    query: |
+      SELECT
+        tr.resource_name,
+        ta.attribute_value AS encryption_status
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_db_instance'
+        AND ta.attribute_name = 'storage_encrypted'
+        AND ta.attribute_value = 'false'
+    expected_minimum: 1
+
+  - name: hardcoded_password_detection
+    description: Find hardcoded passwords in resource definitions
+    query: |
+      SELECT
+        tr.resource_type,
+        tr.resource_name,
+        ta.attribute_name
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE ta.attribute_name IN ('password', 'secret_key', 'api_token')
+        AND ta.attribute_value NOT LIKE 'var.%'
+        AND ta.attribute_value NOT LIKE 'data.%'
+        AND tr.file LIKE '%terraform_test%'
+    expected_minimum: 1
+
+  - name: iam_wildcard_policy_detection
+    description: Find IAM policies with Action and Resource wildcards
+    query: |
+      SELECT
+        tr.resource_name,
+        ta.attribute_value
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_iam_policy'
+        AND ta.attribute_name = 'policy'
+        AND ta.attribute_value LIKE '%"*"%'
+    expected_minimum: 1
+
+  - name: open_security_group_detection
+    description: Find security groups allowing 0.0.0.0/0
+    query: |
+      SELECT
+        tr.resource_name,
+        ta.attribute_value
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_security_group'
+        AND ta.attribute_value LIKE '%0.0.0.0/0%'
+    expected_minimum: 1
+
+security_patterns:
+  - pattern: s3_public_read
+    severity: CRITICAL
+    description: |
+      S3 bucket with acl = "public-read" exposes all bucket contents
+      to the internet. Potential data breach.
+    query: |
+      SELECT
+        tr.resource_name,
+        tr.file,
+        ta.line
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_s3_bucket'
+        AND ta.attribute_name = 'acl'
+        AND ta.attribute_value = 'public-read'
+
+  - pattern: rds_unencrypted
+    severity: HIGH
+    description: |
+      RDS database with storage_encrypted = false violates compliance
+      requirements (PCI-DSS 3.4, HIPAA 164.312).
+    query: |
+      SELECT
+        tr.resource_name,
+        tr.file,
+        ta.line
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_db_instance'
+        AND ta.attribute_name = 'storage_encrypted'
+        AND ta.attribute_value = 'false'
+
+  - pattern: hardcoded_secret
+    severity: CRITICAL
+    description: |
+      Hardcoded password/secret in Terraform code is committed to Git,
+      visible in version history, and can't be rotated without code changes.
+    query: |
+      SELECT
+        tr.resource_type,
+        tr.resource_name,
+        ta.attribute_name,
+        tr.file,
+        ta.line
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE ta.attribute_name IN ('password', 'secret_key', 'api_token', 'access_key')
+        AND ta.attribute_value NOT LIKE 'var.%'
+        AND ta.attribute_value NOT LIKE 'data.%'
+        AND ta.attribute_value NOT LIKE 'random_%'
+
+  - pattern: iam_wildcard_policy
+    severity: HIGH
+    description: |
+      IAM policy with Action="*" and Resource="*" grants full AWS account
+      access. Violates least-privilege principle.
+    query: |
+      SELECT
+        tr.resource_name,
+        tr.file,
+        ta.line
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_iam_policy'
+        AND ta.attribute_name = 'policy'
+        AND ta.attribute_value LIKE '%"Action"%:%"*"%'
+        AND ta.attribute_value LIKE '%"Resource"%:%"*"%'
+
+  - pattern: security_group_open_to_world
+    severity: MEDIUM
+    description: |
+      Security group ingress rule with cidr_blocks = ["0.0.0.0/0"]
+      exposes service to internet. Enables brute-force attacks on SSH/RDP.
+    query: |
+      SELECT
+        tr.resource_name,
+        tr.file,
+        ta.line
+      FROM terraform_resources tr
+      JOIN terraform_attributes ta
+        ON tr.resource_id = ta.resource_id
+      WHERE tr.resource_type = 'aws_security_group'
+        AND ta.attribute_value LIKE '%0.0.0.0/0%'
+
+expected_findings:
+  - resource: aws_s3_bucket.public_data
+    vulnerability: Public read access
+    severity: CRITICAL
+    line: 6
+    attribute: acl = "public-read"
+
+  - resource: aws_db_instance.unencrypted_db
+    vulnerability: Storage encryption disabled
+    severity: HIGH
+    line: 14
+    attribute: storage_encrypted = false
+
+  - resource: aws_db_instance.hardcoded_secret
+    vulnerability: Hardcoded password
+    severity: CRITICAL
+    line: 22
+    attribute: password = "..."
+
+  - resource: aws_iam_policy.admin_policy
+    vulnerability: Wildcard Action and Resource
+    severity: HIGH
+    lines: 31-35
+    attribute: Action = "*", Resource = "*"
+
+  - resource: aws_security_group.open_sg
+    vulnerability: Open to 0.0.0.0/0
+    severity: MEDIUM
+    line: 49
+    attribute: cidr_blocks = ["0.0.0.0/0"]
+
+compliance_violations:
+  - pattern: Public S3 bucket
+    standards: [PCI-DSS 1.2.1, HIPAA 164.312(a)(1), SOC 2 CC6.1, CIS AWS 2.1.5]
+
+  - pattern: Unencrypted database
+    standards: [PCI-DSS 3.4, HIPAA 164.312(a)(2)(iv), SOC 2 CC6.1, CIS AWS 2.3.1]
+
+  - pattern: Hardcoded secret
+    standards: [PCI-DSS 8.2.1, HIPAA 164.308(a)(5)(ii)(D), SOC 2 CC6.1, CIS AWS 1.12]
+
+  - pattern: IAM wildcard
+    standards: [PCI-DSS 7.1, HIPAA 164.308(a)(3)(i), SOC 2 CC6.3, CIS AWS 1.22]
+
+  - pattern: Open security group
+    standards: [PCI-DSS 1.3, HIPAA 164.312(e)(1), SOC 2 CC6.6, CIS AWS 5.2]
+
+coverage_summary:
+  total_vulnerabilities: 5
+  severity_breakdown:
+    CRITICAL: 2
+    HIGH: 2
+    MEDIUM: 1
+  compliance_violations: 5
+  resource_types_tested: 3 (S3, RDS, IAM, Security Groups)
