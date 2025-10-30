@@ -61,11 +61,11 @@ A multi-stage pipeline that orchestrates best-in-class tools plus proprietary en
 
 | Stage                              | What it Does                                                                                                                                                    |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. Extracts Terraform IaC resources. |
+| **1. Index & Model**               | Indexes the entire codebase into a local **SQLite** DB. Detects frameworks (React, Vue, Express, Django, Flask, FastAPI). Fetches & summarizes dependency docs. Extracts Terraform & AWS CDK IaC resources. |
 | **2. Dependency Security**         | Scans for OSV vulnerabilities (CVEs/CWEs) using **npm audit** and **Google's osv-scanner** (offline database) — cross-referenced for accuracy.                 |
 | **3. Industry-Standard Linting**   | Correlates **ESLint**, **Ruff**, **MyPy**, **Clippy** with project-aware configs.                                                                               |
 | **4. Multi-Hop Taint Analysis**    | True inter-procedural (cross-file) taint analysis with CFG validation to surface complex vulns (SQLi, XSS) with near-zero false positives.                      |
-| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the "blast radius" of code changes. Terraform provisioning flow graphs for infrastructure analysis. |
+| **5. Graph & Architecture Engine** | Builds Dependency & Call Graphs to spot cycles, hotspots, and the "blast radius" of code changes. Terraform & AWS CDK infrastructure security analysis. |
 | **6. Factual Correlation Engine**  | The "brain" that correlates all findings to expose deep systemic issues (e.g., a critical vuln in a high-churn, untested file).                                 |
 | **7. AI-Centric Output**           | Raw outputs preserved in `.pf/raw/` for humans; concise, chunked reports for AI in `.pf/readthis/`.                                                             |
 
@@ -279,7 +279,30 @@ aud planning rewind 1 --checkpoint "pre-migration"
 
 **Use cases**: Track complex refactors, ensure migration completeness, maintain deployment audit trail, rollback instructions for failed deployments.
 
-See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, context, and planning walkthroughs.
+#### CDK: AWS Infrastructure Security Analysis
+
+Analyze AWS Cloud Development Kit (Python) infrastructure code for security misconfigurations before deployment.
+
+```bash
+# Run full CDK security analysis
+aud cdk analyze
+
+# Filter by severity
+aud cdk analyze --severity critical
+
+# Export findings for review
+aud cdk analyze --format json --output cdk_findings.json
+```
+
+**Detects**:
+- **Public S3 buckets** - CRITICAL severity when `public_read_access=True`
+- **Unencrypted storage** - HIGH severity for RDS, EBS, DynamoDB without encryption
+- **Open security groups** - CRITICAL severity for 0.0.0.0/0 or ::/0 ingress rules
+- **IAM wildcard permissions** - HIGH/CRITICAL for policies with `*` actions/resources or AdministratorAccess
+
+**Workflow**: CDK analysis runs automatically in `aud full` pipeline (Stage 2, after Terraform). Findings written to `.pf/raw/cdk_findings.json` and correlated by FCE with application code vulnerabilities.
+
+See [HOWTOUSE.md](HOWTOUSE.md#architectural-intelligence--code-queries) for blueprint, query, context, planning, and CDK walkthroughs.
 
 ---
 

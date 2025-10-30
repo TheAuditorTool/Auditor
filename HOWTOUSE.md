@@ -767,6 +767,112 @@ aud terraform analyze
 - Public exposure blast radius assessment
 - Terraform security best practices validation
 
+### AWS CDK Infrastructure Analysis
+
+Analyze AWS Cloud Development Kit (Python) configurations for infrastructure security issues before deployment.
+
+**Prerequisites:**
+```bash
+# CDK Python files are automatically indexed
+aud index
+```
+
+**Security Analysis:**
+```bash
+# Detect all CDK security issues
+aud cdk analyze
+
+# Filter by severity
+aud cdk analyze --severity critical
+
+# Save findings to JSON
+aud cdk analyze --format json --output cdk_issues.json
+```
+
+**Security Checks:**
+
+1. **Public S3 Buckets**
+   - Explicit `public_read_access=True`
+   - Missing `block_public_access` configuration
+   - Severity: CRITICAL/HIGH
+
+2. **Unencrypted Storage**
+   - RDS DatabaseInstance without `storage_encrypted`
+   - EBS Volumes without `encrypted`
+   - DynamoDB Tables with default encryption (not customer-managed)
+   - Severity: HIGH/MEDIUM
+
+3. **Open Security Groups**
+   - Ingress rules from 0.0.0.0/0 (IPv4 unrestricted)
+   - Ingress rules from ::/0 (IPv6 unrestricted)
+   - `allow_all_outbound=True` (informational)
+   - Severity: CRITICAL/LOW
+
+4. **IAM Wildcard Permissions**
+   - PolicyStatements with `actions=["*"]`
+   - PolicyStatements with `resources=["*"]`
+   - Roles with AdministratorAccess attached
+   - Severity: CRITICAL/HIGH
+
+**Example Output:**
+```
+CDK Security Analysis Complete:
+  Total findings: 4
+  Critical: 2
+  High: 2
+  Medium: 0
+  Low: 0
+
+Sample findings:
+
+  [CRITICAL] S3 bucket 'PublicBucket' has public read access enabled
+  File: vulnerable_stack.py:20
+  Snippet: public_read_access=True
+  Remediation: Remove public_read_access=True or set to False. Use bucket policies with specific principals instead.
+
+  [HIGH] RDS instance 'UnencryptedDB' has storage encryption explicitly disabled
+  File: vulnerable_stack.py:29
+  Snippet: storage_encrypted=False
+  Remediation: Change storage_encrypted=False to storage_encrypted=True.
+
+  [CRITICAL] Security group 'OpenSecurityGroup' allows unrestricted ingress from 0.0.0.0/0
+  File: vulnerable_stack.py:38
+  Remediation: Restrict ingress to specific IP ranges or security groups. Use ec2.Peer.ipv4("10.0.0.0/8") instead of 0.0.0.0/0.
+
+  [HIGH] IAM policy 'AdminPolicy' grants wildcard actions (*)
+  File: vulnerable_stack.py:45
+  Remediation: Replace wildcard actions with specific actions following least privilege principle (e.g., ["s3:GetObject", "s3:PutObject"]).
+```
+
+**Integration with Full Pipeline:**
+
+CDK analysis is automatically included in `aud full`:
+```bash
+aud full  # Includes CDK analyze (Stage 2, after Terraform)
+```
+
+**Output Locations:**
+- `.pf/raw/cdk_findings.json` - Security findings (JSON)
+- `.pf/raw/patterns.json` - Includes CDK findings (detect-patterns integration)
+- `cdk_findings` table - Database findings for FCE correlation
+- `findings_consolidated` table - Cross-tool correlation with app code findings
+
+**When to Use:**
+- AWS CDK infrastructure security audits
+- Pre-deployment infrastructure review
+- Cloud resource misconfiguration detection
+- IAM permission auditing in CDK stacks
+- S3 public exposure prevention
+
+**Detected Constructs:**
+- `s3.Bucket` - S3 bucket configurations
+- `rds.DatabaseInstance` - RDS database instances
+- `ec2.SecurityGroup` - EC2 security groups
+- `ec2.Volume` - EBS volumes
+- `dynamodb.Table` - DynamoDB tables
+- `iam.PolicyStatement` - IAM policy statements
+- `iam.Role` - IAM roles with managed policies
+
 ### Control Flow Graph Analysis
 
 **v1.2 Update:** CFG analysis cache expanded to 25,000 functions (was 10,000 in v1.1). JavaScript/TypeScript CFG extraction fully working since v1.1.
