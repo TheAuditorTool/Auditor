@@ -119,16 +119,20 @@ def _is_react_app(conn) -> bool:
         return True
 
     # Fallback: Check for React patterns
+    react_patterns = ['React.', 'useState', 'useEffect', 'Component']
+
     cursor.execute("""
-        SELECT COUNT(*) FROM symbols
-        WHERE name LIKE '%React.%'
-           OR name LIKE '%useState%'
-           OR name LIKE '%useEffect%'
-           OR name LIKE '%Component%'
-        LIMIT 1
+        SELECT name FROM symbols
+        WHERE name IS NOT NULL
+        LIMIT 1000
     """)
 
-    return cursor.fetchone()[0] > 0
+    # Filter in Python: Check for React-like symbol names
+    for (name,) in cursor.fetchall():
+        if any(pattern in name for pattern in react_patterns):
+            return True
+
+    return False
 
 
 def _check_dangerous_html_prop(conn) -> List[StandardFinding]:
@@ -152,16 +156,21 @@ def _check_dangerous_html_prop(conn) -> List[StandardFinding]:
             FROM assignments a
             WHERE a.file = ?
               AND a.line >= ?
-              AND a.source_expr LIKE '%dangerouslySetInnerHTML%'
-              AND a.source_expr LIKE '%__html%'
+              AND a.source_expr IS NOT NULL
             ORDER BY a.line
             LIMIT 10
         """, [comp_file, comp_line])
 
         for line, source in cursor.fetchall():
+            # Filter in Python: Check for dangerouslySetInnerHTML with __html
+            has_dangerous_prop = 'dangerouslySetInnerHTML' in source and '__html' in source
+
+            if not has_dangerous_prop:
+                continue
+
             # Check for user input
-            has_user_input = any(src in (source or '') for src in REACT_INPUT_SOURCES)
-            has_sanitizer = 'DOMPurify' in (source or '') or 'sanitize' in (source or '')
+            has_user_input = any(src in source for src in REACT_INPUT_SOURCES)
+            has_sanitizer = 'DOMPurify' in source or 'sanitize' in source
 
             if has_user_input and not has_sanitizer:
                 findings.append(StandardFinding(
@@ -176,17 +185,24 @@ def _check_dangerous_html_prop(conn) -> List[StandardFinding]:
                 ))
 
     # Also check function_call_args for createMarkup patterns
+    markup_patterns = ['createMarkup', 'getRawMarkup', 'getHTML']
+
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
-        WHERE f.callee_function LIKE '%createMarkup%'
-           OR f.callee_function LIKE '%getRawMarkup%'
-           OR f.callee_function LIKE '%getHTML%'
+        WHERE f.callee_function IS NOT NULL
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, args in cursor.fetchall():
-        has_user_input = any(src in (args or '') for src in REACT_INPUT_SOURCES)
+        # Filter in Python: Check if function name contains markup patterns
+        is_markup_function = any(pattern in func for pattern in markup_patterns)
+
+        if not is_markup_function:
+            continue
+
+        has_user_input = any(src in args for src in REACT_INPUT_SOURCES)
 
         if has_user_input:
             findings.append(StandardFinding(
@@ -208,18 +224,31 @@ def _check_javascript_urls(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # Dangerous URL patterns
+    dangerous_protocols = ['javascript:', 'data:text/html', 'vbscript:']
+
     # Check assignments to href/src with javascript: protocol
     cursor.execute("""
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
-        WHERE (a.target_var LIKE '%href%' OR a.target_var LIKE '%src%')
-          AND (a.source_expr LIKE '%javascript:%'
-               OR a.source_expr LIKE '%data:text/html%'
-               OR a.source_expr LIKE '%vbscript:%')
+        WHERE a.target_var IS NOT NULL
+          AND a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, target, source in cursor.fetchall():
+        # Filter in Python: Check if target is href/src
+        is_url_target = 'href' in target or 'src' in target
+
+        if not is_url_target:
+            continue
+
+        # Filter in Python: Check for dangerous protocols
+        has_dangerous_protocol = any(protocol in source for protocol in dangerous_protocols)
+
+        if not has_dangerous_protocol:
+            continue
+
         # Check if it's in a React component
         cursor.execute("""
             SELECT rc.name
@@ -230,7 +259,7 @@ def _check_javascript_urls(conn) -> List[StandardFinding]:
 
         comp_row = cursor.fetchone()
         if comp_row:
-            has_user_input = any(src in (source or '') for src in REACT_INPUT_SOURCES)
+            has_user_input = any(src in source for src in REACT_INPUT_SOURCES)
 
             if has_user_input:
                 findings.append(StandardFinding(
@@ -249,24 +278,29 @@ def _check_javascript_urls(conn) -> List[StandardFinding]:
         SELECT f.file, f.line, f.param_name, f.argument_expr
         FROM function_call_args f
         WHERE f.param_name IN ('href', 'src', 'action', 'formAction')
-          AND (f.argument_expr LIKE '%javascript:%'
-               OR f.argument_expr LIKE '%props.%'
-               OR f.argument_expr LIKE '%state.%')
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, prop, value in cursor.fetchall():
-        if 'javascript:' in (value or '') or 'vbscript:' in (value or ''):
-            findings.append(StandardFinding(
-                rule_name='react-xss-unsafe-prop',
-                message=f'XSS: {prop} prop with potentially unsafe URL',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='xss',
-                snippet=f'{prop}={{props.url}}',
-                cwe_id='CWE-79'
-            ))
+        # Filter in Python: Check for dangerous protocols or user input
+        has_javascript = 'javascript:' in value or 'vbscript:' in value
+        has_props = 'props.' in value
+        has_state = 'state.' in value
+
+        # Only report if has dangerous protocol OR (has user input that could be dangerous)
+        if has_javascript or (has_props or has_state):
+            if 'javascript:' in value or 'vbscript:' in value:
+                findings.append(StandardFinding(
+                    rule_name='react-xss-unsafe-prop',
+                    message=f'XSS: {prop} prop with potentially unsafe URL',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='xss',
+                    snippet=f'{prop}={{props.url}}',
+                    cwe_id='CWE-79'
+                ))
 
     return findings
 
@@ -276,34 +310,50 @@ def _check_unsafe_html_creation(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # HTML tag patterns to detect
+    html_patterns = ['<div>', '<span>', '<script>', '<img', '<iframe']
+
     # Check for HTML string concatenation with user input
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
-        WHERE (a.source_expr LIKE '%<div>%'
-               OR a.source_expr LIKE '%<span>%'
-               OR a.source_expr LIKE '%<script>%'
-               OR a.source_expr LIKE '%<img%'
-               OR a.source_expr LIKE '%<iframe%')
-          AND (a.source_expr LIKE '%props.%'
-               OR a.source_expr LIKE '%state.%'
-               OR a.source_expr LIKE '%+%'  -- String concatenation
-               OR a.source_expr LIKE '%`%')  -- Template literals
+        WHERE a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, source in cursor.fetchall():
+        # Filter in Python: Check if contains HTML tags
+        has_html = any(tag in source for tag in html_patterns)
+
+        if not has_html:
+            continue
+
+        # Filter in Python: Check for user input or string operations
+        has_props = 'props.' in source
+        has_state = 'state.' in source
+        has_concat = '+' in source
+        has_template = '`' in source
+
+        if not (has_props or has_state or has_concat or has_template):
+            continue
+
         # Check if it's being used with dangerouslySetInnerHTML
         cursor.execute("""
-            SELECT COUNT(*)
+            SELECT a2.source_expr
             FROM assignments a2
             WHERE a2.file = ?
               AND ABS(a2.line - ?) <= 5
-              AND a2.source_expr LIKE '%dangerouslySetInnerHTML%'
+              AND a2.source_expr IS NOT NULL
         """, [file, line])
 
-        if cursor.fetchone()[0] > 0:
-            has_user_input = any(src in (source or '') for src in REACT_INPUT_SOURCES)
+        has_dangerous_nearby = False
+        for (nearby_source,) in cursor.fetchall():
+            if 'dangerouslySetInnerHTML' in nearby_source:
+                has_dangerous_nearby = True
+                break
+
+        if has_dangerous_nearby:
+            has_user_input = any(src in source for src in REACT_INPUT_SOURCES)
 
             if has_user_input:
                 findings.append(StandardFinding(
@@ -325,18 +375,26 @@ def _check_ref_innerhtml(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # Ref innerHTML patterns to detect
+    ref_innerHTML_patterns = ['ref.current.innerHTML', '.current.innerHTML', 'Ref.current.innerHTML']
+
     # Check for ref.current.innerHTML assignments
     cursor.execute("""
         SELECT a.file, a.line, a.target_var, a.source_expr
         FROM assignments a
-        WHERE a.target_var LIKE '%ref.current.innerHTML%'
-           OR a.target_var LIKE '%.current.innerHTML%'
-           OR a.target_var LIKE '%Ref.current.innerHTML%'
+        WHERE a.target_var IS NOT NULL
+          AND a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, target, source in cursor.fetchall():
-        has_user_input = any(src in (source or '') for src in REACT_INPUT_SOURCES)
+        # Filter in Python: Check if target contains ref innerHTML pattern
+        is_ref_innerHTML = any(pattern in target for pattern in ref_innerHTML_patterns)
+
+        if not is_ref_innerHTML:
+            continue
+
+        has_user_input = any(src in source for src in REACT_INPUT_SOURCES)
 
         if has_user_input:
             findings.append(StandardFinding(
@@ -354,26 +412,29 @@ def _check_ref_innerhtml(conn) -> List[StandardFinding]:
     cursor.execute("""
         SELECT f.file, f.line, f.argument_expr
         FROM function_call_args f
-        WHERE f.callee_function = 'useRef'
-           OR f.callee_function = 'createRef'
-           OR f.callee_function = 'React.useRef'
-           OR f.callee_function = 'React.createRef'
+        WHERE f.callee_function IN ('useRef', 'createRef', 'React.useRef', 'React.createRef')
         ORDER BY f.file, f.line
     """)
 
     for file, line, ref_init in cursor.fetchall():
         # Check nearby code for innerHTML usage
         cursor.execute("""
-            SELECT a.source_expr
+            SELECT a.target_var, a.source_expr
             FROM assignments a
             WHERE a.file = ?
               AND a.line > ?
               AND a.line < ? + 50
-              AND (a.target_var LIKE '%.innerHTML%'
-                   OR a.source_expr LIKE '%.innerHTML%')
+              AND (a.target_var IS NOT NULL OR a.source_expr IS NOT NULL)
         """, [file, line, line])
 
-        if cursor.fetchone():
+        # Filter in Python: Check for .innerHTML usage
+        has_innerHTML = False
+        for target_var, source_expr in cursor.fetchall():
+            if '.innerHTML' in (target_var or '') or '.innerHTML' in (source_expr or ''):
+                has_innerHTML = True
+                break
+
+        if has_innerHTML:
             findings.append(StandardFinding(
                 rule_name='react-xss-ref-usage',
                 message='XSS: React ref used for direct DOM manipulation',
@@ -393,52 +454,60 @@ def _check_component_injection(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # User input patterns
+    user_input_patterns = ['props.', 'state.', 'params.']
+
     # Check for dynamic component creation from user input
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
         WHERE f.callee_function IN ('React.createElement', 'createElement')
-          AND f.argument_index = 0  -- Component type
-          AND (f.argument_expr LIKE '%props.%'
-               OR f.argument_expr LIKE '%state.%'
-               OR f.argument_expr LIKE '%params.%')
+          AND f.argument_index = 0
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, component_arg in cursor.fetchall():
-        # Dynamic component type from user input is dangerous
-        findings.append(StandardFinding(
-            rule_name='react-component-injection',
-            message='Component Injection: Dynamic component type from user input',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='injection',
-            snippet=f'{func}(props.componentType, ...)',
-            cwe_id='CWE-74'
-        ))
+        # Filter in Python: Check if component type comes from user input
+        has_user_input = any(pattern in component_arg for pattern in user_input_patterns)
+
+        if has_user_input:
+            # Dynamic component type from user input is dangerous
+            findings.append(StandardFinding(
+                rule_name='react-component-injection',
+                message='Component Injection: Dynamic component type from user input',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category='injection',
+                snippet=f'{func}(props.componentType, ...)',
+                cwe_id='CWE-74'
+            ))
 
     # Check for eval-like patterns in React
     cursor.execute("""
         SELECT a.file, a.line, a.source_expr
         FROM assignments a
-        WHERE a.source_expr LIKE '%new Function%'
-          AND (a.source_expr LIKE '%props.%'
-               OR a.source_expr LIKE '%state.%')
+        WHERE a.source_expr IS NOT NULL
         ORDER BY a.file, a.line
     """)
 
     for file, line, source in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='react-code-injection',
-            message='Code Injection: new Function() with user input in React component',
-            file_path=file,
-            line=line,
-            severity=Severity.CRITICAL,
-            category='injection',
-            snippet='new Function(props.code)',
-            cwe_id='CWE-94'
-        ))
+        # Filter in Python: Check for new Function with user input
+        has_new_function = 'new Function' in source
+        has_user_input = any(pattern in source for pattern in user_input_patterns)
+
+        if has_new_function and has_user_input:
+            findings.append(StandardFinding(
+                rule_name='react-code-injection',
+                message='Code Injection: new Function() with user input in React component',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category='injection',
+                snippet='new Function(props.code)',
+                cwe_id='CWE-94'
+            ))
 
     return findings
 
@@ -486,15 +555,21 @@ def _check_server_side_rendering(conn) -> List[StandardFinding]:
     for file, line, func in cursor.fetchall():
         # Check if initial HTML contains user input
         cursor.execute("""
-            SELECT a.source_expr
+            SELECT a.target_var, a.source_expr
             FROM assignments a
             WHERE a.file = ?
               AND ABS(a.line - ?) <= 20
-              AND (a.target_var LIKE '%.innerHTML%'
-                   OR a.source_expr LIKE '%__html%')
+              AND (a.target_var IS NOT NULL OR a.source_expr IS NOT NULL)
         """, [file, line])
 
-        if cursor.fetchone():
+        # Filter in Python: Check for innerHTML or __html
+        has_unsafe_html = False
+        for target_var, source_expr in cursor.fetchall():
+            if '.innerHTML' in (target_var or '') or '__html' in (source_expr or ''):
+                has_unsafe_html = True
+                break
+
+        if has_unsafe_html:
             findings.append(StandardFinding(
                 rule_name='react-hydration-xss',
                 message='XSS: React hydration with potentially unsafe initial HTML',
@@ -507,3 +582,16 @@ def _check_server_side_rendering(conn) -> List[StandardFinding]:
             ))
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_react_xss(context)

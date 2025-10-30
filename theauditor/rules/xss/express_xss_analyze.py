@@ -104,16 +104,20 @@ def _is_express_app(conn) -> bool:
         return True
 
     # Fallback: Check for Express patterns in code
+    express_patterns = ['express', 'app.use', 'app.get', 'app.post']
+
     cursor.execute("""
-        SELECT COUNT(*) FROM symbols
-        WHERE name LIKE 'express%'
-           OR name LIKE 'app.use%'
-           OR name LIKE 'app.get%'
-           OR name LIKE 'app.post%'
-        LIMIT 1
+        SELECT name FROM symbols
+        WHERE name IS NOT NULL
+        LIMIT 1000
     """)
 
-    return cursor.fetchone()[0] > 0
+    # Filter in Python: Check for Express-like symbol names
+    for (name,) in cursor.fetchall():
+        if any(name.startswith(pattern) for pattern in express_patterns):
+            return True
+
+    return False
 
 
 def _check_unsafe_res_send(conn) -> List[StandardFinding]:
@@ -121,26 +125,29 @@ def _check_unsafe_res_send(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
-    # Find res.send with HTML-like content
+    # HTML tag patterns to detect
+    html_patterns = ['<html', '<div', '<script', '<style', '<img', '<iframe']
+
+    # Find res.send calls
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
         WHERE f.callee_function IN ('res.send', 'response.send')
           AND f.argument_index = 0
-          AND (f.argument_expr LIKE '%<html%'
-               OR f.argument_expr LIKE '%<div%'
-               OR f.argument_expr LIKE '%<script%'
-               OR f.argument_expr LIKE '%<style%'
-               OR f.argument_expr LIKE '%<img%'
-               OR f.argument_expr LIKE '%<iframe%'
-               OR f.argument_expr LIKE '%`%'  -- Template literals
-              )
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, args in cursor.fetchall():
+        # Filter in Python: Check if argument contains HTML tags or template literals
+        has_html = any(tag in args for tag in html_patterns)
+        has_template_literal = '`' in args
+
+        if not (has_html or has_template_literal):
+            continue
+
         # Check for user input
-        has_user_input = any(src in (args or '') for src in EXPRESS_INPUT_SOURCES)
+        has_user_input = any(src in args for src in EXPRESS_INPUT_SOURCES)
 
         if has_user_input:
             findings.append(StandardFinding(
@@ -231,29 +238,34 @@ def _check_middleware_injection(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # Express user input patterns to check
+    user_input_patterns = ['req.body', 'req.query', 'req.params']
+
     # Find middleware that modifies response
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
         WHERE f.callee_function = 'app.use'
-          AND f.argument_expr LIKE '%res.write%'
-          AND (f.argument_expr LIKE '%req.body%'
-               OR f.argument_expr LIKE '%req.query%'
-               OR f.argument_expr LIKE '%req.params%')
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, middleware in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='express-xss-middleware',
-            message='XSS: Express middleware writing user input to response',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='xss',
-            snippet='app.use((req, res, next) => { res.write(req.body...) })',
-            cwe_id='CWE-79'
-        ))
+        # Filter in Python: Check if middleware contains res.write and user input
+        has_res_write = 'res.write' in middleware
+        has_user_input = any(pattern in middleware for pattern in user_input_patterns)
+
+        if has_res_write and has_user_input:
+            findings.append(StandardFinding(
+                rule_name='express-xss-middleware',
+                message='XSS: Express middleware writing user input to response',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category='xss',
+                snippet='app.use((req, res, next) => { res.write(req.body...) })',
+                cwe_id='CWE-79'
+            ))
 
     return findings
 
@@ -263,19 +275,26 @@ def _check_cookie_injection(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # Express user input patterns to check
+    user_input_patterns = ['req.body', 'req.query', 'req.params']
+
     # Check res.cookie with user input
     cursor.execute("""
         SELECT f.file, f.line, f.argument_expr
         FROM function_call_args f
         WHERE f.callee_function IN ('res.cookie', 'response.cookie')
-          AND f.argument_index = 1  -- Cookie value
-          AND (f.argument_expr LIKE '%req.body%'
-               OR f.argument_expr LIKE '%req.query%'
-               OR f.argument_expr LIKE '%req.params%')
+          AND f.argument_index = 1
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, cookie_value in cursor.fetchall():
+        # Filter in Python: Check if cookie value contains user input
+        has_user_input = any(pattern in cookie_value for pattern in user_input_patterns)
+
+        if not has_user_input:
+            continue
+
         # Check if httpOnly is set
         cursor.execute("""
             SELECT f2.argument_expr
@@ -307,21 +326,27 @@ def _check_header_injection(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # Express user input patterns to check
+    user_input_patterns = ['req.body', 'req.query', 'req.params', 'req.headers']
+
     # Check res.set/setHeader with user input
     cursor.execute("""
         SELECT f.file, f.line, f.callee_function, f.argument_expr
         FROM function_call_args f
         WHERE f.callee_function IN ('res.set', 'res.setHeader',
                                    'response.set', 'response.setHeader')
-          AND f.argument_index = 1  -- Header value
-          AND (f.argument_expr LIKE '%req.body%'
-               OR f.argument_expr LIKE '%req.query%'
-               OR f.argument_expr LIKE '%req.params%'
-               OR f.argument_expr LIKE '%req.headers%')
+          AND f.argument_index = 1
+          AND f.argument_expr IS NOT NULL
         ORDER BY f.file, f.line
     """)
 
     for file, line, func, header_value in cursor.fetchall():
+        # Filter in Python: Check if header value contains user input
+        has_user_input = any(pattern in header_value for pattern in user_input_patterns)
+
+        if not has_user_input:
+            continue
+
         # Check which header is being set
         cursor.execute("""
             SELECT f2.argument_expr
@@ -356,6 +381,9 @@ def _check_jsonp_callback(conn) -> List[StandardFinding]:
     findings = []
     cursor = conn.cursor()
 
+    # Express user input patterns to check
+    user_input_patterns = ['req.query', 'req.params']
+
     # Check res.jsonp with callback parameter from user
     cursor.execute("""
         SELECT f.file, f.line, f.argument_expr
@@ -366,27 +394,45 @@ def _check_jsonp_callback(conn) -> List[StandardFinding]:
     """)
 
     for file, line, data in cursor.fetchall():
-        # Check if app has custom callback name
+        # Check if app has custom callback name nearby
         cursor.execute("""
-            SELECT a.source_expr
+            SELECT a.target_var, a.source_expr
             FROM assignments a
-            WHERE a.target_var LIKE '%callback%'
-              AND (a.source_expr LIKE '%req.query%'
-                   OR a.source_expr LIKE '%req.params%')
+            WHERE a.file = ?
               AND ABS(a.line - ?) <= 10
-              AND a.file = ?
-        """, [line, file])
+              AND a.target_var IS NOT NULL
+              AND a.source_expr IS NOT NULL
+        """, [file, line])
 
-        if cursor.fetchone():
-            findings.append(StandardFinding(
-                rule_name='express-jsonp-injection',
-                message='JSONP Callback Injection: User controls callback name',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='xss',
-                snippet='res.jsonp(data) with user-controlled callback',
-                cwe_id='CWE-79'
-            ))
+        # Filter in Python: Check for callback assignments with user input
+        for target_var, source_expr in cursor.fetchall():
+            has_callback = 'callback' in target_var
+            has_user_input = any(pattern in source_expr for pattern in user_input_patterns)
+
+            if has_callback and has_user_input:
+                findings.append(StandardFinding(
+                    rule_name='express-jsonp-injection',
+                    message='JSONP Callback Injection: User controls callback name',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category='xss',
+                    snippet='res.jsonp(data) with user-controlled callback',
+                    cwe_id='CWE-79'
+                ))
+                break  # Only report once per jsonp call
 
     return findings
+
+
+# ============================================================================
+# ORCHESTRATOR ENTRY POINT
+# ============================================================================
+
+def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+    """Orchestrator-compatible entry point.
+
+    This is the standardized interface that the orchestrator expects.
+    Delegates to the main implementation function for backward compatibility.
+    """
+    return find_express_xss(context)
