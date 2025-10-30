@@ -133,9 +133,9 @@ METADATA = RuleMetadata(
 
 ## 📊 AUDIT PROGRESS TRACKING
 
-**Current Folder**: deployment/
-**Current File**: compose_analyze.py
-**Files Completed**: 9/62
+**Current Folder**: github_actions/
+**Current File**: artifact_poisoning.py
+**Files Completed**: 17/62
 
 ### Completed Files:
 - [x] auth/jwt_analyze.py - Passed inspection
@@ -147,6 +147,14 @@ METADATA = RuleMetadata(
 - [x] deployment/aws_cdk_iam_wildcards_analyze.py - Passed inspection
 - [x] deployment/aws_cdk_s3_public_analyze.py - Passed inspection
 - [x] deployment/aws_cdk_sg_open_analyze.py - Passed inspection
+- [x] deployment/compose_analyze.py - Passed inspection
+- [x] deployment/docker_analyze.py - Passed inspection
+- [x] deployment/nginx_analyze.py - Passed inspection
+- [x] frameworks/express_analyze.py - Passed inspection
+- [x] frameworks/fastapi_analyze.py - Passed inspection
+- [x] frameworks/flask_analyze.py - Passed inspection
+- [x] frameworks/nextjs_analyze.py - Passed inspection
+- [x] frameworks/react_analyze.py - Passed inspection
 
 
 ## 🎯 AUDIT ONBOARDING FOR FUTURE SESSIONS
