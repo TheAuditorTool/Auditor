@@ -848,6 +848,65 @@ class DatabaseManager:
             1 if has_custom_validator else 0
         ))
 
+    def add_python_drf_serializer(self, file_path: str, line: int, serializer_class_name: str,
+                                  field_count: int, is_model_serializer: bool, has_meta_model: bool,
+                                  has_read_only_fields: bool, has_custom_validators: bool):
+        """Add a Django REST Framework serializer definition to the batch."""
+        self.generic_batches['python_drf_serializers'].append((
+            file_path,
+            line,
+            serializer_class_name,
+            field_count,
+            1 if is_model_serializer else 0,
+            1 if has_meta_model else 0,
+            1 if has_read_only_fields else 0,
+            1 if has_custom_validators else 0
+        ))
+
+    def add_python_drf_serializer_field(self, file_path: str, line: int, serializer_class_name: str,
+                                        field_name: str, field_type: str, read_only: bool,
+                                        write_only: bool, required: bool, allow_null: bool,
+                                        has_source: bool, has_custom_validator: bool):
+        """Add a Django REST Framework field definition to the batch."""
+        self.generic_batches['python_drf_serializer_fields'].append((
+            file_path,
+            line,
+            serializer_class_name,
+            field_name,
+            field_type,
+            1 if read_only else 0,
+            1 if write_only else 0,
+            1 if required else 0,
+            1 if allow_null else 0,
+            1 if has_source else 0,
+            1 if has_custom_validator else 0
+        ))
+
+    def add_python_wtforms_form(self, file_path: str, line: int, form_class_name: str,
+                                field_count: int, has_custom_validators: bool):
+        """Add a WTForms form definition to the batch."""
+        self.generic_batches['python_wtforms_forms'].append((
+            file_path,
+            line,
+            form_class_name,
+            field_count,
+            1 if has_custom_validators else 0
+        ))
+
+    def add_python_wtforms_field(self, file_path: str, line: int, form_class_name: str,
+                                 field_name: str, field_type: str, has_validators: bool,
+                                 has_custom_validator: bool):
+        """Add a WTForms field definition to the batch."""
+        self.generic_batches['python_wtforms_fields'].append((
+            file_path,
+            line,
+            form_class_name,
+            field_name,
+            field_type,
+            1 if has_validators else 0,
+            1 if has_custom_validator else 0
+        ))
+
     def add_sql_object(self, file_path: str, kind: str, name: str):
         """Add a SQL object record to the batch."""
         self.generic_batches['sql_objects'].append((file_path, kind, name))

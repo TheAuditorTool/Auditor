@@ -1352,6 +1352,69 @@ class IndexerOrchestrator:
                     self.counts['python_marshmallow_fields'] = 0
                 self.counts['python_marshmallow_fields'] += 1
 
+        if 'python_drf_serializers' in extracted:
+            for drf_serializer in extracted['python_drf_serializers']:
+                self.db_manager.add_python_drf_serializer(
+                    file_path,
+                    drf_serializer.get('line', 0),
+                    drf_serializer.get('serializer_class_name', ''),
+                    drf_serializer.get('field_count', 0),
+                    drf_serializer.get('is_model_serializer', False),
+                    drf_serializer.get('has_meta_model', False),
+                    drf_serializer.get('has_read_only_fields', False),
+                    drf_serializer.get('has_custom_validators', False)
+                )
+                if 'python_drf_serializers' not in self.counts:
+                    self.counts['python_drf_serializers'] = 0
+                self.counts['python_drf_serializers'] += 1
+
+        if 'python_drf_serializer_fields' in extracted:
+            for drf_field in extracted['python_drf_serializer_fields']:
+                self.db_manager.add_python_drf_serializer_field(
+                    file_path,
+                    drf_field.get('line', 0),
+                    drf_field.get('serializer_class_name', ''),
+                    drf_field.get('field_name', ''),
+                    drf_field.get('field_type', ''),
+                    drf_field.get('read_only', False),
+                    drf_field.get('write_only', False),
+                    drf_field.get('required', False),
+                    drf_field.get('allow_null', False),
+                    drf_field.get('has_source', False),
+                    drf_field.get('has_custom_validator', False)
+                )
+                if 'python_drf_serializer_fields' not in self.counts:
+                    self.counts['python_drf_serializer_fields'] = 0
+                self.counts['python_drf_serializer_fields'] += 1
+
+        if 'python_wtforms_forms' in extracted:
+            for wtforms_form in extracted['python_wtforms_forms']:
+                self.db_manager.add_python_wtforms_form(
+                    file_path,
+                    wtforms_form.get('line', 0),
+                    wtforms_form.get('form_class_name', ''),
+                    wtforms_form.get('field_count', 0),
+                    wtforms_form.get('has_custom_validators', False)
+                )
+                if 'python_wtforms_forms' not in self.counts:
+                    self.counts['python_wtforms_forms'] = 0
+                self.counts['python_wtforms_forms'] += 1
+
+        if 'python_wtforms_fields' in extracted:
+            for wtforms_field in extracted['python_wtforms_fields']:
+                self.db_manager.add_python_wtforms_field(
+                    file_path,
+                    wtforms_field.get('line', 0),
+                    wtforms_field.get('form_class_name', ''),
+                    wtforms_field.get('field_name', ''),
+                    wtforms_field.get('field_type', ''),
+                    wtforms_field.get('has_validators', False),
+                    wtforms_field.get('has_custom_validator', False)
+                )
+                if 'python_wtforms_fields' not in self.counts:
+                    self.counts['python_wtforms_fields'] = 0
+                self.counts['python_wtforms_fields'] += 1
+
         if 'python_validators' in extracted:
             for validator in extracted['python_validators']:
                 self.db_manager.add_python_validator(

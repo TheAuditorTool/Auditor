@@ -890,6 +890,85 @@ PYTHON_MARSHMALLOW_FIELDS = TableSchema(
     ]
 )
 
+PYTHON_DRF_SERIALIZERS = TableSchema(
+    name="python_drf_serializers",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("serializer_class_name", "TEXT", nullable=False),
+        Column("field_count", "INTEGER", default="0"),               # Validation surface area
+        Column("is_model_serializer", "BOOLEAN", default="0"),       # ModelSerializer vs Serializer
+        Column("has_meta_model", "BOOLEAN", default="0"),            # Has Meta.model
+        Column("has_read_only_fields", "BOOLEAN", default="0"),      # Has Meta.read_only_fields
+        Column("has_custom_validators", "BOOLEAN", default="0"),     # validate_<field> methods
+    ],
+    primary_key=["file", "line", "serializer_class_name"],
+    indexes=[
+        ("idx_python_drf_serializers_file", ["file"]),
+        ("idx_python_drf_serializers_name", ["serializer_class_name"]),
+        ("idx_python_drf_serializers_model", ["is_model_serializer"]),
+    ]
+)
+
+PYTHON_DRF_SERIALIZER_FIELDS = TableSchema(
+    name="python_drf_serializer_fields",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("serializer_class_name", "TEXT", nullable=False),
+        Column("field_name", "TEXT", nullable=False),
+        Column("field_type", "TEXT", nullable=False),                # CharField, IntegerField, etc.
+        Column("read_only", "BOOLEAN", default="0"),                 # read_only=True flag
+        Column("write_only", "BOOLEAN", default="0"),                # write_only=True flag
+        Column("required", "BOOLEAN", default="0"),                  # required=True flag
+        Column("allow_null", "BOOLEAN", default="0"),                # allow_null=True flag
+        Column("has_source", "BOOLEAN", default="0"),                # source= parameter
+        Column("has_custom_validator", "BOOLEAN", default="0"),      # validate_<field> method
+    ],
+    primary_key=["file", "line", "serializer_class_name", "field_name"],
+    indexes=[
+        ("idx_python_drf_fields_file", ["file"]),
+        ("idx_python_drf_fields_serializer", ["serializer_class_name"]),
+        ("idx_python_drf_fields_read_only", ["read_only"]),
+        ("idx_python_drf_fields_write_only", ["write_only"]),
+    ]
+)
+
+PYTHON_WTFORMS_FORMS = TableSchema(
+    name="python_wtforms_forms",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("form_class_name", "TEXT", nullable=False),
+        Column("field_count", "INTEGER", default="0"),               # Validation surface area
+        Column("has_custom_validators", "BOOLEAN", default="0"),     # validate_<field> methods
+    ],
+    primary_key=["file", "line", "form_class_name"],
+    indexes=[
+        ("idx_python_wtforms_forms_file", ["file"]),
+        ("idx_python_wtforms_forms_name", ["form_class_name"]),
+    ]
+)
+
+PYTHON_WTFORMS_FIELDS = TableSchema(
+    name="python_wtforms_fields",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("form_class_name", "TEXT", nullable=False),
+        Column("field_name", "TEXT", nullable=False),
+        Column("field_type", "TEXT", nullable=False),                # StringField, IntegerField, etc.
+        Column("has_validators", "BOOLEAN", default="0"),            # validators=[...] keyword
+        Column("has_custom_validator", "BOOLEAN", default="0"),      # validate_<field> method
+    ],
+    primary_key=["file", "line", "form_class_name", "field_name"],
+    indexes=[
+        ("idx_python_wtforms_fields_file", ["file"]),
+        ("idx_python_wtforms_fields_form", ["form_class_name"]),
+        ("idx_python_wtforms_fields_has_validators", ["has_validators"]),
+    ]
+)
+
 # ============================================================================
 # SQL & DATABASE TABLES
 # ============================================================================
@@ -2294,6 +2373,10 @@ TABLES: Dict[str, TableSchema] = {
     "python_django_middleware": PYTHON_DJANGO_MIDDLEWARE,
     "python_marshmallow_schemas": PYTHON_MARSHMALLOW_SCHEMAS,
     "python_marshmallow_fields": PYTHON_MARSHMALLOW_FIELDS,
+    "python_drf_serializers": PYTHON_DRF_SERIALIZERS,
+    "python_drf_serializer_fields": PYTHON_DRF_SERIALIZER_FIELDS,
+    "python_wtforms_forms": PYTHON_WTFORMS_FORMS,
+    "python_wtforms_fields": PYTHON_WTFORMS_FIELDS,
 
     # SQL & database
     "sql_objects": SQL_OBJECTS,

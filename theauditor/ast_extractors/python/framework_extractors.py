@@ -1280,3 +1280,359 @@ def extract_marshmallow_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                             })
 
     return fields
+
+
+def extract_drf_serializers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract Django REST Framework serializer definitions.
+
+    Detects:
+    - Serializer class definitions (inherit from serializers.Serializer or serializers.ModelSerializer)
+    - Field count (validation surface area)
+    - ModelSerializer detection (has Meta.model)
+    - read_only_fields in Meta
+    - Custom validators (validate_<field> methods)
+
+    Security relevance:
+    - Serializers without validators = incomplete input validation
+    - Missing read_only_fields = mass assignment vulnerabilities
+    - ModelSerializer without field restrictions = over-exposure (parity with Express/Prisma)
+    """
+    serializers_list = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return serializers_list
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if inherits from DRF Serializer
+        # Handles: Serializer, ModelSerializer, serializers.Serializer, rest_framework.serializers.Serializer
+        base_names = [get_node_name(base) for base in node.bases]
+        is_drf_serializer = any(
+            base.endswith('Serializer') and ('serializers' in base or base in ['Serializer', 'ModelSerializer'])
+            for base in base_names
+        )
+
+        if not is_drf_serializer:
+            continue
+
+        serializer_class_name = node.name
+        field_count = 0
+        is_model_serializer = any('ModelSerializer' in base for base in base_names)
+        has_meta_model = False
+        has_read_only_fields = False
+        has_custom_validators = False
+
+        # Scan class body for fields, Meta, and validators
+        for item in node.body:
+            # Count field assignments (serializers.CharField(), serializers.IntegerField(), etc.)
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        # Check if value is a DRF field
+                        if isinstance(item.value, ast.Call):
+                            field_type_name = get_node_name(item.value.func)
+                            # Check for serializers.Field patterns
+                            if ('serializers.' in field_type_name or 'Field' in field_type_name):
+                                field_count += 1
+
+            # Check for Meta class
+            elif isinstance(item, ast.ClassDef) and item.name == 'Meta':
+                for meta_item in item.body:
+                    # Check for model = ... in Meta
+                    if isinstance(meta_item, ast.Assign):
+                        for target in meta_item.targets:
+                            if isinstance(target, ast.Name):
+                                if target.id == 'model':
+                                    has_meta_model = True
+                                elif target.id == 'read_only_fields':
+                                    has_read_only_fields = True
+
+            # Check for validator methods (validate_<field>)
+            elif isinstance(item, ast.FunctionDef):
+                if item.name.startswith('validate_'):
+                    has_custom_validators = True
+
+        serializers_list.append({
+            "line": node.lineno,
+            "serializer_class_name": serializer_class_name,
+            "field_count": field_count,
+            "is_model_serializer": is_model_serializer,
+            "has_meta_model": has_meta_model,
+            "has_read_only_fields": has_read_only_fields,
+            "has_custom_validators": has_custom_validators,
+        })
+
+    return serializers_list
+
+
+def extract_drf_serializer_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract Django REST Framework field definitions from serializers.
+
+    Detects:
+    - Field types (CharField, IntegerField, EmailField, SerializerMethodField, etc.)
+    - read_only flag (read_only=True)
+    - write_only flag (write_only=True)
+    - required flag (required=True/False)
+    - allow_null flag (allow_null=True)
+    - source parameter (source='other_field')
+    - Custom validators (validate_<field> methods)
+
+    Security relevance:
+    - Fields without read_only = mass assignment risk
+    - write_only without validation = incomplete input sanitization
+    - allow_null without validation = null pointer issues
+    - Missing required= = optional input bypass (parity with Joi.required())
+    """
+    fields = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return fields
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if this is a DRF serializer
+        base_names = [get_node_name(base) for base in node.bases]
+        is_drf_serializer = any(
+            base.endswith('Serializer') and ('serializers' in base or base in ['Serializer', 'ModelSerializer'])
+            for base in base_names
+        )
+
+        if not is_drf_serializer:
+            continue
+
+        serializer_class_name = node.name
+
+        # Collect validator methods (validate_<field>)
+        field_validators = set()
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                if item.name.startswith('validate_') and item.name != 'validate':
+                    # Extract field name from validate_<field_name>
+                    field_name = item.name[9:]  # Remove 'validate_' prefix
+                    field_validators.add(field_name)
+
+        # Extract field definitions
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        field_name = target.id
+
+                        # Check if value is a DRF field
+                        if isinstance(item.value, ast.Call):
+                            field_type_name = get_node_name(item.value.func)
+
+                            # Skip if not a DRF field
+                            if not ('serializers.' in field_type_name or
+                                   'Field' in field_type_name or
+                                   field_type_name in ['CharField', 'IntegerField', 'EmailField',
+                                                      'BooleanField', 'DateField', 'DateTimeField',
+                                                      'SerializerMethodField', 'PrimaryKeyRelatedField']):
+                                continue
+
+                            # Extract field type (CharField, IntegerField, etc.)
+                            field_type = field_type_name.split('.')[-1]
+
+                            # Extract keyword arguments
+                            read_only = False
+                            write_only = False
+                            required = False
+                            allow_null = False
+                            has_source = False
+
+                            for keyword in item.value.keywords:
+                                if keyword.arg == 'read_only':
+                                    if isinstance(keyword.value, ast.Constant):
+                                        read_only = bool(keyword.value.value)
+                                elif keyword.arg == 'write_only':
+                                    if isinstance(keyword.value, ast.Constant):
+                                        write_only = bool(keyword.value.value)
+                                elif keyword.arg == 'required':
+                                    if isinstance(keyword.value, ast.Constant):
+                                        required = bool(keyword.value.value)
+                                elif keyword.arg == 'allow_null':
+                                    if isinstance(keyword.value, ast.Constant):
+                                        allow_null = bool(keyword.value.value)
+                                elif keyword.arg == 'source':
+                                    has_source = True
+
+                            # Check if field has custom validator method
+                            has_custom_validator = field_name in field_validators
+
+                            fields.append({
+                                "line": item.lineno,
+                                "serializer_class_name": serializer_class_name,
+                                "field_name": field_name,
+                                "field_type": field_type,
+                                "read_only": read_only,
+                                "write_only": write_only,
+                                "required": required,
+                                "allow_null": allow_null,
+                                "has_source": has_source,
+                                "has_custom_validator": has_custom_validator,
+                            })
+
+    return fields
+
+
+def extract_wtforms_forms(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract WTForms form definitions.
+
+    Detects:
+    - Form class definitions (inherit from Form or FlaskForm)
+    - Field count (validation surface area)
+    - Custom validators (validate_<field> methods)
+
+    Security relevance:
+    - Forms without validators = incomplete input validation
+    - Missing validators on sensitive fields = injection vulnerabilities
+    - Flask-WTF CSRF protection when using FlaskForm (parity with DRF)
+    """
+    forms_list = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return forms_list
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if inherits from WTForms Form
+        # Handles: Form, FlaskForm, wtforms.Form, flask_wtf.FlaskForm
+        base_names = [get_node_name(base) for base in node.bases]
+        is_wtforms_form = any(
+            base.endswith('Form') and ('wtforms' in base or 'flask_wtf' in base or base in ['Form', 'FlaskForm'])
+            for base in base_names
+        )
+
+        if not is_wtforms_form:
+            continue
+
+        form_class_name = node.name
+        field_count = 0
+        has_custom_validators = False
+
+        # Scan class body for fields and validators
+        for item in node.body:
+            # Count field assignments (StringField(), IntegerField(), etc.)
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        # Check if value is a WTForms field
+                        if isinstance(item.value, ast.Call):
+                            field_type_name = get_node_name(item.value.func)
+                            # Check for wtforms.Field patterns
+                            if ('Field' in field_type_name and
+                                ('wtforms' in field_type_name or
+                                 field_type_name in ['StringField', 'IntegerField', 'PasswordField',
+                                                    'BooleanField', 'TextAreaField', 'SelectField',
+                                                    'DateField', 'DateTimeField', 'FileField',
+                                                    'DecimalField', 'FloatField', 'SubmitField'])):
+                                field_count += 1
+
+            # Check for validator methods (validate_<field>)
+            elif isinstance(item, ast.FunctionDef):
+                if item.name.startswith('validate_'):
+                    has_custom_validators = True
+
+        forms_list.append({
+            "line": node.lineno,
+            "form_class_name": form_class_name,
+            "field_count": field_count,
+            "has_custom_validators": has_custom_validators,
+        })
+
+    return forms_list
+
+
+def extract_wtforms_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract WTForms field definitions from forms.
+
+    Detects:
+    - Field types (StringField, IntegerField, PasswordField, etc.)
+    - Has validators (validators=[...] keyword argument)
+    - Custom validators (validate_<field> methods)
+
+    Security relevance:
+    - Fields without validators = missing input validation
+    - PasswordField without validators = weak password policy
+    - Missing DataRequired = optional input bypass (parity with DRF required=True)
+    """
+    fields = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return fields
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if this is a WTForms form
+        base_names = [get_node_name(base) for base in node.bases]
+        is_wtforms_form = any(
+            base.endswith('Form') and ('wtforms' in base or 'flask_wtf' in base or base in ['Form', 'FlaskForm'])
+            for base in base_names
+        )
+
+        if not is_wtforms_form:
+            continue
+
+        form_class_name = node.name
+
+        # Collect validator methods (validate_<field>)
+        field_validators = set()
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                if item.name.startswith('validate_'):
+                    # Extract field name from validate_<field_name>
+                    field_name = item.name[9:]  # Remove 'validate_' prefix
+                    field_validators.add(field_name)
+
+        # Extract field definitions
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        field_name = target.id
+
+                        # Check if value is a WTForms field
+                        if isinstance(item.value, ast.Call):
+                            field_type_name = get_node_name(item.value.func)
+
+                            # Skip if not a WTForms field
+                            if not ('Field' in field_type_name and
+                                   ('wtforms' in field_type_name or
+                                    field_type_name in ['StringField', 'IntegerField', 'PasswordField',
+                                                       'BooleanField', 'TextAreaField', 'SelectField',
+                                                       'DateField', 'DateTimeField', 'FileField',
+                                                       'DecimalField', 'FloatField', 'SubmitField',
+                                                       'EmailField', 'URLField', 'TelField'])):
+                                continue
+
+                            # Extract field type (StringField, IntegerField, etc.)
+                            field_type = field_type_name.split('.')[-1]
+
+                            # Check for validators keyword argument
+                            has_validators = False
+                            for keyword in item.value.keywords:
+                                if keyword.arg == 'validators':
+                                    has_validators = True
+                                    break
+
+                            # Check if field has custom validator method
+                            has_custom_validator = field_name in field_validators
+
+                            fields.append({
+                                "line": item.lineno,
+                                "form_class_name": form_class_name,
+                                "field_name": field_name,
+                                "field_type": field_type,
+                                "has_validators": has_validators,
+                                "has_custom_validator": has_custom_validator,
+                            })
+
+    return fields
