@@ -18,41 +18,70 @@ logger = setup_logger(__name__)
 def cdk():
     """Analyze AWS CDK Infrastructure-as-Code security.
 
-    Provides infrastructure security analysis for AWS CDK Python code,
-    detecting misconfigurations like public S3 buckets, unencrypted databases,
-    open security groups, and overly permissive IAM policies.
-
-    Subcommands:
-      analyze  - Detect CDK infrastructure security issues
-
-    Typical Workflow:
-      1. aud index                     # Extract CDK constructs from Python files
-      2. aud cdk analyze               # Detect security issues
-      3. aud report                    # Include CDK findings in consolidated report
-
-    The CDK analyzer detects:
-      - Public S3 buckets (public_read_access=True)
-      - Missing S3 block_public_access configuration
-      - Unencrypted RDS instances
-      - Unencrypted EBS volumes
-      - DynamoDB tables with default encryption
-      - Security groups with unrestricted ingress (0.0.0.0/0, ::/0)
-      - Security groups with allow_all_outbound
-      - IAM policies with wildcard actions or resources
-      - IAM roles with AdministratorAccess policy
-
-    Examples:
-      aud cdk analyze                          # Run all CDK security checks
-      aud cdk analyze --severity critical      # Show only critical findings
-      aud cdk analyze --format json            # Export findings as JSON
-
-    Output:
-      .pf/repo_index.db (cdk_findings table)   # Security findings stored here
-      .pf/readthis/cdk_*.json                  # AI-optimized capsules (future)
+    Detects security misconfigurations in AWS Cloud Development Kit (CDK) Python
+    code before deployment. Findings are written to the database for querying.
 
     Prerequisites:
-      - Must run 'aud index' first to extract CDK constructs
-      - Python files must import aws_cdk
+        Run indexing first to extract CDK constructs:
+          aud index       (recommended - full project indexing)
+
+    Typical Workflow:
+        1. aud index                     # Extract CDK constructs from Python files
+        2. aud cdk analyze               # Detect security issues (writes to DB)
+        3. Query .pf/repo_index.db       # Read findings from cdk_findings table
+
+    Security Checks Performed:
+        S3 Buckets:
+          - Public read access enabled (public_read_access=True)
+          - Missing block_public_access configuration
+
+        Databases:
+          - Unencrypted RDS instances
+          - Unencrypted EBS volumes
+          - DynamoDB tables with default encryption
+
+        Network Security:
+          - Security groups with unrestricted ingress (0.0.0.0/0, ::/0)
+          - Security groups with allow_all_outbound enabled
+
+        IAM Permissions:
+          - Wildcard actions in IAM policies (Action: "*")
+          - Wildcard resources in IAM policies (Resource: "*")
+          - IAM roles with AdministratorAccess policy
+
+    Examples:
+        # Run all CDK security checks
+        aud cdk analyze
+
+        # Filter by severity (useful for CI/CD)
+        aud cdk analyze --severity critical
+
+        # Human-readable report
+        aud cdk analyze --format json --output report.json
+
+    Output Locations:
+        .pf/repo_index.db::cdk_findings           # CDK findings (query this!)
+        .pf/repo_index.db::findings_consolidated  # All findings (includes CDK)
+        stdout or --output file                   # Human-readable report
+
+    For AI Integration (IMPORTANT):
+        Findings are written to DATABASE, not just stdout.
+        Query the database directly:
+
+          SELECT finding_id, file_path, line, severity, category, title
+          FROM cdk_findings
+          WHERE severity IN ('critical', 'high')
+          ORDER BY severity;
+
+        DO NOT parse JSON output - it's for human consumption only.
+        Database is the single source of truth.
+
+    Subcommands:
+        analyze     Detect CDK infrastructure security issues
+
+    See Also:
+        theauditor/aws_cdk/README.md              # CDK analyzer docs
+        tests/fixtures/cdk_test_project/          # Example CDK project
     """
     pass
 
@@ -66,21 +95,27 @@ def cdk():
 def analyze(root, db, severity, output_format, output):
     """Detect AWS CDK infrastructure security issues.
 
-    Analyzes CDK constructs extracted during indexing and applies security
-    detection rules to identify misconfigurations.
+    Analyzes CDK constructs and writes findings to cdk_findings database table.
+    Stdout/JSON output is for human consumption only - AI should query database.
 
-    The analyzer queries the cdk_constructs and cdk_construct_properties tables
-    to detect:
-    - Publicly accessible resources
-    - Missing encryption configurations
-    - Overly permissive network rules
-    - Excessive IAM permissions
+    Detection Categories:
+      - Publicly accessible resources (S3, RDS, etc.)
+      - Missing encryption configurations
+      - Overly permissive network rules (security groups)
+      - Excessive IAM permissions (wildcard policies)
 
     Examples:
       aud cdk analyze                          # All findings
       aud cdk analyze --severity high          # High+ severity only
-      aud cdk analyze --format json            # JSON output
+      aud cdk analyze --format json            # JSON output (human report)
       aud cdk analyze --output cdk_report.json # Write to file
+
+    For AI Integration:
+      Step 1: Run analysis (writes to database)
+        aud cdk analyze
+
+      Step 2: Query database (DO NOT parse stdout!)
+        SELECT * FROM cdk_findings WHERE severity='critical';
 
     Exit Codes:
       0 = No security issues found
@@ -90,7 +125,7 @@ def analyze(root, db, severity, output_format, output):
 
     Prerequisites:
       - Run 'aud index' first to populate cdk_constructs table
-      - CDK Python files must be in project
+      - CDK Python files must import aws_cdk
     """
     from ..aws_cdk.analyzer import AWSCdkAnalyzer
 

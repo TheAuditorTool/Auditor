@@ -2089,19 +2089,22 @@ def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
             return None  # No successor
 
         elif kind == 'TryStatement':
-            # Create try block
+            # Get try body to determine block span
+            try_body = get_child_by_kind(node, 'Block')
+            try_end_line = try_body.get('endLine', line) if try_body else line
+
+            # Create try block - FIXED: Span from try keyword to end of try body
             try_id = get_next_block_id()
             blocks.append({
                 'id': try_id,
                 'type': 'try',
                 'start_line': line,
-                'end_line': line,
+                'end_line': try_end_line,  # FIXED: Use try body's endLine
                 'statements': [{'type': 'try', 'line': line}]
             })
             edges.append({'source': current_id, 'target': try_id, 'type': 'normal'})
 
             # Process try body
-            try_body = get_child_by_kind(node, 'Block')
             if try_body:
                 try_id = process_children(try_body, try_id, depth + 1)
 
@@ -2113,18 +2116,22 @@ def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
                     break
 
             if catch_block:
+                # Get catch body to determine block span
+                catch_body = get_child_by_kind(catch_block, 'Block')
+                catch_start_line = catch_block.get('line', line)
+                catch_end_line = catch_body.get('endLine', catch_start_line) if catch_body else catch_start_line
+
                 catch_id = get_next_block_id()
                 blocks.append({
                     'id': catch_id,
                     'type': 'except',
-                    'start_line': catch_block.get('line', line),
-                    'end_line': catch_block.get('line', line),
-                    'statements': [{'type': 'catch', 'line': catch_block.get('line', line)}]
+                    'start_line': catch_start_line,
+                    'end_line': catch_end_line,  # FIXED: Use catch body's endLine
+                    'statements': [{'type': 'catch', 'line': catch_start_line}]
                 })
                 edges.append({'source': try_id, 'target': catch_id, 'type': 'exception'})
 
                 # Process catch body
-                catch_body = get_child_by_kind(catch_block, 'Block')
                 if catch_body:
                     catch_id = process_children(catch_body, catch_id, depth + 1)
 
