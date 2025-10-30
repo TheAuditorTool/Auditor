@@ -1667,6 +1667,63 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
             }
         }
 
+        // CRITICAL FIX: Handle NewExpression for CDK construct extraction
+        // Pattern: new s3.Bucket(this, 'MyBucket', {...})
+        // Creates function_call_args with callee_function = "new s3.Bucket"
+        if (node.kind === ts.SyntaxKind.NewExpression) {
+            const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+            const callerFunction = scopeMap.get(line + 1) || 'global';
+
+            // Extract class name
+            let className = '';
+            if (node.expression) {
+                const exprKind = ts.SyntaxKind[node.expression.kind];
+                if (exprKind === 'Identifier') {
+                    className = node.expression.text || node.expression.escapedText || '';
+                } else if (exprKind === 'PropertyAccessExpression') {
+                    className = buildDottedName(node.expression, ts);
+                }
+            }
+
+            // Prefix with "new " to distinguish from regular calls
+            if (className) {
+                const calleeName = 'new ' + className;
+
+                // Extract arguments (same logic as CallExpression)
+                const args = node.arguments || [];
+                const params = functionParams.get(className) || [];
+
+                // Handle 0-arg constructors (e.g., new Date())
+                if (args.length === 0) {
+                    calls.push({
+                        line: line + 1,
+                        caller_function: callerFunction,
+                        callee_function: calleeName,
+                        argument_index: null,
+                        argument_expr: null,
+                        param_name: null,
+                        callee_file_path: null  // Constructor resolution not critical for CDK
+                    });
+                } else {
+                    // Constructors with arguments (e.g., new s3.Bucket(this, 'MyBucket', {...}))
+                    args.forEach((arg, i) => {
+                        const paramName = i < params.length ? params[i] : 'arg' + i;
+                        const argExpr = arg.getText(sourceFile).substring(0, 500);
+
+                        calls.push({
+                            line: line + 1,
+                            caller_function: callerFunction,
+                            callee_function: calleeName,
+                            argument_index: i,
+                            argument_expr: argExpr,
+                            param_name: paramName,
+                            callee_file_path: null  // Constructor resolution not critical
+                        });
+                    });
+                }
+            }
+        }
+
         ts.forEachChild(node, child => traverse(child, depth + 1));
     }
 

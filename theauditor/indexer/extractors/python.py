@@ -68,6 +68,30 @@ class PythonExtractor(BaseExtractor):
             'python_validators': [],
             'cdk_constructs': [],  # AWS CDK constructs
             'cdk_construct_properties': [],  # CDK construct properties
+            # Phase 2.2A: New Python pattern extractions
+            'python_decorators': [],  # All decorator usage
+            'python_context_managers': [],  # with statements and context manager classes
+            'python_async_functions': [],  # async def functions
+            'python_await_expressions': [],  # await calls
+            'python_async_generators': [],  # async for and async generator functions
+            'python_pytest_fixtures': [],  # @pytest.fixture decorators
+            'python_pytest_parametrize': [],  # @pytest.mark.parametrize decorators
+            'python_pytest_markers': [],  # Custom pytest markers
+            'python_mock_patterns': [],  # unittest.mock usage
+            'python_protocols': [],  # Protocol classes
+            'python_generics': [],  # Generic[T] classes
+            'python_typed_dicts': [],  # TypedDict definitions
+            'python_literals': [],  # Literal type usage
+            'python_overloads': [],  # @overload decorators
+            # Django framework extractions
+            'python_django_views': [],  # Django Class-Based Views
+            'python_django_forms': [],  # Django Form definitions
+            'python_django_form_fields': [],  # Django Form field definitions
+            'python_django_admin': [],  # Django Admin customization
+            'python_django_middleware': [],  # Django Middleware
+            # Marshmallow validation framework
+            'python_marshmallow_schemas': [],  # Marshmallow schema definitions
+            'python_marshmallow_fields': [],  # Marshmallow field definitions
         }
         seen_symbols = set()
         
@@ -178,32 +202,46 @@ class PythonExtractor(BaseExtractor):
                 if django_relationships:
                     result['orm_relationships'].extend(django_relationships)
 
+                # Django Class-Based Views
+                django_cbvs = python_impl.extract_django_cbvs(tree, self.ast_parser)
+                if django_cbvs:
+                    result['python_django_views'].extend(django_cbvs)
+
+                # Django Forms
+                django_forms = python_impl.extract_django_forms(tree, self.ast_parser)
+                if django_forms:
+                    result['python_django_forms'].extend(django_forms)
+
+                # Django Form Fields
+                django_form_fields = python_impl.extract_django_form_fields(tree, self.ast_parser)
+                if django_form_fields:
+                    result['python_django_form_fields'].extend(django_form_fields)
+
+                # Django Admin
+                django_admins = python_impl.extract_django_admin(tree, self.ast_parser)
+                if django_admins:
+                    result['python_django_admin'].extend(django_admins)
+
+                # Django Middleware
+                django_middlewares = python_impl.extract_django_middleware(tree, self.ast_parser)
+                if django_middlewares:
+                    result['python_django_middleware'].extend(django_middlewares)
+
+                # Marshmallow Schemas
+                marshmallow_schemas = python_impl.extract_marshmallow_schemas(tree, self.ast_parser)
+                if marshmallow_schemas:
+                    result['python_marshmallow_schemas'].extend(marshmallow_schemas)
+
+                # Marshmallow Fields
+                marshmallow_fields = python_impl.extract_marshmallow_fields(tree, self.ast_parser)
+                if marshmallow_fields:
+                    result['python_marshmallow_fields'].extend(marshmallow_fields)
+
                 # AWS CDK Infrastructure-as-Code constructs
                 cdk_constructs = python_impl.extract_python_cdk_constructs(tree, self.ast_parser)
                 if cdk_constructs:
-                    # Build construct records with composite IDs
-                    result['cdk_constructs'] = []
-                    result['cdk_construct_properties'] = []
-
-                    for construct in cdk_constructs:
-                        # Generate composite primary key
-                        construct_id = f"{file_info['path']}::L{construct['line']}::{construct['cdk_class']}::{construct.get('construct_name') or 'None'}"
-
-                        result['cdk_constructs'].append({
-                            'construct_id': construct_id,
-                            'line': construct['line'],
-                            'cdk_class': construct['cdk_class'],
-                            'construct_name': construct.get('construct_name')
-                        })
-
-                        # Add properties
-                        for prop in construct.get('properties', []):
-                            result['cdk_construct_properties'].append({
-                                'construct_id': construct_id,
-                                'property_name': prop['name'],
-                                'property_value_expr': prop['value_expr'],
-                                'line': prop['line']
-                            })
+                    # Return raw CDK construct data - indexer generates composite keys
+                    result['cdk_constructs'] = cdk_constructs
 
                 # Extract data flow information for taint analysis
                 assignments = self.ast_parser.extract_assignments(tree)
@@ -217,7 +255,14 @@ class PythonExtractor(BaseExtractor):
                     })
                 
                 # Extract function calls with arguments
-                calls_with_args = self.ast_parser.extract_function_calls_with_args(tree)
+                # CRITICAL: Call Python extractor directly to pass resolved_imports for cross-file taint analysis
+                function_params = self.ast_parser._extract_function_parameters(tree, 'python')
+                calls_with_args = python_impl.extract_python_calls_with_args(
+                    tree,
+                    function_params,
+                    self.ast_parser,
+                    resolved_imports=result.get('resolved_imports', {})
+                )
                 for call in calls_with_args:
                     # Skip calls with empty callee_function (violates CHECK constraint)
                     callee = call.get('callee_function', '')
@@ -230,7 +275,8 @@ class PythonExtractor(BaseExtractor):
                         'callee_function': callee,
                         'argument_index': call.get('argument_index', 0),
                         'argument_expr': call.get('argument_expr', ''),
-                        'param_name': call.get('param_name', '')
+                        'param_name': call.get('param_name', ''),
+                        'callee_file_path': call.get('callee_file_path')  # NEW: Cross-file taint analysis
                     })
                 
                 # Extract return statements
@@ -296,6 +342,68 @@ class PythonExtractor(BaseExtractor):
             blueprints = python_impl.extract_flask_blueprints(tree, self.ast_parser)
             if blueprints:
                 result['python_blueprints'].extend(blueprints)
+
+        # Phase 2.2A: Extract new Python patterns (decorators, async, testing, advanced types)
+        if tree and isinstance(tree, dict):
+            # Core patterns: decorators and context managers
+            decorators = python_impl.extract_python_decorators(tree, self.ast_parser)
+            if decorators:
+                result['python_decorators'].extend(decorators)
+
+            context_managers = python_impl.extract_python_context_managers(tree, self.ast_parser)
+            if context_managers:
+                result['python_context_managers'].extend(context_managers)
+
+            # Async patterns
+            async_functions = python_impl.extract_async_functions(tree, self.ast_parser)
+            if async_functions:
+                result['python_async_functions'].extend(async_functions)
+
+            await_expressions = python_impl.extract_await_expressions(tree, self.ast_parser)
+            if await_expressions:
+                result['python_await_expressions'].extend(await_expressions)
+
+            async_generators = python_impl.extract_async_generators(tree, self.ast_parser)
+            if async_generators:
+                result['python_async_generators'].extend(async_generators)
+
+            # Testing patterns
+            pytest_fixtures = python_impl.extract_pytest_fixtures(tree, self.ast_parser)
+            if pytest_fixtures:
+                result['python_pytest_fixtures'].extend(pytest_fixtures)
+
+            pytest_parametrize = python_impl.extract_pytest_parametrize(tree, self.ast_parser)
+            if pytest_parametrize:
+                result['python_pytest_parametrize'].extend(pytest_parametrize)
+
+            pytest_markers = python_impl.extract_pytest_markers(tree, self.ast_parser)
+            if pytest_markers:
+                result['python_pytest_markers'].extend(pytest_markers)
+
+            mock_patterns = python_impl.extract_mock_patterns(tree, self.ast_parser)
+            if mock_patterns:
+                result['python_mock_patterns'].extend(mock_patterns)
+
+            # Advanced type patterns
+            protocols = python_impl.extract_protocols(tree, self.ast_parser)
+            if protocols:
+                result['python_protocols'].extend(protocols)
+
+            generics = python_impl.extract_generics(tree, self.ast_parser)
+            if generics:
+                result['python_generics'].extend(generics)
+
+            typed_dicts = python_impl.extract_typed_dicts(tree, self.ast_parser)
+            if typed_dicts:
+                result['python_typed_dicts'].extend(typed_dicts)
+
+            literals = python_impl.extract_literals(tree, self.ast_parser)
+            if literals:
+                result['python_literals'].extend(literals)
+
+            overloads = python_impl.extract_overloads(tree, self.ast_parser)
+            if overloads:
+                result['python_overloads'].extend(overloads)
 
         # Mirror route data into python_routes for framework tracking
         if result['routes']:

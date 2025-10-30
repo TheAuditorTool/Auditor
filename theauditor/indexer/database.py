@@ -17,6 +17,7 @@ Hard failure is the only acceptable behavior for missing data or schema errors.
 
 import sqlite3
 import json
+import os
 from typing import Any, List, Dict, Optional
 from pathlib import Path
 from collections import defaultdict
@@ -275,6 +276,22 @@ class DatabaseManager:
                 ('python_blueprints', 'INSERT'),
                 ('python_validators', 'INSERT'),
 
+                # Python Phase 2.2: Advanced patterns
+                ('python_decorators', 'INSERT'),
+                ('python_context_managers', 'INSERT'),
+                ('python_async_functions', 'INSERT'),
+                ('python_await_expressions', 'INSERT'),
+                ('python_async_generators', 'INSERT'),
+                ('python_pytest_fixtures', 'INSERT'),
+                ('python_pytest_parametrize', 'INSERT'),
+                ('python_pytest_markers', 'INSERT'),
+                ('python_mock_patterns', 'INSERT'),
+                ('python_protocols', 'INSERT'),
+                ('python_generics', 'INSERT'),
+                ('python_typed_dicts', 'INSERT'),
+                ('python_literals', 'INSERT'),
+                ('python_overloads', 'INSERT'),
+
                 # SQL query tables (before junction table)
                 ('sql_query_tables', 'INSERT'),  # Junction table
 
@@ -298,6 +315,14 @@ class DatabaseManager:
                 ('cdk_constructs', 'INSERT'),
                 ('cdk_construct_properties', 'INSERT'),  # Depends on cdk_constructs FK
                 ('cdk_findings', 'INSERT'),
+
+                # GitHub Actions tables (CI/CD Security)
+                ('github_workflows', 'INSERT'),
+                ('github_jobs', 'INSERT'),  # Depends on github_workflows FK
+                ('github_job_dependencies', 'INSERT'),  # Junction table - depends on github_jobs FK
+                ('github_steps', 'INSERT'),  # Depends on github_jobs FK
+                ('github_step_outputs', 'INSERT'),  # Depends on github_steps FK
+                ('github_step_references', 'INSERT'),  # Depends on github_steps FK
 
                 # Data flow tables (before junction tables)
                 ('assignments', 'INSERT'),
@@ -544,6 +569,283 @@ class DatabaseManager:
             field_name,
             validator_method,
             validator_type
+        ))
+
+    # Phase 2.2: Advanced Python pattern add_* methods
+
+    def add_python_decorator(self, file_path: str, line: int, decorator_name: str,
+                            decorator_type: str, target_type: str, target_name: str,
+                            is_async: bool):
+        """Add a Python decorator usage to the batch."""
+        self.generic_batches['python_decorators'].append((
+            file_path,
+            line,
+            decorator_name,
+            decorator_type,
+            target_type,
+            target_name,
+            1 if is_async else 0
+        ))
+
+    def add_python_context_manager(self, file_path: str, line: int, context_type: str,
+                                   context_expr: Optional[str], as_name: Optional[str],
+                                   is_async: bool, is_custom: bool):
+        """Add a Python context manager usage to the batch."""
+        self.generic_batches['python_context_managers'].append((
+            file_path,
+            line,
+            context_type,
+            context_expr,
+            as_name,
+            1 if is_async else 0,
+            1 if is_custom else 0
+        ))
+
+    def add_python_async_function(self, file_path: str, line: int, function_name: str,
+                                  has_await: bool, await_count: int,
+                                  has_async_with: bool, has_async_for: bool):
+        """Add a Python async function to the batch."""
+        self.generic_batches['python_async_functions'].append((
+            file_path,
+            line,
+            function_name,
+            1 if has_await else 0,
+            await_count,
+            1 if has_async_with else 0,
+            1 if has_async_for else 0
+        ))
+
+    def add_python_await_expression(self, file_path: str, line: int, await_expr: str,
+                                    containing_function: Optional[str]):
+        """Add a Python await expression to the batch."""
+        self.generic_batches['python_await_expressions'].append((
+            file_path,
+            line,
+            await_expr,
+            containing_function
+        ))
+
+    def add_python_async_generator(self, file_path: str, line: int, generator_type: str,
+                                   target_vars: Optional[str], iterable_expr: Optional[str],
+                                   function_name: Optional[str]):
+        """Add a Python async generator pattern to the batch."""
+        self.generic_batches['python_async_generators'].append((
+            file_path,
+            line,
+            generator_type,
+            target_vars,
+            iterable_expr,
+            function_name
+        ))
+
+    def add_python_pytest_fixture(self, file_path: str, line: int, fixture_name: str,
+                                  scope: str, has_autouse: bool, has_params: bool):
+        """Add a pytest fixture to the batch."""
+        self.generic_batches['python_pytest_fixtures'].append((
+            file_path,
+            line,
+            fixture_name,
+            scope,
+            1 if has_autouse else 0,
+            1 if has_params else 0
+        ))
+
+    def add_python_pytest_parametrize(self, file_path: str, line: int, test_function: str,
+                                      parameter_names: str, argvalues_count: int):
+        """Add a pytest parametrize decorator to the batch."""
+        self.generic_batches['python_pytest_parametrize'].append((
+            file_path,
+            line,
+            test_function,
+            parameter_names,
+            argvalues_count
+        ))
+
+    def add_python_pytest_marker(self, file_path: str, line: int, test_function: str,
+                                 marker_name: str, marker_args: Optional[str]):
+        """Add a pytest marker to the batch."""
+        self.generic_batches['python_pytest_markers'].append((
+            file_path,
+            line,
+            test_function,
+            marker_name,
+            marker_args
+        ))
+
+    def add_python_mock_pattern(self, file_path: str, line: int, mock_type: str,
+                                target: Optional[str], in_function: Optional[str],
+                                is_decorator: bool):
+        """Add a Python mock pattern to the batch."""
+        self.generic_batches['python_mock_patterns'].append((
+            file_path,
+            line,
+            mock_type,
+            target,
+            in_function,
+            1 if is_decorator else 0
+        ))
+
+    def add_python_protocol(self, file_path: str, line: int, protocol_name: str,
+                           methods: str, is_runtime_checkable: bool):
+        """Add a Python Protocol class to the batch."""
+        self.generic_batches['python_protocols'].append((
+            file_path,
+            line,
+            protocol_name,
+            methods,
+            1 if is_runtime_checkable else 0
+        ))
+
+    def add_python_generic(self, file_path: str, line: int, class_name: str,
+                          type_params: Optional[str]):
+        """Add a Python Generic class to the batch."""
+        self.generic_batches['python_generics'].append((
+            file_path,
+            line,
+            class_name,
+            type_params
+        ))
+
+    def add_python_typed_dict(self, file_path: str, line: int, typeddict_name: str,
+                             fields: str):
+        """Add a Python TypedDict to the batch."""
+        self.generic_batches['python_typed_dicts'].append((
+            file_path,
+            line,
+            typeddict_name,
+            fields
+        ))
+
+    def add_python_literal(self, file_path: str, line: int, usage_context: str,
+                          name: Optional[str], literal_type: str):
+        """Add a Python Literal type usage to the batch."""
+        self.generic_batches['python_literals'].append((
+            file_path,
+            line,
+            usage_context,
+            name,
+            literal_type
+        ))
+
+    def add_python_overload(self, file_path: str, function_name: str, overload_count: int,
+                           variants: str):
+        """Add a Python @overload function to the batch."""
+        self.generic_batches['python_overloads'].append((
+            file_path,
+            function_name,
+            overload_count,
+            variants
+        ))
+
+    def add_python_django_view(self, file_path: str, line: int, view_class_name: str,
+                              view_type: str, base_view_class: Optional[str],
+                              model_name: Optional[str], template_name: Optional[str],
+                              has_permission_check: bool, http_method_names: Optional[str],
+                              has_get_queryset_override: bool):
+        """Add a Django Class-Based View to the batch."""
+        self.generic_batches['python_django_views'].append((
+            file_path,
+            line,
+            view_class_name,
+            view_type,
+            base_view_class,
+            model_name,
+            template_name,
+            1 if has_permission_check else 0,
+            http_method_names,
+            1 if has_get_queryset_override else 0
+        ))
+
+    def add_python_django_form(self, file_path: str, line: int, form_class_name: str,
+                               is_model_form: bool, model_name: Optional[str],
+                               field_count: int, has_custom_clean: bool):
+        """Add a Django Form or ModelForm to the batch."""
+        self.generic_batches['python_django_forms'].append((
+            file_path,
+            line,
+            form_class_name,
+            1 if is_model_form else 0,
+            model_name,
+            field_count,
+            1 if has_custom_clean else 0
+        ))
+
+    def add_python_django_form_field(self, file_path: str, line: int, form_class_name: str,
+                                     field_name: str, field_type: str,
+                                     required: bool, max_length: Optional[int],
+                                     has_custom_validator: bool):
+        """Add a Django form field to the batch."""
+        self.generic_batches['python_django_form_fields'].append((
+            file_path,
+            line,
+            form_class_name,
+            field_name,
+            field_type,
+            1 if required else 0,
+            max_length,
+            1 if has_custom_validator else 0
+        ))
+
+    def add_python_django_admin(self, file_path: str, line: int, admin_class_name: str,
+                                model_name: Optional[str], list_display: Optional[str],
+                                list_filter: Optional[str], search_fields: Optional[str],
+                                readonly_fields: Optional[str], has_custom_actions: bool):
+        """Add a Django ModelAdmin configuration to the batch."""
+        self.generic_batches['python_django_admin'].append((
+            file_path,
+            line,
+            admin_class_name,
+            model_name,
+            list_display,
+            list_filter,
+            search_fields,
+            readonly_fields,
+            1 if has_custom_actions else 0
+        ))
+
+    def add_python_django_middleware(self, file_path: str, line: int, middleware_class_name: str,
+                                     has_process_request: bool, has_process_response: bool,
+                                     has_process_exception: bool, has_process_view: bool,
+                                     has_process_template_response: bool):
+        """Add a Django middleware configuration to the batch."""
+        self.generic_batches['python_django_middleware'].append((
+            file_path,
+            line,
+            middleware_class_name,
+            1 if has_process_request else 0,
+            1 if has_process_response else 0,
+            1 if has_process_exception else 0,
+            1 if has_process_view else 0,
+            1 if has_process_template_response else 0
+        ))
+
+    def add_python_marshmallow_schema(self, file_path: str, line: int, schema_class_name: str,
+                                      field_count: int, has_nested_schemas: bool,
+                                      has_custom_validators: bool):
+        """Add a Marshmallow schema definition to the batch."""
+        self.generic_batches['python_marshmallow_schemas'].append((
+            file_path,
+            line,
+            schema_class_name,
+            field_count,
+            1 if has_nested_schemas else 0,
+            1 if has_custom_validators else 0
+        ))
+
+    def add_python_marshmallow_field(self, file_path: str, line: int, schema_class_name: str,
+                                     field_name: str, field_type: str, required: bool,
+                                     allow_none: bool, has_validate: bool, has_custom_validator: bool):
+        """Add a Marshmallow field definition to the batch."""
+        self.generic_batches['python_marshmallow_fields'].append((
+            file_path,
+            line,
+            schema_class_name,
+            field_name,
+            field_type,
+            1 if required else 0,
+            1 if allow_none else 0,
+            1 if has_validate else 0,
+            1 if has_custom_validator else 0
         ))
 
     def add_sql_object(self, file_path: str, kind: str, name: str):
@@ -1332,6 +1634,10 @@ class DatabaseManager:
             construct_name: CDK logical ID (nullable - 2nd positional arg)
             construct_id: Composite key: {file}::L{line}::{class}::{name}
         """
+        # DEBUG: Log all construct_ids being added to batch
+        if os.environ.get('THEAUDITOR_CDK_DEBUG') == '1':
+            print(f"[CDK-DB] Adding to batch: {construct_id}")
+
         self.generic_batches['cdk_constructs'].append((
             construct_id, file_path, line, cdk_class, construct_name
         ))
@@ -1374,6 +1680,122 @@ class DatabaseManager:
         self.generic_batches['cdk_findings'].append((
             finding_id, file_path, construct_id, category,
             severity, title, description, remediation, line
+        ))
+
+    # ========================================================================
+    # GitHub Actions CI/CD Workflow Security Methods
+    # ========================================================================
+
+    def add_github_workflow(self, workflow_path: str, workflow_name: Optional[str],
+                           on_triggers: str, permissions: Optional[str] = None,
+                           concurrency: Optional[str] = None, env: Optional[str] = None):
+        """Add a GitHub Actions workflow record to the batch.
+
+        Args:
+            workflow_path: Path to workflow file (.github/workflows/ci.yml)
+            workflow_name: Workflow name from 'name:' field or filename
+            on_triggers: JSON array of trigger events
+            permissions: JSON object of workflow-level permissions
+            concurrency: JSON object of concurrency settings
+            env: JSON object of workflow-level environment variables
+        """
+        self.generic_batches['github_workflows'].append((
+            workflow_path, workflow_name, on_triggers, permissions, concurrency, env
+        ))
+
+    def add_github_job(self, job_id: str, workflow_path: str, job_key: str,
+                      job_name: Optional[str], runs_on: Optional[str],
+                      strategy: Optional[str] = None, permissions: Optional[str] = None,
+                      env: Optional[str] = None, if_condition: Optional[str] = None,
+                      timeout_minutes: Optional[int] = None,
+                      uses_reusable_workflow: bool = False,
+                      reusable_workflow_path: Optional[str] = None):
+        """Add a GitHub Actions job record to the batch.
+
+        Args:
+            job_id: Composite PK (workflow_path||':'||job_key)
+            workflow_path: FK to github_workflows
+            job_key: Job key from YAML (e.g., 'build', 'test')
+            job_name: Optional name: field
+            runs_on: JSON array of runner labels (supports matrix)
+            strategy: JSON object of matrix strategy
+            permissions: JSON object of job-level permissions
+            env: JSON object of job-level env vars
+            if_condition: Conditional expression for job execution
+            timeout_minutes: Job timeout
+            uses_reusable_workflow: True if uses: workflow.yml
+            reusable_workflow_path: Path to reusable workflow if used
+        """
+        self.generic_batches['github_jobs'].append((
+            job_id, workflow_path, job_key, job_name, runs_on, strategy,
+            permissions, env, if_condition, timeout_minutes,
+            uses_reusable_workflow, reusable_workflow_path
+        ))
+
+    def add_github_job_dependency(self, job_id: str, needs_job_id: str):
+        """Add a GitHub Actions job dependency edge (needs: relationship).
+
+        Args:
+            job_id: FK to github_jobs (dependent job)
+            needs_job_id: FK to github_jobs (dependency job)
+        """
+        self.generic_batches['github_job_dependencies'].append((
+            job_id, needs_job_id
+        ))
+
+    def add_github_step(self, step_id: str, job_id: str, sequence_order: int,
+                       step_name: Optional[str], uses_action: Optional[str],
+                       uses_version: Optional[str], run_script: Optional[str],
+                       shell: Optional[str], env: Optional[str],
+                       with_args: Optional[str], if_condition: Optional[str],
+                       timeout_minutes: Optional[int], continue_on_error: bool = False):
+        """Add a GitHub Actions step record to the batch.
+
+        Args:
+            step_id: Composite PK (job_id||':'||sequence_order)
+            job_id: FK to github_jobs
+            sequence_order: Step order within job (0-indexed)
+            step_name: Optional name: field
+            uses_action: Action reference (e.g., 'actions/checkout@v4')
+            uses_version: Version/ref extracted from uses
+            run_script: Shell script content from run: field
+            shell: Shell type (bash, pwsh, python)
+            env: JSON object of step-level env vars
+            with_args: JSON object of action inputs (with: field)
+            if_condition: Conditional expression for step execution
+            timeout_minutes: Step timeout
+            continue_on_error: Continue on failure flag
+        """
+        self.generic_batches['github_steps'].append((
+            step_id, job_id, sequence_order, step_name, uses_action, uses_version,
+            run_script, shell, env, with_args, if_condition, timeout_minutes,
+            continue_on_error
+        ))
+
+    def add_github_step_output(self, step_id: str, output_name: str, output_expression: str):
+        """Add a GitHub Actions step output declaration.
+
+        Args:
+            step_id: FK to github_steps
+            output_name: Output key
+            output_expression: Value expression
+        """
+        self.generic_batches['github_step_outputs'].append((
+            step_id, output_name, output_expression
+        ))
+
+    def add_github_step_reference(self, step_id: str, reference_location: str,
+                                  reference_type: str, reference_path: str):
+        """Add a GitHub Actions step reference (${{ }} expression).
+
+        Args:
+            step_id: FK to github_steps
+            reference_location: Where reference appears ('run', 'env', 'with', 'if')
+            reference_type: Type of reference ('github', 'secrets', 'env', 'needs', 'steps')
+            reference_path: Full path (e.g., 'github.event.pull_request.head.sha')
+        """
+        self.generic_batches['github_step_references'].append((
+            step_id, reference_location, reference_type, reference_path
         ))
 
     def get_framework_id(self, name, language):

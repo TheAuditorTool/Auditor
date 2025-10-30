@@ -72,7 +72,8 @@ class JavaScriptExtractor(BaseExtractor):
             'object_literals': [],  # PHASE 3: Object literal parsing for dynamic dispatch
             'class_properties': [],  # Class property declarations (TypeScript/JavaScript ES2022+)
             'env_var_usage': [],  # Environment variable usage (process.env.X)
-            'orm_relationships': []  # ORM relationship declarations (hasMany, belongsTo, etc.)
+            'orm_relationships': [],  # ORM relationship declarations (hasMany, belongsTo, etc.)
+            'cdk_constructs': []  # AWS CDK infrastructure-as-code constructs (TypeScript/JavaScript)
         }
 
         # No AST = no extraction
@@ -128,6 +129,7 @@ class JavaScriptExtractor(BaseExtractor):
                     'orm_queries': 'orm_queries',
                     'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
                     'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
+                    'cdk_constructs': 'cdk_constructs',  # AWS CDK infrastructure-as-code constructs
                 }
 
                 for js_key, python_key in KEY_MAPPINGS.items():

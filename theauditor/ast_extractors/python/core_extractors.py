@@ -484,10 +484,22 @@ def extract_python_function_params(tree: Dict, parser_self) -> Dict[str, List[st
     return func_params
 
 
-def extract_python_calls_with_args(tree: Dict, function_params: Dict[str, List[str]], parser_self) -> List[Dict[str, Any]]:
-    """Extract Python function calls with argument mapping."""
+def extract_python_calls_with_args(tree: Dict, function_params: Dict[str, List[str]], parser_self,
+                                   resolved_imports: Dict[str, str] = None) -> List[Dict[str, Any]]:
+    """Extract Python function calls with argument mapping.
+
+    Args:
+        tree: AST tree dictionary
+        function_params: Map of function names to parameter lists
+        parser_self: Parser instance
+        resolved_imports: Map of imported names to their file paths (for cross-file taint analysis)
+
+    Returns:
+        List of call records with callee_file_path populated for local imports
+    """
     calls = []
     actual_tree = tree.get("tree")
+    resolved_imports = resolved_imports or {}
 
     if not actual_tree:
         return calls
@@ -513,6 +525,20 @@ def extract_python_calls_with_args(tree: Dict, function_params: Dict[str, List[s
             # Get callee parameters
             callee_params = function_params.get(func_name.split(".")[-1], [])
 
+            # CRITICAL: Resolve callee_file_path for cross-file taint analysis
+            # Try multiple resolution strategies:
+            # 1. Direct name lookup: trace_from_source → theauditor/taint/propagation.py
+            # 2. Module.method lookup: service.create → service module path
+            # 3. Dotted prefix: obj.method → try "obj" in imports
+            callee_file_path = None
+            if func_name in resolved_imports:
+                callee_file_path = resolved_imports[func_name]
+            elif '.' in func_name:
+                # Try: obj.method → look up "obj"
+                prefix = func_name.split('.')[0]
+                if prefix in resolved_imports:
+                    callee_file_path = resolved_imports[prefix]
+
             # Map arguments to parameters
             for i, arg in enumerate(node.args):
                 arg_expr = ast.unparse(arg) if hasattr(ast, "unparse") else str(arg)
@@ -524,7 +550,8 @@ def extract_python_calls_with_args(tree: Dict, function_params: Dict[str, List[s
                     "callee_function": func_name,
                     "argument_index": i,
                     "argument_expr": arg_expr,
-                    "param_name": param_name
+                    "param_name": param_name,
+                    "callee_file_path": callee_file_path  # NEW: For cross-file taint analysis
                 })
 
     return calls
@@ -769,3 +796,170 @@ def extract_python_dicts(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                     object_literals.extend(records)
 
     return object_literals
+
+
+def extract_python_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract decorator usage from Python AST.
+
+    Extracts all decorator patterns:
+    - Built-in: @property, @staticmethod, @classmethod, @abstractmethod
+    - Framework: @app.route, @task, @pytest.fixture, etc.
+    - Custom: Any @decorator_name pattern
+
+    Args:
+        tree: AST tree dictionary with 'tree' containing the actual AST
+        parser_self: Reference to the parser instance
+
+    Returns:
+        List of decorator records
+    """
+    decorators = []
+    actual_tree = tree.get("tree")
+
+    if not actual_tree:
+        return decorators
+
+    # Extract decorators from functions
+    for node in ast.walk(actual_tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for dec in node.decorator_list:
+                decorator_name = get_node_name(dec)
+
+                # Determine decorator type
+                if decorator_name == "property":
+                    dec_type = "property"
+                elif decorator_name == "staticmethod":
+                    dec_type = "staticmethod"
+                elif decorator_name == "classmethod":
+                    dec_type = "classmethod"
+                elif decorator_name in ["abstractmethod", "abc.abstractmethod"]:
+                    dec_type = "abstractmethod"
+                elif decorator_name.startswith("pytest."):
+                    dec_type = "pytest"
+                elif "route" in decorator_name.lower():
+                    dec_type = "route"
+                elif "task" in decorator_name.lower():
+                    dec_type = "celery_task"
+                else:
+                    dec_type = "custom"
+
+                decorators.append({
+                    "line": getattr(dec, "lineno", node.lineno),
+                    "decorator_name": decorator_name,
+                    "decorator_type": dec_type,
+                    "target_type": "function",
+                    "target_name": node.name,
+                    "is_async": isinstance(node, ast.AsyncFunctionDef),
+                })
+
+        # Extract decorators from classes
+        elif isinstance(node, ast.ClassDef):
+            for dec in node.decorator_list:
+                decorator_name = get_node_name(dec)
+
+                # Determine decorator type for classes
+                if "dataclass" in decorator_name:
+                    dec_type = "dataclass"
+                elif decorator_name in ["abstractmethod", "abc.ABC", "ABC"]:
+                    dec_type = "abstract"
+                else:
+                    dec_type = "custom"
+
+                decorators.append({
+                    "line": getattr(dec, "lineno", node.lineno),
+                    "decorator_name": decorator_name,
+                    "decorator_type": dec_type,
+                    "target_type": "class",
+                    "target_name": node.name,
+                    "is_async": False,
+                })
+
+    return decorators
+
+
+def extract_python_context_managers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+    """Extract context manager usage from Python AST.
+
+    Extracts:
+    - with statements (with open(...) as f:)
+    - async with statements
+    - Custom context manager classes (__enter__/__exit__ methods)
+
+    Args:
+        tree: AST tree dictionary with 'tree' containing the actual AST
+        parser_self: Reference to the parser instance
+
+    Returns:
+        List of context manager records
+    """
+    context_managers = []
+    actual_tree = tree.get("tree")
+
+    if not actual_tree:
+        return context_managers
+
+    # Extract with statements
+    for node in ast.walk(actual_tree):
+        if isinstance(node, ast.With):
+            for item in node.items:
+                context_expr = get_node_name(item.context_expr)
+                as_name = get_node_name(item.optional_vars) if item.optional_vars else None
+
+                context_managers.append({
+                    "line": node.lineno,
+                    "context_type": "with",
+                    "context_expr": context_expr,
+                    "as_name": as_name,
+                    "is_async": False,
+                })
+
+        elif isinstance(node, ast.AsyncWith):
+            for item in node.items:
+                context_expr = get_node_name(item.context_expr)
+                as_name = get_node_name(item.optional_vars) if item.optional_vars else None
+
+                context_managers.append({
+                    "line": node.lineno,
+                    "context_type": "async_with",
+                    "context_expr": context_expr,
+                    "as_name": as_name,
+                    "is_async": True,
+                })
+
+        # Extract custom context manager classes
+        elif isinstance(node, ast.ClassDef):
+            has_enter = False
+            has_exit = False
+            has_aenter = False
+            has_aexit = False
+
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef):
+                    if item.name == "__enter__":
+                        has_enter = True
+                    elif item.name == "__exit__":
+                        has_exit = True
+                    elif item.name == "__aenter__":
+                        has_aenter = True
+                    elif item.name == "__aexit__":
+                        has_aexit = True
+
+            if has_enter and has_exit:
+                context_managers.append({
+                    "line": node.lineno,
+                    "context_type": "class",
+                    "context_expr": node.name,
+                    "as_name": None,
+                    "is_async": False,
+                })
+
+            if has_aenter and has_aexit:
+                context_managers.append({
+                    "line": node.lineno,
+                    "context_type": "async_class",
+                    "context_expr": node.name,
+                    "as_name": None,
+                    "is_async": True,
+                })
+
+    return context_managers
