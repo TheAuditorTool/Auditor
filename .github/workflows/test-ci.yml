@@ -1,0 +1,56 @@
+name: Test CI
+
+on:
+  push:
+    branches: [main, pythonparity]
+  pull_request_target:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Get version
+        id: version
+        run: echo "value=1.0.0" >> $GITHUB_OUTPUT
+
+  build:
+    runs-on: ubuntu-latest
+    needs: setup
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+        env:
+          PIP_INDEX_URL: ${{ secrets.PIP_INDEX_URL }}
+
+      - name: Run tests
+        run: pytest tests/
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        timeout-minutes: 30

@@ -190,14 +190,67 @@ Phase 2 refactors Python extraction to match JavaScript's proven modular archite
 - **1,027 records extracted** across 14 new tables - ALL EXTRACTORS VERIFIED WORKING
 - End-to-end testing: `aud index` completes successfully with zero regressions
 
-**Phase 2.3: Django Framework Deep Dive** - PROPOSED (Next 3-4 sessions)
-- Focus: Django CBVs, Forms, Admin, Middleware
-- Estimated: 3-4 focused sessions on Django ecosystem
-- Then cycle to validation frameworks or other areas
+**Phase 2.3: Django Framework Deep Dive** - IN PROGRESS (Sessions 12-14 COMPLETE)
 
-**Phase 2.4: Validation Frameworks** - PROPOSED
-- Focus: Marshmallow, DRF Serializers, validation patterns
-- Estimated: 2-3 sessions
+Session 12 - Django Class-Based Views ✅ COMPLETE (2025-10-30)
+- Built `extract_django_cbvs()` extractor (115 lines)
+- Added `python_django_views` table (10 columns)
+- Permission check detection (3 patterns: @method_decorator, dispatch() decorators)
+- get_queryset() override detection (SQL injection surface)
+- Test fixture: 12 CBV examples in views/article_views.py
+- Manual test: 12 views extracted, 5 with auth checks, 5 with custom querysets
+
+Session 13 - Django Forms & Validation ✅ COMPLETE (2025-10-30)
+- Built `extract_django_forms()` extractor (69 lines)
+- Built `extract_django_form_fields()` extractor (79 lines)
+- Added `python_django_forms` and `python_django_form_fields` tables (2 tables)
+- Field type extraction (CharField, EmailField, IntegerField, BooleanField, ChoiceField, DateField)
+- max_length and required/optional detection
+- Custom validator detection (clean_<field> methods)
+- Test fixture: 6 forms, 23 fields in forms/article_forms.py
+- Manual test: 6 forms extracted, 23 fields, security risks identified (DoS, missing validators)
+
+Session 14 - Django Admin Customization ✅ COMPLETE (2025-10-30)
+- Built `extract_django_admin()` extractor (113 lines + helper)
+- Added `python_django_admin` table (9 columns)
+- Dual registration pattern support (@admin.register + admin.site.register)
+- list_display, list_filter, search_fields, readonly_fields extraction
+- Custom action detection (@admin.action decorator)
+- Test fixture: 5 ModelAdmin classes in admin.py
+- Manual test: 5 admins extracted, security risks identified (missing readonly_fields)
+
+Session 15 - Django Middleware ✅ COMPLETE (2025-10-30)
+- Built `extract_django_middleware()` extractor (86 lines)
+- Added `python_django_middleware` table (8 columns)
+- 3 middleware pattern detection: MiddlewareMixin, callable (__init__+__call__), process_* methods
+- 5 hook types: process_request, process_response, process_exception, process_view, process_template_response
+- Test fixture: 6 middleware classes in middleware/auth_middleware.py
+- Manual test: 6 middlewares extracted, all patterns working
+
+**Django Block 1 COMPLETE - Final Summary (Sessions 12-15):**
+- 6 new Django tables: python_django_views, python_django_forms, python_django_form_fields, python_django_admin, python_django_middleware
+- 9 new extractors (1 CBV, 2 forms, 1 admin, 1 middleware, 1 helper)
+- ~1,310 lines production code + ~543 lines test fixtures
+- Security patterns: auth checks, validators, readonly fields, mass assignment risks, middleware hooks
+- Coverage: Class-Based Views (14 types), Forms (Form+ModelForm), Admin (dual registration patterns), Middleware (5 hooks)
+
+**Django Block 1 Status:** ✅ COMPLETE (4/4 sessions done)
+
+**Phase 2.4: Validation Frameworks (Block 2)** - IN PROGRESS
+
+Session 16 - Marshmallow Schemas ✅ COMPLETE (2025-10-30)
+- Built `extract_marshmallow_schemas()` extractor (70 lines)
+- Built `extract_marshmallow_fields()` extractor (95 lines)
+- Added `python_marshmallow_schemas` and `python_marshmallow_fields` tables (2 tables)
+- Field type extraction (String, Integer, Email, Boolean, Nested, Decimal, URL, etc.)
+- Required/optional detection (required=True flag)
+- allow_none detection (null value handling)
+- Inline validator detection (validate= keyword)
+- Custom validator linking (@validates('field_name') decorators)
+- Test fixture: 11 schemas, 49 fields in schemas/user_schemas.py
+- Manual test: 11 schemas extracted, 49 fields, security risks identified (optional-only schemas, allow_none on sensitive fields)
+
+**Validation Block Status:** 1/3 sessions done (Marshmallow ✅, DRF pending, validation patterns pending)
 
 **Phase 2.5: Background Tasks & Templates** - PROPOSED
 - Focus: Celery tasks, Jinja2/Django templates

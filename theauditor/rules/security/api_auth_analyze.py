@@ -263,55 +263,65 @@ class ApiAuthAnalyzer:
         sensitive_patterns_lower = [p.lower() for p in self.patterns.SENSITIVE_OPERATIONS]
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
-        for sensitive in sensitive_patterns_lower:
-            self.cursor.execute("""
-                SELECT file, line, method, pattern, controls
-                FROM api_endpoints
-                WHERE LOWER(pattern) LIKE ?
-                ORDER BY file, pattern
-            """, [f'%{sensitive}%'])
+        # Fetch all api_endpoints, filter in Python
+        self.cursor.execute("""
+            SELECT file, line, method, pattern, controls
+            FROM api_endpoints
+            WHERE pattern IS NOT NULL
+            ORDER BY file, pattern
+        """)
 
-            for file, line, method, pattern, controls_json in self.cursor.fetchall():
-                # Parse controls
-                try:
-                    controls = json.loads(controls_json) if controls_json else []
-                except (json.JSONDecodeError, TypeError):
-                    controls = []
+        for file, line, method, pattern, controls_json in self.cursor.fetchall():
+            # Check if pattern contains any sensitive operation
+            pattern_lower = pattern.lower() if pattern else ''
+            if not any(sensitive in pattern_lower for sensitive in sensitive_patterns_lower):
+                continue
 
-                controls_lower = [str(c).lower() for c in controls]
+            # Parse controls
+            try:
+                controls = json.loads(controls_json) if controls_json else []
+            except (json.JSONDecodeError, TypeError):
+                controls = []
 
-                # Check for authentication
-                has_auth = any(
-                    any(auth in control for auth in auth_patterns_lower)
-                    for control in controls_lower
-                )
+            controls_lower = [str(c).lower() for c in controls]
 
-                if not has_auth:
-                    self.findings.append(StandardFinding(
-                        rule_name='api-sensitive-no-auth',
-                        message=f'Sensitive endpoint "{pattern}" lacks authentication',
-                        file_path=file,
-                        line=line or 1,
-                        severity=Severity.CRITICAL,
-                        category='authentication',
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-306'
-                    ))
+            # Check for authentication
+            has_auth = any(
+                any(auth in control for auth in auth_patterns_lower)
+                for control in controls_lower
+            )
+
+            if not has_auth:
+                self.findings.append(StandardFinding(
+                    rule_name='api-sensitive-no-auth',
+                    message=f'Sensitive endpoint "{pattern}" lacks authentication',
+                    file_path=file,
+                    line=line or 1,
+                    severity=Severity.CRITICAL,
+                    category='authentication',
+                    confidence=Confidence.HIGH,
+                    cwe_id='CWE-306'
+                ))
 
     def _check_graphql_mutations(self):
         """Check GraphQL mutations for authentication."""
-        # Look for GraphQL resolvers
-        graphql_patterns = ','.join('?' * len(self.patterns.GRAPHQL_PATTERNS))
-        self.cursor.execute(f"""
+        # Fetch all function_call_args, filter in Python
+        self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function IN ({graphql_patterns})
-               OR callee_function LIKE '%resolver%'
-               OR callee_function LIKE '%Mutation%'
+            WHERE callee_function IS NOT NULL
             ORDER BY file, line
-        """, list(self.patterns.GRAPHQL_PATTERNS))
+            LIMIT 2000
+        """)
 
         for file, line, func, args in self.cursor.fetchall():
+            # Check if function matches GraphQL patterns
+            func_lower = func.lower()
+            if not (func in self.patterns.GRAPHQL_PATTERNS or
+                   'resolver' in func_lower or
+                   'Mutation' in func):
+                continue
+
             if 'mutation' in func.lower() or 'Mutation' in func:
                 # Check if there's auth nearby
                 has_auth = self._check_auth_nearby(file, line)
@@ -376,12 +386,11 @@ class ApiAuthAnalyzer:
         """Check if state-changing endpoints have CSRF protection."""
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
-        # Only check for web applications (not pure APIs)
+        # Fetch all state-changing endpoints, filter in Python
         self.cursor.execute("""
             SELECT file, line, method, pattern, controls
             FROM api_endpoints
             WHERE UPPER(method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
-              AND (pattern NOT LIKE '/api/%' OR pattern IS NULL)
             ORDER BY file, pattern
         """)
 

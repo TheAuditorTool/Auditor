@@ -846,25 +846,23 @@ def _detect_direct_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
     for category_patterns in pii_categories.values():
         all_patterns.update(category_patterns)
 
-    # Check assignments table
-    # Use parameterized queries to avoid SQL injection
-    placeholders = ' OR '.join(['target_var LIKE ?' for _ in range(min(100, len(all_patterns)))])
-    params = [f'%{pattern}%' for pattern in list(all_patterns)[:100]]
-
-    cursor.execute(f"""
+    # Check assignments table - fetch all, filter in Python
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE {placeholders}
+        WHERE target_var IS NOT NULL
         ORDER BY file, line
-    """, params)
+    """)
 
     for file, line, var, expr in cursor.fetchall():
-        # Identify which PII category
+        # Identify which PII category by checking patterns in Python
+        var_lower = var.lower()
         pii_category = None
         pii_pattern = None
+
         for category, patterns in pii_categories.items():
             for pattern in patterns:
-                if pattern in var.lower():
+                if pattern in var_lower:
                     pii_category = category
                     pii_pattern = pattern
                     break
@@ -900,48 +898,49 @@ def _detect_pii_in_logging(cursor, pii_categories: Dict) -> List[StandardFinding
     """Detect PII being logged."""
     findings = []
 
-    # Build queries for each logging function
-    for log_func in LOGGING_FUNCTIONS:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function = ?
-               OR callee_function LIKE ?
-            ORDER BY file, line
-        """, [log_func, f'%.{log_func}'])
+    # Fetch all function calls, filter in Python
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is a logging function
+        if not any(log_func in func for log_func in LOGGING_FUNCTIONS):
+            continue
 
-            # Check for PII patterns in arguments
-            detected_pii = []
-            for category, patterns in pii_categories.items():
-                for pattern in patterns:
-                    if pattern in args.lower():
-                        detected_pii.append((pattern, category))
+        # Check for PII patterns in arguments
+        args_lower = args.lower()
+        detected_pii = []
+        for category, patterns in pii_categories.items():
+            for pattern in patterns:
+                if pattern in args_lower:
+                    detected_pii.append((pattern, category))
 
-            if detected_pii:
-                # Get the most critical PII type
-                pii_pattern, pii_category = detected_pii[0]
-                regulations = get_applicable_regulations(pii_pattern)
+        if detected_pii:
+            # Get the most critical PII type
+            pii_pattern, pii_category = detected_pii[0]
+            regulations = get_applicable_regulations(pii_pattern)
 
-                findings.append(StandardFinding(
-                    rule_name='pii-logged',
-                    message=f'PII logged: {", ".join([p[0] for p in detected_pii[:3]])}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=_determine_confidence(pii_pattern, 'logging'),
-                    category='privacy',
-                    snippet=f'{func}({pii_pattern}...)',
-                    cwe_id='CWE-532',  # Insertion of Sensitive Information into Log File
-                    additional_info={
-                        'regulations': [r.value for r in regulations],
-                        'pii_types': [p[0] for p in detected_pii],
-                        'pii_categories': list(set([p[1] for p in detected_pii]))
-                    }
-                ))
+            findings.append(StandardFinding(
+                rule_name='pii-logged',
+                message=f'PII logged: {", ".join([p[0] for p in detected_pii[:3]])}',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                confidence=_determine_confidence(pii_pattern, 'logging'),
+                category='privacy',
+                snippet=f'{func}({pii_pattern}...)',
+                cwe_id='CWE-532',  # Insertion of Sensitive Information into Log File
+                additional_info={
+                    'regulations': [r.value for r in regulations],
+                    'pii_types': [p[0] for p in detected_pii],
+                    'pii_categories': list(set([p[1] for p in detected_pii]))
+                }
+            ))
 
     return findings
 
@@ -953,54 +952,76 @@ def _detect_pii_in_errors(cursor, pii_categories: Dict) -> List[StandardFinding]
     """Detect PII in error responses."""
     findings = []
 
-    for resp_func in ERROR_RESPONSE_FUNCTIONS:
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
+
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is an error response function
+        if not any(resp_func in func for resp_func in ERROR_RESPONSE_FUNCTIONS):
+            continue
+
+        # Check if in error handling context
         cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{resp_func}%'])
+            SELECT COUNT(*) FROM symbols
+            WHERE path = ?
+              AND type = 'catch'
+              AND ABS(line - ?) <= 10
+        """, [file, line])
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+        catch_count = cursor.fetchone()[0]
 
-            # Check if in error handling context
-            cursor.execute("""
-                SELECT COUNT(*) FROM symbols
-                WHERE path = ?
-                  AND (type = 'catch' OR name LIKE '%error%' OR name LIKE '%exception%')
-                  AND ABS(line - ?) <= 10
-            """, [file, line])
+        # Also check for error/exception in symbol names
+        cursor.execute("""
+            SELECT COUNT(*) FROM symbols
+            WHERE path = ?
+              AND name IS NOT NULL
+              AND ABS(line - ?) <= 10
+        """, [file, line])
 
-            in_error_context = cursor.fetchone()[0] > 0
+        # Filter in Python for error/exception names
+        cursor.execute("""
+            SELECT name FROM symbols
+            WHERE path = ?
+              AND name IS NOT NULL
+              AND ABS(line - ?) <= 10
+        """, [file, line])
 
-            if in_error_context:
-                # Check for PII in error response
-                detected_pii = []
-                for category, patterns in pii_categories.items():
-                    for pattern in patterns:
-                        if pattern in args.lower():
-                            detected_pii.append((pattern, category))
+        error_names = sum(1 for (name,) in cursor.fetchall() if 'error' in name.lower() or 'exception' in name.lower())
+        in_error_context = catch_count > 0 or error_names > 0
 
-                if detected_pii:
-                    pii_pattern, pii_category = detected_pii[0]
-                    regulations = get_applicable_regulations(pii_pattern)
+        if in_error_context:
+            # Check for PII in error response
+            args_lower = args.lower()
+            detected_pii = []
+            for category, patterns in pii_categories.items():
+                for pattern in patterns:
+                    if pattern in args_lower:
+                        detected_pii.append((pattern, category))
 
-                    findings.append(StandardFinding(
-                        rule_name='pii-error-response',
-                        message=f'PII in error response: {pii_pattern}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        confidence=Confidence.HIGH,
-                        category='privacy',
-                        snippet=f'{func}({{error: ...{pii_pattern}...}})',
-                        cwe_id='CWE-209',  # Generation of Error Message Containing Sensitive Information
-                        additional_info={
-                            'regulations': [r.value for r in regulations]
-                        }
-                    ))
+            if detected_pii:
+                pii_pattern, pii_category = detected_pii[0]
+                regulations = get_applicable_regulations(pii_pattern)
+
+                findings.append(StandardFinding(
+                    rule_name='pii-error-response',
+                    message=f'PII in error response: {pii_pattern}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    category='privacy',
+                    snippet=f'{func}({{error: ...{pii_pattern}...}})',
+                    cwe_id='CWE-209',  # Generation of Error Message Containing Sensitive Information
+                    additional_info={
+                        'regulations': [r.value for r in regulations]
+                    }
+                ))
 
     return findings
 
@@ -1013,40 +1034,43 @@ def _detect_pii_in_urls(cursor, pii_categories: Dict) -> List[StandardFinding]:
     findings = []
 
     # URL building functions
-    url_functions = ['urlencode', 'encodeURIComponent', 'URLSearchParams', 'build_url']
+    url_functions = frozenset(['urlencode', 'encodeURIComponent', 'URLSearchParams', 'build_url'])
 
-    for url_func in url_functions:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{url_func}%'])
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is a URL function
+        if not any(url_func in func for url_func in url_functions):
+            continue
 
-            # Never put these in URLs
-            critical_url_pii = {'password', 'ssn', 'credit_card', 'api_key', 'token',
-                               'bank_account', 'passport', 'drivers_license'}
+        # Never put these in URLs
+        critical_url_pii = {'password', 'ssn', 'credit_card', 'api_key', 'token',
+                           'bank_account', 'passport', 'drivers_license'}
 
-            for pii in critical_url_pii:
-                if pii in args.lower():
-                    findings.append(StandardFinding(
-                        rule_name='pii-in-url',
-                        message=f'Critical PII in URL: {pii}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        confidence=Confidence.HIGH,
-                        category='privacy',
-                        snippet=f'{func}(...{pii}=...)',
-                        cwe_id='CWE-598',  # Use of GET Request Method with Sensitive Query Strings
-                        additional_info={
-                            'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value]
-                        }
-                    ))
+        args_lower = args.lower()
+        for pii in critical_url_pii:
+            if pii in args_lower:
+                findings.append(StandardFinding(
+                    rule_name='pii-in-url',
+                    message=f'Critical PII in URL: {pii}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    category='privacy',
+                    snippet=f'{func}(...{pii}=...)',
+                    cwe_id='CWE-598',  # Use of GET Request Method with Sensitive Query Strings
+                    additional_info={
+                        'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value]
+                    }
+                ))
 
     return findings
 
@@ -1062,48 +1086,54 @@ def _detect_unencrypted_pii(cursor, pii_categories: Dict) -> List[StandardFindin
     must_encrypt = {'ssn', 'credit_card', 'bank_account', 'passport', 'drivers_license',
                     'medical_record', 'tax_id', 'biometric', 'password'}
 
-    for store_func in DATABASE_STORAGE_FUNCTIONS:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{store_func}%'])
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is a storage function
+        if not any(store_func in func for store_func in DATABASE_STORAGE_FUNCTIONS):
+            continue
 
-            # Check for critical PII
-            for pii in must_encrypt:
-                if pii in args.lower():
-                    # Check if encryption is nearby
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM function_call_args
-                        WHERE file = ?
-                          AND ABS(line - ?) <= 5
-                          AND (callee_function LIKE '%encrypt%'
-                               OR callee_function LIKE '%hash%'
-                               OR callee_function LIKE '%bcrypt%')
-                    """, [file, line])
+        # Check for critical PII
+        args_lower = args.lower()
+        for pii in must_encrypt:
+            if pii in args_lower:
+                # Check if encryption is nearby
+                cursor.execute("""
+                    SELECT callee_function FROM function_call_args
+                    WHERE file = ?
+                      AND ABS(line - ?) <= 5
+                      AND callee_function IS NOT NULL
+                """, [file, line])
 
-                    has_encryption = cursor.fetchone()[0] > 0
+                # Filter in Python for encryption functions
+                encryption_funcs = frozenset(['encrypt', 'hash', 'bcrypt'])
+                has_encryption = any(
+                    any(enc in (nearby_func or '').lower() for enc in encryption_funcs)
+                    for (nearby_func,) in cursor.fetchall()
+                )
 
-                    if not has_encryption:
-                        findings.append(StandardFinding(
-                            rule_name='pii-unencrypted-storage',
-                            message=f'Unencrypted {pii} being stored',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.CRITICAL,
-                            confidence=Confidence.HIGH,
-                            category='privacy',
-                            snippet=f'{func}(...{pii}...)',
-                            cwe_id='CWE-311',  # Missing Encryption of Sensitive Data
-                            additional_info={
-                                'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value]
-                            }
-                        ))
+                if not has_encryption:
+                    findings.append(StandardFinding(
+                        rule_name='pii-unencrypted-storage',
+                        message=f'Unencrypted {pii} being stored',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        confidence=Confidence.HIGH,
+                        category='privacy',
+                        snippet=f'{func}(...{pii}...)',
+                        cwe_id='CWE-311',  # Missing Encryption of Sensitive Data
+                        additional_info={
+                            'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value]
+                        }
+                    ))
 
     return findings
 
@@ -1119,37 +1149,39 @@ def _detect_client_side_pii(cursor, pii_categories: Dict) -> List[StandardFindin
     forbidden_client_pii = {'password', 'ssn', 'credit_card', 'cvv', 'bank_account',
                             'api_key', 'private_key', 'passport', 'drivers_license'}
 
-    for storage_func in CLIENT_STORAGE_FUNCTIONS:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function = ?
-               OR callee_function LIKE ?
-            ORDER BY file, line
-        """, [storage_func, f'%.{storage_func}'])
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is a client storage function
+        if not any(storage_func in func for storage_func in CLIENT_STORAGE_FUNCTIONS):
+            continue
 
-            for pii in forbidden_client_pii:
-                if pii in args.lower():
-                    findings.append(StandardFinding(
-                        rule_name='pii-client-storage',
-                        message=f'Sensitive PII in browser storage: {pii}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        confidence=Confidence.HIGH,
-                        category='privacy',
-                        snippet=f'{func}("{pii}", ...)',
-                        cwe_id='CWE-922',  # Insecure Storage of Sensitive Information
-                        additional_info={
-                            'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value],
-                            'storage_type': 'localStorage' if 'localStorage' in func else
-                                          'sessionStorage' if 'sessionStorage' in func else 'cookie'
-                        }
-                    ))
+        args_lower = args.lower()
+        for pii in forbidden_client_pii:
+            if pii in args_lower:
+                findings.append(StandardFinding(
+                    rule_name='pii-client-storage',
+                    message=f'Sensitive PII in browser storage: {pii}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    category='privacy',
+                    snippet=f'{func}("{pii}", ...)',
+                    cwe_id='CWE-922',  # Insecure Storage of Sensitive Information
+                    additional_info={
+                        'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value],
+                        'storage_type': 'localStorage' if 'localStorage' in func else
+                                      'sessionStorage' if 'sessionStorage' in func else 'cookie'
+                    }
+                ))
 
     return findings
 
@@ -1177,14 +1209,21 @@ def _detect_pii_in_exceptions(cursor, pii_categories: Dict) -> List[StandardFind
             WHERE file = ?
               AND line >= ?
               AND line <= ? + 20
-              AND (callee_function LIKE '%log%'
-                   OR callee_function LIKE '%print%'
-                   OR callee_function LIKE '%send%')
+              AND callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
         """, [file, handler_line, handler_line])
 
+        # Filter in Python for log/print/send functions
+        log_keywords = frozenset(['log', 'print', 'send'])
+
         for func, line, args in cursor.fetchall():
+            # Check if function is a logging function
+            if not any(keyword in func.lower() for keyword in log_keywords):
+                continue
+
             # Check if exception object is being logged directly
-            if any(exc in args.lower() for exc in ['exception', 'error', 'err', 'exc', 'stack', 'trace']):
+            args_lower = args.lower()
+            if any(exc in args_lower for exc in ['exception', 'error', 'err', 'exc', 'stack', 'trace']):
                 findings.append(StandardFinding(
                     rule_name='pii-exception-exposure',
                     message='Exception details may contain PII',
@@ -1215,18 +1254,26 @@ def _detect_derived_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
         ('account_info', ['account_number', 'routing_number'])
     ]
 
-    for derived_field, source_fields in derived_patterns:
-        # Check if derived field is being created
-        placeholders = ' OR '.join(['source_expr LIKE ?' for _ in source_fields])
-        cursor.execute(f"""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE target_var LIKE ?
-              AND ({placeholders})
-        """, [f'%{derived_field}%'] + [f'%{sf}%' for sf in source_fields])
+    # Fetch all assignments
+    cursor.execute("""
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
+    """)
 
-        for file, line, var, expr in cursor.fetchall():
-            if all(sf in expr.lower() for sf in source_fields):
+    for file, line, var, expr in cursor.fetchall():
+        # Check each derived pattern in Python
+        var_lower = var.lower()
+        expr_lower = expr.lower()
+
+        for derived_field, source_fields in derived_patterns:
+            # Check if target var matches derived field
+            if derived_field not in var_lower:
+                continue
+
+            # Check if source expression contains all source fields
+            if all(sf in expr_lower for sf in source_fields):
                 findings.append(StandardFinding(
                     rule_name='pii-derived',
                     message=f'Derived PII created: {var} from {", ".join(source_fields)}',
@@ -1238,6 +1285,7 @@ def _detect_derived_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
                     snippet=f'{var} = ...{source_fields[0]}...{source_fields[-1]}...',
                     cwe_id='CWE-359'
                 ))
+                break  # Only report once per assignment
 
     return findings
 
@@ -1252,23 +1300,34 @@ def _detect_aggregated_pii(cursor) -> List[StandardFinding]:
     # Check for multiple quasi-identifiers in same context
     quasi_list = list(QUASI_IDENTIFIERS)
 
-    # Look for multiple quasi-identifiers near each other
-    placeholders = ' OR '.join(['target_var LIKE ?' for _ in quasi_list[:20]])
-    cursor.execute(f"""
-        SELECT file, MIN(line) as start_line, COUNT(DISTINCT target_var) as quasi_count
+    # Fetch all assignments
+    cursor.execute("""
+        SELECT file, line, target_var
         FROM assignments
-        WHERE ({placeholders})
-        GROUP BY file
-        HAVING quasi_count >= 3
-    """, [f'%{q}%' for q in quasi_list[:20]])
+        WHERE target_var IS NOT NULL
+    """)
 
-    for file, line, count in cursor.fetchall():
-        if count >= 3:
+    # Group by file and count quasi-identifiers
+    file_quasi = {}
+    for file, line, var in cursor.fetchall():
+        var_lower = var.lower()
+        # Check if var matches any quasi-identifier
+        if any(q in var_lower for q in quasi_list):
+            if file not in file_quasi:
+                file_quasi[file] = {'line': line, 'count': 0, 'vars': set()}
+            file_quasi[file]['count'] += 1
+            file_quasi[file]['vars'].add(var)
+            if line < file_quasi[file]['line']:
+                file_quasi[file]['line'] = line
+
+    # Report files with 3+ quasi-identifiers
+    for file, data in file_quasi.items():
+        if data['count'] >= 3:
             findings.append(StandardFinding(
                 rule_name='pii-quasi-identifiers',
-                message=f'Multiple quasi-identifiers detected ({count} fields)',
+                message=f'Multiple quasi-identifiers detected ({data["count"]} fields)',
                 file_path=file,
-                line=line,
+                line=data['line'],
                 severity=Severity.MEDIUM,
                 confidence=Confidence.LOW,
                 category='privacy',
@@ -1290,48 +1349,51 @@ def _detect_third_party_pii(cursor, pii_categories: Dict) -> List[StandardFindin
     findings = []
 
     # Common third-party API patterns
-    third_party_apis = [
+    third_party_apis = frozenset([
         'analytics.track', 'ga.send', 'gtag',
         'mixpanel.track', 'amplitude.track',
         'facebook.pixel', 'fbq.track',
         'segment.track', 'heap.track'
-    ]
+    ])
 
-    for api in third_party_apis:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{api}%'])
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is a third-party API
+        if not any(api in func for api in third_party_apis):
+            continue
 
-            # Check for PII in tracking calls
-            detected_pii = []
-            for category, patterns in pii_categories.items():
-                for pattern in patterns:
-                    if pattern in args.lower():
-                        detected_pii.append(pattern)
+        # Check for PII in tracking calls
+        args_lower = args.lower()
+        detected_pii = []
+        for category, patterns in pii_categories.items():
+            for pattern in patterns:
+                if pattern in args_lower:
+                    detected_pii.append(pattern)
 
-            if detected_pii:
-                findings.append(StandardFinding(
-                    rule_name='pii-third-party',
-                    message=f'PII sent to third-party: {", ".join(detected_pii[:3])}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.MEDIUM,
-                    category='privacy',
-                    snippet=f'{func}(...{detected_pii[0]}...)',
-                    cwe_id='CWE-359',
-                    additional_info={
-                        'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value],
-                        'note': 'Third-party data sharing may require explicit consent'
-                    }
-                ))
+        if detected_pii:
+            findings.append(StandardFinding(
+                rule_name='pii-third-party',
+                message=f'PII sent to third-party: {", ".join(detected_pii[:3])}',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                category='privacy',
+                snippet=f'{func}(...{detected_pii[0]}...)',
+                cwe_id='CWE-359',
+                additional_info={
+                    'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value],
+                    'note': 'Third-party data sharing may require explicit consent'
+                }
+            ))
 
     return findings
 
@@ -1487,44 +1549,47 @@ def _detect_pii_in_exports(cursor, pii_categories: Dict) -> List[StandardFinding
         'csv.writer', 'csv.DictWriter'
     ])
 
-    for export_func in export_functions:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{export_func}%'])
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is an export function
+        if not any(export_func in func for export_func in export_functions):
+            continue
 
-            # Check for bulk PII patterns
-            pii_count = 0
-            detected_types = []
-            for category, patterns in pii_categories.items():
-                for pattern in patterns:
-                    if pattern in args.lower():
-                        pii_count += 1
-                        detected_types.append(pattern)
+        # Check for bulk PII patterns
+        args_lower = args.lower()
+        pii_count = 0
+        detected_types = []
+        for category, patterns in pii_categories.items():
+            for pattern in patterns:
+                if pattern in args_lower:
+                    pii_count += 1
+                    detected_types.append(pattern)
 
-            if pii_count >= 2:  # Multiple PII fields being exported
-                findings.append(StandardFinding(
-                    rule_name='pii-bulk-export',
-                    message=f'Bulk PII export detected: {", ".join(detected_types[:3])}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.MEDIUM,
-                    category='privacy',
-                    snippet=f'{func}([...{pii_count} PII fields...])',
-                    cwe_id='CWE-359',
-                    additional_info={
-                        'regulations': [PrivacyRegulation.GDPR.value],
-                        'pii_count': pii_count,
-                        'note': 'GDPR requires data minimization and purpose limitation'
-                    }
-                ))
+        if pii_count >= 2:  # Multiple PII fields being exported
+            findings.append(StandardFinding(
+                rule_name='pii-bulk-export',
+                message=f'Bulk PII export detected: {", ".join(detected_types[:3])}',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                category='privacy',
+                snippet=f'{func}([...{pii_count} PII fields...])',
+                cwe_id='CWE-359',
+                additional_info={
+                    'regulations': [PrivacyRegulation.GDPR.value],
+                    'pii_count': pii_count,
+                    'note': 'GDPR requires data minimization and purpose limitation'
+                }
+            ))
 
     return findings
 
@@ -1538,49 +1603,52 @@ def _detect_pii_retention(cursor, pii_categories: Dict) -> List[StandardFinding]
         'localStorage.setItem', 'sessionStorage.setItem'
     ])
 
-    for cache_func in cache_functions:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{cache_func}%'])
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is a cache function
+        if not any(cache_func in func for cache_func in cache_functions):
+            continue
 
-            # Check if PII is being cached
-            has_pii = False
-            for category, patterns in pii_categories.items():
-                if category in ['government', 'healthcare', 'financial', 'children']:
-                    for pattern in patterns:
-                        if pattern in args.lower():
-                            has_pii = True
-                            break
-                if has_pii:
-                    break
-
+        # Check if PII is being cached
+        args_lower = args.lower()
+        has_pii = False
+        for category, patterns in pii_categories.items():
+            if category in ['government', 'healthcare', 'financial', 'children']:
+                for pattern in patterns:
+                    if pattern in args_lower:
+                        has_pii = True
+                        break
             if has_pii:
-                # Check if TTL/expiry is set
-                has_ttl = any(ttl in args.lower() for ttl in ['ttl', 'expire', 'timeout', 'max_age'])
+                break
 
-                if not has_ttl:
-                    findings.append(StandardFinding(
-                        rule_name='pii-retention-violation',
-                        message='PII cached without retention policy (no TTL)',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        confidence=Confidence.MEDIUM,
-                        category='privacy',
-                        snippet=f'{func}(pii_data) // No TTL',
-                        cwe_id='CWE-359',
-                        additional_info={
-                            'regulations': [PrivacyRegulation.GDPR.value],
-                            'note': 'GDPR Article 5(1)(e): Data retention limitation principle'
-                        }
-                    ))
+        if has_pii:
+            # Check if TTL/expiry is set
+            has_ttl = any(ttl in args_lower for ttl in ['ttl', 'expire', 'timeout', 'max_age'])
+
+            if not has_ttl:
+                findings.append(StandardFinding(
+                    rule_name='pii-retention-violation',
+                    message='PII cached without retention policy (no TTL)',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.MEDIUM,
+                    category='privacy',
+                    snippet=f'{func}(pii_data) // No TTL',
+                    cwe_id='CWE-359',
+                    additional_info={
+                        'regulations': [PrivacyRegulation.GDPR.value],
+                        'note': 'GDPR Article 5(1)(e): Data retention limitation principle'
+                    }
+                ))
 
     return findings
 
@@ -1598,17 +1666,22 @@ def _detect_pii_cross_border(cursor, pii_categories: Dict) -> List[StandardFindi
         '.eu-', '.us-', '.ap-', '.cn-'  # Region indicators
     ])
 
+    # Fetch all assignments
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE source_expr LIKE '%http%'
-           OR source_expr LIKE '%api%'
+        WHERE source_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, var, expr in cursor.fetchall():
+        # Filter in Python for http/api patterns
+        expr_lower = expr.lower()
+        if not ('http' in expr_lower or 'api' in expr_lower):
+            continue
+
         # Check if it's a cross-border transfer
-        is_cross_border = any(api in expr.lower() for api in cross_border_apis)
+        is_cross_border = any(api in expr_lower for api in cross_border_apis)
 
         if is_cross_border:
             # Check if PII is involved
@@ -1616,10 +1689,20 @@ def _detect_pii_cross_border(cursor, pii_categories: Dict) -> List[StandardFindi
                 SELECT COUNT(*) FROM function_call_args
                 WHERE file = ?
                   AND ABS(line - ?) <= 10
-                  AND argument_expr LIKE '%' || ? || '%'
-            """, [file, line, var])
+                  AND argument_expr IS NOT NULL
+            """, [file, line])
 
-            if cursor.fetchone()[0] > 0:
+            # Filter in Python for variable usage
+            cursor.execute("""
+                SELECT argument_expr FROM function_call_args
+                WHERE file = ?
+                  AND ABS(line - ?) <= 10
+                  AND argument_expr IS NOT NULL
+            """, [file, line])
+
+            has_var_usage = any(var in (arg or '') for (arg,) in cursor.fetchall())
+
+            if has_var_usage:
                 findings.append(StandardFinding(
                     rule_name='pii-cross-border',
                     message='Potential cross-border PII transfer detected',
@@ -1653,33 +1736,42 @@ def _detect_pii_consent_gaps(cursor, pii_categories: Dict) -> List[StandardFindi
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%process%'
-               OR callee_function LIKE '%analyze%'
-               OR callee_function LIKE '%track%'
-               OR callee_function LIKE '%collect%')
+        WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
+    # Filter in Python for processing functions
+    processing_keywords = frozenset(['process', 'analyze', 'track', 'collect'])
+
     for file, line, func, args in cursor.fetchall():
+        # Check if function is a processing function
+        func_lower = func.lower()
+        if not any(keyword in func_lower for keyword in processing_keywords):
+            continue
+
         # Check if processing PII
+        args_lower = args.lower()
         has_pii = any(
-            pattern in args.lower()
+            pattern in args_lower
             for patterns in pii_categories.values()
             for pattern in patterns
         )
 
         if has_pii:
             # Check for consent check nearby
-            placeholders = ' OR '.join(['callee_function LIKE ?' for _ in consent_checks])
-            cursor.execute(f"""
-                SELECT COUNT(*) FROM function_call_args
+            cursor.execute("""
+                SELECT callee_function FROM function_call_args
                 WHERE file = ?
                   AND ABS(line - ?) <= 20
-                  AND ({placeholders})
-            """, [file, line] + [f'%{c}%' for c in consent_checks])
+                  AND callee_function IS NOT NULL
+            """, [file, line])
 
-            has_consent_check = cursor.fetchone()[0] > 0
+            # Filter in Python for consent functions
+            has_consent_check = any(
+                any(consent in (nearby_func or '').lower() for consent in consent_checks)
+                for (nearby_func,) in cursor.fetchall()
+            )
 
             if not has_consent_check:
                 findings.append(StandardFinding(
@@ -1711,37 +1803,40 @@ def _detect_pii_in_metrics(cursor, pii_categories: Dict) -> List[StandardFinding
         'counter.increment', 'gauge.set', 'histogram.observe'
     ])
 
-    for metric_func in metrics_functions:
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{metric_func}%'])
+    # Fetch all function calls
+    cursor.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, func, args in cursor.fetchall():
-            if not args:
-                continue
+    for file, line, func, args in cursor.fetchall():
+        # Check if function is a metrics function
+        if not any(metric_func in func for metric_func in metrics_functions):
+            continue
 
-            # Never include these in metrics
-            forbidden_metrics_pii = {'email', 'phone', 'ssn', 'password', 'credit_card', 'ip_address'}
+        # Never include these in metrics
+        forbidden_metrics_pii = {'email', 'phone', 'ssn', 'password', 'credit_card', 'ip_address'}
 
-            for pii in forbidden_metrics_pii:
-                if pii in args.lower():
-                    findings.append(StandardFinding(
-                        rule_name='pii-in-metrics',
-                        message=f'PII in metrics/monitoring: {pii}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        confidence=Confidence.HIGH,
-                        category='privacy',
-                        snippet=f'{func}(...{pii}...)',
-                        cwe_id='CWE-359',
-                        additional_info={
-                            'note': 'Metrics systems often have weak access controls and long retention'
-                        }
-                    ))
+        args_lower = args.lower()
+        for pii in forbidden_metrics_pii:
+            if pii in args_lower:
+                findings.append(StandardFinding(
+                    rule_name='pii-in-metrics',
+                    message=f'PII in metrics/monitoring: {pii}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    category='privacy',
+                    snippet=f'{func}(...{pii}...)',
+                    cwe_id='CWE-359',
+                    additional_info={
+                        'note': 'Metrics systems often have weak access controls and long retention'
+                    }
+                ))
 
     return findings
 
@@ -1761,25 +1856,38 @@ def _detect_pii_access_control(cursor, pii_categories: Dict) -> List[StandardFin
         SELECT file, line, name
         FROM symbols
         WHERE type = 'function'
-          AND (name LIKE '%get%user%'
-               OR name LIKE '%fetch%profile%'
-               OR name LIKE '%load%customer%'
-               OR name LIKE '%retrieve%patient%')
+          AND name IS NOT NULL
         ORDER BY file, line
     """)
 
+    # Filter in Python for PII-related function names
+    pii_function_keywords = frozenset(['get', 'fetch', 'load', 'retrieve'])
+    pii_entity_keywords = frozenset(['user', 'profile', 'customer', 'patient'])
+
     for file, line, func_name in cursor.fetchall():
+        func_name_lower = func_name.lower()
+
+        # Check if function name suggests PII access
+        has_pii_action = any(keyword in func_name_lower for keyword in pii_function_keywords)
+        has_pii_entity = any(keyword in func_name_lower for keyword in pii_entity_keywords)
+
+        if not (has_pii_action and has_pii_entity):
+            continue
+
         # Check if function has auth checks
-        placeholders = ' OR '.join(['callee_function LIKE ?' for _ in auth_checks])
-        cursor.execute(f"""
-            SELECT COUNT(*) FROM function_call_args
+        cursor.execute("""
+            SELECT callee_function FROM function_call_args
             WHERE file = ?
               AND line >= ?
               AND line <= ? + 50
-              AND ({placeholders})
-        """, [file, line, line] + [f'%{a}%' for a in auth_checks])
+              AND callee_function IS NOT NULL
+        """, [file, line, line])
 
-        has_auth = cursor.fetchone()[0] > 0
+        # Filter in Python for auth functions
+        has_auth = any(
+            any(auth in (nearby_func or '').lower() for auth in auth_checks)
+            for (nearby_func,) in cursor.fetchall()
+        )
 
         if not has_auth:
             findings.append(StandardFinding(

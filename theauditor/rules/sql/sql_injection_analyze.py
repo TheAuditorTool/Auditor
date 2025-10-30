@@ -105,15 +105,20 @@ def _find_format_injection(cursor, patterns: SQLInjectionPatterns) -> List[Stand
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
-          AND argument_expr LIKE '%.format(%'
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     seen = set()
 
     for file, line, func, args in cursor.fetchall():
-        if not args:
+        # Filter in Python for .query/.execute methods
+        if not ('.query' in func or '.execute' in func):
+            continue
+
+        # Check if contains .format()
+        if '.format(' not in args:
             continue
 
         # Check if it contains SQL keywords
@@ -158,15 +163,20 @@ def _find_fstring_injection(cursor, patterns: SQLInjectionPatterns) -> List[Stan
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
-          AND (argument_expr LIKE '%f"%' OR argument_expr LIKE "%f'%")
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     seen = set()
 
     for file, line, func, args in cursor.fetchall():
-        if not args:
+        # Filter in Python for .query/.execute methods
+        if not ('.query' in func or '.execute' in func):
+            continue
+
+        # Check if contains f-string
+        if not ('f"' in args or "f'" in args):
             continue
 
         args_upper = args.upper()
@@ -207,15 +217,20 @@ def _find_concatenation_injection(cursor, patterns: SQLInjectionPatterns) -> Lis
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%')
-          AND (argument_expr LIKE '% + %' OR argument_expr LIKE '%||%')
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     seen = set()
 
     for file, line, func, args in cursor.fetchall():
-        if not args:
+        # Filter in Python for .query/.execute methods
+        if not ('.query' in func or '.execute' in func):
+            continue
+
+        # Check if contains concatenation operators
+        if not (' + ' in args or '||' in args):
             continue
 
         args_upper = args.upper()
@@ -226,27 +241,26 @@ def _find_concatenation_injection(cursor, patterns: SQLInjectionPatterns) -> Lis
 
         # Check for safe concatenation (string literals only)
         # If contains variable names between operators, it's dangerous
-        if (' + ' in args or '||' in args):
-            has_params = any(param in args for param in patterns.SAFE_PARAMS)
+        has_params = any(param in args for param in patterns.SAFE_PARAMS)
 
-            if has_params:
-                continue
+        if has_params:
+            continue
 
-            key = f"{file}:{line}"
-            if key in seen:
-                continue
-            seen.add(key)
+        key = f"{file}:{line}"
+        if key in seen:
+            continue
+        seen.add(key)
 
-            findings.append(StandardFinding(
-                rule_name='sql-injection-concatenation',
-                message='SQL query using string concatenation - potential injection risk',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='security',
-                snippet=args[:80] + '...' if len(args) > 80 else args,
-                cwe_id='CWE-89'
-            ))
+        findings.append(StandardFinding(
+            rule_name='sql-injection-concatenation',
+            message='SQL query using string concatenation - potential injection risk',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet=args[:80] + '...' if len(args) > 80 else args,
+            cwe_id='CWE-89'
+        ))
 
     return findings
 
@@ -259,16 +273,25 @@ def _find_template_literal_injection(cursor, patterns: SQLInjectionPatterns) -> 
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%.query%' OR callee_function LIKE '%.execute%' OR callee_function LIKE '%.raw%')
-          AND argument_expr LIKE '%${%'
-          AND (file LIKE '%.js' OR file LIKE '%.ts')
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     seen = set()
 
     for file, line, func, args in cursor.fetchall():
-        if not args:
+        # Filter in Python for .query/.execute/.raw methods
+        if not ('.query' in func or '.execute' in func or '.raw' in func):
+            continue
+
+        # Check if contains template literal
+        if '${' not in args:
+            continue
+
+        # Check if file is JavaScript/TypeScript
+        file_lower = file.lower()
+        if not (file_lower.endswith('.js') or file_lower.endswith('.ts')):
             continue
 
         args_upper = args.upper()
@@ -313,10 +336,7 @@ def _find_dynamic_query_construction(cursor, patterns: SQLInjectionPatterns) -> 
         FROM sql_queries
         WHERE command != 'UNKNOWN'
           AND command IS NOT NULL
-          AND (query_text LIKE '%.format(%'
-               OR query_text LIKE '%f"%'
-               OR query_text LIKE "%f'%"
-               OR query_text LIKE '% + %')
+          AND query_text IS NOT NULL
         ORDER BY file_path, line_number
         LIMIT 20
     """)
@@ -324,6 +344,10 @@ def _find_dynamic_query_construction(cursor, patterns: SQLInjectionPatterns) -> 
     seen = set()
 
     for file, line, query, command in cursor.fetchall():
+        # Filter in Python for dynamic construction patterns
+        if not any(pattern in query for pattern in ['.format(', 'f"', "f'", ' + ']):
+            continue
+
         # Check for interpolation patterns
         has_interpolation = any(pattern in query for pattern in patterns.INTERPOLATION_PATTERNS)
 

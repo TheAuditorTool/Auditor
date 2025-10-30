@@ -148,16 +148,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 1: Unbounded Queries (find, getMany without limit)
         # ========================================================
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""(callee_function LIKE '%.find'
-                   OR callee_function LIKE '%.findAndCount'
-                   OR callee_function LIKE '%.getMany'
-                   OR callee_function LIKE '%.getManyAndCount'
-                   OR callee_function LIKE '%.getRawMany')""",
                            order_by="file, line")
         cursor.execute(query)
 
         for file, line, method, args in cursor.fetchall():
+            # Check for unbounded methods in Python
+            if not any(method.endswith(f'.{m}') for m in UNBOUNDED_METHODS):
+                continue
             # Check if limit/take is present
             has_limit = args and any(term in str(args) for term in
                                     ['limit', 'take', 'skip', 'offset'])
@@ -178,16 +177,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 2: N+1 Query Patterns
         # ========================================================
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""(callee_function LIKE '%.findOne'
-                   OR callee_function LIKE '%.findOneBy'
-                   OR callee_function LIKE '%.findOneOrFail')""",
                            order_by="file, line")
         cursor.execute(query)
 
-        # Group by file to detect patterns
+        # Filter and group by file to detect patterns
         file_queries = {}
         for file, line, method, args in cursor.fetchall():
+            # Check for findOne methods in Python
+            if not any(method.endswith(f'.{m}') for m in ['findOne', 'findOneBy', 'findOneOrFail']):
+                continue
             if file not in file_queries:
                 file_queries[file] = []
             file_queries[file].append({'line': line, 'method': method, 'args': args})
@@ -220,19 +220,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Missing Transactions for Multiple Writes
         # ========================================================
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""callee_function LIKE '%.save'
-               OR callee_function LIKE '%.insert'
-               OR callee_function LIKE '%.update'
-               OR callee_function LIKE '%.delete'
-               OR callee_function LIKE '%.remove'
-               OR callee_function LIKE '%.softDelete'""",
                            order_by="file, line")
         cursor.execute(query)
 
-        # Group operations by file
+        # Filter and group operations by file
         file_operations = {}
         for file, line, method in cursor.fetchall():
+            # Check for write methods in Python
+            if not any(f'.{m}' in method for m in WRITE_METHODS):
+                continue
             if file not in file_operations:
                 file_operations[file] = []
             file_operations[file].append({'line': line, 'method': method})
@@ -245,16 +243,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
                 # Operations within 20 lines
                 if op2['line'] - op1['line'] <= 20:
-                    # Check for transaction
-                    trans_query = build_query('function_call_args', ['line'], limit=1)
-                    cursor.execute(trans_query + """
-                        WHERE file = ?
-                          AND (callee_function LIKE '%transaction%'
-                               OR callee_function LIKE '%queryRunner%')
-                          AND line BETWEEN ? AND ?
-                    """, (file, op1['line'] - 10, op2['line'] + 10))
+                    # Check for transaction - fetch and filter in Python
+                    trans_query = build_query('function_call_args', ['callee_function'],
+                                             where="file = ? AND line BETWEEN ? AND ?")
+                    cursor.execute(trans_query, (file, op1['line'] - 10, op2['line'] + 10))
 
-                    has_transaction = cursor.fetchone() is not None
+                    has_transaction = False
+                    for (callee,) in cursor.fetchall():
+                        if 'transaction' in callee.lower() or 'queryrunner' in callee.lower():
+                            has_transaction = True
+                            break
 
                     if not has_transaction:
                         findings.append(StandardFinding(
@@ -272,15 +270,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: Raw SQL Injection Risks
         # ========================================================
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""callee_function LIKE '%.query'
-               OR callee_function LIKE '%.createQueryBuilder'
-               OR callee_function LIKE '%QueryBuilder%'
-               OR callee_function = 'query'""",
                            order_by="file, line")
         cursor.execute(query)
 
         for file, line, func, args in cursor.fetchall():
+            # Check for query methods in Python
+            func_lower = func.lower()
+            if not (func == 'query' or '.query' in func_lower or
+                   'querybuilder' in func_lower or '.createquerybuilder' in func_lower):
+                continue
             if args:
                 args_str = str(args)
                 # Check for string interpolation
@@ -306,26 +306,29 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: QueryBuilder Without Limits
         # ========================================================
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""callee_function LIKE '%getMany%'
-               OR callee_function LIKE '%getRawMany%'
-               OR callee_function LIKE '%getManyAndCount%'""",
                            order_by="file, line")
         cursor.execute(query)
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        getmany_calls = cursor.fetchall()
+        # Store results before nested loop (avoid cursor state bug)
+        all_calls = cursor.fetchall()
 
-        for file, line, method, args in getmany_calls:
-            # Check if there's a limit() or take() call nearby
-            limit_query = build_query('function_call_args', ['line'],
-                                     where="""file = ?
-                  AND (callee_function LIKE '%.limit'
-                       OR callee_function LIKE '%.take')
-                  AND ABS(line - ?) <= 5""",
-                                     limit=1)
+        for file, line, method, args in all_calls:
+            # Check for getMany methods in Python
+            method_lower = method.lower()
+            if not ('getmany' in method_lower or 'getrawmany' in method_lower or 'getmanyandcount' in method_lower):
+                continue
+
+            # Check if there's a limit() or take() call nearby - fetch and filter in Python
+            limit_query = build_query('function_call_args', ['callee_function'],
+                                     where="file = ? AND ABS(line - ?) <= 5")
             cursor.execute(limit_query, (file, line))
 
-            has_limit_nearby = cursor.fetchone() is not None
+            has_limit_nearby = False
+            for (callee,) in cursor.fetchall():
+                if callee.endswith('.limit') or callee.endswith('.take'):
+                    has_limit_nearby = True
+                    break
 
             if not has_limit_nearby:
                 findings.append(StandardFinding(
@@ -342,13 +345,20 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Dangerous Cascade Configuration
         # ========================================================
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where="""source_expr LIKE '%cascade%true%'
-               OR source_expr LIKE '%cascade:%true%'
-               OR source_expr LIKE '%cascade :%true%'""")
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'source_expr'])
         cursor.execute(query)
 
         for file, line, expr in cursor.fetchall():
+            # Check for cascade:true patterns in Python
+            if not expr:
+                continue
+            expr_lower = expr.lower().replace(' ', '')
+            if 'cascade' not in expr_lower or 'true' not in expr_lower:
+                continue
+            # Verify it's actually cascade: true (various formats)
+            if not any(pattern in expr_lower for pattern in ['cascade:true', 'cascade"true', "cascade'true"]):
+                continue
             findings.append(StandardFinding(
                 rule_name='typeorm-cascade-true',
                 message='cascade: true can cause unintended data deletion',
@@ -363,15 +373,24 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: Synchronize True in Production
         # ========================================================
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where="""(source_expr LIKE '%synchronize%true%'
-                   OR source_expr LIKE '%synchronize:%true%')
-              AND file NOT LIKE '%test%'
-              AND file NOT LIKE '%spec%'
-              AND file NOT LIKE '%mock%'""")
+        # Fetch all assignments, filter in Python (METADATA handles file exclusions)
+        query = build_query('assignments', ['file', 'line', 'source_expr'])
         cursor.execute(query)
 
         for file, line, expr in cursor.fetchall():
+            # Check for synchronize:true patterns in Python
+            if not expr:
+                continue
+            expr_lower = expr.lower().replace(' ', '')
+            if 'synchronize' not in expr_lower or 'true' not in expr_lower:
+                continue
+            # Verify it's actually synchronize: true
+            if not any(pattern in expr_lower for pattern in ['synchronize:true', 'synchronize"true', "synchronize'true"]):
+                continue
+            # Skip test/spec/mock files
+            file_lower = file.lower()
+            if any(pattern in file_lower for pattern in ['test', 'spec', 'mock']):
+                continue
             findings.append(StandardFinding(
                 rule_name='typeorm-synchronize-true',
                 message='synchronize: true detected - NEVER use in production',
@@ -386,43 +405,48 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 8: Missing Indexes on Common Fields
         # ========================================================
-        # Find entity files
-        # Note: Using raw SQL because build_query() doesn't support DISTINCT
-        cursor.execute("""
-            SELECT DISTINCT path
-            FROM files
-            WHERE (path LIKE '%.entity.ts' OR path LIKE '%.entity.js')
-              AND path NOT LIKE '%test%'
-              AND path NOT LIKE '%spec%'
-        """)
+        # Find entity files - fetch all files, filter in Python
+        query = build_query('files', ['path'])
+        cursor.execute(query)
 
-        entity_files = cursor.fetchall()
+        entity_files = []
+        for (path,) in cursor.fetchall():
+            # Check for entity files in Python
+            path_lower = path.lower()
+            if not (path.endswith('.entity.ts') or path.endswith('.entity.js')):
+                continue
+            # Skip test/spec files (METADATA handles this but double-check)
+            if 'test' in path_lower or 'spec' in path_lower:
+                continue
+            entity_files.append(path)
 
-        for (entity_file,) in entity_files:
+        for entity_file in entity_files:
             # Check for common fields in this entity
             for field in COMMON_INDEXED_FIELDS:
-                field_query = build_query('symbols', ['line'])
-                cursor.execute(field_query + """
-                    WHERE path = ?
-                      AND name LIKE ?
-                      AND type IN ('property', 'field', 'member')
-                    LIMIT 1
-                """, (entity_file, f'%{field}%'))
+                # Fetch symbols and filter in Python
+                field_query = build_query('symbols', ['line', 'name'],
+                                         where="path = ? AND type IN ('property', 'field', 'member')")
+                cursor.execute(field_query, (entity_file,))
 
-                field_result = cursor.fetchone()
+                field_result = None
+                for line, name in cursor.fetchall():
+                    if field.lower() in name.lower():
+                        field_result = (line,)
+                        break
 
                 if field_result:
                     field_line = field_result[0]
 
-                    # Check if there's an @Index nearby
-                    index_query = build_query('symbols', ['name'], limit=1)
-                    cursor.execute(index_query + """
-                        WHERE path = ?
-                          AND name LIKE '%Index%'
-                          AND ABS(line - ?) <= 3
-                    """, (entity_file, field_line))
+                    # Check if there's an @Index nearby - fetch and filter in Python
+                    index_query = build_query('symbols', ['name'],
+                                             where="path = ? AND ABS(line - ?) <= 3")
+                    cursor.execute(index_query, (entity_file, field_line))
 
-                    has_index = cursor.fetchone() is not None
+                    has_index = False
+                    for (symbol_name,) in cursor.fetchall():
+                        if 'index' in symbol_name.lower():
+                            has_index = True
+                            break
 
                     if not has_index:
                         findings.append(StandardFinding(
@@ -439,16 +463,18 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 9: Complex Joins Without Pagination
         # ========================================================
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="""(callee_function LIKE '%leftJoin%'
-                   OR callee_function LIKE '%innerJoin%'
-                   OR callee_function LIKE '%leftJoinAndSelect%')""",
                            order_by="file, line")
         cursor.execute(query)
 
-        # Count joins per query
+        # Filter and count joins per query
         join_counts = {}
         for file, line, method, args in cursor.fetchall():
+            # Check for join methods in Python
+            method_lower = method.lower()
+            if not ('leftjoin' in method_lower or 'innerjoin' in method_lower or 'leftjoinandselect' in method_lower):
+                continue
             key = f"{file}:{line // 10}"  # Group by 10-line blocks
             if key not in join_counts:
                 join_counts[key] = {'file': file, 'line': line, 'count': 0}
@@ -457,16 +483,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # Check for complex joins without limit
         for key, data in join_counts.items():
             if data['count'] >= 3:
-                # Check for limit/take
-                limit_query = build_query('function_call_args', ['line'], limit=1)
-                cursor.execute(limit_query + """
-                    WHERE file = ?
-                      AND (callee_function LIKE '%.limit'
-                           OR callee_function LIKE '%.take')
-                      AND ABS(line - ?) <= 10
-                """, (data['file'], data['line']))
+                # Check for limit/take - fetch and filter in Python
+                limit_query = build_query('function_call_args', ['callee_function'],
+                                         where="file = ? AND ABS(line - ?) <= 10")
+                cursor.execute(limit_query, (data['file'], data['line']))
 
-                has_limit = cursor.fetchone() is not None
+                has_limit = False
+                for (callee,) in cursor.fetchall():
+                    if callee.endswith('.limit') or callee.endswith('.take'):
+                        has_limit = True
+                        break
 
                 if not has_limit:
                     findings.append(StandardFinding(
@@ -483,22 +509,28 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 10: Entity Manager vs Repository Pattern
         # ========================================================
+        # Fetch all function_call_args, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           where="""callee_function LIKE '%entityManager.%'
-               OR callee_function LIKE '%getManager%'""",
                            order_by="file, line")
         cursor.execute(query)
 
-        manager_usage = cursor.fetchall()
+        # Filter for EntityManager usage
+        manager_usage = []
+        for file, line, func in cursor.fetchall():
+            func_lower = func.lower()
+            if 'entitymanager.' in func_lower or 'getmanager' in func_lower:
+                manager_usage.append((file, line, func))
 
         if len(manager_usage) > 20:  # Significant EntityManager usage
-            # Check if using repositories
-            repo_query = build_query('function_call_args', ['callee_function'],
-                                    where="""callee_function LIKE '%getRepository%'
-                   OR callee_function LIKE '%getCustomRepository%'""")
+            # Check if using repositories - fetch all again and filter
+            repo_query = build_query('function_call_args', ['callee_function'])
             cursor.execute(repo_query)
 
-            repo_count = len(cursor.fetchall())
+            repo_count = 0
+            for (callee,) in cursor.fetchall():
+                callee_lower = callee.lower()
+                if 'getrepository' in callee_lower or 'getcustomrepository' in callee_lower:
+                    repo_count += 1
 
             if repo_count < 5:  # Very few repository uses
                 findings.append(StandardFinding(

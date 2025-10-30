@@ -179,7 +179,9 @@ class StandardFinding:
         if self.cwe_id:
             result["cwe"] = self.cwe_id  # Schema expects 'cwe'
         if self.additional_info:
-            result["additional_info"] = self.additional_info
+            # Map additional_info → details_json for database schema
+            import json
+            result["details_json"] = json.dumps(self.additional_info)
 
         return result
 

@@ -1,0 +1,84 @@
+# VULN: Artifact poisoning - build in untrusted context, deploy in trusted
+# Attack: Submit PR with malicious build output, trusted workflow deploys it
+name: Artifact Poisoning
+
+on:
+  pull_request_target:
+  push:
+    branches: [main]
+
+jobs:
+  # VULN: Builds artifact in untrusted pull_request_target context
+  build-from-pr:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}  # VULN: Untrusted code
+
+      - name: Build application
+        run: |
+          # VULN: Attacker controls build process
+          npm install  # Can modify package.json
+          npm run build  # Can modify build scripts
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-bundle  # VULN: Artifact name collision with trusted build
+          path: dist/
+
+  # VULN: Downloads and deploys artifact from untrusted build
+  deploy-artifact:
+    needs: build-from-pr
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    environment: production
+    steps:
+      # VULN: No validation of artifact source
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: app-bundle  # VULN: Downloads potentially malicious artifact
+
+      - name: Deploy to production
+        run: |
+          # VULN: Deploys attacker-controlled files
+          aws s3 sync . s3://production-bucket/
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  # Another variant: artifact from one job to another
+  untrusted-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - run: make build
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: release-binary
+          path: bin/app
+
+  trusted-sign:
+    needs: untrusted-build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # VULN: Code signing with untrusted binary
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: release-binary
+
+      - name: Sign binary
+        run: |
+          # VULN: Signing attacker binary with trusted key
+          cosign sign --key ${{ secrets.SIGNING_KEY }} bin/app

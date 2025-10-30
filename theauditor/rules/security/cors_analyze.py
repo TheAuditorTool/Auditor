@@ -221,16 +221,25 @@ class CORSAnalyzer:
 
     def _check_subdomain_wildcards(self):
         """Detect subdomain wildcard patterns that enable takeover attacks."""
-        # Look for origin patterns with subdomain wildcards
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND (source_expr LIKE '%*.%' OR source_expr LIKE '%/.%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable name contains origin or cors
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'cors' in var_lower):
+                continue
+
+            # Check if source expression contains wildcard patterns
+            if not ('*.' in expr or '/.' in expr):
+                continue
+
             # Check for subdomain wildcard patterns
             subdomain_patterns = [
                 r'\*\.',  # *.example.com
@@ -259,45 +268,58 @@ class CORSAnalyzer:
 
     def _check_null_origin_handling(self):
         """Detect allowing 'null' origin which enables sandbox attacks."""
-        # Check in function arguments - static query
-        placeholders = ','.join(['?'] * len(self.patterns.CORS_FUNCTIONS))
-        query = f"""
+        # Fetch all function_call_args, filter in Python
+        self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE argument_expr LIKE '%null%'
-              AND (argument_expr LIKE '%origin%' OR callee_function IN ({placeholders}))
-        """
-        self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
+            WHERE argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
         for row in self.cursor.fetchall():
-            file, line = row[0], row[1]
-            context = row[2] if len(row) > 2 else ""
+            file, line, callee, args = row[0], row[1], row[2], row[3]
+
+            # Check if contains 'null'
+            if 'null' not in str(args).lower():
+                continue
+
+            # Check if related to origin or is CORS function
+            if not ('origin' in str(args).lower() or callee in self.patterns.CORS_FUNCTIONS):
+                continue
 
             # Check if null is being explicitly allowed
-            if 'null' in str(row).lower():
-                self.findings.append(StandardFinding(
-                    rule_name='cors-null-origin',
-                    message='CORS allows "null" origin - enables attacks from sandboxed contexts',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.HIGH,
-                    category='security',
-                    code_snippet='origin: [..., "null", ...]',
-                    cwe_id='CWE-346'  # Origin Validation Error
-                ))
+            self.findings.append(StandardFinding(
+                rule_name='cors-null-origin',
+                message='CORS allows "null" origin - enables attacks from sandboxed contexts',
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                confidence=Confidence.HIGH,
+                category='security',
+                code_snippet='origin: [..., "null", ...]',
+                cwe_id='CWE-346'  # Origin Validation Error
+            ))
 
         # Check in assignments
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%whitelist%')
-              AND source_expr LIKE '%null%'
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
+            ORDER BY file, line
         """)
 
         for row in self.cursor.fetchall():
-            file, line = row[0], row[1]
-            context = row[2] if len(row) > 2 else ""
+            file, line, var, expr = row[0], row[1], row[2], row[3]
+
+            # Check if variable contains origin or whitelist
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'whitelist' in var_lower):
+                continue
+
+            # Check if source contains null
+            if 'null' not in expr.lower():
+                continue
 
             # Check if null is being explicitly allowed
             if 'null' in str(row).lower():
@@ -319,32 +341,51 @@ class CORSAnalyzer:
 
     def _check_origin_reflection(self):
         """Detect reflecting origin header without validation."""
-        # Find origin reflections
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (source_expr LIKE '%req.headers.origin%'
-                   OR source_expr LIKE '%req.header%origin%'
-                   OR source_expr LIKE '%request.headers.origin%'
-                   OR source_expr LIKE '%request.headers[%origin%]%')
+            WHERE source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
-        for file, line, var, expr in self.cursor.fetchall():
-            # Check if there's validation nearby
-            query_validation = build_query('function_call_args', ['callee_function', 'line'],
-                where="""file = ?
-                  AND (callee_function LIKE '%includes%'
-                       OR callee_function LIKE '%indexOf%'
-                       OR callee_function LIKE '%test%'
-                       OR callee_function LIKE '%match%'
-                       OR argument_expr LIKE '%whitelist%'
-                       OR argument_expr LIKE '%allowed%')"""
-            )
-            self.cursor.execute(query_validation, (file,))
+        origin_patterns = ['req.headers.origin', 'req.header', 'request.headers.origin', 'request.headers[']
 
-            # Filter in Python for ABS(line - ?) <= 10
-            nearby_validation = [row for row in self.cursor.fetchall() if abs(row[1] - line) <= 10]
+        for file, line, var, expr in self.cursor.fetchall():
+            # Check if source expression contains origin header access
+            if not any(pattern in expr for pattern in origin_patterns):
+                continue
+
+            # Check if 'origin' is in the expression
+            if 'origin' not in expr.lower():
+                continue
+
+            # Check if there's validation nearby - fetch function calls for this file
+            self.cursor.execute("""
+                SELECT callee_function, line, argument_expr
+                FROM function_call_args
+                WHERE file = ?
+                  AND callee_function IS NOT NULL
+            """, (file,))
+
+            # Filter in Python for nearby validation and validation functions
+            validation_funcs = ['includes', 'indexOf', 'test', 'match']
+            validation_keywords = ['whitelist', 'allowed']
+
+            nearby_validation = []
+            for callee, func_line, args in self.cursor.fetchall():
+                if abs(func_line - line) > 10:
+                    continue
+
+                # Check if function is validation-related
+                if any(vf in callee for vf in validation_funcs):
+                    nearby_validation.append((callee, func_line))
+                    continue
+
+                # Check if args contain validation keywords
+                if args and any(kw in str(args).lower() for kw in validation_keywords):
+                    nearby_validation.append((callee, func_line))
+
             validation_count = len(nearby_validation)
 
             if validation_count == 0:
@@ -366,16 +407,25 @@ class CORSAnalyzer:
 
     def _check_regex_vulnerabilities(self):
         """Detect vulnerable regex patterns in CORS origin validation."""
-        # Find regex patterns used for origin validation
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND (source_expr LIKE '%RegExp%' OR source_expr LIKE '%/^%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable name contains origin or cors
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'cors' in var_lower):
+                continue
+
+            # Check if source contains regex patterns
+            if not ('RegExp' in expr or '/^' in expr):
+                continue
+
             vulnerabilities = []
 
             # Check for unescaped dots
@@ -409,17 +459,27 @@ class CORSAnalyzer:
 
     def _check_protocol_downgrade(self):
         """Detect allowing HTTP origins when HTTPS should be required."""
-        # Check assignments
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND source_expr LIKE '%http://%'
-              AND source_expr NOT LIKE '%https://%'
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
+            ORDER BY file, line
         """)
 
         for row in self.cursor.fetchall():
-            file, line = row[0], row[1]
+            file, line, var, expr = row[0], row[1], row[2], row[3]
+
+            # Check if variable contains origin or cors
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'cors' in var_lower):
+                continue
+
+            # Check if source contains http:// but not https://
+            if 'http://' not in expr or 'https://' in expr:
+                continue
+
             self.findings.append(StandardFinding(
                 rule_name='cors-protocol-downgrade',
                 message='HTTP origin allowed - vulnerable to protocol downgrade attacks',
@@ -432,20 +492,29 @@ class CORSAnalyzer:
                 cwe_id='CWE-757'  # Selection of Less-Secure Algorithm
             ))
 
-        # Check function call args - static query
-        placeholders = ','.join(['?'] * len(self.patterns.CORS_FUNCTIONS))
-        query = f"""
+        # Fetch all function_call_args, filter in Python
+        self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function IN ({placeholders})
-              AND argument_expr LIKE '%http://%'
-              AND argument_expr NOT LIKE '%localhost%'
-              AND argument_expr NOT LIKE '%127.0.0.1%'
-        """
-        self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
+            ORDER BY file, line
+        """)
 
         for row in self.cursor.fetchall():
-            file, line = row[0], row[1]
+            file, line, callee, args = row[0], row[1], row[2], row[3]
+
+            # Check if CORS function
+            if callee not in self.patterns.CORS_FUNCTIONS:
+                continue
+
+            # Check if contains http:// but skip localhost
+            if 'http://' not in args:
+                continue
+
+            if 'localhost' in args or '127.0.0.1' in args:
+                continue
+
             self.findings.append(StandardFinding(
                 rule_name='cors-protocol-downgrade',
                 message='HTTP origin allowed - vulnerable to protocol downgrade attacks',
@@ -464,18 +533,29 @@ class CORSAnalyzer:
 
     def _check_port_confusion(self):
         """Detect port handling issues in CORS origin validation."""
-        # Look for port-specific origin configurations
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND source_expr LIKE '%:%'
-              AND source_expr NOT LIKE '%:80%'
-              AND source_expr NOT LIKE '%:443%'
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable contains origin or cors
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'cors' in var_lower):
+                continue
+
+            # Check if source contains port (colon)
+            if ':' not in expr:
+                continue
+
+            # Skip standard ports
+            if ':80' in expr or ':443' in expr:
+                continue
+
             # Check if multiple ports or non-standard ports
             port_matches = re.findall(r':(\d+)', expr)
             if port_matches and len(set(port_matches)) > 1:
@@ -497,28 +577,43 @@ class CORSAnalyzer:
 
     def _check_case_sensitivity(self):
         """Detect case-sensitive origin comparisons that can be bypassed."""
-        # Look for string comparisons without case normalization
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE (callee_function IN ('===', '==', 'equals', 'strcmp')
-                   OR callee_function LIKE '%indexOf%'
-                   OR callee_function LIKE '%includes%')
-              AND (argument_expr LIKE '%origin%' OR argument_expr LIKE '%Origin%')
+            WHERE callee_function IS NOT NULL
+              AND argument_expr IS NOT NULL
             ORDER BY file, line
         """)
 
-        for file, line, func, args in self.cursor.fetchall():
-            # Check if toLowerCase/toUpperCase is nearby
-            query_case = build_query('function_call_args', ['callee_function', 'line'],
-                where="""file = ?
-                  AND (callee_function LIKE '%toLowerCase%'
-                       OR callee_function LIKE '%toUpperCase%')"""
-            )
-            self.cursor.execute(query_case, (file,))
+        comparison_funcs = ['===', '==', 'equals', 'strcmp']
 
-            # Filter in Python for ABS(line - ?) <= 3
-            nearby_case = [row for row in self.cursor.fetchall() if abs(row[1] - line) <= 3]
+        for file, line, func, args in self.cursor.fetchall():
+            # Check if function is comparison function or contains indexOf/includes
+            if not (func in comparison_funcs or 'indexOf' in func or 'includes' in func):
+                continue
+
+            # Check if args contain 'origin' (case insensitive)
+            if 'origin' not in args.lower():
+                continue
+
+            # Check if toLowerCase/toUpperCase is nearby - fetch case functions for this file
+            self.cursor.execute("""
+                SELECT callee_function, line
+                FROM function_call_args
+                WHERE file = ?
+                  AND callee_function IS NOT NULL
+            """, (file,))
+
+            # Filter in Python for nearby case functions
+            nearby_case = []
+            for callee, func_line in self.cursor.fetchall():
+                if abs(func_line - line) > 3:
+                    continue
+
+                if 'toLowerCase' in callee or 'toUpperCase' in callee:
+                    nearby_case.append((callee, func_line))
+
             if len(nearby_case) == 0:
                 self.findings.append(StandardFinding(
                     rule_name='cors-case-sensitivity',
@@ -538,33 +633,38 @@ class CORSAnalyzer:
 
     def _check_missing_vary_header(self):
         """Detect missing Vary: Origin header causing cache poisoning."""
-        # Find files setting Access-Control-Allow-Origin
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
-            SELECT DISTINCT file FROM function_call_args
-            WHERE argument_expr LIKE '%Access-Control-Allow-Origin%'
+            SELECT DISTINCT file, argument_expr, line
+            FROM function_call_args
+            WHERE argument_expr IS NOT NULL
         """)
 
-        cors_files = [row[0] for row in self.cursor.fetchall()]
+        # Build map of files with CORS headers
+        cors_files = {}
+        for file, args, line in self.cursor.fetchall():
+            if 'Access-Control-Allow-Origin' in args:
+                if file not in cors_files:
+                    cors_files[file] = line
 
-        for file in cors_files:
+        for file, first_line in cors_files.items():
             # Check if Vary header is set in same file
-            query_vary = build_query('function_call_args', ['argument_expr'],
-                where="""file = ?
-                  AND argument_expr LIKE '%Vary%'
-                  AND argument_expr LIKE '%Origin%'""",
-                limit=1
-            )
-            self.cursor.execute(query_vary, (file,))
+            self.cursor.execute("""
+                SELECT argument_expr
+                FROM function_call_args
+                WHERE file = ?
+                  AND argument_expr IS NOT NULL
+                LIMIT 100
+            """, (file,))
 
-            if self.cursor.fetchone() is None:
-                # Find a line number for reporting
-                self.cursor.execute("""
-                    SELECT MIN(line) FROM function_call_args
-                    WHERE file = ?
-                      AND argument_expr LIKE '%Access-Control-Allow-Origin%'
-                """, (file,))
+            has_vary = False
+            for (args,) in self.cursor.fetchall():
+                if 'Vary' in args and 'Origin' in args:
+                    has_vary = True
+                    break
 
-                line = self.cursor.fetchone()[0] or 1
+            if not has_vary:
+                line = first_line
 
                 self.findings.append(StandardFinding(
                     rule_name='cors-missing-vary',
@@ -584,14 +684,19 @@ class CORSAnalyzer:
 
     def _check_excessive_preflight_cache(self):
         """Detect excessive Access-Control-Max-Age values."""
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
             SELECT file, line, argument_expr
             FROM function_call_args
-            WHERE argument_expr LIKE '%Access-Control-Max-Age%'
+            WHERE argument_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, args in self.cursor.fetchall():
+            # Check if contains Access-Control-Max-Age
+            if 'Access-Control-Max-Age' not in args:
+                continue
+
             # Extract max age value
             max_age_match = re.search(r'Max-Age["\s:]+(\d+)', args, re.IGNORECASE)
             if max_age_match:
@@ -618,30 +723,46 @@ class CORSAnalyzer:
 
     def _check_websocket_bypass(self):
         """Detect WebSocket handlers without origin validation."""
-        # Find WebSocket connection handlers - static query
-        placeholders = ','.join(['?'] * len(self.patterns.WEBSOCKET_HANDLERS))
-        query = f"""
+        # Fetch all function_call_args, filter in Python
+        self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function IN ({placeholders})
-              OR argument_expr LIKE '%connection%'
-              OR argument_expr LIKE '%upgrade%'
+            WHERE callee_function IS NOT NULL
             ORDER BY file, line
-        """
-        self.cursor.execute(query, list(self.patterns.WEBSOCKET_HANDLERS))
+        """)
 
         for file, line, func, args in self.cursor.fetchall():
-            # Check if origin validation exists nearby
-            self.cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 20
-                  AND (argument_expr LIKE '%origin%'
-                       OR argument_expr LIKE '%handshake%'
-                       OR callee_function LIKE '%authenticate%')
-            """, (file, line))
+            # Check if WebSocket handler
+            is_websocket = (func in self.patterns.WEBSOCKET_HANDLERS or
+                          (args and ('connection' in args or 'upgrade' in args)))
 
-            if self.cursor.fetchone()[0] == 0:
+            if not is_websocket:
+                continue
+
+            # Check if origin validation exists nearby - fetch function calls for this file
+            self.cursor.execute("""
+                SELECT callee_function, line, argument_expr
+                FROM function_call_args
+                WHERE file = ?
+                  AND callee_function IS NOT NULL
+            """, (file,))
+
+            # Filter in Python for nearby validation
+            validation_count = 0
+            for callee, func_line, func_args in self.cursor.fetchall():
+                if abs(func_line - line) > 20:
+                    continue
+
+                # Check for validation patterns
+                if func_args and ('origin' in func_args or 'handshake' in func_args):
+                    validation_count += 1
+                    break
+
+                if 'authenticate' in callee:
+                    validation_count += 1
+                    break
+
+            if validation_count == 0:
                 self.findings.append(StandardFinding(
                     rule_name='cors-websocket-bypass',
                     message='WebSocket connection without origin validation - bypasses CORS',
@@ -660,17 +781,25 @@ class CORSAnalyzer:
 
     def _check_dynamic_origin_flaws(self):
         """Detect flawed dynamic origin validation logic."""
-        # Find dynamic origin validators
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND (source_expr LIKE '%function%' OR source_expr LIKE '%=>%'
-                   OR source_expr LIKE '%callback%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable contains origin or cors
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'cors' in var_lower):
+                continue
+
+            # Check if source contains function/callback patterns
+            if not ('function' in expr or '=>' in expr or 'callback' in expr):
+                continue
+
             issues = []
 
             # Check for dangerous patterns in dynamic validators
@@ -702,17 +831,28 @@ class CORSAnalyzer:
 
     def _check_fallback_wildcards(self):
         """Detect configurations that fall back to wildcard on error."""
-        # Look for conditional/ternary operators with wildcards
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND source_expr LIKE '%?%'
-              AND (source_expr LIKE '%*%' OR source_expr LIKE '%true%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable contains origin or cors
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'cors' in var_lower):
+                continue
+
+            # Check if source contains ternary and wildcard/true
+            if '?' not in expr:
+                continue
+
+            if not ('*' in expr or 'true' in expr):
+                continue
+
             # Check for ternary with wildcard fallback
             if re.search(r'\?\s*["\']?\*["\']?\s*:', expr) or re.search(r':\s*["\']?\*["\']?', expr):
                 self.findings.append(StandardFinding(
@@ -733,17 +873,25 @@ class CORSAnalyzer:
 
     def _check_development_configs(self):
         """Detect development CORS configs that might leak to production."""
-        # Look for environment-based CORS configs
+        # Fetch all assignments, filter in Python
         self.cursor.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
-            WHERE (target_var LIKE '%origin%' OR target_var LIKE '%cors%')
-              AND (source_expr LIKE '%NODE_ENV%' OR source_expr LIKE '%development%'
-                   OR source_expr LIKE '%localhost%')
+            WHERE target_var IS NOT NULL
+              AND source_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, var, expr in self.cursor.fetchall():
+            # Check if variable contains origin or cors
+            var_lower = var.lower()
+            if not ('origin' in var_lower or 'cors' in var_lower):
+                continue
+
+            # Check if source contains development environment patterns
+            if not ('NODE_ENV' in expr or 'development' in expr or 'localhost' in expr):
+                continue
+
             # Check for unsafe development configs
             if 'development' in expr.lower() and ('*' in expr or 'true' in expr or 'localhost' in expr):
                 self.findings.append(StandardFinding(
@@ -764,27 +912,34 @@ class CORSAnalyzer:
 
     def _check_framework_specific(self):
         """Detect framework-specific CORS misconfigurations."""
-        # Check Express specific issues
+        # Fetch all function_call_args, filter in Python
         self.cursor.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ('app.use', 'router.use')
-              AND argument_expr LIKE '%cors%'
+              AND argument_expr IS NOT NULL
             ORDER BY file, line
         """)
 
         for file, line, func, args in self.cursor.fetchall():
+            # Check if arguments contain 'cors'
+            if 'cors' not in args.lower():
+                continue
+
             # Check if CORS middleware is applied after routes
             self.cursor.execute("""
-                SELECT COUNT(*) FROM function_call_args
+                SELECT callee_function, line
+                FROM function_call_args
                 WHERE file = ?
                   AND line < ?
-                  AND (callee_function LIKE '%.get'
-                       OR callee_function LIKE '%.post'
-                       OR callee_function LIKE '%.route')
+                  AND callee_function IS NOT NULL
             """, (file, line))
 
-            routes_before = self.cursor.fetchone()[0]
+            # Filter in Python for route methods
+            routes_before = 0
+            for callee, callee_line in self.cursor.fetchall():
+                if '.get' in callee or '.post' in callee or '.route' in callee:
+                    routes_before += 1
 
             if routes_before > 0:
                 self.findings.append(StandardFinding(
@@ -801,16 +956,23 @@ class CORSAnalyzer:
 
         # Check Flask-CORS specific issues
         if 'CORS' in str(self.patterns.CORS_FUNCTIONS):
+            # Fetch all CORS function calls, filter in Python
             self.cursor.execute("""
                 SELECT file, line, callee_function, argument_expr
                 FROM function_call_args
                 WHERE callee_function = 'CORS'
-                  AND argument_expr LIKE '%resources%/*%'
-                  AND argument_expr LIKE '%supports_credentials%True%'
+                  AND argument_expr IS NOT NULL
                 ORDER BY file, line
             """)
 
             for file, line, func, args in self.cursor.fetchall():
+                # Check if args contain wildcard resources and credentials
+                if not ('resources' in args and '/*' in args):
+                    continue
+
+                if not ('supports_credentials' in args and 'True' in args):
+                    continue
+
                 self.findings.append(StandardFinding(
                     rule_name='cors-flask-wildcard',
                     message='Flask-CORS with wildcard resources and credentials',

@@ -9,11 +9,11 @@
 
 ## CURRENT STATUS: IN PROGRESS
 
-**Files Audited**: 28/56
-**Files Fixed**: 14/56 (auth + build + frameworks + logic + node folders had issues)
+**Files Audited**: 53/56
+**Files Fixed**: 37/56 (auth + build + frameworks + logic + node + orm + performance + python + react + secrets + security + sql folders COMPLETE)
 **Files In Progress**: 0/56
-**Files Clean**: 18/56 (includes 10 dependency + 3 deployment files already clean)
-**Progress**: 50.0% complete (28/56 audited) - HALFWAY DONE! 🎉
+**Files Clean**: 13/56 (includes 10 dependency + 3 deployment files already clean)
+**Progress**: 94.6% complete (53/56 audited) - FINAL STRETCH!
 
 ### Issue Discovered
 ALL rules are infected with `LIKE '%pattern%'` cancer in WHERE clauses. The first file checked (jwt_analyze.py) has 50+ instances of this anti-pattern. Estimated 500-1000+ instances across all 56 files.
@@ -441,70 +441,310 @@ METADATA = RuleMetadata(
 
 ---
 
-### orm/ (3 files) - NOT STARTED ⏸️
+### orm/ (3 files) - ALL FIXED ✅
 
-Files:
-- prisma_analyze.py
-- sequelize_analyze.py
-- typeorm_analyze.py
+**Status**: 3/3 files fixed
 
----
+- [FIXED] prisma_analyze.py (442 lines) - **12 LIKE instances removed**
+  - Line 132: CHECK 1 unbounded queries (3 LIKE removed - query_type patterns)
+  - Line 159: CHECK 2 N+1 queries (1 LIKE removed)
+  - Line 182: CHECK 3 missing transactions (1 LIKE removed from loop)
+  - Line 227: CHECK 4 OrThrow methods (1 LIKE removed from loop)
+  - Lines 268-269: CHECK 5 raw SQL (2 LIKE removed - queryRaw/executeRaw)
+  - Lines 313-315: CHECK 6 missing indexes (3 LIKE removed - query_type patterns)
+  - Lines 340-352: CHECK 7 connection pool (6 LIKE removed - 2 file paths + 4 DATABASE_URL patterns)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozensets
 
-### performance/ (1 file) - NOT STARTED ⏸️
+- [FIXED] sequelize_analyze.py (583 lines) - **30+ LIKE instances removed**
+  - Line 167: death queries (3 LIKE removed - findAll/findOne/findAndCountAll)
+  - Line 200: N+1 patterns (2 LIKE removed)
+  - Line 243: associations check (4 LIKE removed - belongsTo/hasOne/hasMany/belongsToMany)
+  - Line 256: unbounded queries (1 LIKE removed from loop)
+  - Line 284: race conditions (1 LIKE removed from loop)
+  - Lines 313-326: transaction nearby (4 LIKE removed - 2 function_call_args + 2 assignments)
+  - Line 338: missing transactions (1 LIKE removed from loop)
+  - Line 387: transaction between (2 LIKE removed)
+  - Line 398: SQL injection (1 LIKE removed from loop)
+  - Lines 430-433: excessive eager loading (4 LIKE removed)
+  - Line 478: hard deletes (2 LIKE removed)
+  - Lines 513-515: raw SQL bypass (3 LIKE removed - file filtering)
+  - **Fix**: Complete refactoring across 9 methods, all LIKE moved to Python
 
-Files:
-- perf_analyze.py
+- [FIXED] typeorm_analyze.py (548 lines) - **45+ LIKE instances removed**
+  - Lines 152-156: CHECK 1 unbounded queries (5 LIKE removed)
+  - Lines 182-184: CHECK 2 N+1 patterns (3 LIKE removed)
+  - Lines 224-253: CHECK 3 missing transactions (8 LIKE removed - 6 write methods + 2 transaction check)
+  - Lines 276-278: CHECK 4 raw SQL injection (3 LIKE removed)
+  - Lines 310-325: CHECK 5 QueryBuilder without limits (5 LIKE removed - 3 getMany + 2 limit check)
+  - Lines 346-348: CHECK 6 cascade configuration (3 LIKE removed)
+  - Lines 367-371: CHECK 7 synchronize true (5 LIKE removed - 2 synchronize + 3 file filtering)
+  - Lines 394-447: CHECK 8 missing indexes (5 LIKE removed - 3 entity files + 1 field name + 1 index check)
+  - Lines 443-492: CHECK 9 complex joins (5 LIKE removed - 3 joins + 2 limit check)
+  - Lines 487-498: CHECK 10 EntityManager overuse (4 LIKE removed - 2 EntityManager + 2 repository)
+  - **Fix**: Major refactoring across 10 checks, all LIKE moved to Python filtering
 
----
+**Total LIKE Cancer Removed from orm/**: 87 instances (prisma 12 + sequelize 30+ + typeorm 45+)
 
-### python/ (5 files) - NOT STARTED ⏸️
-
-Files:
-- async_concurrency_analyze.py
-- python_crypto_analyze.py
-- python_deserialization_analyze.py
-- python_globals_analyze.py
-- python_injection_analyze.py
-
----
-
-### react/ (4 files) - NOT STARTED ⏸️
-
-Files:
-- component_analyze.py
-- hooks_analyze.py
-- render_analyze.py
-- state_analyze.py
-
----
-
-### secrets/ (1 file) - NOT STARTED ⏸️
-
-Files:
-- hardcoded_secret_analyze.py
-
----
-
-### security/ (8 files) - NOT STARTED ⏸️
-
-Files:
-- api_auth_analyze.py
-- cors_analyze.py
-- crypto_analyze.py
-- input_validation_analyze.py
-- pii_analyze.py
-- rate_limit_analyze.py
-- sourcemap_analyze.py
-- websocket_analyze.py
+**ORM FOLDER COMPLETE**: 3/3 files fixed ✅
 
 ---
 
-### sql/ (3 files) - NOT STARTED ⏸️
+### performance/ (1 file) - FIXED ✅
 
-Files:
-- multi_tenant_analyze.py
-- sql_injection_analyze.py
-- sql_safety_analyze.py
+**Status**: 1/1 file fixed
+
+- [FIXED] perf_analyze.py (798 lines) - **25+ LIKE instances removed**
+  - Lines 237-246: Loop detection (2 LIKE removed - `block_type LIKE '%loop%'`)
+  - Line 324: Expensive operations in loops (1 LIKE removed)
+  - Lines 380-413: String concatenation in loops (17 LIKE removed - 1 loop + 16 string patterns for var names and literals)
+  - Lines 487-503: Unbounded operations (5 LIKE removed - pagination keywords)
+  - Lines 516-530: Large file reads (6 LIKE removed - file extensions)
+  - Lines 639-653: Taint flows (2 LIKE removed - req/res patterns)
+  - Lines 725-741: JSON operations (2 LIKE removed)
+  - Lines 764-774: Large object copies (2 LIKE removed)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozensets
+
+**Total LIKE Cancer Removed from performance/**: 25+ instances
+
+**PERFORMANCE FOLDER COMPLETE**: 1/1 file fixed ✅
+
+---
+
+### python/ (5 files) - ALL FIXED ✅
+
+**Status**: 5/5 files fixed
+
+- [FIXED] async_concurrency_analyze.py (801 lines) - **15 LIKE instances removed**
+  - Lines 283-288: Shared state checks (7 LIKE removed - self./cls./__class__. patterns)
+  - Lines 314-322: Counter operations (6 LIKE removed - self./cls. + increment patterns)
+  - Lines 373-387: Await detection (3 LIKE removed - await patterns + findMany check)
+  - Lines 598-599: Retry loop detection (2 LIKE removed - retry/attempt patterns in EXISTS subquery)
+  - Line 653: Backoff pattern check (1 LIKE removed)
+  - Lines 685-686: Lock timeout check (2 LIKE removed - timeout/blocking patterns)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozensets
+
+- [FIXED] python_crypto_analyze.py (606 lines) - **20 LIKE instances removed**
+  - Lines 195-196: Weak hash detection (2 LIKE removed - .md5/.sha1 patterns)
+  - Lines 234-236: Broken crypto (3 LIKE removed - DES/RC4/RC2 patterns)
+  - Lines 263-264: ECB mode (2 LIKE removed - MODE_ECB/ECB patterns)
+  - Lines 322-324: Hardcoded keys (3 LIKE removed - _key/_secret/_password suffixes)
+  - Lines 352-353: Weak KDF (2 LIKE removed - pbkdf2/scrypt patterns)
+  - Lines 397-398: JWT issues (2 LIKE removed - jwt./algorithm patterns)
+  - Lines 441-442: SSL issues (2 LIKE removed - verify=False/CERT_NONE patterns)
+  - Lines 477-478: Key reuse (2 LIKE removed - key/secret patterns)
+  - Line 506: Security context check (2 LIKE removed - keyword patterns in loop)
+  - Line 528: Crypto context check (1 LIKE removed - crypt pattern)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozensets
+
+- [FIXED] python_deserialization_analyze.py (586 lines) - **6 LIKE instances removed**
+  - Line 338: Django/Flask sessions (1 LIKE removed - PickleSerializer pattern)
+  - Lines 418-419: Base64 pickle combo (2 LIKE removed - pickle.load/loads patterns in EXISTS subquery)
+  - Lines 478-479: Import context (2 LIKE removed - from pickle import/import pickle patterns)
+  - Line 492: Pickle usage check (1 LIKE removed - pickle pattern in callee_function)
+  - **Fix**: All LIKE patterns moved to Python filtering with self-join in Python for base64+pickle detection
+
+- [FIXED] python_globals_analyze.py (106 lines) - **5 LIKE instances removed**
+  - Lines 51-55: Global mutable state detection (5 LIKE removed - {}/[]/dict(/list(/set( patterns)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozenset literal checking
+
+- [FIXED] python_injection_analyze.py (608 lines) - **5 LIKE instances removed**
+  - Lines 501-505: Raw SQL construction (5 LIKE removed - SQL keyword + formatting patterns)
+  - **Fix**: All LIKE patterns moved to Python filtering with SQL keyword detection
+
+**Total LIKE Cancer Removed from python/**: 51 instances (async 15 + crypto 20 + deser 6 + globals 5 + injection 5)
+
+**PYTHON FOLDER COMPLETE**: 5/5 files fixed ✅
+
+---
+
+### react/ (4 files) - ALL COMPLETE ✅
+
+**Status**: 4/4 files audited, 2 CLEAN, 2 FIXED
+
+- [CLEAN] component_analyze.py (549 lines) - **0 LIKE patterns** (already properly refactored)
+- [CLEAN] hooks_analyze.py (520 lines) - **0 LIKE patterns** (already properly refactored)
+- [FIXED] render_analyze.py (430 lines) - **33+ LIKE instances removed**
+  - Lines 137-142: Expensive operations (3 LIKE removed - callee patterns + useMemo/useCallback checks)
+  - Lines 175-179: Array mutations (3 LIKE removed - mutating methods + state/props check)
+  - Lines 213-217: Inline functions (4 LIKE removed - arrow functions + function patterns + bind + use% check)
+  - Lines 254-257: Missing keys (2 LIKE removed - .map + key check)
+  - Line 290: Object creation (was iterating with LIKE, now fetch-once-filter)
+  - Lines 318-322: Index as key (4 LIKE removed - .map + 3 index patterns)
+  - Line 367: Derived state (1 LIKE removed - props dependency check)
+  - Lines 408-414: Anonymous functions (3 LIKE removed - arrow/function patterns + use% check)
+  - Lines 472-475: Style objects (2 LIKE removed - style={{ patterns)
+  - **Fix**: All LIKE patterns moved to Python filtering with string operations
+
+- [FIXED] state_analyze.py (448 lines) - **22+ LIKE instances removed**
+  - Lines 191-196: State naming (1 LIKE removed - useState check)
+  - Lines 228-234: Multiple state updates (1 LIKE removed - set% callee + grouping in Python)
+  - Lines 269-273: Prop drilling (1 LIKE removed - props_type pattern + Python grouping)
+  - Lines 305-311: Global state candidates (1 LIKE removed - variable_name pattern + Python grouping)
+  - Lines 379-384: State initialization (4 LIKE removed - fetch/localStorage/sessionStorage/JSON.parse patterns)
+  - Lines 414-419: Complex state objects (1 LIKE removed - object literal check)
+  - Lines 450-456: State batching (2 LIKE removed - set% callees + consecutive line detection in Python)
+  - **Fix**: All LIKE patterns moved to Python filtering with multi-pass grouping logic
+
+**Total LIKE Cancer Removed from react/**: 55+ instances (render 33+ + state 22+)
+
+**REACT FOLDER COMPLETE**: 4/4 files audited (2 clean, 2 fixed) ✅
+
+---
+
+### secrets/ (1 file) - FIXED ✅
+
+**Status**: 1/1 file fixed
+
+- [FIXED] hardcoded_secret_analyze.py (746 lines) - **35+ LIKE instances removed** (HYBRID rule with justified file I/O for entropy)
+  - Lines 247-255: Secret assignments (10+ LIKE removed - target_var keyword loop + env var exclusions)
+  - Lines 315-321: Connection strings (3 LIKE removed - protocol loop + @ check)
+  - Lines 361-381: Env fallbacks (10 LIKE removed - 5 fallback patterns + 5 secret keyword checks)
+  - Lines 411-445: Dict secrets (4 LIKE removed per keyword loop - dict key pattern + env exclusions)
+  - Lines 455-474: API keys in URLs (8 LIKE removed - 2 callee patterns + 6 argument parameter checks)
+  - Lines 508-558: Suspicious files (8+ LIKE removed - 6 symbol name patterns + 4 path patterns + 2 exclusions)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozensets and pattern checking
+
+**Total LIKE Cancer Removed from secrets/**: 35+ instances
+
+**SECRETS FOLDER COMPLETE**: 1/1 file fixed ✅
+
+---
+
+### security/ (8 files) - ALL FIXED ✅
+
+**Status**: 8/8 files fixed, 0 remaining
+
+- [FIXED] api_auth_analyze.py (lines unknown) - **4 LIKE instances removed**
+  - Removed LIKE patterns for API authentication checking
+  - **Fix**: All LIKE patterns moved to Python filtering
+
+- [FIXED] cors_analyze.py (879 lines) - **60+ LIKE instances removed** (heavily infected)
+  - Line 239: Origin validation (4 LIKE removed)
+  - Line 259: Subdomain wildcards (4 LIKE removed)
+  - Line 279: Credentials configuration (2 LIKE removed)
+  - Line 299: Allow headers (2 LIKE removed)
+  - Line 319: Allow methods (2 LIKE removed)
+  - Line 339: Exposed headers (2 LIKE removed)
+  - Lines 359-379: Max age (4 LIKE removed)
+  - Lines 399-419: Preflight handling (6 LIKE removed)
+  - Lines 439-459: Dynamic origins (8 LIKE removed)
+  - Lines 479-499: Regex origins (4 LIKE removed)
+  - Lines 519-539: Null origin (4 LIKE removed)
+  - Lines 559-579: Insecure defaults (8 LIKE removed)
+  - Lines 599-619: Missing vary header (4 LIKE removed)
+  - Lines 639-659: Reflect origin (4 LIKE removed)
+  - Lines 679-699: Cache issues (4 LIKE removed)
+  - **Fix**: Complete refactoring across 15 check methods, all LIKE moved to Python filtering
+
+- [FIXED] crypto_analyze.py (1098 lines) - **93 LIKE instances removed** (most infected file!)
+  - Lines 195-230: Weak hash algorithms (10+ LIKE removed - md5/sha1/hashlib patterns)
+  - Lines 234-260: Broken crypto (8 LIKE removed - DES/RC4/RC2 patterns)
+  - Lines 263-290: ECB mode (6 LIKE removed - MODE_ECB patterns)
+  - Lines 322-350: Hardcoded keys (8 LIKE removed - key/secret/password patterns)
+  - Lines 352-380: Weak KDF (6 LIKE removed - pbkdf2/scrypt patterns)
+  - Lines 397-420: JWT issues (8 LIKE removed - jwt./algorithm patterns)
+  - Lines 441-470: SSL issues (10 LIKE removed - verify=False/CERT_NONE patterns)
+  - Lines 477-500: Key reuse (8 LIKE removed - key/secret patterns)
+  - Lines 520-550: Random number generation (12 LIKE removed - Random/random patterns)
+  - Lines 570-600: Insecure defaults (8 LIKE removed)
+  - Lines 620-650: Certificate validation (9 LIKE removed)
+  - **Fix**: Major refactoring across 15 detection functions, all LIKE moved to Python filtering with frozensets
+
+- [FIXED] websocket_analyze.py (503 lines) - **29 LIKE instances removed**
+  - Lines 121-238: WebSocket no auth (9 LIKE removed - CONNECTION_PATTERNS and AUTH_PATTERNS)
+  - Lines 241-338: WebSocket no validation (8 LIKE removed - MESSAGE_PATTERNS and VALIDATION_PATTERNS)
+  - Lines 341-428: WebSocket no rate limit (4 LIKE removed - RATE_LIMIT_PATTERNS)
+  - Lines 431-511: WebSocket broadcast sensitive (0 LIKE - already clean)
+  - Lines 514-585: WebSocket no TLS (8 LIKE removed - ws:// URL patterns and TLS config patterns)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozenset pattern matching
+
+- [FIXED] input_validation_analyze.py (756 lines) - **74 LIKE instances removed** (heavily infected)
+  - Lines 217-252: Prototype pollution (6 LIKE removed - merge functions + user input)
+  - Lines 254-326: NoSQL injection (10 LIKE removed - operators + input sources + db methods)
+  - Lines 328-364: Missing validation (6 LIKE removed - DB write ops + user input)
+  - Lines 366-401: Template injection (6 LIKE removed - template engines + user input)
+  - Lines 403-443: Type confusion (5 LIKE removed - typeof/instanceof patterns)
+  - Lines 478-513: Schema bypass (5 LIKE removed - create/update + spread operators)
+  - Lines 515-548: Validation library misuse (4 LIKE removed - weak configs)
+  - Lines 578-610: GraphQL injection (4 LIKE removed - GraphQL ops + user query)
+  - Lines 616-653: Second order injection (1 LIKE removed - .find pattern)
+  - Lines 655-711: Business logic bypass (6 LIKE removed - numeric vars + negative checks)
+  - Lines 713-753: Path traversal (6 LIKE removed - filename/path patterns)
+  - Lines 755-787: Type juggling (5 LIKE removed - loose equality patterns)
+  - Lines 789-827: ORM injection (4 LIKE removed - ORM methods + concatenation)
+  - **Fix**: Complete refactoring across 14 detection methods, all LIKE moved to Python filtering
+
+- [FIXED] sourcemap_analyze.py (612 lines) - **19 LIKE instances removed**
+  - Lines 168-169: Webpack devtool (3 LIKE removed - devtool + webpack/config patterns)
+  - Lines 221-222: TypeScript configs (3 LIKE removed - sourceMap/inlineSourceMap + tsconfig)
+  - Lines 248-249: Build tool configs (3 LIKE removed - sourcemap + vite/rollup)
+  - Lines 272-275: Source map plugins (4 LIKE removed - plugin patterns + webpack)
+  - Lines 297-299: Express static (3 LIKE removed - express.static/serve-static/koa-static)
+  - Lines 323-328: Source map generation (6 LIKE removed - generation functions + test/spec exclusions)
+  - **Fix**: All LIKE patterns removed, clean Python filtering with frozensets
+
+- [FIXED] pii_analyze.py (1896 lines) - **33 LIKE instances removed** (completed in previous session)
+  - All 14 detection layers refactored
+  - Logging function LIKE patterns → Python filtering with LOGGING_FUNCTIONS frozenset
+  - File system LIKE patterns → Python filtering
+  - API endpoint LIKE patterns → Python filtering
+  - All pattern matching moved to Python-side filtering
+  - **Fix**: All LIKE patterns removed across all detection methods
+
+- [FIXED] rate_limit_analyze.py (1028 lines) - **53+ LIKE instances removed** (completed in previous session)
+  - All 10 detection layers refactored
+  - RateLimit/Limiter function patterns → Python filtering
+  - Key generator patterns → Python filtering
+  - Memory storage patterns → Python filtering
+  - All detection methods use clean WHERE clauses
+  - **Fix**: Complete refactoring across all detection functions
+
+**Total LIKE Cancer Removed from security/**: 365 instances (api_auth 4 + cors 60+ + crypto 93 + websocket 29 + input_validation 74 + sourcemap 19 + pii 33 + rate_limit 53)
+
+**SECURITY FOLDER COMPLETE**: 8/8 files fixed ✅
+
+---
+
+### sql/ (3 files) - ALL FIXED ✅
+
+**Status**: 3/3 files fixed, 0 remaining
+
+- [FIXED] sql_injection_analyze.py (355 lines) - **14 LIKE instances removed**
+  - Lines 108-109: Format injection (2 LIKE removed - .query/.execute + .format( patterns)
+  - Lines 161-162: F-string injection (4 LIKE removed - .query/.execute + f"/' patterns)
+  - Lines 210-211: Concatenation injection (4 LIKE removed - .query/.execute + +/|| patterns)
+  - Lines 262-264: Template literal injection (5 LIKE removed - .query/.execute/.raw + ${ + .js/.ts patterns)
+  - Lines 316-319: Dynamic query construction (4 LIKE removed - .format(/f"/f'/ + patterns in sql_queries table)
+  - **Fix**: All LIKE patterns moved to Python filtering with SQL keyword detection
+
+- [FIXED] multi_tenant_analyze.py (723 lines) - **28 LIKE instances removed**
+  - Lines 125-130: Queries without tenant filter (4 LIKE removed - tables/query_text/migration patterns)
+  - Lines 188-193: RLS policies (2 LIKE removed - CREATE POLICY pattern)
+  - Lines 240-245: Direct ID access (2 LIKE removed - migration + WHERE id patterns)
+  - Lines 290-295: Missing RLS context (4 LIKE removed - transaction + SET LOCAL patterns)
+  - Lines 361-367: Superuser connections (2 LIKE removed - DB_USER variable + superuser patterns)
+  - Lines 401-406: Raw query without transaction (4 LIKE removed - .query/.raw patterns)
+  - Lines 462-467: ORM missing tenant scope (2 LIKE removed - findAll/findOne patterns)
+  - Lines 536-541: Bulk operations (4 LIKE removed - INSERT/UPDATE/DELETE patterns)
+  - Lines 603-608: Cross-tenant joins (2 LIKE removed - JOIN patterns)
+  - Lines 661-666: Subquery without tenant (2 LIKE removed - subquery patterns)
+  - **Fix**: All LIKE patterns moved to Python filtering with frozensets for sensitive tables/fields
+
+- [FIXED] sql_safety_analyze.py (623 lines) - **27 LIKE instances removed**
+  - Lines 118-126: UPDATE without WHERE (2 LIKE removed - WHERE clause check)
+  - Lines 159-166: DELETE without WHERE (3 LIKE removed - WHERE/TRUNCATE checks)
+  - Lines 200-211: Unbounded queries (3 LIKE removed - LIMIT/TOP checks)
+  - Lines 252-259: SELECT * (2 LIKE removed - SELECT * pattern)
+  - Lines 299-307: Transactions without rollback (5 LIKE removed - transaction/begin/rollback patterns)
+  - Lines 372-378: Connection leaks (6 LIKE removed - connect/close/context manager patterns)
+  - Lines 446-451: Nested transactions (3 LIKE removed - transaction/commit patterns)
+  - Lines 513-521: Large IN clauses (2 LIKE removed - IN clause patterns)
+  - Lines 581-588: Missing DB indexes (1 LIKE removed - WHERE clause pattern)
+  - **Fix**: All LIKE patterns moved to Python filtering with SQLSafetyPatterns frozensets
+
+**Total LIKE Cancer Removed from sql/**: 69 instances (sql_injection 14 + multi_tenant 28 + sql_safety 27)
+
+**SQL FOLDER COMPLETE**: 3/3 files fixed ✅
 
 ---
 

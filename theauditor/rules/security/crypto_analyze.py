@@ -279,17 +279,26 @@ def _determine_confidence(
 
     # Check proximity to security operations (within 5 lines)
     cursor.execute("""
-        SELECT COUNT(*) FROM function_call_args
+        SELECT callee_function
+        FROM function_call_args
         WHERE file = ?
-        AND ABS(line - ?) <= 5
-        AND (callee_function LIKE '%encrypt%'
-             OR callee_function LIKE '%decrypt%'
-             OR callee_function LIKE '%hash%'
-             OR callee_function LIKE '%sign%'
-             OR callee_function LIKE '%verify%')
-    """, [file, line])
+        AND callee_function IS NOT NULL
+    """, [file])
 
-    proximity_count = cursor.fetchone()[0]
+    # Filter in Python for nearby security operations
+    security_operations = ['encrypt', 'decrypt', 'hash', 'sign', 'verify']
+    proximity_count = 0
+    for (callee,) in cursor.fetchall():
+        # Check line proximity
+        cursor.execute("SELECT line FROM function_call_args WHERE file = ? AND callee_function = ? LIMIT 1", [file, callee])
+        func_line = cursor.fetchone()
+        if func_line and abs(func_line[0] - line) <= 5:
+            # Check if contains security operation
+            callee_lower = callee.lower()
+            if any(op in callee_lower for op in security_operations):
+                proximity_count += 1
+                break
+
     if proximity_count > 0:
         return Confidence.HIGH
 
@@ -297,8 +306,8 @@ def _determine_confidence(
     cursor.execute("""
         SELECT target_var FROM assignments
         WHERE file = ?
-        AND ABS(line - ?) <= 3
-    """, [file, line])
+        AND target_var IS NOT NULL
+    """, [file])
 
     for row in cursor.fetchall():
         var_name = row[0].lower() if row[0] else ''
@@ -362,37 +371,49 @@ def _find_weak_hash_algorithms(cursor) -> List[StandardFinding]:
     """Find usage of weak/broken hash algorithms."""
     findings = []
 
-    # Check direct hash function calls
-    for weak_algo in WEAK_HASH_ALGORITHMS:
-        cursor.execute("""
-            SELECT file, line, callee_function, caller_function, argument_expr
-            FROM function_call_args
-            WHERE (callee_function LIKE ?
-                   OR callee_function LIKE ?
-                   OR argument_expr LIKE ?)
-            ORDER BY file, line
-        """, [f'%{weak_algo}%', f'hashlib.{weak_algo}', f'%{weak_algo}%'])
+    # Fetch all function_call_args, filter in Python
+    cursor.execute("""
+        SELECT file, line, callee_function, caller_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, callee, caller, args in cursor.fetchall():
-            confidence = _determine_confidence(file, line, caller, cursor)
+    for file, line, callee, caller, args in cursor.fetchall():
+        # Check if callee or args contain weak algo
+        callee_str = callee if callee else ''
+        args_str = args if args else ''
+        combined = f'{callee_str} {args_str}'.lower()
 
-            # Skip if explicitly for file checksums
-            if confidence == Confidence.LOW:
-                continue
+        # Check each weak algorithm
+        weak_algo = None
+        for algo in WEAK_HASH_ALGORITHMS:
+            if algo.lower() in combined:
+                weak_algo = algo
+                break
 
-            algo_upper = weak_algo.upper().replace('-', '')
+        if not weak_algo:
+            continue
 
-            findings.append(StandardFinding(
-                rule_name='crypto-weak-hash',
-                message=f'Weak hash algorithm {algo_upper} detected',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                confidence=confidence,
-                category='security',
-                snippet=f'{callee}(...{weak_algo}...)',
-                cwe_id='CWE-327'  # Use of Broken or Risky Cryptographic Algorithm
-            ))
+        confidence = _determine_confidence(file, line, caller, cursor)
+
+        # Skip if explicitly for file checksums
+        if confidence == Confidence.LOW:
+            continue
+
+        algo_upper = weak_algo.upper().replace('-', '')
+
+        findings.append(StandardFinding(
+            rule_name='crypto-weak-hash',
+            message=f'Weak hash algorithm {algo_upper} detected',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            confidence=confidence,
+            category='security',
+            snippet=f'{callee}(...{weak_algo}...)',
+            cwe_id='CWE-327'  # Use of Broken or Risky Cryptographic Algorithm
+        ))
 
     return findings
 
@@ -480,31 +501,48 @@ def _find_missing_salt(cursor) -> List[StandardFinding]:
     """Find password hashing without salt."""
     findings = []
 
-    # Find hash operations on password-like variables
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE (f.callee_function LIKE '%hash%'
-               OR f.callee_function LIKE '%digest%'
-               OR f.callee_function LIKE '%bcrypt%'
-               OR f.callee_function LIKE '%scrypt%'
-               OR f.callee_function LIKE '%pbkdf2%')
-          AND (f.argument_expr LIKE '%password%'
-               OR f.argument_expr LIKE '%passwd%'
-               OR f.argument_expr LIKE '%pwd%')
-        ORDER BY f.file, f.line
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
     """)
 
+    hash_functions = ['hash', 'digest', 'bcrypt', 'scrypt', 'pbkdf2']
+    password_keywords = ['password', 'passwd', 'pwd']
+
     for file, line, callee, args in cursor.fetchall():
+        # Check if callee contains hash function
+        callee_lower = callee.lower()
+        if not any(hf in callee_lower for hf in hash_functions):
+            continue
+
+        # Check if args contain password keywords
+        args_lower = args.lower()
+        if not any(pw in args_lower for pw in password_keywords):
+            continue
+
         # Check if salt mentioned in nearby code (within 10 lines)
         cursor.execute("""
-            SELECT COUNT(*) FROM assignments
+            SELECT target_var, source_expr
+            FROM assignments
             WHERE file = ?
-              AND ABS(line - ?) <= 10
-              AND (target_var LIKE '%salt%' OR source_expr LIKE '%salt%')
-        """, [file, line])
+              AND target_var IS NOT NULL
+        """, [file])
 
-        has_salt_nearby = cursor.fetchone()[0] > 0
+        # Filter in Python for nearby salt assignments
+        has_salt_nearby = False
+        for var, expr in cursor.fetchall():
+            # Check line proximity
+            cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ? LIMIT 1", [file, var])
+            assign_line = cursor.fetchone()
+            if assign_line and abs(assign_line[0] - line) <= 10:
+                # Check for salt in var or expr
+                if 'salt' in (var or '').lower() or 'salt' in (expr or '').lower():
+                    has_salt_nearby = True
+                    break
 
         # Also check if salt in function arguments
         has_salt_in_args = 'salt' in args.lower() if args else False
@@ -532,20 +570,31 @@ def _find_static_salt(cursor) -> List[StandardFinding]:
     """Find hardcoded salt values."""
     findings = []
 
+    # Fetch all assignments, filter in Python
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE target_var LIKE '%salt%'
-          AND (source_expr LIKE '"%' OR source_expr LIKE "'%")
-          AND source_expr NOT LIKE '%random%'
-          AND source_expr NOT LIKE '%generate%'
-          AND source_expr NOT LIKE '%uuid%'
-          AND source_expr NOT LIKE '%secrets%'
-          AND source_expr NOT LIKE '%urandom%'
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
         ORDER BY file, line
     """)
 
+    secure_patterns = ['random', 'generate', 'uuid', 'secrets', 'urandom']
+
     for file, line, var, expr in cursor.fetchall():
+        # Check if variable name contains 'salt'
+        if 'salt' not in var.lower():
+            continue
+
+        # Check if source expression is a string literal (starts with quote)
+        if not (expr.startswith('"') or expr.startswith("'")):
+            continue
+
+        # Skip if source contains secure patterns
+        expr_lower = expr.lower()
+        if any(pattern in expr_lower for pattern in secure_patterns):
+            continue
+
         # Check if it's a literal string (not function call)
         if '(' not in expr and not expr.startswith('os.'):
             findings.append(StandardFinding(
@@ -570,17 +619,22 @@ def _find_weak_kdf_iterations(cursor) -> List[StandardFinding]:
     """Find weak key derivation functions with low iterations."""
     findings = []
 
-    # Find PBKDF2 and similar KDF calls
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE callee_function LIKE '%pbkdf2%'
-           OR callee_function LIKE '%scrypt%'
-           OR callee_function LIKE '%bcrypt%'
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
     """)
 
+    kdf_functions = ['pbkdf2', 'scrypt', 'bcrypt']
+
     for file, line, callee, args in cursor.fetchall():
+        # Check if callee contains KDF function
+        callee_lower = callee.lower()
+        if not any(kdf in callee_lower for kdf in kdf_functions):
+            continue
+
         if not args:
             continue
 
@@ -618,20 +672,28 @@ def _find_ecb_mode(cursor) -> List[StandardFinding]:
     """Find usage of ECB mode in encryption."""
     findings = []
 
-    # ECB mode in function arguments
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (argument_expr LIKE '%ECB%' OR argument_expr LIKE '%ecb%')
-          AND (callee_function LIKE '%cipher%'
-               OR callee_function LIKE '%encrypt%'
-               OR callee_function LIKE '%decrypt%'
-               OR callee_function LIKE '%AES%'
-               OR callee_function LIKE '%DES%')
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
+    crypto_functions = ['cipher', 'encrypt', 'decrypt', 'AES', 'DES']
+
     for file, line, callee, args in cursor.fetchall():
+        # Check if args contain ECB
+        args_lower = args.lower()
+        if 'ecb' not in args_lower:
+            continue
+
+        # Check if callee is crypto-related
+        callee_str = callee if callee else ''
+        if not any(cf in callee_str for cf in crypto_functions):
+            continue
+
         findings.append(StandardFinding(
             rule_name='crypto-ecb-mode',
             message='ECB mode encryption is insecure (reveals patterns)',
@@ -648,12 +710,20 @@ def _find_ecb_mode(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE (target_var LIKE '%mode%' OR target_var LIKE '%MODE%')
-          AND (source_expr LIKE '%ECB%' OR source_expr LIKE '%ecb%')
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, var, expr in cursor.fetchall():
+        # Check if variable contains 'mode'
+        if 'mode' not in var.lower():
+            continue
+
+        # Check if source contains ECB
+        if 'ecb' not in expr.lower():
+            continue
+
         findings.append(StandardFinding(
             rule_name='crypto-ecb-mode-config',
             message=f'ECB mode configured in {var}',
@@ -676,17 +746,23 @@ def _find_missing_iv(cursor) -> List[StandardFinding]:
     """Find encryption operations without initialization vector."""
     findings = []
 
-    # Find encryption calls
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%encrypt%'
-               OR callee_function LIKE '%cipher%')
-          AND callee_function NOT LIKE '%decrypt%'
+        WHERE callee_function IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, callee, args in cursor.fetchall():
+        # Check if callee contains 'encrypt' or 'cipher' but not 'decrypt'
+        callee_lower = callee.lower()
+        if not ('encrypt' in callee_lower or 'cipher' in callee_lower):
+            continue
+
+        if 'decrypt' in callee_lower:
+            continue
+
         # Check if IV/nonce mentioned in arguments
         has_iv_in_args = False
         if args:
@@ -696,15 +772,26 @@ def _find_missing_iv(cursor) -> List[StandardFinding]:
         if not has_iv_in_args:
             # Check proximity for IV generation (within 10 lines)
             cursor.execute("""
-                SELECT COUNT(*) FROM assignments
+                SELECT target_var, source_expr
+                FROM assignments
                 WHERE file = ?
-                  AND ABS(line - ?) <= 10
-                  AND (target_var LIKE '%iv%'
-                       OR target_var LIKE '%nonce%'
-                       OR source_expr LIKE '%random%')
-            """, [file, line])
+                  AND target_var IS NOT NULL
+            """, [file])
 
-            has_iv_nearby = cursor.fetchone()[0] > 0
+            # Filter in Python for nearby IV assignments
+            has_iv_nearby = False
+            for var, expr in cursor.fetchall():
+                # Check line proximity
+                cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ? LIMIT 1", [file, var])
+                assign_line = cursor.fetchone()
+                if assign_line and abs(assign_line[0] - line) <= 10:
+                    # Check for iv/nonce in var or random in expr
+                    var_lower = (var or '').lower()
+                    expr_lower = (expr or '').lower()
+                    if 'iv' in var_lower or 'nonce' in var_lower or 'random' in expr_lower:
+                        has_iv_nearby = True
+                        break
+
 
             if not has_iv_nearby:
                 findings.append(StandardFinding(
@@ -729,20 +816,34 @@ def _find_static_iv(cursor) -> List[StandardFinding]:
     """Find hardcoded initialization vectors."""
     findings = []
 
+    # Fetch all assignments, filter in Python
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE (target_var LIKE '%iv%' OR target_var LIKE '%nonce%'
-               OR target_var LIKE '%initialization_vector%')
-          AND (source_expr LIKE '"%' OR source_expr LIKE "'%"
-               OR source_expr LIKE '[0,%' OR source_expr LIKE 'bytes(%')
-          AND source_expr NOT LIKE '%random%'
-          AND source_expr NOT LIKE '%generate%'
-          AND source_expr NOT LIKE '%urandom%'
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
         ORDER BY file, line
     """)
 
+    iv_keywords = ['iv', 'nonce', 'initialization_vector']
+    literal_starts = ['"', "'", '[0,', 'bytes(']
+    secure_patterns = ['random', 'generate', 'urandom']
+
     for file, line, var, expr in cursor.fetchall():
+        # Check if variable name contains IV keywords
+        var_lower = var.lower()
+        if not any(kw in var_lower for kw in iv_keywords):
+            continue
+
+        # Check if source looks like a literal
+        if not any(expr.startswith(ls) for ls in literal_starts):
+            continue
+
+        # Skip if source contains secure patterns
+        expr_lower = expr.lower()
+        if any(pattern in expr_lower for pattern in secure_patterns):
+            continue
+
         # Check if it's a static value
         if not '(' in expr or 'bytes([0' in expr or 'b"\\x00' in expr:
             findings.append(StandardFinding(
@@ -774,26 +875,40 @@ def _find_predictable_seeds(cursor) -> List[StandardFinding]:
         'microtime', 'performance.now'
     ]
 
-    for ts_func in timestamp_functions:
-        cursor.execute("""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE source_expr LIKE ?
-              AND (target_var LIKE '%seed%'
-                   OR target_var LIKE '%random%')
-            ORDER BY file, line
-        """, [f'%{ts_func}%'])
+    # Fetch all assignments, filter in Python
+    cursor.execute("""
+        SELECT file, line, target_var, source_expr
+        FROM assignments
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, var, expr in cursor.fetchall():
+    seed_keywords = ['seed', 'random']
+
+    for file, line, var, expr in cursor.fetchall():
+        # Check if variable contains seed/random keywords
+        var_lower = var.lower()
+        if not any(kw in var_lower for kw in seed_keywords):
+            continue
+
+        # Check if source contains timestamp function
+        ts_func_found = None
+        for ts_func in timestamp_functions:
+            if ts_func in expr:
+                ts_func_found = ts_func
+                break
+
+        if ts_func_found:
             findings.append(StandardFinding(
                 rule_name='crypto-predictable-seed',
-                message=f'Predictable PRNG seed using {ts_func}',
+                message=f'Predictable PRNG seed using {ts_func_found}',
                 file_path=file,
                 line=line,
                 severity=Severity.MEDIUM,
                 confidence=Confidence.HIGH,
                 category='security',
-                snippet=f'{var} = {ts_func}()',
+                snippet=f'{var} = {ts_func_found}()',
                 cwe_id='CWE-335'  # Incorrect Usage of Seeds in PRNG
             ))
 
@@ -801,12 +916,17 @@ def _find_predictable_seeds(cursor) -> List[StandardFinding]:
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%seed%' OR callee_function LIKE '%srand%')
+        WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, callee, args in cursor.fetchall():
+        # Check if callee contains 'seed' or 'srand'
+        callee_lower = callee.lower()
+        if not ('seed' in callee_lower or 'srand' in callee_lower):
+            continue
+
         # Check if using predictable value
         if any(ts in args.lower() for ts in ['time', 'date', 'timestamp']):
             findings.append(StandardFinding(
@@ -831,35 +951,39 @@ def _find_hardcoded_keys(cursor) -> List[StandardFinding]:
     """Find hardcoded encryption keys."""
     findings = []
 
-    # Key-related variable names
-    key_patterns = [
-        '%key%', '%KEY%',
-        '%secret%', '%SECRET%',
-        '%cipher_key%', '%encryption_key%',
-        '%aes_key%', '%des_key%',
-        '%private_key%', '%priv_key%'
-    ]
-
-    conditions = ' OR '.join(['target_var LIKE ?' for _ in key_patterns])
-
-    cursor.execute(f"""
+    # Fetch all assignments, filter in Python
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE ({conditions})
-          AND (source_expr LIKE '"%' OR source_expr LIKE "'%"
-               OR source_expr LIKE 'b"%' OR source_expr LIKE "b'%")
-          AND source_expr NOT LIKE '%env%'
-          AND source_expr NOT LIKE '%config%'
-          AND source_expr NOT LIKE '%random%'
-          AND source_expr NOT LIKE '%generate%'
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
           AND LENGTH(source_expr) > 10
         ORDER BY file, line
-    """, key_patterns)
+    """)
+
+    key_keywords = ['key', 'secret', 'cipher_key', 'encryption_key', 'aes_key', 'des_key', 'private_key', 'priv_key']
+    literal_starts = ['"', "'", 'b"', "b'"]
+    secure_patterns = ['env', 'config', 'random', 'generate']
 
     for file, line, var, expr in cursor.fetchall():
+        # Check if variable name contains key keywords
+        var_lower = var.lower()
+        if not any(kw in var_lower for kw in key_keywords):
+            continue
+
+        # Check if source looks like a string literal
+        if not any(expr.startswith(ls) for ls in literal_starts):
+            continue
+
+        # Skip if source contains secure patterns
+        expr_lower = expr.lower()
+        if any(pattern in expr_lower for pattern in secure_patterns):
+            continue
+
         # Skip if it's reading from environment or config
         if 'os.environ' in expr or 'process.env' in expr:
             continue
+
 
         findings.append(StandardFinding(
             rule_name='crypto-hardcoded-key',
@@ -883,19 +1007,23 @@ def _find_weak_key_size(cursor) -> List[StandardFinding]:
     """Find usage of weak encryption key sizes."""
     findings = []
 
-    # Common key generation functions with size parameters
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%generate_key%'
-               OR callee_function LIKE '%keygen%'
-               OR callee_function LIKE '%new_key%'
-               OR callee_function LIKE '%random%key%')
+        WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
+    keygen_patterns = ['generate_key', 'keygen', 'new_key', 'random', 'key']
+
     for file, line, callee, args in cursor.fetchall():
+        # Check if callee contains key generation patterns
+        callee_lower = callee.lower()
+        if not any(pattern in callee_lower for pattern in keygen_patterns):
+            continue
+
         # Extract numbers that might be key sizes
         # Split on common delimiters and check if each token is a digit
         numbers = []
@@ -941,23 +1069,29 @@ def _find_password_in_url(cursor) -> List[StandardFinding]:
     """Find passwords transmitted in URLs."""
     findings = []
 
-    # URL-building functions with password parameters
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function LIKE '%url%'
-               OR callee_function LIKE '%uri%'
-               OR callee_function LIKE '%query%'
-               OR callee_function LIKE '%params%')
-          AND (argument_expr LIKE '%password%'
-               OR argument_expr LIKE '%passwd%'
-               OR argument_expr LIKE '%pwd%'
-               OR argument_expr LIKE '%token%'
-               OR argument_expr LIKE '%secret%')
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
+    url_functions = ['url', 'uri', 'query', 'params']
+    sensitive_keywords = ['password', 'passwd', 'pwd', 'token', 'secret']
+
     for file, line, callee, args in cursor.fetchall():
+        # Check if callee contains URL function patterns
+        callee_lower = callee.lower()
+        if not any(uf in callee_lower for uf in url_functions):
+            continue
+
+        # Check if args contain sensitive keywords
+        args_lower = args.lower()
+        if not any(kw in args_lower for kw in sensitive_keywords):
+            continue
+
         findings.append(StandardFinding(
             rule_name='crypto-password-in-url',
             message='Sensitive data in URL parameters',
@@ -980,21 +1114,23 @@ def _find_timing_vulnerable_compare(cursor) -> List[StandardFinding]:
     """Find timing-vulnerable string comparisons for secrets."""
     findings = []
 
-    # Find comparisons involving security-sensitive variables
+    # Fetch all symbols, filter in Python
     cursor.execute("""
-        SELECT path, name, line
+        SELECT path, name, line, type
         FROM symbols
-        WHERE (name LIKE '%password%'
-               OR name LIKE '%token%'
-               OR name LIKE '%secret%'
-               OR name LIKE '%key%'
-               OR name LIKE '%hash%'
-               OR name LIKE '%signature%')
+        WHERE name IS NOT NULL
           AND type = 'comparison'
         ORDER BY path, line
     """)
 
-    for file, name, line in cursor.fetchall():
+    sensitive_keywords = ['password', 'token', 'secret', 'key', 'hash', 'signature']
+
+    for file, name, line, sym_type in cursor.fetchall():
+        # Check if name contains sensitive keywords
+        name_lower = name.lower()
+        if not any(kw in name_lower for kw in sensitive_keywords):
+            continue
+
         findings.append(StandardFinding(
             rule_name='crypto-timing-vulnerable',
             message=f'Timing-vulnerable comparison of {name}',
@@ -1012,13 +1148,16 @@ def _find_timing_vulnerable_compare(cursor) -> List[StandardFinding]:
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IN ('strcmp', 'strcasecmp', 'memcmp')
-          AND (argument_expr LIKE '%password%'
-               OR argument_expr LIKE '%token%'
-               OR argument_expr LIKE '%secret%')
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
     """)
 
     for file, line, callee, args in cursor.fetchall():
+        # Check if args contain sensitive keywords
+        args_lower = args.lower()
+        if not any(kw in args_lower for kw in ['password', 'token', 'secret']):
+            continue
+
         findings.append(StandardFinding(
             rule_name='crypto-timing-strcmp',
             message=f'Timing-vulnerable {callee} for secrets',
@@ -1049,26 +1188,30 @@ def _find_deprecated_libraries(cursor) -> List[StandardFinding]:
         ('sha1_file', 'SHA1 is deprecated')
     ]
 
-    for deprecated, reason in deprecated_funcs:
-        cursor.execute("""
-            SELECT file, line, callee_function
-            FROM function_call_args
-            WHERE callee_function LIKE ?
-            ORDER BY file, line
-        """, [f'%{deprecated}%'])
+    # Fetch all function_call_args, filter in Python
+    cursor.execute("""
+        SELECT file, line, callee_function
+        FROM function_call_args
+        WHERE callee_function IS NOT NULL
+        ORDER BY file, line
+    """)
 
-        for file, line, callee in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='crypto-deprecated-library',
-                message=f'{reason}: {deprecated}',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                confidence=Confidence.HIGH,
-                category='security',
-                snippet=callee,
-                cwe_id='CWE-327'
-            ))
+    for file, line, callee in cursor.fetchall():
+        # Check if callee contains any deprecated function
+        for deprecated, reason in deprecated_funcs:
+            if deprecated in callee:
+                findings.append(StandardFinding(
+                    rule_name='crypto-deprecated-library',
+                    message=f'{reason}: {deprecated}',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    confidence=Confidence.HIGH,
+                    category='security',
+                    snippet=callee,
+                    cwe_id='CWE-327'
+                ))
+                break  # Only report once per callee
 
     return findings
 

@@ -243,24 +243,30 @@ def _find_secret_assignments(cursor) -> List[StandardFinding]:
     """Find variable assignments that look like secrets."""
     findings = []
 
-    # Build parameterized query for security keywords
-    keywords_list = list(SECRET_KEYWORDS)
-    placeholders = ' OR '.join(['target_var LIKE ?' for _ in keywords_list])
-    params = [f'%{kw}%' for kw in keywords_list]
-
-    cursor.execute(f"""
+    # Fetch all assignments with long source expressions, filter in Python
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE ({placeholders})
-          AND source_expr NOT LIKE '%process.env%'
-          AND source_expr NOT LIKE '%import.meta.env%'
-          AND source_expr NOT LIKE '%os.environ%'
-          AND source_expr NOT LIKE '%getenv%'
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
           AND LENGTH(source_expr) > 10
         ORDER BY file, line
-    """, params)
+        LIMIT 2000
+    """)
 
     for file, line, var, value in cursor.fetchall():
+        # Check if variable name contains secret keywords
+        var_lower = var.lower()
+        if not any(kw in var_lower for kw in SECRET_KEYWORDS):
+            continue
+
+        # Skip env variable sources
+        if ('process.env' in value or
+            'import.meta.env' in value or
+            'os.environ' in value or
+            'getenv' in value):
+            continue
+
         # Clean the value
         clean_value = value.strip().strip('\'"')
 
@@ -305,20 +311,25 @@ def _find_connection_strings(cursor) -> List[StandardFinding]:
     """Find database connection strings with embedded passwords."""
     findings = []
 
-    # Build query for DB protocols
-    protocols_list = list(DB_PROTOCOLS)
-    protocol_conditions = ' OR '.join([f'source_expr LIKE ?' for _ in protocols_list])
-    protocol_params = [f'%{proto}%' for proto in protocols_list]
-
-    cursor.execute(f"""
+    # Fetch all assignments, filter in Python
+    cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE ({protocol_conditions})
-          AND source_expr LIKE '%@%'
+        WHERE source_expr IS NOT NULL
         ORDER BY file, line
-    """, protocol_params)
+        LIMIT 2000
+    """)
 
     for file, line, var, conn_str in cursor.fetchall():
+        # Check if source contains DB protocol
+        has_protocol = any(proto in conn_str for proto in DB_PROTOCOLS)
+        if not has_protocol:
+            continue
+
+        # Check if contains @ (user@host pattern)
+        if '@' not in conn_str:
+            continue
+
         # Check if connection string has password
         # Pattern: protocol://user:password@host
         if re.search(r'://[^:]+:[^@]+@', conn_str):
@@ -346,24 +357,29 @@ def _find_env_fallbacks(cursor) -> List[StandardFinding]:
     """Find environment variable fallbacks with hardcoded secrets."""
     findings = []
 
-    # Find patterns like: process.env.SECRET || "hardcoded"
+    # Fetch all assignments, filter in Python
     cursor.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
-        WHERE (source_expr LIKE '%process.env%||%'
-               OR source_expr LIKE '%os.environ.get%'
-               OR source_expr LIKE '%getenv%||%'
-               OR source_expr LIKE '%??%'
-               OR source_expr LIKE '%or %')
-          AND (target_var LIKE '%secret%'
-               OR target_var LIKE '%key%'
-               OR target_var LIKE '%token%'
-               OR target_var LIKE '%password%'
-               OR target_var LIKE '%credential%')
+        WHERE target_var IS NOT NULL
+          AND source_expr IS NOT NULL
         ORDER BY file, line
+        LIMIT 2000
     """)
 
+    fallback_patterns = ['process.env', 'os.environ.get', 'getenv', '||', '??', ' or ']
+    secret_keywords_lower = ['secret', 'key', 'token', 'password', 'credential']
+
     for file, line, var, expr in cursor.fetchall():
+        # Check if target_var contains secret keywords
+        var_lower = var.lower()
+        if not any(kw in var_lower for kw in secret_keywords_lower):
+            continue
+
+        # Check if source_expr contains env fallback patterns
+        if not any(pattern in expr for pattern in fallback_patterns):
+            continue
+
         # Extract the fallback value
         fallback_match = (re.search(r'\|\|\s*["\']([^"\']+)["\']', expr) or
                          re.search(r'\?\?\s*["\']([^"\']+)["\']', expr) or
@@ -391,20 +407,25 @@ def _find_dict_secrets(cursor) -> List[StandardFinding]:
     """Find secrets in dictionary/object literals."""
     findings = []
 
-    # Look for patterns like {"password": "...", "api_key": "..."}
-    keywords_list = list(SECRET_KEYWORDS)
+    # Fetch all assignments, filter in Python
+    cursor.execute("""
+        SELECT file, line, source_expr
+        FROM assignments
+        WHERE source_expr IS NOT NULL
+        LIMIT 1000
+    """)
 
-    for keyword in keywords_list:
-        cursor.execute("""
-            SELECT file, line, source_expr
-            FROM assignments
-            WHERE (source_expr LIKE ? OR source_expr LIKE ?)
-              AND source_expr NOT LIKE '%process.env%'
-              AND source_expr NOT LIKE '%os.environ%'
-            LIMIT 100
-        """, (f'%"{keyword}":%', f"%'{keyword}':%"))
+    for file, line, expr in cursor.fetchall():
+        # Skip env variable sources
+        if 'process.env' in expr or 'os.environ' in expr:
+            continue
 
-        for file, line, expr in cursor.fetchall():
+        # Check if expression contains any secret keyword as a key
+        for keyword in SECRET_KEYWORDS:
+            # Check if keyword appears in dict-like pattern
+            if (f'"{keyword}":' not in expr and f"'{keyword}':" not in expr):
+                continue
+
             # Extract the value for this key
             pattern = rf'["\']?{keyword}["\']?\s*:\s*["\']([^"\']+)["\']'
             match = re.search(pattern, expr, re.IGNORECASE)
@@ -430,23 +451,28 @@ def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
     """Find API keys embedded in URLs."""
     findings = []
 
-    # Find URL constructions with API keys
+    # Fetch all function_call_args, filter in Python
     cursor.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
-        WHERE (callee_function IN ('fetch', 'axios', 'request', 'get', 'post')
-               OR callee_function LIKE '%.get'
-               OR callee_function LIKE '%.post')
-          AND (argument_expr LIKE '%api_key=%'
-               OR argument_expr LIKE '%apikey=%'
-               OR argument_expr LIKE '%token=%'
-               OR argument_expr LIKE '%key=%'
-               OR argument_expr LIKE '%secret=%'
-               OR argument_expr LIKE '%password=%')
+        WHERE callee_function IS NOT NULL
+          AND argument_expr IS NOT NULL
         ORDER BY file, line
+        LIMIT 2000
     """)
 
+    http_functions = frozenset(['fetch', 'axios', 'request', 'get', 'post'])
+    api_key_params = ['api_key=', 'apikey=', 'token=', 'key=', 'secret=', 'password=']
+
     for file, line, func, args in cursor.fetchall():
+        # Check if function is HTTP-related
+        if func not in http_functions and not (func.endswith('.get') or func.endswith('.post')):
+            continue
+
+        # Check if arguments contain API key parameters
+        if not any(param in args for param in api_key_params):
+            continue
+
         # Check if the key looks hardcoded
         key_match = re.search(r'(api_key|apikey|token|key|secret|password)=([^&\s]+)', args, re.IGNORECASE)
         if key_match:
@@ -479,37 +505,54 @@ def _get_suspicious_files(cursor) -> List[str]:
     """Get list of files likely to contain secrets."""
     suspicious_files = []
 
-    # Find files with many secret-related symbols
+    # Fetch all symbols, filter in Python
     cursor.execute("""
-        SELECT DISTINCT path
+        SELECT path, name
         FROM symbols
-        WHERE name LIKE '%secret%'
-           OR name LIKE '%token%'
-           OR name LIKE '%password%'
-           OR name LIKE '%api_key%'
-           OR name LIKE '%credential%'
-           OR name LIKE '%private_key%'
-        GROUP BY path
-        HAVING COUNT(*) > 3
-        LIMIT 50
+        WHERE name IS NOT NULL
+          AND path IS NOT NULL
+        LIMIT 5000
     """)
 
-    suspicious_files.extend([row[0] for row in cursor.fetchall()])
+    secret_keywords_lower = ['secret', 'token', 'password', 'api_key', 'credential', 'private_key']
 
-    # Find config/settings files
+    # Count symbols with secret keywords per file
+    file_secret_counts = {}
+    for path, name in cursor.fetchall():
+        name_lower = name.lower()
+        if any(kw in name_lower for kw in secret_keywords_lower):
+            file_secret_counts[path] = file_secret_counts.get(path, 0) + 1
+
+    # Add files with >3 secret-related symbols
+    for path, count in file_secret_counts.items():
+        if count > 3:
+            suspicious_files.append(path)
+            if len(suspicious_files) >= 50:
+                break
+
+    # Fetch all files, filter for config/settings files in Python
     cursor.execute("""
         SELECT path
         FROM files
-        WHERE (path LIKE '%config%'
-               OR path LIKE '%settings%'
-               OR path LIKE '%env.%'
-               OR path LIKE '%.env%')
-          AND path NOT LIKE '%.env.example'
-          AND path NOT LIKE '%.env.template'
-        LIMIT 20
+        WHERE path IS NOT NULL
+        LIMIT 1000
     """)
 
-    suspicious_files.extend([row[0] for row in cursor.fetchall()])
+    config_patterns = ['config', 'settings', 'env.', '.env']
+    exclude_patterns = ['.env.example', '.env.template']
+
+    for (path,) in cursor.fetchall():
+        # Check if path contains config patterns
+        if not any(pattern in path for pattern in config_patterns):
+            continue
+
+        # Exclude example/template files
+        if any(pattern in path for pattern in exclude_patterns):
+            continue
+
+        suspicious_files.append(path)
+        if len(suspicious_files) >= 70:
+            break
 
     # Return unique files
     return list(set(suspicious_files))
