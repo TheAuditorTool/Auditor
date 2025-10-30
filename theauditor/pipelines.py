@@ -350,7 +350,20 @@ def run_full_pipeline(
         print(f"[WARNING] Could not import archive command: {e}", file=sys.stderr)
     except Exception as e:
         print(f"[WARNING] Archive operation failed: {e}", file=sys.stderr)
-    
+
+    # CRITICAL: Initialize journal writer for ML training data
+    # Journal tracks fine-grained events (file touches, findings, patches)
+    # Complements pipeline.log (macro timing) and raw/*.json (ground truth)
+    journal = None
+    try:
+        from theauditor.journal import get_journal_writer
+        journal = get_journal_writer(run_type="full")
+        print("[INFO] Journal writer initialized for ML training", file=sys.stderr)
+    except ImportError as e:
+        print(f"[WARNING] Could not import journal module: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"[WARNING] Journal initialization failed: {e}", file=sys.stderr)
+
     # Track all created files throughout execution
     all_created_files = []
     
@@ -664,7 +677,14 @@ def run_full_pipeline(
         current_phase += 1
         log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
         start_time = time.time()
-        
+
+        # Record phase start in journal
+        if journal:
+            try:
+                journal.phase_start(phase_name, " ".join(cmd), current_phase)
+            except Exception:
+                pass  # Don't fail pipeline if journal fails
+
         try:
             # Execute foundation command
             if TempManager:
@@ -707,7 +727,15 @@ def run_full_pipeline(
                 pass
             
             elapsed = time.time() - start_time
-            
+
+            # Record phase end in journal
+            if journal:
+                try:
+                    journal.phase_end(phase_name, success=(result.returncode == 0),
+                                    elapsed=elapsed, exit_code=result.returncode)
+                except Exception:
+                    pass  # Don't fail pipeline if journal fails
+
             if result.returncode == 0:
                 log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
                 if result.stdout:
@@ -795,7 +823,14 @@ def run_full_pipeline(
             current_phase += 1
             log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
             start_time = time.time()
-            
+
+            # Record phase start in journal
+            if journal:
+                try:
+                    journal.phase_start(phase_name, " ".join(cmd), current_phase)
+                except Exception:
+                    pass
+
             try:
                 # Execute data preparation command
                 if TempManager:
@@ -838,7 +873,15 @@ def run_full_pipeline(
                     pass
                 
                 elapsed = time.time() - start_time
-                
+
+                # Record phase end in journal
+                if journal:
+                    try:
+                        journal.phase_end(phase_name, success=(result.returncode == 0),
+                                        elapsed=elapsed, exit_code=result.returncode)
+                    except Exception:
+                        pass
+
                 if result.returncode == 0:
                     log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s")
                     if result.stdout:
@@ -1243,7 +1286,14 @@ def run_full_pipeline(
             current_phase += 1
             log_output(f"\n[Phase {current_phase}/{total_phases}] {phase_name}")
             start_time = time.time()
-            
+
+            # Record phase start in journal
+            if journal:
+                try:
+                    journal.phase_start(phase_name, " ".join(cmd), current_phase)
+                except Exception:
+                    pass
+
             try:
                 # Check if this is the FCE command
                 is_fce = "factual correlation" in phase_name.lower() or "fce" in " ".join(cmd)
@@ -1318,14 +1368,22 @@ def run_full_pipeline(
                         pass
                 
                 elapsed = time.time() - start_time
-                
+
                 # Handle special exit codes for findings commands
                 is_findings_command = "taint-analyze" in cmd or ("deps" in cmd and "--vuln-scan" in cmd)
                 if is_findings_command:
                     success = result.returncode in [0, 1, 2]
                 else:
                     success = result.returncode == 0
-                
+
+                # Record phase end in journal
+                if journal:
+                    try:
+                        journal.phase_end(phase_name, success=success,
+                                        elapsed=elapsed, exit_code=result.returncode)
+                    except Exception:
+                        pass
+
                 if success:
                     if result.returncode == 2 and is_findings_command:
                         log_output(f"[OK] {phase_name} completed in {elapsed:.1f}s - CRITICAL findings")
@@ -1642,7 +1700,23 @@ def run_full_pipeline(
         except Exception as e:
             print(f"[WARNING] Could not read pattern results from {patterns_path}: {e}", file=sys.stderr)
             # Non-critical - continue without pattern stats
-    
+
+    # Close journal and copy to history for ML training
+    if journal:
+        try:
+            journal.pipeline_summary(
+                total_phases=total_phases,
+                failed_phases=failed_phases,
+                total_files=len(all_created_files),
+                total_findings=total_vulnerabilities,
+                elapsed=pipeline_elapsed,
+                status='complete' if failed_phases == 0 else 'partial'
+            )
+            journal.close(copy_to_history=True)
+            print("[INFO] Journal closed and copied to history for ML training", file=sys.stderr)
+        except Exception as e:
+            print(f"[WARNING] Journal close failed: {e}", file=sys.stderr)
+
     return {
         "success": failed_phases == 0 and phases_with_warnings == 0,
         "failed_phases": failed_phases,
