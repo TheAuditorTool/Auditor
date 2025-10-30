@@ -171,14 +171,34 @@ Phase 2 refactors Python extraction to match JavaScript's proven modular archite
 - Documented "house of cards" architecture for future developers (AI and human)
 - python_impl.py (1594 lines) kept for rollback safety, deprecated
 
-**Phase 2.2: New Extractors & Database Tables** - PENDING (Next Session)
-- Tasks 9-18: Decorators, async patterns, pytest fixtures, advanced types
+**Phase 2.2A: New Extractors** ✅ COMPLETE (Session 10 - 2025-10-30)
+- Created async_extractors.py (169 lines) - async def, await, async generators
+- Created testing_extractors.py (206 lines) - pytest fixtures, parametrize, markers, mocks
+- Created type_extractors.py (258 lines) - Protocol, Generic, TypedDict, Literal, @overload
+- Extended core_extractors.py - decorators (78 lines), context managers (88 lines)
+- All 15 new extract functions exported and smoke tested
+- 32 total extract_* functions now available
+
+**Phase 2.2B: Integration & Database Schema** ✅ COMPLETE (Session 11 - 2025-10-30)
+- Wired all 15 extractors into indexer/extractors/python.py (+86 lines)
+- Created 14 new database tables in schema.py (+238 lines)
+- Added 14 database writer methods in database.py (+178 lines)
+- Wired storage in indexer/__init__.py (+226 lines)
+- Fixed extract_generics() and extract_literals() bugs (AST Subscript handling)
+- Fixed python_context_managers primary key (allows multiple ctx managers per line)
+- Added comprehensive test fixtures to realworld_project (async, types, pytest)
+- **1,027 records extracted** across 14 new tables - ALL EXTRACTORS VERIFIED WORKING
+- End-to-end testing: `aud index` completes successfully with zero regressions
+
+**Phase 2.3: Django Framework Deep Dive** - PROPOSED (Next 3-4 sessions)
+- Focus: Django CBVs, Forms, Admin, Middleware
+- Estimated: 3-4 focused sessions on Django ecosystem
+- Then cycle to validation frameworks or other areas
+
+**Phase 2.4: Validation Frameworks** - PROPOSED
+- Focus: Marshmallow, DRF Serializers, validation patterns
 - Estimated: 2-3 sessions
 
-**Phase 2.3: Comprehensive Fixtures** - PENDING
-- Tasks 19-27: Build 4,300 lines of test fixtures
-- Estimated: 1-2 sessions
-
-**Phase 2.4: Integration & Verification** - PENDING
-- Tasks 28-46: Taint integration, performance benchmarking, docs
+**Phase 2.5: Background Tasks & Templates** - PROPOSED
+- Focus: Celery tasks, Jinja2/Django templates
 - Estimated: 2-3 sessions

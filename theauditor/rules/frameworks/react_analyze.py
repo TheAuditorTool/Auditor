@@ -186,30 +186,30 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check for React imports - trust schema contract
-            cursor.execute("""
-                SELECT DISTINCT src FROM refs
-                WHERE value IN ('react', 'react-dom', 'React')
-                   OR value LIKE 'react/%'
-                   OR value LIKE 'react-dom/%'
-            """)
-            react_refs = cursor.fetchall()
+            # Check for React imports, filter in Python
+            query = build_query('refs', ['src', 'value'])
+            cursor.execute(query)
+
+            react_refs = []
+            for src, value in cursor.fetchall():
+                if (value in ('react', 'react-dom', 'React') or
+                    value.startswith('react/') or
+                    value.startswith('react-dom/')):
+                    react_refs.append(src)
 
             if react_refs:
-                self.react_files = [ref[0] for ref in react_refs]
+                self.react_files = list(set(react_refs))
                 self.has_react = True
             else:
                 # Also check for React-specific symbols
-                cursor.execute("""
-                    SELECT DISTINCT path FROM symbols
-                    WHERE name IN ('useState', 'useEffect', 'useContext', 'useReducer', 'Component', 'createElement')
-                    LIMIT 1
-                """)
-                react_symbols = cursor.fetchall()
+                query2 = build_query('symbols', ['path', 'name'], limit=100)
+                cursor.execute(query2)
 
-                if react_symbols:
-                    self.react_files = [sym[0] for sym in react_symbols]
-                    self.has_react = True
+                for path, name in cursor.fetchall():
+                    if name in ('useState', 'useEffect', 'useContext', 'useReducer', 'Component', 'createElement'):
+                        self.react_files = [path]
+                        self.has_react = True
+                        break
 
             conn.close()
             return self.has_react
@@ -223,13 +223,15 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Find all dangerouslySetInnerHTML usage
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="callee_function = 'dangerouslySetInnerHTML' OR argument_expr LIKE '%dangerouslySetInnerHTML%'",
+            # Fetch all function calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                                order_by="file, line")
             cursor.execute(query)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            dangerous_html_usages = cursor.fetchall()
+
+            dangerous_html_usages = []
+            for file, line, callee, html_content in cursor.fetchall():
+                if callee == 'dangerouslySetInnerHTML' or 'dangerouslySetInnerHTML' in html_content:
+                    dangerous_html_usages.append((file, line, html_content))
 
             for file, line, html_content in dangerous_html_usages:
                 # Check if sanitization is nearby
@@ -310,12 +312,17 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="callee_function = 'eval' AND (argument_expr LIKE '%<%>%' OR argument_expr LIKE '%jsx%' OR argument_expr LIKE '%JSX%' OR argument_expr LIKE '%React.createElement%')",
+            # Fetch eval calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="callee_function = 'eval'",
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, eval_content in cursor.fetchall():
+            for file, line, callee, eval_content in cursor.fetchall():
+                # Check for JSX patterns in Python
+                if not ('<%>' in eval_content or 'jsx' in eval_content or
+                        'JSX' in eval_content or 'React.createElement' in eval_content):
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='react-eval-jsx',
                     message='Using eval() with JSX - code injection vulnerability',
@@ -339,12 +346,20 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('assignments', ['file', 'line', 'source_expr'],
-                               where="(source_expr LIKE '%target=\"_blank\"%' OR source_expr LIKE '%target=''_blank''%' OR source_expr LIKE '%target={%_blank%}%') AND source_expr NOT LIKE '%noopener%' AND source_expr NOT LIKE '%noreferrer%'",
+            # Fetch all assignments, filter in Python
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, link_code in cursor.fetchall():
+            for file, line, target, link_code in cursor.fetchall():
+                # Check for target="_blank" patterns in Python
+                if not ('target="_blank"' in link_code or "target='_blank'" in link_code or
+                        'target={' in link_code and '_blank' in link_code):
+                    continue
+
+                # Check if noopener/noreferrer is missing
+                if 'noopener' in link_code or 'noreferrer' in link_code:
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='react-unsafe-target-blank',
                     message='External link without rel="noopener" - reverse tabnabbing vulnerability',
@@ -368,13 +383,15 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check assignments to innerHTML/outerHTML
+            # Fetch all assignments, filter in Python
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where="target_var LIKE '%.innerHTML' OR target_var LIKE '%.outerHTML'",
                                order_by="file, line")
             cursor.execute(query)
 
             for file, line, target, content in cursor.fetchall():
+                # Check for innerHTML/outerHTML in Python
+                if not (target.endswith('.innerHTML') or target.endswith('.outerHTML')):
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='react-direct-innerhtml',
                     message='Direct innerHTML manipulation - bypasses React security',
@@ -417,12 +434,22 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
+            # Fetch all assignments, filter in Python
             query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               where="source_expr LIKE '\"%\"' AND source_expr NOT LIKE '%process.env%' AND source_expr NOT LIKE '%import.meta.env%' AND LENGTH(TRIM(source_expr, '\"''')) > 10",
                                order_by="file, line")
             cursor.execute(query)
 
             for file, line, var_name, credential in cursor.fetchall():
+                # Filter for string literals (not env vars) in Python
+                if not ('"' in credential or "'" in credential):
+                    continue
+                if 'process.env' in credential or 'import.meta.env' in credential:
+                    continue
+
+                # Check length (rough heuristic for meaningful values)
+                clean_cred = credential.strip('"\'')
+                if len(clean_cred) <= 10:
+                    continue
                 var_lower = var_name.lower()
 
                 # Check if variable name suggests credentials
@@ -525,14 +552,17 @@ class ReactAnalyzer:
             form_handlers = cursor.fetchall()
 
             for file, line in form_handlers:
-                # Check for nearby validation/sanitization calls
+                # Check for nearby validation/sanitization calls, filter in Python
                 query_validation = build_query('function_call_args', ['callee_function'],
-                    where="""file = ? AND line BETWEEN ? AND ?
-                      AND (callee_function LIKE '%validate%' OR callee_function LIKE '%sanitize%')""",
-                    limit=1
-                )
+                    where="file = ? AND line BETWEEN ? AND ?")
                 cursor.execute(query_validation, (file, line - 20, line + 20))
-                has_validation_nearby = cursor.fetchone() is not None
+
+                has_validation_nearby = False
+                for (callee,) in cursor.fetchall():
+                    callee_lower = callee.lower()
+                    if 'validate' in callee_lower or 'sanitize' in callee_lower:
+                        has_validation_nearby = True
+                        break
 
                 if not has_validation_nearby:
                     # Also check if validation libraries are imported
@@ -566,12 +596,18 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="callee_function = 'useEffect' AND argument_expr LIKE '%fetch%' AND argument_expr NOT LIKE '%cleanup%' AND argument_expr NOT LIKE '%return%'",
+            # Fetch useEffect calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="callee_function = 'useEffect'",
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, effect_code in cursor.fetchall():
+            for file, line, callee, effect_code in cursor.fetchall():
+                # Check for fetch without cleanup in Python
+                if 'fetch' not in effect_code:
+                    continue
+                if 'cleanup' in effect_code or 'return' in effect_code:
+                    continue
                 self.findings.append(StandardFinding(
                     rule_name='react-useeffect-no-cleanup',
                     message='useEffect with fetch but no cleanup - potential memory leak',
@@ -607,13 +643,16 @@ class ReactAnalyzer:
             route_files = cursor.fetchall()
 
             for (file,) in route_files:
-                # Check if file has any auth-related function calls
+                # Check if file has any auth-related function calls, filter in Python
                 query_auth_pattern = build_query('function_call_args', ['callee_function'],
-                    where="file = ? AND (callee_function LIKE '%auth%' OR callee_function LIKE '%Auth%')",
-                    limit=1
-                )
+                    where="file = ?")
                 cursor.execute(query_auth_pattern, (file,))
-                has_auth_pattern = cursor.fetchone() is not None
+
+                has_auth_pattern = False
+                for (callee,) in cursor.fetchall():
+                    if 'auth' in callee or 'Auth' in callee:
+                        has_auth_pattern = True
+                        break
 
                 if not has_auth_pattern:
                     # Also check if auth functions are used
@@ -651,13 +690,15 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Find form elements in assignments
-            query = build_query('assignments', ['file', 'line', 'source_expr'],
-                               where="source_expr LIKE '%<form%'",
+            # Fetch all assignments, filter for forms in Python
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                                order_by="file, line")
             cursor.execute(query)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            form_elements = cursor.fetchall()
+
+            form_elements = []
+            for file, line, target, form_content in cursor.fetchall():
+                if '<form' in form_content:
+                    form_elements.append((file, line, form_content))
 
             for file, line, form_content in form_elements:
                 form_lower = form_content.lower()
@@ -674,15 +715,19 @@ class ReactAnalyzer:
                 if has_modifying_method:
                     # Check if CSRF token is present
                     if 'csrf' not in form_lower and 'xsrf' not in form_lower:
-                        # Also check if there's CSRF handling nearby
-                        query_csrf = build_query('assignments', ['target_var'],
-                            where="""file = ? AND line BETWEEN ? AND ?
-                              AND (target_var LIKE '%csrf%' OR source_expr LIKE '%csrf%'
-                                   OR target_var LIKE '%xsrf%' OR source_expr LIKE '%xsrf%')""",
-                            limit=1
-                        )
+                        # Also check if there's CSRF handling nearby, filter in Python
+                        query_csrf = build_query('assignments', ['target_var', 'source_expr'],
+                            where="file = ? AND line BETWEEN ? AND ?")
                         cursor.execute(query_csrf, (file, line - 10, line + 10))
-                        has_csrf_nearby = cursor.fetchone() is not None
+
+                        has_csrf_nearby = False
+                        for target_var, source_expr in cursor.fetchall():
+                            target_lower = target_var.lower()
+                            source_lower = source_expr.lower()
+                            if 'csrf' in target_lower or 'csrf' in source_lower or \
+                               'xsrf' in target_lower or 'xsrf' in source_lower:
+                                has_csrf_nearby = True
+                                break
 
                         if not has_csrf_nearby:
                             self.findings.append(StandardFinding(
@@ -708,13 +753,24 @@ class ReactAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Find JSX expressions with user input
-            query = build_query('assignments', ['file', 'line', 'source_expr'],
-                               where="(source_expr LIKE '%{props.%}%' OR source_expr LIKE '%{user%}%' OR source_expr LIKE '%{input%}%' OR source_expr LIKE '%{data%}%' OR source_expr LIKE '%{params%}%' OR source_expr LIKE '%{query%}%') AND source_expr LIKE '%<%>%'",
+            # Fetch all assignments, filter in Python
+            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                                order_by="file, line")
             cursor.execute(query)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            jsx_with_user_input = cursor.fetchall()
+
+            jsx_with_user_input = []
+            for file, line, target, jsx_content in cursor.fetchall():
+                # Check for JSX patterns with user input in Python
+                if '<%>' not in jsx_content:
+                    continue
+
+                # Check for user input patterns
+                if not ('{props.' in jsx_content or '{user' in jsx_content or
+                        '{input' in jsx_content or '{data' in jsx_content or
+                        '{params' in jsx_content or '{query' in jsx_content):
+                    continue
+
+                jsx_with_user_input.append((file, line, jsx_content))
 
             for file, line, jsx_content in jsx_with_user_input:
                 # Check for user input patterns in JSX

@@ -137,15 +137,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         is_nextjs = cursor.fetchone() is not None
 
         if not is_nextjs:
-            # Check for Next.js specific paths as fallback - use raw SQL for LIMIT
-            cursor.execute("""
-                SELECT path FROM files
-                WHERE path LIKE '%pages/api/%'
-                   OR path LIKE '%app/api/%'
-                   OR path LIKE '%next.config%'
-                LIMIT 1
-            """)
-            is_nextjs = cursor.fetchone() is not None
+            # Check for Next.js specific paths as fallback
+            query = build_query('files', ['path'], limit=100)
+            cursor.execute(query)
+
+            # Filter in Python
+            for (path,) in cursor.fetchall():
+                if 'pages/api/' in path or 'app/api/' in path or 'next.config' in path:
+                    is_nextjs = True
+                    break
 
         if not is_nextjs:
             return findings  # Not a Next.js project
@@ -153,16 +153,24 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 1: API Route Secret Exposure
         # ========================================================
-        # Build SQL for response functions
+        # Fetch response function calls, filter in Python
         response_funcs_list = list(RESPONSE_FUNCTIONS)
         placeholders = ','.join('?' * len(response_funcs_list))
 
-        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where=f"callee_function IN ({placeholders}) AND argument_expr LIKE '%process.env%' AND (file LIKE '%pages/api/%' OR file LIKE '%app/api/%')",
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"callee_function IN ({placeholders})",
                            order_by="file, line")
         cursor.execute(query, response_funcs_list)
 
-        for file, line, response_data in cursor.fetchall():
+        for file, line, callee, response_data in cursor.fetchall():
+            # Filter for API routes in Python
+            if not ('pages/api/' in file or 'app/api/' in file):
+                continue
+
+            # Check for process.env usage
+            if 'process.env' not in response_data:
+                continue
+
             # Check if it's exposing non-public env vars
             if response_data and 'NEXT_PUBLIC' not in response_data:
                 findings.append(StandardFinding(
@@ -219,15 +227,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
         # Check these files for unsanitized user input
         for file in ssr_files:
+            # Fetch all arguments, filter in Python
             query_input = build_query('function_call_args', ['argument_expr'],
-                where="""file = ?
-                  AND (argument_expr LIKE '%req.query%'
-                       OR argument_expr LIKE '%req.body%'
-                       OR argument_expr LIKE '%params%')""",
-                limit=1
-            )
+                where="file = ?")
             cursor.execute(query_input, (file,))
-            has_user_input = cursor.fetchone() is not None
+
+            has_user_input = False
+            for (arg_expr,) in cursor.fetchall():
+                if 'req.query' in arg_expr or 'req.body' in arg_expr or 'params' in arg_expr:
+                    has_user_input = True
+                    break
 
             if has_user_input:
                 # Check for sanitization
@@ -256,16 +265,20 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: NEXT_PUBLIC Sensitive Data Exposure
         # ========================================================
-        # Build query for sensitive patterns
-        sensitive_patterns = ['%' + pattern + '%' for pattern in SENSITIVE_ENV_PATTERNS]
-        conditions = ' OR '.join(['target_var LIKE ?' for _ in sensitive_patterns])
-
+        # Fetch all assignments, filter in Python
         query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                           where=f"target_var LIKE 'NEXT_PUBLIC_%' AND ({conditions})",
                            order_by="file, line")
-        cursor.execute(query, sensitive_patterns)
+        cursor.execute(query)
 
         for file, line, var_name, value in cursor.fetchall():
+            # Filter for NEXT_PUBLIC_ prefix
+            if not var_name.startswith('NEXT_PUBLIC_'):
+                continue
+
+            # Check for sensitive patterns in Python
+            var_name_upper = var_name.upper()
+            if not any(pattern in var_name_upper for pattern in SENSITIVE_ENV_PATTERNS):
+                continue
             findings.append(StandardFinding(
                 rule_name='nextjs-public-env-exposure',
                 message=f'Sensitive data in {var_name} - exposed to client-side code',
@@ -280,30 +293,35 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: Missing CSRF in API Routes
         # ========================================================
-        # Get API routes with state-changing methods
+        # Get API routes with state-changing methods, filter in Python
         query_api = build_query('api_endpoints', ['file', 'method'],
-            where="""(file LIKE '%pages/api/%' OR file LIKE '%app/api/%')
-              AND method IN ('POST', 'PUT', 'DELETE', 'PATCH')"""
-        )
+            where="method IN ('POST', 'PUT', 'DELETE', 'PATCH')")
         cursor.execute(query_api)
 
-        # Get distinct file/method pairs in Python
-        api_routes = list(set(cursor.fetchall()))
+        # Filter for API routes in Python
+        api_routes = []
+        seen = set()
+        for file, method in cursor.fetchall():
+            if 'pages/api/' in file or 'app/api/' in file:
+                key = (file, method)
+                if key not in seen:
+                    seen.add(key)
+                    api_routes.append((file, method))
 
         for file, method in api_routes:
-            # Check if CSRF protection exists
-            csrf_list = list(CSRF_INDICATORS)
-            conditions = ' OR '.join(['callee_function LIKE ?' for _ in csrf_list])
-            conditions += ' OR ' + ' OR '.join(['argument_expr LIKE ?' for _ in csrf_list])
+            # Fetch function calls for this file, filter for CSRF in Python
+            query_csrf = build_query('function_call_args', ['callee_function', 'argument_expr'],
+                where="file = ?")
+            cursor.execute(query_csrf, [file])
 
-            params = ['%' + indicator + '%' for indicator in csrf_list] * 2
-
-            query_csrf = build_query('function_call_args', ['callee_function'],
-                where=f"file = ? AND ({conditions})",
-                limit=1
-            )
-            cursor.execute(query_csrf, [file] + params)
-            has_csrf = cursor.fetchone() is not None
+            has_csrf = False
+            for callee, arg_expr in cursor.fetchall():
+                callee_lower = callee.lower()
+                arg_lower = arg_expr.lower()
+                if any(indicator.lower() in callee_lower or indicator.lower() in arg_lower
+                       for indicator in CSRF_INDICATORS):
+                    has_csrf = True
+                    break
 
             if not has_csrf:
                 findings.append(StandardFinding(
@@ -320,15 +338,23 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Exposed Error Details in Production
         # ========================================================
+        # Fetch response function calls, filter in Python
         response_funcs_list = list(RESPONSE_FUNCTIONS)
         placeholders = ','.join('?' * len(response_funcs_list))
 
-        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where=f"callee_function IN ({placeholders}) AND (argument_expr LIKE '%error.stack%' OR argument_expr LIKE '%err.stack%' OR argument_expr LIKE '%error.message%') AND (file LIKE '%pages/%' OR file LIKE '%app/%')",
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                           where=f"callee_function IN ({placeholders})",
                            order_by="file, line")
         cursor.execute(query, response_funcs_list)
 
-        for file, line, error_data in cursor.fetchall():
+        for file, line, callee, error_data in cursor.fetchall():
+            # Filter for pages/app directories in Python
+            if not ('pages/' in file or 'app/' in file):
+                continue
+
+            # Check for error details in Python
+            if not ('error.stack' in error_data or 'err.stack' in error_data or 'error.message' in error_data):
+                continue
             findings.append(StandardFinding(
                 rule_name='nextjs-error-details-exposed',
                 message='Error stack trace or details exposed to client',
@@ -343,12 +369,17 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: Dangerous HTML Serialization
         # ========================================================
-        query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                           where="callee_function = 'dangerouslySetInnerHTML' OR argument_expr LIKE '%dangerouslySetInnerHTML%'",
+        # Fetch all function calls, filter in Python
+        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, html_content in cursor.fetchall():
+        dangerous_html_calls = []
+        for file, line, callee, html_content in cursor.fetchall():
+            if callee == 'dangerouslySetInnerHTML' or 'dangerouslySetInnerHTML' in html_content:
+                dangerous_html_calls.append((file, line, html_content))
+
+        for file, line, html_content in dangerous_html_calls:
             # Check if sanitization is nearby
             sanitize_list = list(SANITIZATION_FUNCTIONS)
             placeholders = ','.join('?' * len(sanitize_list))
@@ -378,14 +409,16 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # CHECK 8: API Routes Without Rate Limiting (DEGRADED)
         # ========================================================
         # Note: Global check, not per-route - reduced confidence
-        # Get distinct API route files
-        query_api_files = build_query('api_endpoints', ['file'],
-            where="file LIKE '%pages/api/%' OR file LIKE '%app/api/%'"
-        )
+        # Get distinct API route files, filter in Python
+        query_api_files = build_query('api_endpoints', ['file'])
         cursor.execute(query_api_files)
-        api_route_count = len(set(row[0] for row in cursor.fetchall()))
 
-        if api_route_count >= 3:  # Only flag if multiple API routes
+        api_route_files = set()
+        for (file,) in cursor.fetchall():
+            if 'pages/api/' in file or 'app/api/' in file:
+                api_route_files.add(file)
+
+        if len(api_route_files) >= 3:  # Only flag if multiple API routes
             # Check for rate limiting libraries
             rate_limit_list = list(RATE_LIMIT_LIBRARIES)
             placeholders = ','.join('?' * len(rate_limit_list))
@@ -399,17 +432,12 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 
             if not has_rate_limiting:
                 # Get first API route file
-                query_first_api = build_query('api_endpoints', ['file'],
-                    where="file LIKE '%pages/api/%' OR file LIKE '%app/api/%'",
-                    limit=1
-                )
-                cursor.execute(query_first_api)
-                api_file = cursor.fetchone()
+                api_file = list(api_route_files)[0] if api_route_files else None
                 if api_file:
                     findings.append(StandardFinding(
                         rule_name='nextjs-missing-rate-limit',
                         message='Multiple API routes without rate limiting - vulnerable to abuse',
-                        file_path=api_file[0],
+                        file_path=api_file,
                         line=1,
                         severity=Severity.MEDIUM,
                         category='security',

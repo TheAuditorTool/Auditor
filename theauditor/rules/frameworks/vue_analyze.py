@@ -145,17 +145,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 1: v-html and innerHTML Directives (XSS Risk)
         # ========================================================
-        # Check for v-html and similar XSS-prone patterns
-        xss_patterns = ['%v-html%', '%:innerHTML%', '%v-bind:innerHTML%',
-                       '%:outerHTML%', '%v-bind:outerHTML%']
-        conditions = ' OR '.join(['source_expr LIKE ?' for _ in xss_patterns])
-
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where=conditions,
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                            order_by="file, line")
-        cursor.execute(query, xss_patterns)
+        cursor.execute(query)
 
-        for file, line, html_content in cursor.fetchall():
+        for file, line, target, html_content in cursor.fetchall():
+            # Check for v-html and XSS-prone directives in Python
+            if not any(pattern in html_content for pattern in VUE_XSS_DIRECTIVES):
+                continue
             findings.append(StandardFinding(
                 rule_name='vue-v-html-xss',
                 message='Use of v-html or innerHTML binding - primary XSS vector in Vue',
@@ -215,22 +213,24 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 3: Exposed API Keys in Frontend
         # ========================================================
-        # Build query for Vue environment variables with sensitive patterns
-        env_prefixes = list(VUE_ENV_PREFIXES)
-        sensitive = list(SENSITIVE_PATTERNS)
-
-        # Create conditions for env prefixes and sensitive patterns
-        prefix_placeholders = ' OR '.join([f"target_var LIKE ?" for _ in env_prefixes])
-        sensitive_placeholders = ' OR '.join([f"target_var LIKE ?" for _ in sensitive])
-        prefix_patterns = [f"{prefix}%" for prefix in env_prefixes]
-        sensitive_patterns = [f"%{pattern}%" for pattern in sensitive]
-
+        # Fetch all assignments, filter in Python
         query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                           where=f"({prefix_placeholders}) AND ({sensitive_placeholders}) AND source_expr NOT LIKE '%process.env%' AND source_expr NOT LIKE '%import.meta.env%'",
                            order_by="file, line")
-        cursor.execute(query, prefix_patterns + sensitive_patterns)
+        cursor.execute(query)
 
         for file, line, var_name, value in cursor.fetchall():
+            # Check for Vue env prefixes in Python
+            if not any(var_name.startswith(prefix) for prefix in VUE_ENV_PREFIXES):
+                continue
+
+            # Check for sensitive patterns in Python
+            var_upper = var_name.upper()
+            if not any(pattern in var_upper for pattern in SENSITIVE_PATTERNS):
+                continue
+
+            # Filter out env var references
+            if 'process.env' in value or 'import.meta.env' in value:
+                continue
             findings.append(StandardFinding(
                 rule_name='vue-exposed-api-key',
                 message=f'API key/secret {var_name} hardcoded in Vue component',
@@ -245,12 +245,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 4: Triple Mustache Unescaped Interpolation
         # ========================================================
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where="source_expr LIKE '%{{{%}}}%'",
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, interpolation in cursor.fetchall():
+        for file, line, target, interpolation in cursor.fetchall():
+            # Check for triple mustache in Python
+            if '{{{' not in interpolation or '}}}' not in interpolation:
+                continue
             findings.append(StandardFinding(
                 rule_name='vue-unescaped-interpolation',
                 message='Triple mustache {{{ }}} unescaped interpolation - XSS risk',
@@ -265,17 +268,21 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 5: Dynamic Component Injection
         # ========================================================
-        # Look for <component :is="userInput"> patterns
+        # Fetch all assignments, filter in Python
         user_input_sources = ['$route', 'params', 'query', 'user', 'input', 'data']
-        conditions = ' OR '.join([f"source_expr LIKE ?" for _ in user_input_sources])
-        patterns = [f"%{src}%" for src in user_input_sources]
 
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where=f"source_expr LIKE '%<component%:is%' AND ({conditions})",
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                            order_by="file, line")
-        cursor.execute(query, patterns)
+        cursor.execute(query)
 
-        for file, line, component_code in cursor.fetchall():
+        for file, line, target, component_code in cursor.fetchall():
+            # Check for <component :is pattern in Python
+            if '<component' not in component_code or ':is' not in component_code:
+                continue
+
+            # Check for user input sources in Python
+            if not any(src in component_code for src in user_input_sources):
+                continue
             findings.append(StandardFinding(
                 rule_name='vue-dynamic-component-injection',
                 message='Dynamic component with user-controlled input - component injection risk',
@@ -290,12 +297,19 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 6: Unsafe target="_blank" Links
         # ========================================================
-        query = build_query('assignments', ['file', 'line', 'source_expr'],
-                           where="(source_expr LIKE '%target=\"_blank\"%' OR source_expr LIKE '%target=''_blank''%') AND source_expr NOT LIKE '%noopener%' AND source_expr NOT LIKE '%noreferrer%'",
+        # Fetch all assignments, filter in Python
+        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
                            order_by="file, line")
         cursor.execute(query)
 
-        for file, line, link_code in cursor.fetchall():
+        for file, line, target, link_code in cursor.fetchall():
+            # Check for target="_blank" in Python
+            if not ('target="_blank"' in link_code or "target='_blank'" in link_code):
+                continue
+
+            # Check if noopener/noreferrer is missing
+            if 'noopener' in link_code or 'noreferrer' in link_code:
+                continue
             findings.append(StandardFinding(
                 rule_name='vue-unsafe-target-blank',
                 message='External link without rel="noopener" - reverse tabnabbing vulnerability',
@@ -310,13 +324,15 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 7: Direct DOM Manipulation via $refs
         # ========================================================
-        # Check for $refs with innerHTML manipulation
+        # Fetch all function calls, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="(callee_function LIKE '%$refs%' OR callee_function LIKE '%this.$refs%')",
                            order_by="file, line")
         cursor.execute(query)
 
         for file, line, func, args in cursor.fetchall():
+            # Check for $refs patterns in Python
+            if '$refs' not in func and 'this.$refs' not in func:
+                continue
             # Check if using innerHTML or other dangerous properties
             if args and any(danger in args for danger in ['innerHTML', 'outerHTML']):
                 findings.append(StandardFinding(
@@ -365,12 +381,18 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         # ========================================================
         # CHECK 8: localStorage/sessionStorage for Sensitive Data
         # ========================================================
+        # Fetch storage operations, filter in Python
         query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="callee_function IN ('localStorage.setItem', 'sessionStorage.setItem') AND (argument_expr LIKE '%token%' OR argument_expr LIKE '%password%' OR argument_expr LIKE '%secret%' OR argument_expr LIKE '%jwt%' OR argument_expr LIKE '%key%')",
+                           where="callee_function IN ('localStorage.setItem', 'sessionStorage.setItem')",
                            order_by="file, line")
         cursor.execute(query)
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        storage_operations = cursor.fetchall()
+
+        storage_operations = []
+        for file, line, storage_method, data in cursor.fetchall():
+            # Check for sensitive data patterns in Python
+            data_lower = data.lower()
+            if any(sensitive in data_lower for sensitive in ['token', 'password', 'secret', 'jwt', 'key']):
+                storage_operations.append((file, line, storage_method, data))
 
         for file, line, storage_method, data in storage_operations:
             # Check if Vue file

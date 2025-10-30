@@ -258,10 +258,15 @@ class ExpressAnalyzer:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
 
-                query = build_query('function_call_args', ['callee_function'],
-                                   where="callee_function LIKE '%helmet%' OR (callee_function = 'use' AND argument_expr LIKE '%helmet%')")
+                # Fetch all function calls, filter in Python
+                query = build_query('function_call_args', ['callee_function', 'argument_expr'])
                 cursor.execute(query)
-                helmet_calls = len(cursor.fetchall())
+
+                helmet_calls = 0
+                for callee, arg_expr in cursor.fetchall():
+                    if 'helmet' in callee or ('use' in callee and 'helmet' in arg_expr):
+                        helmet_calls += 1
+
                 conn.close()
 
                 if helmet_calls == 0:
@@ -412,12 +417,16 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="(callee_function LIKE '%bodyParser%' OR callee_function = 'json' OR callee_function = 'urlencoded')",
+            # Fetch all function calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, config in cursor.fetchall():
+            for file, line, callee, config in cursor.fetchall():
+                # Filter for bodyParser functions in Python
+                if 'bodyParser' not in callee and callee not in ('json', 'urlencoded'):
+                    continue
+
                 # Check if limit is specified
                 if 'limit' not in config:
                     self.findings.append(StandardFinding(
@@ -450,18 +459,20 @@ class ExpressAnalyzer:
             route_files = set(ep['file'] for ep in self.api_endpoints)
 
             for route_file in route_files:
-                query = build_query('function_call_args', ['line', 'callee_function'],
+                # Fetch DB operations, filter caller in Python
+                query = build_query('function_call_args', ['line', 'callee_function', 'caller_function'],
                                    where="""file = ?
                                             AND callee_function IN ('query', 'find', 'findOne', 'findById', 'create',
                                                                     'update', 'updateOne', 'updateMany', 'delete',
-                                                                    'deleteOne', 'deleteMany', 'save', 'exec')
-                                            AND caller_function NOT LIKE '%service%'
-                                            AND caller_function NOT LIKE '%repository%'
-                                            AND caller_function NOT LIKE '%model%'""",
+                                                                    'deleteOne', 'deleteMany', 'save', 'exec')""",
                                    order_by="line")
                 cursor.execute(query, (route_file,))
 
-                for line, db_method in cursor.fetchall():
+                for line, db_method, caller in cursor.fetchall():
+                    # Filter out service/repository/model layers in Python
+                    caller_lower = caller.lower() if caller else ''
+                    if 'service' in caller_lower or 'repository' in caller_lower or 'model' in caller_lower:
+                        continue
                     self.findings.append(StandardFinding(
                         rule_name='express-direct-db-query',
                         message=f'Database {db_method} directly in route handler - consider using service layer',
@@ -485,17 +496,17 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check for CORS wildcard in function calls
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="""callee_function = 'cors'
-                                        AND (argument_expr LIKE '%origin:%*%'
-                                             OR argument_expr LIKE '%origin:%true%'
-                                             OR argument_expr = '')""",
+            # Fetch CORS calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
+                               where="callee_function = 'cors'",
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, config in cursor.fetchall():
-                if '*' in config or 'true' in config or config == '':
+            for file, line, callee, config in cursor.fetchall():
+                # Check for wildcard patterns in Python
+                if ('origin:*' in config or 'origin: *' in config or
+                    'origin:true' in config or 'origin: true' in config or
+                    config == ''):
                     self.findings.append(StandardFinding(
                         rule_name='express-cors-wildcard',
                         message='CORS configured with wildcard origin - allows any domain',
@@ -536,11 +547,15 @@ class ExpressAnalyzer:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
 
-                # Check for CSRF in function calls
-                query = build_query('function_call_args', ['callee_function'],
-                                   where="callee_function IN ('csurf', 'csrf') OR (callee_function = 'use' AND argument_expr LIKE '%csrf%')")
+                # Fetch function calls, filter in Python
+                query = build_query('function_call_args', ['callee_function', 'argument_expr'])
                 cursor.execute(query)
-                csrf_calls = len(cursor.fetchall())
+
+                csrf_calls = 0
+                for callee, arg_expr in cursor.fetchall():
+                    if callee in ('csurf', 'csrf') or ('use' in callee and 'csrf' in arg_expr):
+                        csrf_calls += 1
+
                 conn.close()
 
                 if csrf_calls == 0:
@@ -565,13 +580,16 @@ class ExpressAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # Check for express-session configuration
-            query = build_query('function_call_args', ['file', 'line', 'argument_expr'],
-                               where="callee_function LIKE '%session%' OR (callee_function = 'use' AND argument_expr LIKE '%session%')",
+            # Fetch all function calls, filter in Python
+            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
                                order_by="file, line")
             cursor.execute(query)
 
-            for file, line, config in cursor.fetchall():
+            for file, line, callee, config in cursor.fetchall():
+                # Filter for session calls in Python
+                if not ('session' in callee or ('use' in callee and 'session' in config)):
+                    continue
+
                 config_lower = config.lower()
 
                 # Check for weak session configuration

@@ -29,7 +29,7 @@ from theauditor.indexer.schema import build_query
 
 
 # ============================================================================
-# RULE METADATA - Smart File Filtering
+# RULE METADATA - File Filtering via Orchestrator
 # ============================================================================
 METADATA = RuleMetadata(
     name="session_security",
@@ -40,59 +40,56 @@ METADATA = RuleMetadata(
         'client/',
         'test/',
         'spec.',
+        '.test.',
         '__tests__',
         'demo/',
         'example/'
     ],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope='database'
 )
 
 
 # ============================================================================
-# GOLDEN STANDARD: FROZENSETS FOR O(1) LOOKUPS
+# FROZENSETS FOR O(1) LOOKUPS
 # ============================================================================
 
-# Cookie-setting functions across frameworks
-COOKIE_FUNCTIONS = frozenset([
-    'res.cookie',
-    'response.cookie',
-    'reply.cookie',
-    'ctx.cookies.set',
+# Cookie function keywords (for pattern matching in callee_function)
+COOKIE_FUNCTION_KEYWORDS = frozenset([
+    '.cookie',
     'cookies.set',
-    'res.setHeader',
-    'response.setHeader',
-    'reply.header'
+    'setcookie'
 ])
 
-# Session management functions
-SESSION_FUNCTIONS = frozenset([
+# Session function keywords
+SESSION_FUNCTION_KEYWORDS = frozenset([
     'session',
-    'req.session',
-    'request.session',
-    'session.create',
-    'session.regenerate',
-    'session.destroy',
     'express-session',
     'cookie-session'
 ])
 
-# Required cookie security flags
-REQUIRED_COOKIE_FLAGS = frozenset([
-    'httpOnly',
-    'secure',
-    'sameSite'
+# Session variable patterns
+SESSION_VAR_PATTERNS = frozenset([
+    'session.',
+    'req.session.',
+    'request.session.'
 ])
 
-# Session-related variable keywords
-SESSION_KEYWORDS = frozenset([
+# Authentication variable keywords
+AUTH_VAR_KEYWORDS = frozenset([
+    'user',
+    'userid',
+    'authenticated',
+    'logged',
+    'loggedin'
+])
+
+# Session-related cookie keywords
+SESSION_COOKIE_KEYWORDS = frozenset([
     'session',
-    'sessionId',
-    'sessionID',
-    'session_id',
-    'sid',
-    'sess',
-    'sessionToken',
-    'authSession'
+    'auth',
+    'token',
+    'sid'
 ])
 
 
@@ -105,6 +102,7 @@ def find_session_issues(context: StandardRuleContext) -> List[StandardFinding]:
 
     This is a database-first rule following the gold standard pattern.
     NO file I/O, NO AST traversal - only SQL queries on indexed data.
+    All pattern matching done in Python after database fetch.
 
     Args:
         context: Standardized rule context with database path
@@ -161,15 +159,19 @@ def _check_missing_httponly(cursor) -> List[StandardFinding]:
     """
     findings = []
 
-    # Find all cookie-setting operations
-    # NOTE: File filtering handled by orchestrator via METADATA exclude_patterns
+    # Fetch all function calls, filter in Python
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                        where="""(callee_function LIKE '%.cookie'
-               OR callee_function LIKE '%cookies.set%')""",
                         order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
+        func_lower = func.lower()
+
+        # Check if it's a cookie-setting function
+        is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
+        if not is_cookie_function:
+            continue
+
         args_str = args if args else ''
         # Normalize for consistent matching (remove spaces, lowercase)
         args_normalized = args_str.replace(' ', '').lower()
@@ -221,13 +223,19 @@ def _check_missing_secure(cursor) -> List[StandardFinding]:
     """
     findings = []
 
+    # Fetch all function calls, filter in Python
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                        where="""(callee_function LIKE '%.cookie'
-               OR callee_function LIKE '%cookies.set%')""",
                         order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
+        func_lower = func.lower()
+
+        # Check if it's a cookie-setting function
+        is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
+        if not is_cookie_function:
+            continue
+
         args_str = args if args else ''
         # Normalize for consistent matching (remove spaces, lowercase)
         args_normalized = args_str.replace(' ', '').lower()
@@ -279,13 +287,19 @@ def _check_missing_samesite(cursor) -> List[StandardFinding]:
     """
     findings = []
 
+    # Fetch all function calls, filter in Python
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                        where="""(callee_function LIKE '%.cookie'
-               OR callee_function LIKE '%cookies.set%')""",
                         order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
+        func_lower = func.lower()
+
+        # Check if it's a cookie-setting function
+        is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
+        if not is_cookie_function:
+            continue
+
         args_str = args if args else ''
         # Normalize for consistent matching (remove spaces, lowercase)
         args_normalized = args_str.replace(' ', '').lower()
@@ -337,37 +351,40 @@ def _check_session_fixation(cursor) -> List[StandardFinding]:
     """
     findings = []
 
-    # Find assignments to session variables (indicating login/authentication)
-    # NOTE: Using manual SQL for DISTINCT since build_query() doesn't support SQL keywords
-    cursor.execute("""
-        SELECT DISTINCT file, line, target_var, source_expr
-        FROM assignments
-        WHERE (target_var LIKE '%session.%'
-               OR target_var LIKE '%req.session.%'
-               OR target_var LIKE '%request.session.%')
-          AND (target_var LIKE '%user%'
-               OR target_var LIKE '%userId%'
-               OR target_var LIKE '%authenticated%'
-               OR target_var LIKE '%logged%')
-        ORDER BY file, line
-    """)
+    # Fetch all assignments, filter in Python
+    query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
+                       order_by="file, line")
+    cursor.execute(query)
 
-    session_assignments = cursor.fetchall()
+    session_assignments = []
+    for file, line, var, expr in cursor.fetchall():
+        var_lower = var.lower()
 
+        # Check if it's a session variable assignment
+        has_session_prefix = any(pattern in var_lower for pattern in SESSION_VAR_PATTERNS)
+        if not has_session_prefix:
+            continue
+
+        # Check if it's setting authentication state
+        has_auth_keyword = any(keyword in var_lower for keyword in AUTH_VAR_KEYWORDS)
+        if not has_auth_keyword:
+            continue
+
+        session_assignments.append((file, line, var, expr))
+
+    # For each session assignment, check if session.regenerate() is called nearby
     for file, line, var, expr in session_assignments:
         # Check if session.regenerate() is called nearby (within 10 lines)
         query_regenerate = build_query('function_call_args', ['callee_function', 'line'],
-            where="file = ?"
-        )
+                                      where="file = ?")
         cursor.execute(query_regenerate, [file])
 
         # Filter in Python for nearby session.regenerate calls
-        nearby_regenerate = [
-            row for row in cursor.fetchall()
-            if abs(row[1] - line) <= 10 and 'session.regenerate' in (row[0] or '').lower()
-        ]
-
-        has_regenerate = len(nearby_regenerate) > 0
+        has_regenerate = False
+        for callee, call_line in cursor.fetchall():
+            if abs(call_line - line) <= 10 and 'session.regenerate' in callee.lower():
+                has_regenerate = True
+                break
 
         if not has_regenerate:
             findings.append(StandardFinding(
@@ -379,7 +396,7 @@ def _check_session_fixation(cursor) -> List[StandardFinding]:
                 category='authentication',
                 cwe_id='CWE-384',
                 confidence=Confidence.MEDIUM,
-                snippet=f'{var} = {expr[:50]}...',
+                snippet=f'{var} = {expr[:50]}' if len(expr) <= 50 else f'{var} = {expr[:50]}...',
                 recommendation='Call session.regenerate() before setting authentication state'
             ))
 
@@ -400,19 +417,25 @@ def _check_missing_timeout(cursor) -> List[StandardFinding]:
     """
     findings = []
 
-    # Find session middleware configuration
+    # Fetch all function calls with first argument (session config)
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                        where="""(callee_function LIKE '%session%'
-               OR callee_function = 'session')
-          AND argument_index = 0""",
-                        order_by="file, line")
+                       where="argument_index = 0",
+                       order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
+        func_lower = func.lower()
+
+        # Check if it's a session function
+        is_session_function = any(keyword in func_lower for keyword in SESSION_FUNCTION_KEYWORDS)
+        if not is_session_function:
+            continue
+
         args_str = args if args else ''
 
-        # Check if maxAge or expires is missing
-        if 'maxAge' not in args_str and 'expires' not in args_str and 'ttl' not in args_str:
+        # Check if maxAge, expires, or ttl is missing
+        has_expiration = ('maxAge' in args_str or 'expires' in args_str or 'ttl' in args_str)
+        if not has_expiration:
             findings.append(StandardFinding(
                 rule_name='session-no-timeout',
                 message='Session configuration missing expiration (maxAge/expires/ttl)',
@@ -428,18 +451,28 @@ def _check_missing_timeout(cursor) -> List[StandardFinding]:
 
     # Also check cookie configurations for session cookies
     query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                        where="""(callee_function LIKE '%.cookie')
-          AND (argument_expr LIKE '%session%'
-               OR argument_expr LIKE '%auth%'
-               OR argument_expr LIKE '%token%')""",
-                        order_by="file, line")
+                       order_by="file, line")
     cursor.execute(query)
 
     for file, line, func, args in cursor.fetchall():
+        func_lower = func.lower()
+
+        # Check if it's a cookie function
+        is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
+        if not is_cookie_function:
+            continue
+
         args_str = args if args else ''
+        args_lower = args_str.lower()
+
+        # Check if arguments contain session-related keywords
+        has_session_cookie = any(keyword in args_lower for keyword in SESSION_COOKIE_KEYWORDS)
+        if not has_session_cookie:
+            continue
 
         # Check if maxAge or expires is present in cookie options
-        if 'maxAge' not in args_str and 'expires' not in args_str:
+        has_expiration = ('maxAge' in args_str or 'expires' in args_str)
+        if not has_expiration:
             findings.append(StandardFinding(
                 rule_name='session-cookie-no-expiration',
                 message='Session cookie set without expiration (maxAge/expires)',

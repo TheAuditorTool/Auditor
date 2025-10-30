@@ -73,57 +73,69 @@
 
 ---
 
-## Phase 2.2: New Extractors & Database Tables (Sessions 11-12)
+## Phase 2.2: New Extractors & Database Tables ⏳ IN PROGRESS (Session 10)
 
-### 9. Add Decorator Extraction
-- [ ] 9.1 Add `extract_decorators()` to `core_extractors.py`
-- [ ] 9.2 Extract `@property`, `@staticmethod`, `@classmethod`, `@abstractmethod`
-- [ ] 9.3 Extract custom decorators (any `@decorator_name` pattern)
-- [ ] 9.4 Store decorator type, target function/class, line number
-- [ ] 9.5 Create `python_decorators` table in schema.py
-- [ ] 9.6 Add database writer method in database.py
-- [ ] 9.7 Test against TheAuditor codebase (72 decorator instances)
-- [ ] 9.8 Verify `SELECT COUNT(*) FROM python_decorators` >= 72
+### 9. Add Decorator Extraction ✅ COMPLETE
+- [x] 9.1 Add `extract_python_decorators()` to `core_extractors.py` (78 lines)
+- [x] 9.2 Extract `@property`, `@staticmethod`, `@classmethod`, `@abstractmethod`
+- [x] 9.3 Extract custom decorators (any `@decorator_name` pattern)
+- [x] 9.4 Store decorator type, target function/class, line number
+- [ ] 9.5 Create `python_decorators` table in schema.py (PENDING Phase 2.2B)
+- [ ] 9.6 Add database writer method in database.py (PENDING Phase 2.2B)
+- [ ] 9.7 Test against TheAuditor codebase (72 decorator instances) (PENDING Phase 2.2B)
+- [ ] 9.8 Verify `SELECT COUNT(*) FROM python_decorators` >= 72 (PENDING Phase 2.2B)
 
-### 10. Add Context Manager Extraction
-- [ ] 10.1 Add `extract_context_managers()` to `core_extractors.py`
-- [ ] 10.2 Detect `__enter__` and `__exit__` methods in classes
-- [ ] 10.3 Detect `with` statements and their context expressions
-- [ ] 10.4 Create `python_context_managers` table in schema.py
-- [ ] 10.5 Test against TheAuditor codebase (72 context manager uses)
-- [ ] 10.6 Verify `SELECT COUNT(*) FROM python_context_managers` >= 72
+### 10. Add Context Manager Extraction ✅ COMPLETE
+- [x] 10.1 Add `extract_python_context_managers()` to `core_extractors.py` (88 lines)
+- [x] 10.2 Detect `__enter__` and `__exit__` methods in classes
+- [x] 10.3 Detect `with` statements and their context expressions
+- [ ] 10.4 Create `python_context_managers` table in schema.py (PENDING Phase 2.2B)
+- [ ] 10.5 Test against TheAuditor codebase (72 context manager uses) (PENDING Phase 2.2B)
+- [ ] 10.6 Verify `SELECT COUNT(*) FROM python_context_managers` >= 72 (PENDING Phase 2.2B)
 
-### 11. Add Async Pattern Extraction
-- [ ] 11.1 Create `theauditor/ast_extractors/python/async_extractors.py`
-- [ ] 11.2 Add `extract_async_functions()` - detect `async def`
-- [ ] 11.3 Add `extract_await_expressions()` - detect `await` calls
-- [ ] 11.4 Add `extract_async_context_managers()` - detect `async with`
-- [ ] 11.5 Add `extract_async_generators()` - detect `async for`
-- [ ] 11.6 Create `python_async_functions` table in schema.py
-- [ ] 11.7 Test against TheAuditor codebase (30 async patterns)
-- [ ] 11.8 Verify `SELECT COUNT(*) FROM python_async_functions` >= 30
+### 11. Add Async Pattern Extraction ✅ COMPLETE
+- [x] 11.1 Create `theauditor/ast_extractors/python/async_extractors.py` (169 lines)
+- [x] 11.2 Add `extract_async_functions()` - detect `async def` with await counts
+- [x] 11.3 Add `extract_await_expressions()` - detect `await` calls with context
+- [x] 11.4 Add async with detection in context manager extraction
+- [x] 11.5 Add `extract_async_generators()` - detect `async for` + async generator functions
+- [ ] 11.6 Create `python_async_functions` table in schema.py (PENDING Phase 2.2B)
+- [ ] 11.7 Test against TheAuditor codebase (30 async patterns) (PENDING Phase 2.2B)
+- [ ] 11.8 Verify `SELECT COUNT(*) FROM python_async_functions` >= 30 (PENDING Phase 2.2B)
 
-### 12. Add pytest Fixture Extraction
-- [ ] 12.1 Create `theauditor/ast_extractors/python/testing_extractors.py`
-- [ ] 12.2 Add `extract_pytest_fixtures()` - detect `@pytest.fixture` decorators
-- [ ] 12.3 Extract fixture name, scope (function/class/module/session)
-- [ ] 12.4 Add `extract_pytest_parametrize()` - detect `@pytest.mark.parametrize`
-- [ ] 12.5 Add `extract_pytest_markers()` - detect custom markers
-- [ ] 12.6 Add `extract_mock_patterns()` - detect `unittest.mock` usage
-- [ ] 12.7 Create `python_pytest_fixtures` table in schema.py
-- [ ] 12.8 Test against TheAuditor test suite
-- [ ] 12.9 Verify fixtures extracted from conftest.py files
+### 12. Add pytest Fixture Extraction ✅ COMPLETE
+- [x] 12.1 Create `theauditor/ast_extractors/python/testing_extractors.py` (206 lines)
+- [x] 12.2 Add `extract_pytest_fixtures()` - detect `@pytest.fixture` decorators
+- [x] 12.3 Extract fixture name, scope (function/class/module/session)
+- [x] 12.4 Add `extract_pytest_parametrize()` - detect `@pytest.mark.parametrize`
+- [x] 12.5 Add `extract_pytest_markers()` - detect custom markers
+- [x] 12.6 Add `extract_mock_patterns()` - detect `unittest.mock` usage
+- [ ] 12.7 Create `python_pytest_fixtures` table in schema.py (PENDING Phase 2.2B)
+- [ ] 12.8 Test against TheAuditor test suite (PENDING Phase 2.2B)
+- [ ] 12.9 Verify fixtures extracted from conftest.py files (PENDING Phase 2.2B)
 
-### 13. Add Advanced Type Extraction
-- [ ] 13.1 Create `theauditor/ast_extractors/python/type_extractors.py`
-- [ ] 13.2 Add `extract_protocols()` - detect `Protocol` class definitions
-- [ ] 13.3 Add `extract_generics()` - detect `Generic[T]` class definitions
-- [ ] 13.4 Add `extract_typeddict()` - detect `TypedDict` definitions
-- [ ] 13.5 Add `extract_literal()` - detect `Literal` type usage
-- [ ] 13.6 Add `extract_overload()` - detect `@overload` decorators
-- [ ] 13.7 Create `python_protocols`, `python_generics`, `python_type_aliases` tables
-- [ ] 13.8 Test against TheAuditor codebase (47 advanced type hints)
-- [ ] 13.9 Verify `SELECT COUNT(*) FROM python_protocols + python_generics` >= 47
+### 13. Add Advanced Type Extraction ✅ COMPLETE
+- [x] 13.1 Create `theauditor/ast_extractors/python/type_extractors.py` (258 lines)
+- [x] 13.2 Add `extract_protocols()` - detect `Protocol` class definitions
+- [x] 13.3 Add `extract_generics()` - detect `Generic[T]` class definitions
+- [x] 13.4 Add `extract_typed_dicts()` - detect `TypedDict` definitions
+- [x] 13.5 Add `extract_literals()` - detect `Literal` type usage
+- [x] 13.6 Add `extract_overloads()` - detect `@overload` decorators
+- [ ] 13.7 Create `python_protocols`, `python_generics`, `python_type_aliases` tables (PENDING Phase 2.2B)
+- [ ] 13.8 Test against TheAuditor codebase (47 advanced type hints) (PENDING Phase 2.2B)
+- [ ] 13.9 Verify `SELECT COUNT(*) FROM python_protocols + python_generics` >= 47 (PENDING Phase 2.2B)
+
+**Phase 2.2A Status: COMPLETE (Session 10)**
+- Created 3 new modules: async_extractors.py, testing_extractors.py, type_extractors.py
+- Extended core_extractors.py with decorators and context managers
+- All 15 new functions exported and smoke tested
+- 32 total extract_* functions available in python_impl
+
+**Phase 2.2B: Next Steps (Integration)**
+- Wire all new extractors into indexer/extractors/python.py
+- Create database schema for 10+ new tables
+- Add database writer methods
+- Test end-to-end extraction and verify counts
 
 ### 14. Add Django Advanced Extraction
 - [ ] 14.1 Expand `framework_extractors.py` with Django class-based views
