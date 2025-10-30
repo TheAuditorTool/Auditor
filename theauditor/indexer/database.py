@@ -969,6 +969,20 @@ class DatabaseManager:
             kwargs  # nullable
         ))
 
+    def add_python_generator(self, file_path: str, line: int, generator_type: str, name: str,
+                             yield_count: int, has_yield_from: bool, has_send: bool, is_infinite: bool):
+        """Add a Python generator to the batch."""
+        self.generic_batches['python_generators'].append((
+            file_path,
+            line,
+            generator_type,
+            name,
+            yield_count,
+            1 if has_yield_from else 0,
+            1 if has_send else 0,
+            1 if is_infinite else 0
+        ))
+
     def add_sql_object(self, file_path: str, kind: str, name: str):
         """Add a SQL object record to the batch."""
         self.generic_batches['sql_objects'].append((file_path, kind, name))
