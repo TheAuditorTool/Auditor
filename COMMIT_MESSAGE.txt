@@ -1,0 +1,92 @@
+feat(taint): Implement two-pass hybrid taint analysis with cross-file support
+
+Implements two-pass hybrid architecture for multi-hop taint path reconstruction,
+separating detection (Pass 1) from explanation (Pass 2). Fixes data layer blockers
+preventing cross-file taint analysis in both Python and TypeScript.
+
+## Architecture Changes
+
+**Two-Pass Hybrid Pattern**:
+- Pass 1 (Detection): Build taint flow graph with single-hop predecessor links
+- Pass 2 (Explanation): Reconstruct full paths via backtracking when sink found
+- Removed call_path from worklist (5-tuple → 4-tuple), reducing memory overhead
+- Deleted 168 lines of redundant intra-procedural sink checking
+
+**Files Modified**:
+- `theauditor/taint/interprocedural.py` (+176 lines): Flow graph + path reconstruction
+- `theauditor/taint/propagation.py` (-168 lines): Removed redundant loop
+
+**Verification**: No regressions on TheAuditor (380 paths) and Plant (71 paths)
+
+## TypeScript CFG Fix
+
+**Problem**: TypeScript try/catch blocks stored as single-line markers (e.g., line 56-56)
+instead of proper spans (e.g., lines 56-101), preventing PathAnalyzer from finding
+sinks inside try blocks.
+
+**Root Cause**: `cfg_extractor.js` used `end_line: line + 1` for all blocks instead
+of actual block end positions from TypeScript AST.
+
+**Solution**: Copied Python CFG pattern using block end positions:
+```javascript
+// Before: end_line: line + 1 (single-line marker)
+// After: Use node.tryBlock.getEnd() converted to line number
+const tryEndPos = node.tryBlock.getEnd();
+const tryEndLine = sourceFile.getLineAndCharacterOfPosition(tryEndPos).line + 1;
+```
+
+**Files Modified**:
+- `theauditor/ast_extractors/javascript/cfg_extractor.js` (lines 257-308)
+  - Try blocks: Now use `node.tryBlock.getEnd()`
+  - Catch blocks: Now use `node.catchClause.block.getEnd()`
+  - Finally blocks: Now use `node.finallyBlock.getEnd()`
+
+**Python Pattern Reference**: `python_impl.py:1541` uses `stmt.body[-1].end_lineno`
+(last statement's end line) for proper block spans.
+
+**Impact**: Enables Stage 3 flow-sensitive taint analysis for TypeScript after reindex.
+Expected: Try blocks 50%+ multi-line (currently 100% single-line), Stage 3 paths >0
+(currently 0), cross-file flows detectable (controllers → services).
+
+## Test Fixtures
+
+Created dedicated cross-file taint fixtures since real-world projects lack exploitable
+multi-hop flows:
+
+**Python**: `tests/fixtures/python/cross_file_taint/`
+- controller.py → service.py → database.py (3-hop SQL injection)
+- Tests Python callee_file_path resolution (pythonparity's fix)
+
+**TypeScript**: `tests/fixtures/typescript/cross_file_taint/`
+- controller.ts → service.ts → database.ts (3-hop SQL injection)
+- ALL sinks placed inside try blocks (lines 30-42, 51-63, 72-84, 117-138, 147-156)
+- Specifically tests TypeScript CFG fix
+
+## Python callee_file_path Status
+
+Python cross-file analysis enabled by pythonparity's import resolution work:
+- Before: 0% populated (0/29,856 calls)
+- After: 19.7% populated (6,511/33,076 calls)
+- Project-local calls resolved: 2,323
+
+## Next Steps
+
+**Reindex Required**: TypeScript CFG fix is in code but database still has old broken data.
+
+Run `aud full` on both projects:
+1. Plant (TypeScript): Will test CFG fix, expect Stage 3 paths >0
+2. TheAuditor (Python): Verify no regression, expect ~380 paths maintained
+
+Test fixtures after reindex:
+```bash
+cd tests/fixtures/python/cross_file_taint && aud index && aud taint
+cd tests/fixtures/typescript/cross_file_taint && aud index && aud taint
+```
+
+Expected: 3+ Python paths, 5+ TypeScript paths with sinks detected in try blocks.
+
+## References
+
+- Architecture spec: `taint_work/path_reconstruction.md`
+- Pre-implementation verification: `please_no_lol.md`
+- SOP: TeamSOP v4.20 Template C-4.20
