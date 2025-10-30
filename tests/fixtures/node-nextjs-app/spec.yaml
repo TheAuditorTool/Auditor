@@ -1,0 +1,376 @@
+name: node_nextjs_app
+description: |
+  Next.js full-stack fixture for testing API routes, middleware, SSR patterns,
+  and complex taint flows across Next.js framework patterns.
+
+  Tests:
+  - Next.js API route extraction (static + dynamic routes)
+  - api_endpoints table population (method, pattern, file, line)
+  - api_endpoint_controls junction table (middleware chains)
+  - Next.js middleware extraction (Edge runtime)
+  - SSR pattern extraction (getServerSideProps)
+  - Multi-source taint flows (query params + body + route params)
+  - sql_query_tables junction table (JOINs across multiple tables)
+  - SQL transactions with multiple tables
+  - Taint flows: URL params -> SSR -> database -> API routes
+  - Security patterns: SQL injection, missing auth, rate limiting
+
+verification_rules:
+  - name: nextjs_api_routes_extracted
+    description: Verify all Next.js API routes are extracted
+    query: |
+      SELECT
+        method,
+        pattern,
+        file,
+        line
+      FROM api_endpoints
+      WHERE file LIKE '%node-nextjs-app%'
+        AND file LIKE '%pages/api/%'
+      ORDER BY file, line
+    expected_minimum: 5
+
+  - name: dynamic_api_routes_extracted
+    description: Verify dynamic API routes with [id] pattern are extracted
+    query: |
+      SELECT
+        method,
+        pattern,
+        file,
+        line
+      FROM api_endpoints
+      WHERE file LIKE '%node-nextjs-app%'
+        AND pattern LIKE '%[id]%'
+      ORDER BY file, line
+    expected_minimum: 2
+
+  - name: api_endpoint_controls_with_middleware
+    description: Find API endpoints with authentication middleware
+    query: |
+      SELECT
+        ae.method,
+        ae.pattern,
+        aec.control_name,
+        ae.file,
+        ae.line
+      FROM api_endpoints ae
+      JOIN api_endpoint_controls aec
+        ON ae.file = aec.endpoint_file
+        AND ae.line = aec.endpoint_line
+      WHERE ae.file LIKE '%node-nextjs-app%'
+      ORDER BY ae.file, ae.line
+    expected_minimum: 4
+
+  - name: sql_queries_with_multiple_tables
+    description: Find SQL queries that JOIN multiple tables
+    query: |
+      SELECT
+        sq.file_path,
+        sq.line_number,
+        sq.query_text,
+        GROUP_CONCAT(DISTINCT sqt.table_name, ', ') AS tables_touched
+      FROM sql_queries sq
+      JOIN sql_query_tables sqt
+        ON sq.file_path = sqt.query_file
+        AND sq.line_number = sqt.query_line
+      WHERE sq.file_path LIKE '%node-nextjs-app%'
+      GROUP BY sq.file_path, sq.line_number, sq.query_text
+      HAVING COUNT(DISTINCT sqt.table_name) > 1
+      ORDER BY sq.file_path, sq.line_number
+    expected_minimum: 4
+
+  - name: sql_queries_touching_users_table
+    description: Find all SQL queries touching users table
+    query: |
+      SELECT DISTINCT
+        sq.file_path,
+        sq.line_number,
+        sqt.table_name
+      FROM sql_queries sq
+      JOIN sql_query_tables sqt
+        ON sq.file_path = sqt.query_file
+        AND sq.line_number = sqt.query_line
+      WHERE sq.file_path LIKE '%node-nextjs-app%'
+        AND sqt.table_name = 'users'
+      ORDER BY sq.file_path, sq.line_number
+    expected_minimum: 5
+
+  - name: sql_queries_touching_orders_table
+    description: Find all SQL queries touching orders table
+    query: |
+      SELECT DISTINCT
+        sq.file_path,
+        sq.line_number,
+        sqt.table_name
+      FROM sql_queries sq
+      JOIN sql_query_tables sqt
+        ON sq.file_path = sqt.query_file
+        AND sq.line_number = sqt.query_line
+      WHERE sq.file_path LIKE '%node-nextjs-app%'
+        AND sqt.table_name = 'orders'
+      ORDER BY sq.file_path, sq.line_number
+    expected_minimum: 2
+
+  - name: sql_queries_with_transactions
+    description: Find SQL queries within transactions
+    query: |
+      SELECT
+        file_path,
+        line_number,
+        query_text
+      FROM sql_queries
+      WHERE file_path LIKE '%node-nextjs-app%'
+        AND (
+          query_text LIKE '%BEGIN%'
+          OR query_text LIKE '%COMMIT%'
+          OR query_text LIKE '%ROLLBACK%'
+        )
+      ORDER BY file_path, line_number
+    expected_minimum: 3
+
+  - name: function_calls_to_database_functions
+    description: Find all calls to database service functions
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-nextjs-app/pages/api/%'
+        AND (
+          callee_function LIKE '%getUserById%'
+          OR callee_function LIKE '%getUserProfile%'
+          OR callee_function LIKE '%searchProducts%'
+          OR callee_function LIKE '%createOrder%'
+          OR callee_function LIKE '%logActivity%'
+        )
+      ORDER BY file, line
+    expected_minimum: 6
+
+  - name: nextjs_middleware_extraction
+    description: Verify Next.js middleware.js is extracted
+    query: |
+      SELECT
+        name,
+        type,
+        path,
+        line
+      FROM symbols
+      WHERE path LIKE '%node-nextjs-app/middleware.js'
+        AND name = 'middleware'
+      ORDER BY line
+    expected_minimum: 1
+
+  - name: nextjs_ssr_getServerSideProps
+    description: Verify getServerSideProps functions are extracted
+    query: |
+      SELECT
+        name,
+        type,
+        path,
+        line
+      FROM symbols
+      WHERE path LIKE '%node-nextjs-app/pages/%'
+        AND name = 'getServerSideProps'
+      ORDER BY path, line
+    expected_minimum: 1
+
+  - name: tainted_route_params_in_api
+    description: Find tainted route parameters used in SQL queries
+    query: |
+      SELECT
+        fc.function_name,
+        fc.callee_function,
+        fc.file,
+        fc.line
+      FROM function_calls fc
+      WHERE fc.file LIKE '%node-nextjs-app/pages/api/%'
+        AND fc.callee_function LIKE '%getUserById%'
+      ORDER BY fc.file, fc.line
+    expected_minimum: 1
+
+  - name: multi_source_taint_in_search
+    description: Find functions with multiple tainted input sources
+    query: |
+      SELECT
+        fc.function_name,
+        fc.callee_function,
+        fc.file,
+        fc.line
+      FROM function_calls fc
+      WHERE fc.file LIKE '%node-nextjs-app%'
+        AND fc.callee_function LIKE '%searchProducts%'
+      ORDER BY fc.file, fc.line
+    expected_minimum: 2
+
+  - name: api_routes_with_method_switching
+    description: Find API routes with switch statements for HTTP methods
+    query: |
+      SELECT DISTINCT
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-nextjs-app/pages/api/%'
+        AND callee_function LIKE '%switch%'
+      ORDER BY file, line
+    expected_minimum: 1
+
+  - name: authentication_token_verification
+    description: Find authentication token verification calls
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-nextjs-app/pages/api/%'
+        AND callee_function LIKE '%verifyToken%'
+      ORDER BY file, line
+    expected_minimum: 2
+
+  - name: rate_limiting_logic
+    description: Find rate limiting logic in middleware
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-nextjs-app/middleware.js'
+        AND callee_function LIKE '%checkRateLimit%'
+      ORDER BY line
+    expected_minimum: 1
+
+security_patterns:
+  - pattern: sql_injection_in_admin_search
+    severity: CRITICAL
+    description: |
+      SQL injection vulnerability in adminSearchUsers function.
+
+      Vulnerable code (lib/database.js):
+        const query = `SELECT * FROM users WHERE username LIKE '%${username}%'`;
+
+      Direct string concatenation of user input into SQL query.
+      Attacker can inject SQL: ' OR '1'='1' -- to bypass authentication.
+
+      Impact: Full database compromise, data theft, privilege escalation.
+    query: |
+      SELECT
+        file_path,
+        line_number,
+        query_text
+      FROM sql_queries
+      WHERE file_path LIKE '%node-nextjs-app%'
+        AND query_text LIKE '%${%'
+        AND query_text LIKE '%username%'
+
+  - pattern: missing_auth_on_sensitive_endpoints
+    severity: HIGH
+    description: |
+      Some API endpoints may lack authentication controls.
+
+      Check if all sensitive endpoints have requireAuth middleware.
+      Missing authentication allows unauthorized access to user data.
+    query: |
+      SELECT
+        ae.method,
+        ae.pattern,
+        ae.file,
+        ae.line
+      FROM api_endpoints ae
+      LEFT JOIN api_endpoint_controls aec
+        ON ae.file = aec.endpoint_file
+        AND ae.line = aec.endpoint_line
+      WHERE ae.file LIKE '%node-nextjs-app%'
+        AND aec.control_name IS NULL
+
+  - pattern: tainted_route_params_without_validation
+    severity: MEDIUM
+    description: |
+      Route parameters from URL used directly in SQL queries.
+
+      Example: /api/users/[id] where id comes from URL.
+      If id is not validated, attacker can inject malicious values.
+
+      Should validate: isNaN(id), id > 0, etc.
+    query: |
+      SELECT
+        fc.function_name,
+        fc.callee_function,
+        fc.file,
+        fc.line
+      FROM function_calls fc
+      WHERE fc.file LIKE '%node-nextjs-app/pages/api/%'
+        AND fc.callee_function LIKE '%getUserById%'
+
+  - pattern: multi_source_taint_in_queries
+    severity: MEDIUM
+    description: |
+      Multiple user inputs combined into single SQL query.
+
+      searchProducts receives: search, category, minPrice, maxPrice
+      All from req.query (user-controlled).
+
+      Dynamic query building increases SQL injection risk.
+      Must use parameterized queries for ALL inputs.
+    query: |
+      SELECT
+        sq.file_path,
+        sq.line_number,
+        GROUP_CONCAT(DISTINCT sqt.table_name, ', ') AS tables
+      FROM sql_queries sq
+      JOIN sql_query_tables sqt
+        ON sq.file_path = sqt.query_file
+        AND sq.line_number = sqt.query_line
+      WHERE sq.file_path LIKE '%node-nextjs-app/lib/database.js'
+        AND sq.query_text LIKE '%searchProducts%'
+      GROUP BY sq.file_path, sq.line_number
+
+expected_findings:
+  api_routes:
+    - GET /api/users/[id] (requireAuth middleware)
+    - PUT /api/users/[id] (requireAuth middleware)
+    - GET /api/products (no auth)
+    - POST /api/orders (requireAuth middleware)
+    - GET /api/orders (requireAuth middleware)
+
+  database_functions:
+    - getUserById: Touches users + roles tables
+    - getUserProfile: Touches users + orders + products tables
+    - searchProducts: Touches products + categories + reviews tables
+    - createOrder: Transaction touching orders + order_items + products tables
+    - getUserActivity: Touches activity_log + users tables
+    - logActivity: Touches activity_log table
+    - adminSearchUsers: SQL injection vulnerability
+
+  taint_flows:
+    - req.query.id (route param) -> getUserById -> SQL SELECT users
+    - req.body (POST) -> updateUser -> SQL UPDATE users
+    - req.query (search, category, minPrice, maxPrice) -> searchProducts -> SQL SELECT products
+    - req.user.id (from token) + req.body.items -> createOrder -> SQL transaction
+    - context.query (SSR) -> getServerSideProps -> searchProducts -> SQL SELECT
+
+  security_vulnerabilities:
+    - CRITICAL: SQL injection in adminSearchUsers (string concatenation)
+    - MEDIUM: Tainted route params without validation
+    - MEDIUM: Multi-source taint in dynamic query building
+
+  nextjs_patterns:
+    - Dynamic API routes: /api/users/[id]
+    - API route middleware: requireAuth wrapper
+    - getServerSideProps: SSR data fetching with query params
+    - Next.js middleware: Edge runtime with rate limiting
+    - Method switching: req.method === 'GET', 'POST', 'PUT'
+
+coverage_summary:
+  total_api_routes: 5 (GET, PUT /api/users/[id], GET /api/products, POST/GET /api/orders)
+  total_database_functions: 7 (getUserById, getUserProfile, searchProducts, createOrder, getUserActivity, logActivity, adminSearchUsers)
+  total_sql_queries: 15+ (including JOINs, transactions, INSERTs, UPDATEs)
+  total_tables_touched: 9 (users, roles, orders, order_items, products, categories, reviews, activity_log)
+  middleware_patterns: 2 (requireAuth wrapper, Next.js middleware.js with rate limiting)
+  ssr_patterns: 1 (getServerSideProps with tainted query params)
+  taint_flows: 5+ distinct source -> sink paths
+  security_vulnerabilities: 3 (SQL injection, missing validation, multi-source taint)

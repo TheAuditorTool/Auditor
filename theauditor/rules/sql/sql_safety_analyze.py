@@ -198,11 +198,16 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> List[Standar
 
     # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
-        SELECT file_path, line_number, query_text, tables
-        FROM sql_queries
-        WHERE command = 'SELECT'
-          AND query_text IS NOT NULL
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text,
+               GROUP_CONCAT(sqt.table_name) as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command = 'SELECT'
+          AND sq.query_text IS NOT NULL
+        GROUP BY sq.file_path, sq.line_number, sq.query_text
+        ORDER BY sq.file_path, sq.line_number
         LIMIT 30
     """)
 
@@ -250,11 +255,16 @@ def _find_select_star(cursor) -> List[StandardFinding]:
 
     # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
-        SELECT file_path, line_number, query_text, tables
-        FROM sql_queries
-        WHERE command = 'SELECT'
-          AND query_text IS NOT NULL
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text,
+               GROUP_CONCAT(sqt.table_name) as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command = 'SELECT'
+          AND sq.query_text IS NOT NULL
+        GROUP BY sq.file_path, sq.line_number, sq.query_text
+        ORDER BY sq.file_path, sq.line_number
         LIMIT 25
     """)
 
@@ -579,11 +589,16 @@ def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> List[Standa
 
     # NOTE: frontend/test/migration filtering handled by METADATA
     cursor.execute("""
-        SELECT file_path, line_number, query_text, command, tables
-        FROM sql_queries
-        WHERE command = 'SELECT'
-          AND query_text IS NOT NULL
-        ORDER BY file_path, line_number
+        SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
+               GROUP_CONCAT(sqt.table_name) as tables
+        FROM sql_queries sq
+        LEFT JOIN sql_query_tables sqt
+            ON sq.file_path = sqt.query_file
+            AND sq.line_number = sqt.query_line
+        WHERE sq.command = 'SELECT'
+          AND sq.query_text IS NOT NULL
+        GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
+        ORDER BY sq.file_path, sq.line_number
         LIMIT 30
     """)
 

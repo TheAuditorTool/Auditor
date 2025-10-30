@@ -1,0 +1,318 @@
+name: node_prisma_orm
+description: |
+  Prisma ORM fixture for testing schema extraction, relationship tracking,
+  ORM query patterns, and taint flows through Prisma client.
+
+  Tests:
+  - Prisma schema model extraction (User, Post, Comment, Category, Tag, Profile, Session)
+  - orm_relationships junction table population (bidirectional with cascade flags)
+  - One-to-one relationships (User -> Profile)
+  - One-to-many relationships (User -> Posts, Post -> Comments)
+  - Many-to-many relationships (Post -> Tags, Post -> Categories via join tables)
+  - Cascade delete relationships (onDelete: Cascade)
+  - Prisma client query extraction (findUnique, findMany, create, update, delete)
+  - Complex nested includes (deep relationship traversal)
+  - Prisma transactions ($transaction)
+  - Taint flows through ORM queries
+
+verification_rules:
+  - name: prisma_models_extracted
+    description: Verify all Prisma models are extracted
+    query: |
+      SELECT
+        name,
+        type,
+        path,
+        line
+      FROM symbols
+      WHERE path LIKE '%node-prisma-orm/prisma/schema.prisma'
+        AND type IN ('model', 'class')
+        AND name IN ('User', 'Profile', 'Post', 'Comment', 'Category', 'Tag', 'PostTag', 'PostCategory', 'Session')
+      ORDER BY name
+    expected_minimum: 9
+
+  - name: orm_relationships_one_to_one
+    description: Find one-to-one relationships (User -> Profile)
+    query: |
+      SELECT
+        source_model,
+        target_model,
+        relationship_type,
+        cascade_delete,
+        file
+      FROM orm_relationships
+      WHERE file LIKE '%node-prisma-orm%'
+        AND relationship_type = 'one_to_one'
+      ORDER BY source_model, target_model
+    expected_minimum: 2
+
+  - name: orm_relationships_one_to_many
+    description: Find one-to-many relationships
+    query: |
+      SELECT
+        source_model,
+        target_model,
+        relationship_type,
+        cascade_delete,
+        file
+      FROM orm_relationships
+      WHERE file LIKE '%node-prisma-orm%'
+        AND relationship_type = 'one_to_many'
+      ORDER BY source_model, target_model
+    expected_minimum: 6
+
+  - name: orm_relationships_many_to_many
+    description: Find many-to-many relationships (Post -> Tags, Post -> Categories)
+    query: |
+      SELECT
+        source_model,
+        target_model,
+        relationship_type,
+        join_table,
+        file
+      FROM orm_relationships
+      WHERE file LIKE '%node-prisma-orm%'
+        AND relationship_type = 'many_to_many'
+      ORDER BY source_model, target_model
+    expected_minimum: 4
+
+  - name: orm_relationships_with_cascade
+    description: Find relationships with cascade delete enabled
+    query: |
+      SELECT
+        source_model,
+        target_model,
+        relationship_type,
+        cascade_delete,
+        file
+      FROM orm_relationships
+      WHERE file LIKE '%node-prisma-orm%'
+        AND cascade_delete = 1
+      ORDER BY source_model, target_model
+    expected_minimum: 8
+
+  - name: prisma_client_queries
+    description: Find Prisma client query calls
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-prisma-orm/services/%'
+        AND (
+          callee_function LIKE '%prisma.%.findUnique%'
+          OR callee_function LIKE '%prisma.%.findMany%'
+          OR callee_function LIKE '%prisma.%.create%'
+          OR callee_function LIKE '%prisma.%.update%'
+          OR callee_function LIKE '%prisma.%.delete%'
+        )
+      ORDER BY file, line
+    expected_minimum: 10
+
+  - name: prisma_nested_includes
+    description: Find Prisma queries with nested includes
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-prisma-orm%'
+        AND callee_function LIKE '%findUnique%'
+      ORDER BY file, line
+    expected_minimum: 3
+
+  - name: prisma_transactions
+    description: Find Prisma transaction usage
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-prisma-orm%'
+        AND callee_function LIKE '%$transaction%'
+      ORDER BY file, line
+    expected_minimum: 1
+
+  - name: prisma_connect_operations
+    description: Find Prisma connect operations (for relationships)
+    query: |
+      SELECT
+        function_name,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-prisma-orm%'
+        AND callee_function LIKE '%connect%'
+      ORDER BY file, line
+    expected_minimum: 2
+
+  - name: prisma_delete_cascade_operations
+    description: Find Prisma delete operations (should cascade)
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-prisma-orm%'
+        AND callee_function LIKE '%delete%'
+      ORDER BY file, line
+    expected_minimum: 2
+
+  - name: user_service_functions
+    description: Verify user service functions are extracted
+    query: |
+      SELECT
+        name,
+        type,
+        path,
+        line
+      FROM symbols
+      WHERE path LIKE '%node-prisma-orm/services/user-service.js'
+        AND type = 'function'
+        AND name IN ('getUserById', 'searchUsers', 'createUser', 'updateUser', 'deleteUser')
+      ORDER BY name
+    expected_minimum: 5
+
+  - name: post_service_functions
+    description: Verify post service functions are extracted
+    query: |
+      SELECT
+        name,
+        type,
+        path,
+        line
+      FROM symbols
+      WHERE path LIKE '%node-prisma-orm/services/post-service.js'
+        AND type = 'function'
+        AND name IN ('getPostById', 'createPost', 'updatePostTags', 'searchPosts', 'publishPost', 'getPostsByAuthor')
+      ORDER BY name
+    expected_minimum: 6
+
+security_patterns:
+  - pattern: tainted_user_id_in_orm_queries
+    severity: MEDIUM
+    description: |
+      User IDs from external sources (API params, tokens) flow into Prisma queries.
+
+      Example: getUserById receives userId from API route parameter:
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+
+      If userId is not validated, attacker can access any user's data.
+
+      Should validate: typeof userId === 'number', userId > 0, etc.
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-prisma-orm%'
+        AND callee_function LIKE '%findUnique%'
+
+  - pattern: multi_source_taint_in_search
+    severity: MEDIUM
+    description: |
+      Multiple user inputs combined into Prisma query.
+
+      searchPosts receives: searchTerm + tagName from query params
+      searchUsers receives: searchTerm from query params
+
+      Both flow into Prisma where clauses with OR/AND conditions.
+
+      Prisma uses parameterized queries internally, but logic bugs possible.
+    query: |
+      SELECT
+        function_name,
+        callee_function,
+        file,
+        line
+      FROM function_calls
+      WHERE file LIKE '%node-prisma-orm%'
+        AND callee_function LIKE '%findMany%'
+        AND function_name LIKE '%search%'
+
+  - pattern: cascade_delete_side_effects
+    severity: LOW
+    description: |
+      Cascade deletes can have unintended side effects.
+
+      deleteUser cascades to: profile, posts, comments, sessions
+      Deleting a user removes ALL their posts and comments.
+
+      This may violate data retention policies or break relationships.
+
+      Consider soft delete or archive instead of hard delete.
+    query: |
+      SELECT
+        source_model,
+        target_model,
+        relationship_type,
+        cascade_delete
+      FROM orm_relationships
+      WHERE file LIKE '%node-prisma-orm%'
+        AND cascade_delete = 1
+      ORDER BY source_model, target_model
+
+expected_findings:
+  models:
+    - User: 9 fields, 4 relationships (profile, posts, comments, sessions)
+    - Profile: 5 fields, 1 relationship (user) with CASCADE
+    - Post: 8 fields, 4 relationships (author, comments, tags, categories)
+    - Comment: 5 fields, 2 relationships (post, author) with CASCADE
+    - Category: 4 fields, 1 relationship (posts via PostCategory)
+    - Tag: 4 fields, 1 relationship (posts via PostTag)
+    - PostTag: Join table for Post <-> Tag many-to-many
+    - PostCategory: Join table for Post <-> Category many-to-many
+    - Session: 5 fields, 1 relationship (user) with CASCADE
+
+  relationships:
+    - One-to-one: User -> Profile (bidirectional, CASCADE)
+    - One-to-many: User -> Posts (bidirectional, CASCADE)
+    - One-to-many: User -> Comments (bidirectional, CASCADE)
+    - One-to-many: User -> Sessions (bidirectional, CASCADE)
+    - One-to-many: Post -> Comments (bidirectional, CASCADE)
+    - Many-to-many: Post <-> Tags (via PostTag, CASCADE)
+    - Many-to-many: Post <-> Categories (via PostCategory, CASCADE)
+
+  prisma_operations:
+    - findUnique: getUserById, getPostById
+    - findMany: searchUsers, searchPosts, getPostsByAuthor
+    - create: createUser (nested with profile), createPost (nested with tags/categories)
+    - update: updateUser (nested with profile), publishPost
+    - delete: deleteUser (cascades to profile, posts, comments, sessions)
+    - deleteMany: updatePostTags (delete existing tags)
+    - createMany: updatePostTags (create new tags)
+    - $transaction: updatePostTags (atomic delete + create)
+    - count: getPostsByAuthor (pagination total)
+    - increment: publishPost (viewCount increment)
+
+  taint_flows:
+    - userId (API param) -> getUserById -> prisma.user.findUnique
+    - searchTerm (query param) -> searchUsers -> prisma.user.findMany with OR
+    - authorId + postData (body) -> createPost -> prisma.post.create with nested tags/categories
+    - postId + tagIds (params) -> updatePostTags -> prisma.$transaction with deleteMany + createMany
+    - searchTerm + tagName (params) -> searchPosts -> prisma.post.findMany with AND/OR
+    - authorId + page + limit (params) -> getPostsByAuthor -> prisma.post.findMany with skip/take
+
+  security_considerations:
+    - Tainted user IDs in ORM queries (validation needed)
+    - Multi-source taint in search queries (logic bugs possible)
+    - Cascade deletes can have unintended side effects (data loss)
+
+coverage_summary:
+  total_models: 9 (User, Profile, Post, Comment, Category, Tag, PostTag, PostCategory, Session)
+  total_relationships: 15+ (one-to-one, one-to-many, many-to-many)
+  cascade_deletes: 8+ relationships
+  service_functions: 11 (6 user-service, 5 post-service)
+  prisma_operations: 10+ distinct query types
+  taint_flows: 6+ distinct source -> sink paths
+  security_patterns: 3 (tainted IDs, multi-source taint, cascade side effects)
