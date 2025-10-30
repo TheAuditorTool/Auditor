@@ -1,0 +1,203 @@
+// Prisma schema for ORM fixture
+// Tests:
+// - ORM model extraction (User, Post, Comment, Category, Tag, Profile)
+// - orm_relationships junction table population
+// - One-to-one relationships (User -> Profile)
+// - One-to-many relationships (User -> Posts, Post -> Comments)
+// - Many-to-many relationships (Post -> Tags, Post -> Categories)
+// - Cascade delete relationships
+// - Complex indexes and constraints
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+// Tests: Base model with relationships
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  username  String   @unique
+  password  String
+  role      Role     @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One-to-one relationship (User -> Profile)
+  // Tests: orm_relationships with onDelete: CASCADE
+  profile   Profile?
+
+  // One-to-many relationship (User -> Posts)
+  // Tests: orm_relationships with onDelete: CASCADE
+  posts     Post[]
+
+  // One-to-many relationship (User -> Comments)
+  comments  Comment[]
+
+  // One-to-many relationship (User -> Sessions)
+  sessions  Session[]
+
+  @@index([email])
+  @@index([username])
+}
+
+// Profile model
+// Tests: One-to-one relationship with cascade delete
+model Profile {
+  id        Int      @id @default(autoincrement())
+  bio       String?
+  website   String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+
+  // One-to-one relationship (Profile -> User)
+  // Tests: orm_relationships with onDelete: CASCADE
+  userId    Int      @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Post model
+// Tests: Multiple relationships (one-to-many, many-to-many)
+model Post {
+  id          Int      @id @default(autoincrement())
+  title       String
+  content     String
+  published   Boolean  @default(false)
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // One-to-many relationship (Post -> User)
+  // Tests: orm_relationships with onDelete: CASCADE
+  authorId    Int
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  // One-to-many relationship (Post -> Comments)
+  // Tests: orm_relationships with onDelete: CASCADE
+  comments    Comment[]
+
+  // Many-to-many relationship (Post -> Tags)
+  // Tests: orm_relationships via join table
+  tags        PostTag[]
+
+  // Many-to-many relationship (Post -> Categories)
+  // Tests: orm_relationships via join table
+  categories  PostCategory[]
+
+  @@index([authorId])
+  @@index([published])
+  @@index([createdAt])
+}
+
+// Comment model
+// Tests: One-to-many relationships with multiple parents
+model Comment {
+  id        Int      @id @default(autoincrement())
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // One-to-many relationship (Comment -> Post)
+  // Tests: orm_relationships with onDelete: CASCADE
+  postId    Int
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  // One-to-many relationship (Comment -> User)
+  // Tests: orm_relationships with onDelete: CASCADE
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([authorId])
+}
+
+// Category model
+// Tests: Many-to-many relationship
+model Category {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  // Many-to-many relationship (Category -> Posts)
+  posts     PostCategory[]
+
+  @@index([slug])
+}
+
+// Tag model
+// Tests: Many-to-many relationship
+model Tag {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  // Many-to-many relationship (Tag -> Posts)
+  posts     PostTag[]
+
+  @@index([slug])
+}
+
+// Join table: Post <-> Tag
+// Tests: Many-to-many join table extraction
+model PostTag {
+  id        Int      @id @default(autoincrement())
+  postId    Int
+  tagId     Int
+  createdAt DateTime @default(now())
+
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, tagId])
+  @@index([postId])
+  @@index([tagId])
+}
+
+// Join table: Post <-> Category
+// Tests: Many-to-many join table extraction
+model PostCategory {
+  id         Int      @id @default(autoincrement())
+  postId     Int
+  categoryId Int
+  createdAt  DateTime @default(now())
+
+  post       Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, categoryId])
+  @@index([postId])
+  @@index([categoryId])
+}
+
+// Session model
+// Tests: One-to-many relationship with cascade delete
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // One-to-many relationship (Session -> User)
+  // Tests: orm_relationships with onDelete: CASCADE
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// Role enum
+// Tests: Enum extraction
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
