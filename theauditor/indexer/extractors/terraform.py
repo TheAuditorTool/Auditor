@@ -220,46 +220,81 @@ class TerraformExtractor(BaseExtractor):
         """Convert tree-sitter variable format to TerraformParser format.
 
         Args:
-            ts_variables: Variables from hcl_impl (with line/column)
+            ts_variables: Variables from hcl_impl (with line/column and attributes)
 
         Returns:
             Variables in TerraformParser format matching database schema
         """
-        return [
-            {
+        converted = []
+        for v in ts_variables:
+            attrs = v.get('attributes', {})
+
+            # Parse sensitive flag
+            sensitive_value = attrs.get('sensitive', 'false')
+            is_sensitive = str(sensitive_value).lower() == 'true'
+
+            # Parse variable type
+            var_type = attrs.get('type')
+            if var_type:
+                var_type = str(var_type).strip('"')
+
+            # Parse description
+            description = attrs.get('description', '')
+            if description:
+                description = str(description).strip('"')
+
+            # Parse default value
+            default_value = attrs.get('default')
+
+            converted.append({
                 'variable_id': f"{v['file_path']}::{v['variable_name']}",
                 'file_path': v['file_path'],
                 'variable_name': v['variable_name'],
-                'variable_type': None,  # TODO: Extract from tree-sitter
-                'default': None,
-                'is_sensitive': False,
-                'description': '',
-                'line': v['line'],  # Tree-sitter advantage: precise line numbers!
-            }
-            for v in ts_variables
-        ]
+                'variable_type': var_type,
+                'default': default_value,
+                'is_sensitive': is_sensitive,
+                'description': description,
+                'line': v['line'],
+            })
+
+        return converted
 
     def _convert_ts_outputs(self, ts_outputs: List[Dict]) -> List[Dict]:
         """Convert tree-sitter output format to TerraformParser format.
 
         Args:
-            ts_outputs: Outputs from hcl_impl (with line/column)
+            ts_outputs: Outputs from hcl_impl (with line/column and attributes)
 
         Returns:
             Outputs in TerraformParser format matching database schema
         """
-        return [
-            {
+        converted = []
+        for o in ts_outputs:
+            attrs = o.get('attributes', {})
+
+            # Parse sensitive flag
+            sensitive_value = attrs.get('sensitive', 'false')
+            is_sensitive = str(sensitive_value).lower() == 'true'
+
+            # Parse value expression
+            value = attrs.get('value')
+
+            # Parse description
+            description = attrs.get('description', '')
+            if description:
+                description = str(description).strip('"')
+
+            converted.append({
                 'output_id': f"{o['file_path']}::{o['output_name']}",
                 'file_path': o['file_path'],
                 'output_name': o['output_name'],
-                'value': None,  # TODO: Extract from tree-sitter
-                'is_sensitive': False,
-                'description': '',
-                'line': o['line'],  # Tree-sitter advantage: precise line numbers!
-            }
-            for o in ts_outputs
-        ]
+                'value': value,
+                'is_sensitive': is_sensitive,
+                'description': description,
+                'line': o['line'],
+            })
+
+        return converted
 
     def _convert_ts_data(self, ts_data: List[Dict]) -> List[Dict]:
         """Convert tree-sitter data source format to TerraformParser format.

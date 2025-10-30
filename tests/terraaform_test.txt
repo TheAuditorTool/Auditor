@@ -1,0 +1,729 @@
+ultrathink we also have a /terraform/ implementation, it has zero testing i realized now... so need to add an entire
+  real world simulation project in /fixtures/terraform as brand new addition... i have a feeling the implementation
+  itself was bit garbage and we cant check everything in the code itself and even less in testing... it has high
+  priority... investigate and write the tests needed AND if you needed? expand the actual coverage itself in the
+  source code so we can be proud over our terraform implmenetation, it also spans indexer/database so you have for
+  example hcl_impl.py together with terraform.py... i suggest you read all those files fully... so you know wtf is
+  going on... you can also run "aud terraform analyze"  your self or just "aud terraform --help" to check what it does
+  etc... Also make sure you write tests so they BOTH work as unit/integration/whatever tests but ALSO gets picked up when I run "aud full", so downstread consumers AND producers can make use of that, so its stored in database, real world simulated project if you will because I don't have enough projects to cover everything... and I don't even have terraform either lol....
+make sure you make use of the schema normalization moving away from json blob parsin to real relationship/junction table joins... enabling (for taint, just an example)
+for our taint tracking. gold info...
+Okay, here are the 7 advanced SQL query capabilities we unlocked by normalizing the database schema:
+
+1.  **API Security Coverage:** Find API endpoints missing specific authentication controls by joining `api_endpoints` with `api_endpoint_controls`.
+2.  **SQL Query Surface Area:** Find every piece of code that queries sensitive database tables (like `users`) by joining `sql_queries` with `sql_query_tables`.
+3.  **Cross-Function Taint Flow:** Track variables as they are returned from one function and assigned in another by joining `function_return_sources` with `assignment_sources`.
+4.  **React Hook Dependency Taint:** Find React hooks (`useEffect`, etc.) whose dependency arrays contain tainted variables by joining `react_hooks` with `react_hook_dependencies`.
+5.  **Multi-Source Taint Origin:** Identify *all* the variables that contribute to a single assignment by joining `assignments` with `assignment_sources`.
+6.  **Import Chain Analysis:** Map the full dependency tree for a specific imported symbol (function or variable) by joining `imports` with `import_style_names`.
+7.  **React Hook Anti-Patterns:** Detect potentially inefficient component patterns, like using `useState` and `useEffect` without `useCallback`, by joining `react_components` with `react_component_hooks`.
+
+
+This is a fantastic and critical task. You're right to point out that the current Terraform implementation is fragile, especially its reliance on regex in the graph builder (`graph.py`) instead of structured data from the extractor (`terraform.py` and `hcl_impl.py`). This is the "JSON blob parsing" anti-pattern you mentioned.
+
+My plan will fix this. We'll build a comprehensive test fixture, write tests to expose the current flaws and drive new development, and then refactor the code to be robust, testable, and capable of the advanced taint tracking you need.
+
+Here is the complete plan, broken into three phases:
+
+1.  **Phase 1: The "Real World" Test Fixture**
+2.  **Phase 2: The Comprehensive Test Plan (The "Long List")**
+3.  **Phase 3: Source Code Expansion & Refactoring (The "Fix")**
+
+-----
+
+## Phase 1: The `/fixtures/terraform` "Real World" Simulation Project
+
+First, we need the "ground truth" project. This fixture will contain a mix of simple and complex patterns, good and bad practices, and multiple modules. This single fixture will be used for unit, integration, and E2E tests.
+
+I will create a new directory, `/fixtures/terraform`, with the following structure and content.
+
+### `/fixtures/terraform` Project Structure
+
+```
+fixtures/terraform/
+├── main.tf                 # Root resources, module calls
+├── variables.tf            # Root variable declarations
+├── outputs.tf              # Root output declarations
+├── data.tf                 # Root data source lookups
+├── versions.tf             # Provider and Terraform versions
+├── terraform.tfvars        # Standard variable assignments
+├── sensitive.auto.tfvars   # Sensitive variables (to be caught)
+│
+├── modules/
+│   ├── vpc/                # Local module for networking
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   │
+│   └── rds_db/             # Local module for a database
+│       ├── main.tf
+│       ├── variables.tf
+│       └── outputs.tf
+│
+└── security_violations/
+    ├── public_s3.tf
+    ├── hardcoded_secrets.tf
+    ├── overly_permissive_iam.tf
+    └── sensitive_output.tf
+```
+
+### Key File Content (The "Ground Truth")
+
+Here is the content for the key files. This is what our tests will run against.
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/main.tf\</code\>\</summary\>
+
+```hcl
+# Call a local module and pass in variables
+module "networking" {
+  source      = "./modules/vpc"
+  app_name    = var.app_name
+  common_tags = var.common_tags
+}
+
+# Call a module from the Terraform Registry
+module "public_s3_bucket" {
+  source  = "terraform-aws-modules/s3-bucket/aws"
+  version = "3.15.1"
+
+  bucket = "${var.app_name}-registry-bucket"
+  acl    = "private"
+}
+
+# Call another local module with complex dependencies
+module "database" {
+  source           = "./modules/rds_db"
+  db_password      = var.db_password # Tainted: sensitive var
+  subnet_ids       = module.networking.private_subnets # Module-to-module dependency
+  vpc_security_group_ids = [module.networking.db_sg_id]
+}
+
+# Resource with implicit dependency (via interpolation)
+resource "aws_instance" "web" {
+  ami           = data.aws_ami.amazon_linux.id
+  instance_type = "t2.micro"
+  subnet_id     = module.networking.public_subnets[0] # Depends on module
+  tags          = merge(
+    var.common_tags,
+    {
+      "Name" = "${var.app_name}-web-instance" # Interpolation
+    }
+  )
+}
+
+# Resource with explicit dependency
+resource "null_resource" "app_provisioner" {
+  depends_on = [aws_instance.web]
+
+  provisioner "local-exec" {
+    command = "echo 'Instance is up'"
+  }
+}
+
+# Resource with for_each
+resource "aws_route53_record" "app_records" {
+  for_each = toset(["primary", "secondary"])
+  zone_id  = "Z0123456789ABCDEFGHIJ"
+  name     = "${each.key}.${var.app_name}.example.com"
+  type     = "A"
+  records  = [aws_instance.web.primary_ip] # Fictional attribute for testing
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/variables.tf\</code\>\</summary\>
+
+```hcl
+variable "app_name" {
+  description = "Name of the application"
+  type        = string
+  default     = "myapp"
+}
+
+variable "common_tags" {
+  description = "Common tags to apply to all resources"
+  type        = map(string)
+  default     = {
+    "Environment" = "dev"
+    "Project"     = "Terraform Fixture"
+  }
+}
+
+variable "db_password" {
+  description = "Database master password"
+  type        = string
+  sensitive   = true # This is critical for taint tracking
+  # No default, will be provided by .tfvars
+}
+
+variable "instance_count" {
+  description = "Number of instances"
+  type        = number
+  default     = 1
+}
+
+variable "ami_id_list" {
+  description = "List of AMIs"
+  type        = list(string)
+  default     = ["ami-123", "ami-456"]
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/outputs.tf\</code\>\</summary\>
+
+```hcl
+output "web_instance_id" {
+  description = "ID of the web instance"
+  value       = aws_instance.web.id # Resource attribute
+}
+
+output "vpc_id" {
+  description = "ID of the VPC created by the module"
+  value       = module.networking.vpc_id # Module output
+}
+
+output "app_name_passthrough" {
+  description = "Pass-through of the app_name variable"
+  value       = var.app_name # Variable reference
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/data.tf\</code\>\</summary\>
+
+```hcl
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+}
+
+data "aws_caller_identity" "current" {}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/versions.tf\</code\>\</summary\>
+
+```hcl
+terraform {
+  required_version = ">= 1.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    null = {
+      source = "hashicorp/null"
+      version = "~> 3.0"
+    }
+  }
+
+  backend "s3" {
+    bucket = "my-tf-state-bucket"
+    key    = "global/s3/terraform.tfstate"
+    region = "us-east-1"
+    encrypt = true
+  }
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/terraform.tfvars\</code\>\</summary\>
+
+```hcl
+# Standard variable assignments
+app_name     = "my-test-app"
+instance_count = 2
+
+common_tags = {
+  "Environment" = "test"
+  "Owner"       = "Test Runner"
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/sensitive.auto.tfvars\</code\>\</summary\>
+
+```hcl
+# This file should be detected as containing a sensitive variable
+db_password = "a-very-bad-password-in-git-123!"
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/modules/vpc/main.tf\</code\>\</summary\>
+
+```hcl
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+  tags       = merge(var.common_tags, { "Name" = "${var.app_name}-vpc" })
+}
+
+resource "aws_subnet" "public" {
+  count      = 2
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.${count.index}.0/24"
+}
+
+resource "aws_subnet" "private" {
+  count      = 2
+  vpc_id     = aws_vpc.main.id
+  cidr_block = "10.0.${100 + count.index}.0/24"
+}
+
+resource "aws_security_group" "db_sg" {
+  name   = "${var.app_name}-db-sg"
+  vpc_id = aws_vpc.main.id
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/modules/vpc/outputs.tf\</code\>\</summary\>
+
+```hcl
+output "vpc_id" {
+  value = aws_vpc.main.id
+}
+output "public_subnets" {
+  value = aws_subnet.public[*].id
+}
+output "private_subnets" {
+  value = aws_subnet.private[*].id
+}
+output "db_sg_id" {
+  value = aws_security_group.db_sg.id
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/modules/rds\_db/main.tf\</code\>\</summary\>
+
+```hcl
+resource "aws_db_instance" "default" {
+  allocated_storage    = 10
+  engine               = "mysql"
+  engine_version       = "5.7"
+  instance_class       = "db.t3.micro"
+  db_name              = "myappdb"
+  username             = "admin"
+  password             = var.db_password # Tainted by sensitive variable
+  db_subnet_group_name = "my-db-subnet-group" # Assume this exists
+  vpc_security_group_ids = var.vpc_security_group_ids
+  skip_final_snapshot  = true
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/security\_violations/public\_s3.tf\</code\>\</summary\>
+
+```hcl
+resource "aws_s3_bucket" "public_read" {
+  bucket = "my-public-read-bucket-for-testing"
+  acl    = "public-read" # This is the violation
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/security\_violations/hardcoded\_secrets.tf\</code\>\</summary\>
+
+```hcl
+resource "aws_iam_user" "bad_user" {
+  name = "bad-user"
+}
+
+resource "aws_iam_access_key" "bad_key" {
+  user = aws_iam_user.bad_user.name
+  secret = "AKIAIOSFODNN7EXAMPLE" # This is a hardcoded secret
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/security\_violations/overly\_permissive\_iam.tf\</code\>\</summary\>
+
+```hcl
+data "aws_iam_policy_document" "wildcard_policy" {
+  statement {
+    effect    = "Allow"
+    actions   = ["*"]       # Violation
+    resources = ["*"]       # Violation
+  }
+}
+
+resource "aws_iam_policy" "wildcard" {
+  name   = "wildcard-policy"
+  policy = data.aws_iam_policy_document.wildcard_policy.json
+}
+```
+
+\</details\>
+
+\<details\>
+\<summary\>\<code\>fixtures/terraform/security\_violations/sensitive\_output.tf\</code\>\</summary\>
+
+```hcl
+# This output exposes a sensitive variable, and is NOT marked sensitive
+# This is a critical taint-tracking finding
+output "database_password" {
+  value = var.db_password
+  # sensitive = true  <-- This is missing!
+}
+```
+
+\</details\>
+
+-----
+
+## Phase 2: The Comprehensive Test Plan (The "Long List")
+
+This plan covers all components, from unit tests for the extractor to E2E tests for `aud full`.
+
+### A. Extractor Unit/Integration Tests (`terraform.py`, `hcl_impl.py`)
+
+**Test File:** `tests/terraform/test_extractor.py`
+**Goal:** Ensure facts are extracted 100% correctly *before* they hit the DB.
+
+  * **Fixture Loading:** Test that `TerraformExtractor` finds and supports `.tf`, `.tfvars`, and `.tf.json` files.
+  * **Resource Extraction:**
+      * Assert `aws_instance.web` is parsed with correct type and name.
+      * Assert `aws_route53_record.app_records` (with `for_each`) is extracted.
+      * Assert `aws_subnet.public` (with `count`) from the module is extracted.
+  * **Variable Extraction:**
+      * Assert `var.db_password` is extracted with `is_sensitive = True`.
+      * Assert `var.common_tags` is extracted with `variable_type = "map(string)"`.
+      * Assert `var.ami_id_list` is extracted with `variable_type = "list(string)"`.
+  * **Output Extraction:**
+      * Assert `output.web_instance_id` is extracted.
+      * Assert `security_violations/sensitive_output.tf`'s `output.database_password` is extracted with `is_sensitive = False` (which is the violation).
+  * **Data Source Extraction:**
+      * Assert `data.aws_ami.amazon_linux` is extracted with correct type and name.
+      * Assert `data.aws_iam_policy_document.wildcard_policy` is extracted.
+  * **`.tfvars` Parsing (`_extract_tfvars`):**
+      * Test `terraform.tfvars` parsing for string, number, and map assignments.
+      * Test `sensitive.auto.tfvars` parsing and assert `is_sensitive_context = True` for `db_password`.
+      * **Failing Test:** Add a test for a complex `heredoc` value in a `.tfvars` file. The current regex parser will likely fail this, driving a need to refactor `_extract_tfvars`.
+  * **Provider/Backend Extraction (NEW):**
+      * **Failing Test:** Write a test asserting that the `terraform { backend "s3" { ... } }` block from `versions.tf` is extracted. This will fail.
+      * **Failing Test:** Write a test asserting that the `provider "aws" { ... }` block is extracted. This will also fail.
+  * **Module Call Extraction (NEW):**
+      * **Failing Test:** Write a test asserting that the `module "networking" { ... }` block from `main.tf` is extracted, including its `source` and input variables. This will fail and is a **critical** missing feature.
+
+### B. Graph Builder Integration Tests (`graph.py`)
+
+**Test File:** `tests/terraform/test_graph_builder.py`
+**Goal:** Ensure relationships (edges) are built correctly *after* facts are in the DB.
+
+  * **Setup:** Use an in-memory SQLite DB. Programmatically run the extractor on the fixture, populate the DB, then run `TerraformGraphBuilder`.
+  * **Node Validation:**
+      * Assert nodes exist for `var.db_password`, `resource.aws_instance.web`, `data.aws_ami.amazon_linux`, and `output.web_instance_id`.
+      * Assert `var.db_password` node has `is_sensitive = True`.
+      * Assert `resource.aws_s3_bucket.public_read` node has `has_public_exposure = True`.
+  * **Edge Validation (Data Flow):**
+      * **Variable -\> Resource:** Assert edge `var.db_password` -\> `resource.aws_db_instance.default` (in module `rds_db`).
+      * **Data -\> Resource:** Assert edge `data.aws_ami.amazon_linux` -\> `resource.aws_instance.web`.
+      * **Resource -\> Resource (Implicit):** Assert edge `resource.aws_instance.web` -\> `resource.aws_route53_record.app_records` (due to `aws_instance.web.primary_ip`).
+      * **Resource -\> Output:** Assert edge `resource.aws_instance.web` -\> `output.web_instance_id`.
+      * **Variable -\> Output:** Assert edge `var.app_name` -\> `output.app_name_passthrough`.
+  * **Edge Validation (Taint Flow):**
+      * **Sensitive Var -\> Resource:** The `var.db_password` -\> `resource.aws_db_instance.default` edge should be a taint source.
+      * **Sensitive Var -\> Output (THE VIOLATION):** Assert edge `var.db_password` -\> `output.database_password`. This is the key for detecting the sensitive data leak.
+  * **Edge Validation (Control Flow):**
+      * **Explicit `depends_on`:** Assert edge `resource.aws_instance.web` -\> `resource.null_resource.app_provisioner` with `edge_type = 'resource_dependency'` and `metadata.explicit_depends_on = True`.
+  * **Module Edge Validation (NEW):**
+      * **Failing Test:** Assert edge `module.networking` -\> `resource.aws_instance.web` (due to `module.networking.public_subnets[0]`). This will fail because the graph builder doesn't understand module outputs.
+      * **Failing Test:** Assert edge `module.networking` -\> `module.database` (due to `module.networking.private_subnets`). This will also fail.
+
+### C. Analyzer & CLI E2E Tests (`analyzer.py`, `aud terraform analyze`)
+
+**Test File:** `tests/cli/test_terraform_analyze.py`
+**Goal:** Ensure the full pipeline (index + analyze) finds the violations in our fixture.
+
+  * **Setup:** Point the tool at a clean DB, run `aud index` on the `fixtures/terraform` directory.
+  * **Test Command:** Run `aud terraform analyze`.
+  * **Finding Validation (Query `findings_consolidated` table):**
+      * Assert a "Hardcoded Secret" finding exists for `security_violations/hardcoded_secrets.tf` (line of `secret = "..."`).
+      * Assert a "Public S3 Bucket" finding exists for `security_violations/public_s3.tf` (line of `acl = "public-read"`).
+      * Assert an "Overly Permissive IAM Policy" finding exists for `security_violations/overly_permissive_iam.tf` (lines of `actions = ["*"]` and `resources = ["*"]`).
+      * Assert a "Sensitive Variable in TFVars" finding exists for `sensitive.auto.tfvars`.
+      * **Taint-Based Finding:** Assert a "Sensitive Data in Output" finding exists for `security_violations/sensitive_output.tf`. This is the most important test, as it validates the *entire* graph and taint flow:
+        1.  `sensitive.auto.tfvars` sets `var.db_password`.
+        2.  `variables.tf` marks `var.db_password` as `sensitive = true`.
+        3.  `sensitive_output.tf`'s `output.database_password` references `var.db_password` but is *not* marked `sensitive`.
+        4.  The analyzer rule follows this taint and flags the output.
+  * **Severity Filtering:** Run `aud terraform analyze --severity high` and assert that lower-severity findings (if any) are correctly filtered.
+
+### D. `aud full` Simulation
+
+  * This is not a separate test file, but a confirmation. When you run your full E2E test suite, ensure `fixtures/terraform` is included. Running `aud full` on the indexed data must produce the *exact same findings* in the database as the `test_terraform_analyze` CLI test. This validates it as a "real world simulated project."
+
+-----
+
+## Phase 3: Source Code Expansion & Refactoring (The "Fix")
+
+This is how we make the failing tests pass and move away from regex-on-JSON.
+
+### 1\. The Core Problem: `hcl_impl.py` and `terraform.py`
+
+  * **Current Flaw:** `hcl_impl.py:extract_hcl_attributes` just does `attr_value = subchild.text.decode("utf-8")`. It returns the *raw text* of the attribute's value (e.g., `"module.networking.vpc_id"`). `terraform.py` then JSON-encodes this raw text into the `properties_json` blob.
+  * **The Fix:** We must **stop parsing raw text** in the graph builder. The extractor (`hcl_impl.py`) must parse the HCL *expressions* and identify references *at parse time*.
+
+**Refactoring `hcl_impl.py`:**
+
+We need to make `extract_hcl_attributes` much smarter. It shouldn't just return text; it should return a structured object representing the value.
+
+```python
+# In hcl_impl.py
+
+def extract_hcl_attributes(node: Any, block_type: str) -> Dict[str, Any]:
+    """Extract attributes, parsing expressions for references."""
+    attributes = {}
+    # ...
+    for child in node.children:
+        if child.type == "attribute":
+            attr_name_node = child.child_by_field_name('name')
+            attr_value_node = child.child_by_field_name('value')
+            if attr_name_node is None or attr_value_node is None:
+                continue
+
+            attr_name = attr_name_node.text.decode("utf-8")
+            
+            # This is the new, smart part
+            # It returns a dict: {'raw': '...', 'references': [...]}
+            parsed_value = _parse_expression_node(attr_value_node)
+            attributes[attr_name] = parsed_value
+    return attributes
+
+def _parse_expression_node(node: Any) -> Dict[str, Any]:
+    """
+    Recursively parse a tree-sitter expression node and extract references.
+    """
+    raw_text = node.text.decode("utf-8")
+    references = []
+
+    # This is a 'var.name' or 'aws_vpc.main.id' etc.
+    # The HCL grammar has types like 'variable_expr', 'get_attr'
+    # We walk this AST sub-tree
+    
+    def find_references(n):
+        # Example logic for 'get_attr' (e.g., 'a.b.c')
+        if n.type == 'get_attr':
+            # This is recursive, e.g., 'module.networking.vpc_id'
+            # We need to flatten it.
+            full_ref_parts = []
+            curr = n
+            while curr.type == 'get_attr':
+                full_ref_parts.insert(0, curr.child_by_field_name('name').text.decode("utf-8"))
+                curr = curr.child_by_field_name('object')
+            
+            # Add the final object (e.g., 'module' or 'aws_instance')
+            full_ref_parts.insert(0, curr.text.decode("utf-8"))
+            references.append(".".join(full_ref_parts))
+
+        # Example logic for 'variable_expr' (e.g., 'var.name')
+        elif n.type == 'variable_expr':
+            var_name = n.child_by_field_name('name').text.decode("utf-8")
+            references.append(f"var.{var_name}")
+        
+        # Recurse into children
+        for child in n.children:
+            find_references(child)
+
+    find_references(node)
+    
+    return {
+        'raw_value': raw_text,
+        'references': list(set(references)) # Return unique references
+    }
+```
+
+### 2\. Refactoring `terraform.py` (Storing Normalized Data)
+
+Now that `hcl_impl.py` gives us references, we store them in new *normalized tables*, not a JSON blob. This is the **key** to your goal.
+
+**New Schema Tables:**
+
+  * `terraform_resource_attributes`
+      * `id` (PK)
+      * `resource_id` (FK to `terraform_resources`)
+      * `attribute_name` (e.g., "ami", "subnet\_id", "password")
+      * `raw_value` (e.g., `"data.aws_ami.amazon_linux.id"`)
+  * `terraform_attribute_references` (**The Taint Tracking Gold**)
+      * `attribute_id` (FK to `terraform_resource_attributes`)
+      * `reference_expression` (e.g., "data.aws\_ami.amazon\_linux.id", "var.db\_password", "module.networking.vpc\_id")
+      * `reference_type` ("data", "variable", "resource", "module")
+
+**`terraform.py` (`_convert_ts_resources`) Changes:**
+This function will no longer create a giant `properties` JSON blob. It will return the resource *plus* lists of attributes and references to be inserted by the indexer.
+
+```python
+# In terraform.py
+
+def _convert_ts_resources(self, ts_resources: List[Dict]) -> List[Dict]:
+    converted = []
+    for resource in ts_resources:
+        resource_id = f"{resource['file_path']}::{resource['resource_type']}.{resource['resource_name']}"
+        
+        # These will be stored in the new normalized tables
+        attributes_to_store = []
+        references_to_store = []
+
+        parsed_attributes = self._normalize_hcl_attributes(resource.get('attributes', {}))
+        
+        for attr_name, parsed_value in parsed_attributes.items():
+            if attr_name == 'depends_on': continue # Handle separately
+
+            attr_db_id = f"{resource_id}::{attr_name}" # Unique ID for the attribute
+            
+            attributes_to_store.append({
+                'id': attr_db_id,
+                'resource_id': resource_id,
+                'attribute_name': attr_name,
+                'raw_value': parsed_value.get('raw_value', str(parsed_value))
+            })
+            
+            for ref_expr in parsed_value.get('references', []):
+                ref_type = ref_expr.split('.')[0] # 'var', 'module', 'data', or resource type
+                references_to_store.append({
+                    'attribute_id': attr_db_id,
+                    'reference_expression': ref_expr,
+                    'reference_type': ref_type
+                })
+
+        converted.append({
+            'resource_id': resource_id,
+            'file_path': resource['file_path'],
+            'resource_type': resource['resource_type'],
+            'resource_name': resource['resource_name'],
+            'depends_on': parsed_attributes.get('depends_on', []),
+            'sensitive_properties': self._identify_sensitive_properties(parsed_attributes),
+            'line': resource['line'],
+            # The indexer must now also consume these new keys:
+            'attributes_to_add': attributes_to_store,
+            'references_to_add': references_to_store,
+        })
+    return converted
+```
+
+### 3\. Refactoring `graph.py` (Using Joins, Not Regex)
+
+Now the graph builder becomes incredibly simple, fast, and robust. **All regex methods (`_extract_variable_references`, `_extract_references_from_expression`) are DELETED.**
+
+```python
+# In graph.py
+
+class TerraformGraphBuilder:
+    # ... __init__ ...
+
+    def build_provisioning_flow_graph(self, root: str = ".") -> Dict[str, Any]:
+        # ... (connect to DB, init nodes dict, etc.) ...
+        
+        # Step 1: Load all variables as nodes (same as before)
+        # Step 2: Load all resources as nodes (same as before)
+        # Step 3: Load all outputs as nodes (same as before)
+
+        # Step 4: Build ALL edges with simple SQL JOINs (No more regex!)
+        # This one SQL query replaces ALL old regex-based edge building
+        
+        cursor.execute("""
+            SELECT 
+                ref.reference_expression,
+                ref.reference_type,
+                attr.resource_id AS target_resource_id,  -- The resource being configured
+                attr.attribute_name AS target_attribute_name,
+                r_target.file_path AS target_file
+            FROM 
+                terraform_attribute_references ref
+            JOIN 
+                terraform_resource_attributes attr ON ref.attribute_id = attr.id
+            JOIN
+                terraform_resources r_target ON attr.resource_id = r_target.resource_id
+        """)
+        
+        for row in cursor.fetchall():
+            source_id = self._resolve_reference_sql(cursor, row['reference_expression'], row['reference_type'])
+            target_id = row['target_resource_id']
+
+            if source_id and target_id and source_id in nodes and target_id in nodes:
+                edges.append(ProvisioningEdge(
+                    source=source_id,
+                    target=target_id,
+                    file=row['target_file'],
+                    edge_type=f"{row['reference_type']}_reference",
+                    expression=row['reference_expression'],
+                    metadata={'property_path': row['target_attribute_name']}
+                ))
+                stats['edges_created'] += 1
+
+        # We also need a similar query for references in `terraform_outputs`
+        # (This requires adding the same attribute/reference tables for outputs)
+
+        # ... (handle explicit depends_on, close DB, return result) ...
+
+    def _resolve_reference_sql(self, cursor, ref: str, ref_type: str) -> Optional[str]:
+        """Resolves a reference expression (e.g., 'var.db_name') to a node ID using SQL."""
+        
+        if ref_type == 'variable':
+            var_name = ref.split('.', 1)[1]
+            cursor.execute("SELECT variable_id FROM terraform_variables WHERE variable_name = ?", (var_name,))
+            row = cursor.fetchone()
+            return row['variable_id'] if row else None
+            
+        elif ref_type == 'data':
+            # 'data.aws_ami.linux' -> parts = ['data', 'aws_ami', 'linux']
+            parts = ref.split('.')
+            if len(parts) != 3: return None
+            # Need to query a 'terraform_data' table (which you must add in the extractor)
+            # cursor.execute("SELECT data_id FROM terraform_data WHERE data_type = ? AND data_name = ?", (parts[1], parts[2]))
+            return None # Placeholder
+            
+        elif ref_type == 'module':
+            # 'module.networking.vpc_id'
+            # This is more complex, requires resolving the module output
+            # You'd query 'terraform_modules' and 'terraform_outputs'
+            return None # Placeholder for module resolution logic
+        
+        else: # It's a resource reference, e.g., 'aws_instance.web'
+            parts = ref.split('.', 1)
+            if len(parts) != 2: return None
+            res_type, res_name = parts
+            cursor.execute("SELECT resource_id FROM terraform_resources WHERE resource_type = ? AND resource_name = ?", (res_type, res_name))
+            row = cursor.fetchone()
+            return row['resource_id'] if row else None
+
+    # DELETE _extract_variable_references, _extract_references_from_expression, _find_property_path
+    # DELETE _find_variable_id, _resolve_resource_reference, _resolve_reference
+    # The new _resolve_reference_sql replaces them all.
+```
+
+This new architecture achieves all your goals. It's testable, robust, "database-first," and provides the explicit `terraform_attribute_references` table needed for high-fidelity taint tracking and AI context.
+
+I am ready to provide the full file contents for the `fixtures/terraform` project or begin writing the `pytest` files for the test plan. Please let me know how you'd like to proceed.

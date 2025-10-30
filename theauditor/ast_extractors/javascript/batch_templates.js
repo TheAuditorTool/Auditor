@@ -413,6 +413,9 @@ async function main() {
                     const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                     const sqlQueries = extractSQLQueries(functionCallArgs);
                     const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
+                    const sequelizeModels = extractSequelizeModels(functions, classes, functionCallArgs, imports);
+                    const bullmqJobs = extractBullMQJobs(functions, classes, functionCallArgs, imports);
+                    const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
 
                     let vueComponents = [];
                     let vueHooks = [];
@@ -481,6 +484,12 @@ async function main() {
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
                             cdk_constructs: cdkConstructs,
+                            sequelize_models: sequelizeModels,
+                            bullmq_jobs: bullmqJobs,
+                            angular_components: angularData.components,
+                            angular_services: angularData.services,
+                            angular_modules: angularData.modules,
+                            angular_guards: angularData.guards,
                             vue_components: vueComponents,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
@@ -906,6 +915,9 @@ try {
                 const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                 const sqlQueries = extractSQLQueries(functionCallArgs);
                 const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
+                const sequelizeModels = extractSequelizeModels(functions, classes, functionCallArgs, imports);
+                const bullmqJobs = extractBullMQJobs(functions, classes, functionCallArgs, imports);
+                const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
 
                 let vueComponents = [];
                 let vueHooks = [];
@@ -973,6 +985,12 @@ try {
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
                         cdk_constructs: cdkConstructs,
+                        sequelize_models: sequelizeModels,
+                        bullmq_jobs: bullmqJobs,
+                        angular_components: angularData.components,
+                        angular_services: angularData.services,
+                        angular_modules: angularData.modules,
+                        angular_guards: angularData.guards,
                         vue_components: vueComponents,
                         vue_hooks: vueHooks,
                         vue_directives: vueDirectives,

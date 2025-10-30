@@ -7,9 +7,6 @@ from pathlib import Path
 @click.command(name="learn")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
 @click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
-@click.option("--journal", default="./.pf/journal.ndjson", help="Journal file path")
-@click.option("--fce", default="./.pf/fce.json", help="FCE file path")
-@click.option("--ast", default="./.pf/ast_proofs.json", help="AST proofs file path")
 @click.option("--enable-git", is_flag=True, help="Enable git churn features")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
 @click.option("--window", default=50, type=int, help="Journal window size")
@@ -17,18 +14,15 @@ from pathlib import Path
 @click.option("--feedback", help="Path to human feedback JSON file")
 @click.option("--train-on", type=click.Choice(["full", "diff", "all"]), default="full", help="Type of historical runs to train on")
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
-def learn(db_path, manifest, journal, fce, ast, enable_git, model_dir, window, seed, feedback, train_on, print_stats):
+def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, train_on, print_stats):
     """Train ML models from audit artifacts to predict risk and root causes."""
-    from theauditor.ml import learn as ml_learn
+    from theauditor.insights.ml import learn as ml_learn
     
     click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")
     
     result = ml_learn(
         db_path=db_path,
         manifest_path=manifest,
-        journal_path=journal,
-        fce_path=fce,
-        ast_path=ast,
         enable_git=enable_git,
         model_dir=model_dir,
         window=window,
@@ -58,15 +52,13 @@ def learn(db_path, manifest, journal, fce, ast, enable_git, model_dir, window, s
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
 @click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--workset", default="./.pf/workset.json", help="Workset file path")
-@click.option("--fce", default="./.pf/fce.json", help="FCE file path")
-@click.option("--ast", default="./.pf/ast_proofs.json", help="AST proofs file path")
 @click.option("--model-dir", default="./.pf/ml", help="Model directory")
 @click.option("--topk", default=10, type=int, help="Top K files to suggest")
 @click.option("--out", default="./.pf/insights/ml_suggestions.json", help="Output file path")
 @click.option("--print-plan", is_flag=True, help="Print suggestions to console")
-def suggest(db_path, manifest, workset, fce, ast, model_dir, topk, out, print_plan):
+def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
     """Generate ML-based suggestions for risky files and likely root causes."""
-    from theauditor.ml import suggest as ml_suggest
+    from theauditor.insights.ml import suggest as ml_suggest
     
     click.echo("[ML] Generating suggestions from trained models...")
     
@@ -74,8 +66,6 @@ def suggest(db_path, manifest, workset, fce, ast, model_dir, topk, out, print_pl
         db_path=db_path,
         manifest_path=manifest,
         workset_path=workset,
-        fce_path=fce,
-        ast_path=ast,
         model_dir=model_dir,
         topk=topk,
         out_path=out,
@@ -114,7 +104,7 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
         ...
     }
     """
-    from theauditor.ml import learn as ml_learn
+    from theauditor.insights.ml import learn as ml_learn
     
     # Validate feedback file exists
     if not Path(feedback_file).exists():

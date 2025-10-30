@@ -14,7 +14,8 @@ from theauditor.utils.helpers import get_self_exclusion_patterns
 @click.option("--dry-run", is_flag=True, help="Scan but don't write files")
 @click.option("--follow-symlinks", is_flag=True, help="Follow symbolic links (default: skip)")
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
-def index(root, manifest, db, print_stats, dry_run, follow_symlinks, exclude_self):
+@click.option("--no-archive", is_flag=True, help="Skip archiving previous index (fast rebuild)")
+def index(root, manifest, db, print_stats, dry_run, follow_symlinks, exclude_self, no_archive):
     """Build comprehensive code inventory and symbol database.
 
     Creates a complete inventory of your codebase including all functions,
@@ -60,10 +61,37 @@ def index(root, manifest, db, print_stats, dry_run, follow_symlinks, exclude_sel
 
     # Build exclude patterns using centralized function
     exclude_patterns = get_self_exclusion_patterns(exclude_self)
-    
+
     if exclude_self and print_stats:
         click.echo(f"[EXCLUDE-SELF] Excluding TheAuditor's own files from indexing")
         click.echo(f"[EXCLUDE-SELF] {len(exclude_patterns)} patterns will be excluded")
+
+    # ARCHIVE previous index before rebuilding (unless --no-archive or --dry-run)
+    if not no_archive and not dry_run:
+        from pathlib import Path
+        pf_dir = Path(".pf")
+
+        # Only archive if .pf exists with contents
+        if pf_dir.exists() and any(pf_dir.iterdir()):
+            try:
+                from theauditor.commands._archive import _archive
+                from click.testing import CliRunner
+
+                click.echo("[INDEX] Archiving previous index data to .pf/history/full/...")
+
+                # Call _archive programmatically
+                runner = CliRunner()
+                result_archive = runner.invoke(_archive, ["--run-type", "full"])
+
+                if result_archive.exit_code != 0:
+                    click.echo(f"[WARNING] Archive failed but continuing: {result_archive.output}", err=True)
+                elif print_stats:
+                    click.echo(f"[INDEX] Archive complete")
+            except Exception as e:
+                click.echo(f"[WARNING] Could not archive previous index: {e}", err=True)
+                click.echo(f"[WARNING] Continuing with index rebuild...", err=True)
+    elif no_archive and print_stats:
+        click.echo("[INDEX] Skipping archive (--no-archive flag)")
 
     result = build_index(
         root_path=root,
