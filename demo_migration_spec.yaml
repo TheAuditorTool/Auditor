@@ -1,0 +1,26 @@
+# REAL SCENARIO: You have 50 files using hardcoded database connections
+# Your boss says "migrate everything to connection pooling by Friday"
+# You do find-replace on 30 files and think you're done
+# THIS SPEC CATCHES THE 20 YOU MISSED
+
+refactor_name: Database Connection Pool Migration
+description: Replace all direct sqlite3.connect() with connection pool
+version: 1.0
+
+rules:
+  - id: remove-direct-connections
+    description: No more direct sqlite3.connect() calls
+    severity: critical
+    match:
+      identifiers: [sqlite3.connect]
+    expect:
+      identifiers: []
+    # Empty expect = ALL occurrences must be gone
+
+  - id: use-connection-pool
+    description: All DB access must use ConnectionPool
+    severity: critical
+    match:
+      identifiers: [database, db_path, DatabaseManager]
+    expect:
+      identifiers: [ConnectionPool, get_connection]
