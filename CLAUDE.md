@@ -26,10 +26,8 @@ NEVER EVER FUCKING TOUCH MY GIT WITH YOUR DUMBASS FUCKING "CO AUTHORED BY CLAUDE
 **ALWAYS** use Python with sqlite3 import. The sqlite3 command is not installed in WSL.
 
 ## CRITICAL WINDOWS BUG!!
-When "Error: File has been unexpectedly modified. Read it again before attempting to write it." happens?
-windows bug. when it happens?? "There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths
-with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this
-file."
+ultrathink remember the windows bug. when it happens...The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file.... a windows path looks like C:\Users\santa\Desktop\TheAuditor\theauditor... not fucking unix forward /
+You only use your regular write, edit etc tools. no weird eof, cat or python writes or copies... be normal... its just a windows path bug...
 
 ```python
 # CORRECT - Always use this pattern

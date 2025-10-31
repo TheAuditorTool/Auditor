@@ -539,7 +539,21 @@ def extract_python_calls_with_args(tree: Dict, function_params: Dict[str, List[s
                 if prefix in resolved_imports:
                     callee_file_path = resolved_imports[prefix]
 
-            # Map arguments to parameters
+            # Handle zero-argument calls (e.g., ASTParser(), ModuleResolver())
+            # CRITICAL: Without this, instantiations like ASTParser() create ZERO records
+            # in function_call_args, causing dead code detection to flag them as unused
+            if len(node.args) == 0 and len(node.keywords) == 0:
+                calls.append({
+                    "line": node.lineno,
+                    "caller_function": caller_function,
+                    "callee_function": func_name,
+                    "argument_index": 0,
+                    "argument_expr": "",
+                    "param_name": "",
+                    "callee_file_path": callee_file_path
+                })
+
+            # Map positional arguments to parameters
             for i, arg in enumerate(node.args):
                 arg_expr = ast.unparse(arg) if hasattr(ast, "unparse") else str(arg)
                 param_name = callee_params[i] if i < len(callee_params) else f"arg{i}"
@@ -551,7 +565,23 @@ def extract_python_calls_with_args(tree: Dict, function_params: Dict[str, List[s
                     "argument_index": i,
                     "argument_expr": arg_expr,
                     "param_name": param_name,
-                    "callee_file_path": callee_file_path  # NEW: For cross-file taint analysis
+                    "callee_file_path": callee_file_path
+                })
+
+            # Map keyword arguments to parameters (e.g., ModuleResolver(db_path="..."))
+            # CRITICAL: Security rules need this to detect Database(password="hardcoded123")
+            for i, keyword in enumerate(node.keywords, start=len(node.args)):
+                arg_expr = ast.unparse(keyword.value) if hasattr(ast, "unparse") else str(keyword.value)
+                param_name = keyword.arg if keyword.arg else f"arg{i}"
+
+                calls.append({
+                    "line": node.lineno,
+                    "caller_function": caller_function,
+                    "callee_function": func_name,
+                    "argument_index": i,
+                    "argument_expr": arg_expr,
+                    "param_name": param_name,
+                    "callee_file_path": callee_file_path
                 })
 
     return calls

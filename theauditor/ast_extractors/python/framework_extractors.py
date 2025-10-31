@@ -1963,3 +1963,245 @@ def extract_celery_beat_schedules(tree: Dict, parser_self) -> List[Dict[str, Any
                         })
 
     return schedules
+
+
+# ============================================================================
+# GRAPHQL RESOLVER EXTRACTORS
+# ============================================================================
+
+def extract_graphene_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dict[str, Any]]:
+    """Extract Graphene GraphQL resolver methods.
+
+    Graphene pattern:
+        class UserType(graphene.ObjectType):
+            name = graphene.String()
+
+            def resolve_name(self, info):
+                return self.name
+
+    Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
+    """
+    resolvers = []
+
+    if not tree or tree.get("type") != "python_ast":
+        return resolvers
+
+    root_node = tree.get("tree")
+    if not root_node:
+        return resolvers
+
+    for node in ast.walk(root_node):
+        # Look for classes inheriting from graphene.ObjectType
+        if isinstance(node, ast.ClassDef):
+            # Check if class inherits from graphene patterns
+            is_graphene_type = False
+            for base in node.bases:
+                base_name = get_node_name(base)
+                if 'graphene' in base_name.lower() or 'ObjectType' in base_name:
+                    is_graphene_type = True
+                    break
+
+            if not is_graphene_type:
+                continue
+
+            # Extract resolve_* methods
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef) and item.name.startswith('resolve_'):
+                    # Field name is the part after 'resolve_'
+                    field_name = item.name[len('resolve_'):]
+
+                    # Extract parameters (skip 'self' and 'info')
+                    params = []
+                    for idx, arg in enumerate(item.args.args):
+                        if arg.arg not in ('self', 'info'):
+                            params.append({
+                                'param_name': arg.arg,
+                                'param_index': idx,
+                                'is_kwargs': False
+                            })
+
+                    # Handle **kwargs
+                    if item.args.kwarg:
+                        params.append({
+                            'param_name': item.args.kwarg.arg,
+                            'param_index': len(item.args.args),
+                            'is_kwargs': True
+                        })
+
+                    resolvers.append({
+                        'line': item.lineno,
+                        'resolver_name': item.name,
+                        'field_name': field_name,
+                        'type_name': node.name,
+                        'binding_style': 'graphene-method',
+                        'params': params
+                    })
+
+    return resolvers
+
+
+def extract_ariadne_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dict[str, Any]]:
+    """Extract Ariadne GraphQL resolver decorators.
+
+    Ariadne patterns:
+        @query.field("user")
+        def resolve_user(obj, info, id):
+            return get_user(id)
+
+        @mutation.field("createUser")
+        def create_user_resolver(obj, info, name):
+            return create_user(name)
+
+    Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
+    """
+    resolvers = []
+
+    if not tree or tree.get("type") != "python_ast":
+        return resolvers
+
+    root_node = tree.get("tree")
+    if not root_node:
+        return resolvers
+
+    for node in ast.walk(root_node):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+
+        # Check decorators for Ariadne patterns
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+
+            # Pattern: @query.field("fieldName") or @mutation.field("fieldName")
+            decorator_name = get_node_name(decorator.func)
+
+            if '.field' not in decorator_name:
+                continue
+
+            # Determine type (Query, Mutation, Subscription)
+            if 'query' in decorator_name.lower():
+                type_name = 'Query'
+            elif 'mutation' in decorator_name.lower():
+                type_name = 'Mutation'
+            elif 'subscription' in decorator_name.lower():
+                type_name = 'Subscription'
+            else:
+                type_name = 'Unknown'
+
+            # Extract field name from decorator argument
+            field_name = None
+            if decorator.args and len(decorator.args) > 0:
+                field_name = _get_str_constant(decorator.args[0])
+
+            if not field_name:
+                continue
+
+            # Extract parameters (skip 'obj' and 'info')
+            params = []
+            for idx, arg in enumerate(node.args.args):
+                if arg.arg not in ('obj', 'info', 'self'):
+                    params.append({
+                        'param_name': arg.arg,
+                        'param_index': idx,
+                        'is_kwargs': False
+                    })
+
+            # Handle **kwargs
+            if node.args.kwarg:
+                params.append({
+                    'param_name': node.args.kwarg.arg,
+                    'param_index': len(node.args.args),
+                    'is_kwargs': True
+                })
+
+            resolvers.append({
+                'line': node.lineno,
+                'resolver_name': node.name,
+                'field_name': field_name,
+                'type_name': type_name,
+                'binding_style': 'ariadne-decorator',
+                'params': params
+            })
+
+    return resolvers
+
+
+def extract_strawberry_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dict[str, Any]]:
+    """Extract Strawberry GraphQL resolver decorators.
+
+    Strawberry patterns:
+        @strawberry.type
+        class User:
+            name: str
+
+            @strawberry.field
+            def full_name(self) -> str:
+                return f"{self.first_name} {self.last_name}"
+
+    Returns resolver metadata WITHOUT field_id (correlation happens in graphql build command).
+    """
+    resolvers = []
+
+    if not tree or tree.get("type") != "python_ast":
+        return resolvers
+
+    root_node = tree.get("tree")
+    if not root_node:
+        return resolvers
+
+    for node in ast.walk(root_node):
+        # Look for classes with @strawberry.type decorator
+        if isinstance(node, ast.ClassDef):
+            is_strawberry_type = False
+            for decorator in node.decorator_list:
+                decorator_name = get_node_name(decorator)
+                if 'strawberry' in decorator_name.lower() and 'type' in decorator_name.lower():
+                    is_strawberry_type = True
+                    break
+
+            if not is_strawberry_type:
+                continue
+
+            # Extract methods with @strawberry.field decorator
+            for item in node.body:
+                if not isinstance(item, ast.FunctionDef):
+                    continue
+
+                is_strawberry_field = False
+                for decorator in item.decorator_list:
+                    decorator_name = get_node_name(decorator)
+                    if 'strawberry' in decorator_name.lower() and 'field' in decorator_name.lower():
+                        is_strawberry_field = True
+                        break
+
+                if not is_strawberry_field:
+                    continue
+
+                # Extract parameters (skip 'self')
+                params = []
+                for idx, arg in enumerate(item.args.args):
+                    if arg.arg != 'self':
+                        params.append({
+                            'param_name': arg.arg,
+                            'param_index': idx,
+                            'is_kwargs': False
+                        })
+
+                # Handle **kwargs
+                if item.args.kwarg:
+                    params.append({
+                        'param_name': item.args.kwarg.arg,
+                        'param_index': len(item.args.args),
+                        'is_kwargs': True
+                    })
+
+                resolvers.append({
+                    'line': item.lineno,
+                    'resolver_name': item.name,
+                    'field_name': item.name,  # Strawberry uses method name as field name
+                    'type_name': node.name,
+                    'binding_style': 'strawberry-field',
+                    'params': params
+                })
+
+    return resolvers
