@@ -49,11 +49,11 @@ def test_express_routes_extracted():
     """Test Express router.get/post/put/delete extraction to api_endpoints table."""
     db_path = DB_PATH
 
-    # Check api_endpoints table
-    routes = fetchall(
-        db_path,
-        "SELECT method, pattern, file FROM api_endpoints WHERE file LIKE '%products.js%' ORDER BY line"
-    )
+    # Get ALL routes, filter in Python
+    all_routes = fetchall(db_path, "SELECT method, pattern, file, line FROM api_endpoints ORDER BY line")
+
+    # Filter for products.js
+    routes = [(m, p, f) for m, p, f, l in all_routes if 'products.js' in f]
 
     assert len(routes) >= 5, f"Expected at least 5 Express routes, found {len(routes)}"
 
@@ -70,16 +70,14 @@ def test_express_middleware_controls_extracted():
     """Test Express middleware extraction to api_endpoint_controls table."""
     db_path = DB_PATH
 
-    # Check that middleware is extracted
-    controls = fetchall(
+    # Get ALL controls, filter in Python
+    all_controls = fetchall(
         db_path,
-        """
-        SELECT control_name, control_type, endpoint_file
-        FROM api_endpoint_controls
-        WHERE endpoint_file LIKE '%products.js%'
-        ORDER BY control_name
-        """
+        "SELECT control_name, control_type, endpoint_file FROM api_endpoint_controls ORDER BY control_name"
     )
+
+    # Filter for products.js
+    controls = [(name, type_, file) for name, type_, file in all_controls if 'products.js' in file]
 
     assert len(controls) > 0, "No middleware controls extracted"
 
@@ -94,13 +92,14 @@ def test_express_sql_injection_vulnerability():
     db_path = DB_PATH
 
     # The /api/products/search route has SQL injection vulnerability
-    # Check that the route exists
-    route = fetchone(
-        db_path,
-        "SELECT method, pattern FROM api_endpoints WHERE pattern LIKE '%search%'"
-    )
+    # Get ALL routes, filter in Python
+    all_routes = fetchall(db_path, "SELECT method, pattern FROM api_endpoints")
 
-    assert route is not None, "Search route not extracted"
+    # Filter for search pattern
+    search_routes = [(m, p) for m, p in all_routes if 'search' in p]
+
+    assert len(search_routes) > 0, "Search route not extracted"
+    route = search_routes[0]
     assert route[0] == "GET", "Search route should be GET"
 
 
@@ -129,15 +128,14 @@ def test_react_hooks_extracted():
     """Test React hook extraction to react_hooks table."""
     db_path = DB_PATH
 
-    hooks = fetchall(
+    # Get ALL hooks, filter in Python
+    all_hooks = fetchall(
         db_path,
-        """
-        SELECT hook_name, hook_type
-        FROM react_hooks
-        WHERE file LIKE '%Dashboard.jsx%'
-        ORDER BY hook_name
-        """
+        "SELECT hook_name, hook_type, file FROM react_hooks ORDER BY hook_name"
     )
+
+    # Filter for Dashboard.jsx
+    hooks = [(name, type_) for name, type_, file in all_hooks if 'Dashboard.jsx' in file]
 
     assert len(hooks) > 0, "No React hooks extracted from Dashboard component"
 
@@ -151,15 +149,14 @@ def test_react_hook_dependencies_extracted():
     """Test React hook dependency extraction to react_hook_dependencies table."""
     db_path = DB_PATH
 
-    # Check for hook dependencies (useEffect, useCallback deps)
-    deps = fetchall(
+    # Get ALL hook dependencies, filter in Python
+    all_deps = fetchall(
         db_path,
-        """
-        SELECT dependency_name
-        FROM react_hook_dependencies
-        WHERE hook_file LIKE '%Dashboard.jsx%'
-        """
+        "SELECT dependency_name, hook_file FROM react_hook_dependencies"
     )
+
+    # Filter for Dashboard.jsx
+    deps = [(name,) for name, file in all_deps if 'Dashboard.jsx' in file]
 
     assert len(deps) > 0, "No React hook dependencies extracted"
 
@@ -196,16 +193,14 @@ def test_angular_services_extracted():
     """Test Angular service extraction (dependency injection)."""
     db_path = DB_PATH
 
-    # Check for @Injectable services
-    # Note: Angular extraction may use symbols table or custom angular_services table
-    symbols = fetchall(
+    # Get ALL class symbols, filter in Python
+    all_symbols = fetchall(
         db_path,
-        """
-        SELECT name, type FROM symbols
-        WHERE file LIKE '%user.service.ts%'
-        AND type = 'class'
-        """
+        "SELECT name, type, path FROM symbols WHERE type = 'class'"
     )
+
+    # Filter for user.service.ts
+    symbols = [(name, type_) for name, type_, path in all_symbols if 'user.service.ts' in path]
 
     assert len(symbols) > 0, "No Angular service classes extracted"
 
@@ -218,16 +213,17 @@ def test_angular_http_methods_extracted():
     """Test Angular HttpClient methods are extracted as function calls."""
     db_path = DB_PATH
 
-    # Check for HTTP method calls (get, post, put, delete)
-    http_calls = fetchall(
+    # Get ALL function calls, filter in Python
+    all_calls = fetchall(
         db_path,
-        """
-        SELECT DISTINCT function
-        FROM function_calls
-        WHERE file LIKE '%user.service.ts%'
-        AND (function LIKE '%get%' OR function LIKE '%post%' OR function LIKE '%put%' OR function LIKE '%delete%')
-        """
+        "SELECT DISTINCT function, file FROM function_calls"
     )
+
+    # Filter for user.service.ts and HTTP methods
+    http_calls = [
+        (func,) for func, file in all_calls
+        if 'user.service.ts' in file and any(method in func.lower() for method in ['get', 'post', 'put', 'delete'])
+    ]
 
     assert len(http_calls) > 0, "No HttpClient method calls extracted"
 
@@ -240,11 +236,14 @@ def test_nextjs_api_routes_extracted():
     """Test Next.js API route extraction to api_endpoints table."""
     db_path = DB_PATH
 
-    # Next.js API routes in pages/api/
-    routes = fetchall(
+    # Get ALL routes, filter in Python
+    all_routes = fetchall(
         db_path,
-        "SELECT method, pattern, file FROM api_endpoints WHERE file LIKE '%pages/api/%'"
+        "SELECT method, pattern, file FROM api_endpoints"
     )
+
+    # Filter for Next.js pages/api/ routes
+    routes = [(m, p, f) for m, p, f in all_routes if 'pages/api/' in f or 'pages\\api\\' in f]
 
     assert len(routes) > 0, f"No Next.js API routes extracted, found {len(routes)}"
 
@@ -257,11 +256,11 @@ def test_nextjs_dynamic_routes_extracted():
     """Test Next.js dynamic routes like [id].js are extracted with correct patterns."""
     db_path = DB_PATH
 
-    # Check for dynamic route files
-    dynamic_routes = fetchall(
-        db_path,
-        "SELECT file FROM api_endpoints WHERE file LIKE '%[%]%'"
-    )
+    # Get ALL route files, filter in Python
+    all_routes = fetchall(db_path, "SELECT file FROM api_endpoints")
+
+    # Filter for dynamic route syntax [...]
+    dynamic_routes = [(f,) for (f,) in all_routes if '[' in f and ']' in f]
 
     # Next.js uses [id].js syntax for dynamic routes
     if len(dynamic_routes) > 0:
@@ -299,16 +298,11 @@ def test_bullmq_queues_extracted():
     """Test BullMQ queue and worker extraction."""
     db_path = DB_PATH
 
-    # BullMQ might be extracted as symbols or custom bull_queues table
-    # Check for Queue class usage
-    symbols = fetchall(
-        db_path,
-        """
-        SELECT name, file FROM symbols
-        WHERE file LIKE '%queue%'
-        OR file LIKE '%worker%'
-        """
-    )
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT name, path FROM symbols")
+
+    # Filter for queue or worker files
+    symbols = [(name, path) for name, path in all_symbols if 'queue' in path.lower() or 'worker' in path.lower()]
 
     assert len(symbols) > 0, "No BullMQ queue/worker symbols extracted"
 
@@ -321,15 +315,11 @@ def test_react_query_hooks_extracted():
     """Test React Query useQuery/useMutation hooks are extracted."""
     db_path = DB_PATH
 
-    # Check for React Query hooks
-    hooks = fetchall(
-        db_path,
-        """
-        SELECT hook_name FROM react_hooks
-        WHERE hook_name LIKE '%use%'
-        AND file LIKE '%react-query%'
-        """
-    )
+    # Get ALL hooks, filter in Python
+    all_hooks = fetchall(db_path, "SELECT hook_name, file FROM react_hooks")
+
+    # Filter for React Query files with use* hooks
+    hooks = [(name,) for name, file in all_hooks if 'use' in name.lower() and 'react-query' in file.lower()]
 
     assert len(hooks) > 0, "No React Query hooks extracted"
 
@@ -346,15 +336,11 @@ def test_typescript_interfaces_extracted():
     """Test TypeScript interface extraction to symbols table."""
     db_path = DB_PATH
 
-    # TypeScript interfaces should be in symbols table with type='interface'
-    interfaces = fetchall(
-        db_path,
-        """
-        SELECT name, file FROM symbols
-        WHERE type = 'interface'
-        AND file LIKE '%.ts'
-        """
-    )
+    # Get ALL interfaces, filter in Python
+    all_symbols = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'interface'")
+
+    # Filter for .ts files
+    interfaces = [(name, path) for name, path in all_symbols if path.endswith('.ts')]
 
     # Angular fixtures have TypeScript files with interfaces
     # Even if zero, test documents expected behavior
@@ -367,14 +353,11 @@ def test_typescript_classes_extracted():
     """Test TypeScript class extraction."""
     db_path = DB_PATH
 
-    classes = fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%.ts'
-        """
-    )
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for .ts files
+    classes = [(name,) for name, path in all_classes if path.endswith('.ts')]
 
     assert len(classes) > 0, "No TypeScript classes extracted"
 
@@ -404,48 +387,42 @@ def test_symbols_extracted_from_all_fixtures():
 
     assert total_symbols > 50, f"Expected 50+ symbols across all Node fixtures, found {total_symbols}"
 
-    # Check that JavaScript and TypeScript files are represented
-    js_files = fetchone(
-        db_path,
-        "SELECT COUNT(DISTINCT file) FROM symbols WHERE file LIKE '%.js%'"
-    )[0]
+    # Get ALL distinct files, filter in Python
+    all_files = fetchall(db_path, "SELECT DISTINCT path FROM symbols")
 
-    ts_files = fetchone(
-        db_path,
-        "SELECT COUNT(DISTINCT file) FROM symbols WHERE file LIKE '%.ts%'"
-    )[0]
+    # Filter for .js and .ts files
+    js_files = [f for (f,) in all_files if '.js' in f]
+    ts_files = [f for (f,) in all_files if '.ts' in f]
 
-    assert js_files > 0, "No JavaScript files extracted"
-    assert ts_files > 0, "No TypeScript files extracted"
+    assert len(js_files) > 0, "No JavaScript files extracted"
+    assert len(ts_files) > 0, "No TypeScript files extracted"
 
 
 def test_function_calls_extracted():
     """Test that function calls are extracted from Node fixtures."""
     db_path = DB_PATH
 
-    # Express routes call database methods, middleware, etc.
-    calls = fetchall(
-        db_path,
-        "SELECT COUNT(*) FROM function_calls WHERE file LIKE '%express%'"
-    )[0][0]
+    # Get ALL function calls, filter in Python
+    all_calls = fetchall(db_path, "SELECT file FROM function_calls")
 
-    assert calls > 10, f"Expected 10+ function calls in Express fixtures, found {calls}"
+    # Filter for express files
+    calls = [f for (f,) in all_calls if 'express' in f.lower()]
+
+    assert len(calls) > 10, f"Expected 10+ function calls in Express fixtures, found {len(calls)}"
 
 
 def test_imports_resolved():
     """Test that imports are extracted and resolved."""
     db_path = DB_PATH
 
-    # Check refs table for imports
-    imports = fetchall(
+    # Get ALL imports, filter in Python
+    all_imports = fetchall(
         db_path,
-        """
-        SELECT source, target FROM refs
-        WHERE ref_type = 'import'
-        AND source LIKE '%express%'
-        LIMIT 10
-        """
+        "SELECT source, target FROM refs WHERE ref_type = 'import' LIMIT 1000"
     )
+
+    # Filter for express sources
+    imports = [(src, tgt) for src, tgt in all_imports if 'express' in src.lower()][:10]
 
     assert len(imports) > 0, "No imports extracted from Express fixtures"
 
@@ -461,11 +438,11 @@ def test_typescript_deep_inheritance_extracted():
     """Test TypeScript 3+ level class inheritance chains are extracted."""
     db_path = DB_PATH
 
-    # Check that all classes in deep hierarchy are extracted
-    classes = {row[0] for row in fetchall(
-        db_path,
-        "SELECT name FROM symbols WHERE type = 'class' AND file LIKE '%deep_nesting.ts%'"
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for deep_nesting.ts
+    classes = {name for name, path in all_classes if 'deep_nesting.ts' in path}
 
     expected_classes = {
         "BaseEntity", "TimestampedEntity", "SoftDeletableEntity",
@@ -480,11 +457,11 @@ def test_typescript_interface_chains_extracted():
     """Test TypeScript interface extension chains (3+ levels) are extracted."""
     db_path = DB_PATH
 
-    # Check that interface hierarchy is extracted
-    interfaces = {row[0] for row in fetchall(
-        db_path,
-        "SELECT name FROM symbols WHERE type = 'interface' AND file LIKE '%deep_nesting.ts%'"
-    )}
+    # Get ALL interfaces, filter in Python
+    all_interfaces = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'interface'")
+
+    # Filter for deep_nesting.ts
+    interfaces = {name for name, path in all_interfaces if 'deep_nesting.ts' in path}
 
     expected_interfaces = {
         "IIdentifiable", "ITimestampable", "IAuditable", "IVersioned"
@@ -501,16 +478,14 @@ def test_typescript_nested_classes_extracted():
     """Test TypeScript nested classes (3+ levels) are extracted."""
     db_path = DB_PATH
 
-    # Check for nested class hierarchy
-    # OuterContainer.MiddleContainer.InnerContainer.DeepNested
-    symbols = fetchall(
-        db_path,
-        """
-        SELECT name, type FROM symbols
-        WHERE file LIKE '%deep_nesting.ts%'
-        AND (name LIKE '%Container%' OR name LIKE '%Nested%')
-        """
-    )
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT name, type, path FROM symbols")
+
+    # Filter for deep_nesting.ts and Container/Nested names
+    symbols = [
+        (name, type_) for name, type_, path in all_symbols
+        if 'deep_nesting.ts' in path and ('Container' in name or 'Nested' in name)
+    ]
 
     symbol_names = {name for name, _ in symbols}
 
@@ -529,15 +504,14 @@ def test_typescript_namespace_nesting():
     """Test TypeScript nested namespaces with classes are extracted."""
     db_path = DB_PATH
 
-    # Application.Core.Advanced namespace hierarchy
-    symbols = fetchall(
-        db_path,
-        """
-        SELECT name, type FROM symbols
-        WHERE file LIKE '%deep_nesting.ts%'
-        AND name LIKE '%Service%'
-        """
-    )
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT name, type, path FROM symbols")
+
+    # Filter for deep_nesting.ts and Service names
+    symbols = [
+        (name, type_) for name, type_, path in all_symbols
+        if 'deep_nesting.ts' in path and 'Service' in name
+    ]
 
     service_names = {name for name, _ in symbols}
 
@@ -553,11 +527,11 @@ def test_typescript_generic_repository_inheritance():
     """Test TypeScript generic class inheritance is extracted."""
     db_path = DB_PATH
 
-    # Repository<T> -> UserRepository -> AdminUserRepository
-    classes = {row[0] for row in fetchall(
-        db_path,
-        "SELECT name FROM symbols WHERE type = 'class' AND file LIKE '%deep_nesting.ts%'"
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for deep_nesting.ts
+    classes = {name for name, path in all_classes if 'deep_nesting.ts' in path}
 
     repository_classes = {"Repository", "UserRepository", "AdminUserRepository"}
 
@@ -569,11 +543,11 @@ def test_typescript_abstract_class_hierarchy():
     """Test TypeScript abstract classes with inheritance are extracted."""
     db_path = DB_PATH
 
-    # AbstractService -> UserService -> EnhancedUserService
-    classes = {row[0] for row in fetchall(
-        db_path,
-        "SELECT name FROM symbols WHERE type = 'class' AND file LIKE '%deep_nesting.ts%'"
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for deep_nesting.ts
+    classes = {name for name, path in all_classes if 'deep_nesting.ts' in path}
 
     service_classes = {"AbstractService", "UserService", "EnhancedUserService"}
 
@@ -588,33 +562,34 @@ def test_typescript_mixin_pattern():
     """Test TypeScript mixin pattern classes are extracted."""
     db_path = DB_PATH
 
-    # MixedEntity uses Loggable and Cacheable mixins
-    classes = {row[0] for row in fetchall(
-        db_path,
-        "SELECT name FROM symbols WHERE type = 'class' AND file LIKE '%deep_nesting.ts%'"
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for deep_nesting.ts
+    classes = {name for name, path in all_classes if 'deep_nesting.ts' in path}
 
     assert "MixedEntity" in classes, "TypeScript mixin class not extracted"
 
 
 def test_typescript_vs_python_deep_nesting_parity():
     """Test TypeScript deep nesting extraction has parity with Python."""
-    ts_db = index_fixtures(tmp_path / "ts", ["node-typescript-advanced"])
-    py_db = index_fixtures(tmp_path / "py", ["deep_nesting.py"])
+    db_path = DB_PATH
 
-    # Both should extract similar depth hierarchies
-    ts_classes = fetchall(ts_db, "SELECT COUNT(*) FROM symbols WHERE type = 'class'")[0][0]
-    py_classes = fetchall(py_db, "SELECT COUNT(*) FROM symbols WHERE type = 'class'")[0][0]
+    # Get ALL classes, filter by file in Python
+    all_classes = fetchall(db_path, "SELECT type, path FROM symbols WHERE type = 'class'")
+    ts_classes = [c for c in all_classes if 'deep_nesting.ts' in c[1]]
+    py_classes = [c for c in all_classes if 'deep_nesting.py' in c[1]]
 
-    assert ts_classes >= 10, f"TypeScript extracted only {ts_classes} classes"
-    assert py_classes >= 15, f"Python extracted only {py_classes} classes"
+    assert len(ts_classes) >= 10, f"TypeScript extracted only {len(ts_classes)} classes"
+    assert len(py_classes) >= 15, f"Python extracted only {len(py_classes)} classes"
 
-    # Both should have methods extracted
-    ts_methods = fetchall(ts_db, "SELECT COUNT(*) FROM symbols WHERE type = 'function'")[0][0]
-    py_methods = fetchall(py_db, "SELECT COUNT(*) FROM symbols WHERE type = 'function'")[0][0]
+    # Get ALL functions, filter by file in Python
+    all_functions = fetchall(db_path, "SELECT type, path FROM symbols WHERE type = 'function'")
+    ts_methods = [f for f in all_functions if 'deep_nesting.ts' in f[1]]
+    py_methods = [f for f in all_functions if 'deep_nesting.py' in f[1]]
 
-    assert ts_methods >= 20, f"TypeScript extracted only {ts_methods} methods"
-    assert py_methods >= 20, f"Python extracted only {py_methods} methods"
+    assert len(ts_methods) >= 20, f"TypeScript extracted only {len(ts_methods)} methods"
+    assert len(py_methods) >= 20, f"Python extracted only {len(py_methods)} methods"
 
 
 # ==============================================================================
@@ -625,16 +600,14 @@ def test_typescript_generic_functions_extracted():
     """Test TypeScript generic functions with constraints are extracted."""
     db_path = DB_PATH
 
-    # Generic functions: getId<T extends Entity>, getProperty<T, K>
-    functions = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%generics.ts%'
-        AND name IN ('getId', 'getProperty', 'updateUser', 'getFirstElement')
-        """
-    )}
+    # Get ALL functions, filter in Python
+    all_functions = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'function'")
+
+    # Filter for generics.ts and specific function names
+    functions = {
+        name for name, path in all_functions
+        if 'generics.ts' in path and name in ('getId', 'getProperty', 'updateUser', 'getFirstElement')
+    }
 
     expected_functions = {"getId", "getProperty", "updateUser", "getFirstElement"}
 
@@ -646,11 +619,11 @@ def test_typescript_mapped_types_extracted():
     """Test TypeScript mapped types (DeepPartial, DeepReadonly, Nullable) are extracted."""
     db_path = DB_PATH
 
-    # Check that generics.ts file is indexed
-    files = fetchall(
-        db_path,
-        "SELECT DISTINCT file FROM symbols WHERE file LIKE '%generics.ts%'"
-    )
+    # Get ALL distinct files, filter in Python
+    all_files = fetchall(db_path, "SELECT DISTINCT path FROM symbols")
+
+    # Filter for generics.ts
+    files = [path for (path,) in all_files if 'generics.ts' in path]
 
     assert len(files) > 0, "generics.ts not indexed"
 
@@ -659,16 +632,11 @@ def test_typescript_datastore_class_extracted():
     """Test DataStore generic class with complex constraints is extracted."""
     db_path = DB_PATH
 
-    # DataStore<T extends Entity, K extends keyof T>
-    classes = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%generics.ts%'
-        AND name = 'DataStore'
-        """
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for generics.ts and DataStore
+    classes = {name for name, path in all_classes if 'generics.ts' in path and name == 'DataStore'}
 
     assert "DataStore" in classes, "DataStore generic class not extracted"
 
@@ -677,15 +645,14 @@ def test_typescript_repository_interface_extracted():
     """Test IRepository generic interface is extracted."""
     db_path = DB_PATH
 
-    # IRepository<T extends Entity> interface
-    interfaces = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE file LIKE '%generics.ts%'
-        AND name IN ('IRepository', 'UserRepository')
-        """
-    )}
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT name, path FROM symbols")
+
+    # Filter for generics.ts and specific names
+    interfaces = {
+        name for name, path in all_symbols
+        if 'generics.ts' in path and name in ('IRepository', 'UserRepository')
+    }
 
     expected = {"IRepository", "UserRepository"}
 
@@ -697,15 +664,14 @@ def test_typescript_recursive_generic_types():
     """Test recursive generic types (TreeNode) are extracted."""
     db_path = DB_PATH
 
-    # TreeNode<T> interface and traverseTree function
-    symbols = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE file LIKE '%generics.ts%'
-        AND name IN ('TreeNode', 'traverseTree')
-        """
-    )}
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT name, path FROM symbols")
+
+    # Filter for generics.ts and specific names
+    symbols = {
+        name for name, path in all_symbols
+        if 'generics.ts' in path and name in ('TreeNode', 'traverseTree')
+    }
 
     # At minimum, function should be extracted
     assert "traverseTree" in symbols, "traverseTree function not extracted"
@@ -715,16 +681,14 @@ def test_typescript_type_guards_extracted():
     """Test TypeScript type guard functions are extracted."""
     db_path = DB_PATH
 
-    # Type guard functions: isArray, hasId
-    functions = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%generics.ts%'
-        AND name IN ('isArray', 'hasId')
-        """
-    )}
+    # Get ALL functions, filter in Python
+    all_functions = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'function'")
+
+    # Filter for generics.ts and specific names
+    functions = {
+        name for name, path in all_functions
+        if 'generics.ts' in path and name in ('isArray', 'hasId')
+    }
 
     expected_functions = {"isArray", "hasId"}
 
@@ -736,16 +700,11 @@ def test_typescript_event_emitter_generic_class():
     """Test EventEmitter generic class is extracted."""
     db_path = DB_PATH
 
-    # EventEmitter<T extends string>
-    classes = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%generics.ts%'
-        AND name = 'EventEmitter'
-        """
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for generics.ts and EventEmitter
+    classes = {name for name, path in all_classes if 'generics.ts' in path and name == 'EventEmitter'}
 
     assert "EventEmitter" in classes, "EventEmitter generic class not extracted"
 
@@ -754,16 +713,11 @@ def test_typescript_builder_pattern_extracted():
     """Test Builder pattern with generics is extracted."""
     db_path = DB_PATH
 
-    # Builder<T> class
-    classes = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%generics.ts%'
-        AND name = 'Builder'
-        """
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for generics.ts and Builder
+    classes = {name for name, path in all_classes if 'generics.ts' in path and name == 'Builder'}
 
     assert "Builder" in classes, "Builder generic class not extracted"
 
@@ -772,16 +726,14 @@ def test_typescript_utility_type_functions():
     """Test functions using utility types (Pick, Omit, Partial) are extracted."""
     db_path = DB_PATH
 
-    # Functions: merge, mapValues, pick
-    functions = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%generics.ts%'
-        AND name IN ('merge', 'mapValues', 'pick', 'createUserCredentials')
-        """
-    )}
+    # Get ALL functions, filter in Python
+    all_functions = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'function'")
+
+    # Filter for generics.ts and specific names
+    functions = {
+        name for name, path in all_functions
+        if 'generics.ts' in path and name in ('merge', 'mapValues', 'pick', 'createUserCredentials')
+    }
 
     expected_functions = {"merge", "mapValues", "pick", "createUserCredentials"}
 
@@ -793,16 +745,14 @@ def test_typescript_variadic_tuple_functions():
     """Test functions with variadic tuple types are extracted."""
     db_path = DB_PATH
 
-    # Variadic tuple functions: concat, curry
-    functions = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%generics.ts%'
-        AND name IN ('concat', 'curry')
-        """
-    )}
+    # Get ALL functions, filter in Python
+    all_functions = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'function'")
+
+    # Filter for generics.ts and specific names
+    functions = {
+        name for name, path in all_functions
+        if 'generics.ts' in path and name in ('concat', 'curry')
+    }
 
     expected_functions = {"concat", "curry"}
 
@@ -814,16 +764,14 @@ def test_typescript_dictionary_functions():
     """Test functions operating on Dictionary<T> are extracted."""
     db_path = DB_PATH
 
-    # Dictionary functions
-    functions = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%generics.ts%'
-        AND name IN ('getDictionaryKeys', 'transformDictionary')
-        """
-    )}
+    # Get ALL functions, filter in Python
+    all_functions = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'function'")
+
+    # Filter for generics.ts and specific names
+    functions = {
+        name for name, path in all_functions
+        if 'generics.ts' in path and name in ('getDictionaryKeys', 'transformDictionary')
+    }
 
     expected_functions = {"getDictionaryKeys", "transformDictionary"}
 
@@ -835,16 +783,11 @@ def test_typescript_container_with_static_methods():
     """Test Container class with static generic methods is extracted."""
     db_path = DB_PATH
 
-    # Container<T> class
-    classes = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%generics.ts%'
-        AND name = 'Container'
-        """
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for generics.ts and Container
+    classes = {name for name, path in all_classes if 'generics.ts' in path and name == 'Container'}
 
     assert "Container" in classes, "Container generic class not extracted"
 
@@ -853,29 +796,21 @@ def test_typescript_generics_symbol_count():
     """Test overall TypeScript generics fixture extraction completeness."""
     db_path = DB_PATH
 
-    # Total functions extracted from generics.ts
-    total_functions = fetchall(
-        db_path,
-        """
-        SELECT COUNT(*) FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%generics.ts%'
-        """
-    )[0][0]
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT type, path FROM symbols")
+
+    # Filter for generics.ts
+    generics_symbols = [s for s in all_symbols if 'generics.ts' in s[1]]
+
+    # Count functions
+    total_functions = len([s for s in generics_symbols if s[0] == 'function'])
 
     # Should extract 20+ functions
     assert total_functions >= 15, \
         f"Expected 15+ functions from generics.ts, found {total_functions}"
 
-    # Total classes extracted
-    total_classes = fetchall(
-        db_path,
-        """
-        SELECT COUNT(*) FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%generics.ts%'
-        """
-    )[0][0]
+    # Count classes
+    total_classes = len([s for s in generics_symbols if s[0] == 'class'])
 
     # Should extract 5+ classes
     assert total_classes >= 4, \
