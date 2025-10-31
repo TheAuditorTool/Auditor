@@ -1140,16 +1140,18 @@ def test_async_api_client_class_extracted():
 
     assert "AsyncAPIClient" in classes, "AsyncAPIClient class not extracted"
 
-    # API client methods
-    methods = {row[0] for row in fetchall(
+    # API client methods - fetch ALL, filter in Python
+    all_methods = fetchall(
         db_path,
         """
-        SELECT name FROM symbols
+        SELECT name, path FROM symbols
         WHERE type = 'function'
         AND name IN ('connect', 'disconnect', 'get', 'post', 'fetch_multiple')
-        AND file LIKE '%async_app.py%'
         """
-    )}
+    )
+
+    # Filter in Python for async_app.py
+    methods = {name for name, path in all_methods if 'async_app.py' in path}
 
     expected_methods = {"connect", "disconnect", "get", "post", "fetch_multiple"}
 
@@ -1161,21 +1163,21 @@ def test_async_symbol_count():
     """Test overall async fixture extraction completeness."""
     db_path = DB_PATH
 
-    # Total functions extracted
-    total_functions = fetchall(
-        db_path,
-        "SELECT COUNT(*) FROM symbols WHERE type = 'function' AND file LIKE '%async_app.py%'"
-    )[0][0]
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT type, path FROM symbols")
+
+    # Filter for async_app.py
+    async_symbols = [s for s in all_symbols if 'async_app.py' in s[1]]
+
+    # Count functions
+    total_functions = len([s for s in async_symbols if s[0] == 'function'])
 
     # Should extract 40+ functions (async and sync)
     assert total_functions >= 40, \
         f"Expected 40+ functions from async_app.py, found {total_functions}"
 
-    # Total classes extracted
-    total_classes = fetchall(
-        db_path,
-        "SELECT COUNT(*) FROM symbols WHERE type = 'class' AND file LIKE '%async_app.py%'"
-    )[0][0]
+    # Count classes
+    total_classes = len([s for s in async_symbols if s[0] == 'class'])
 
     # Should extract 4+ classes
     assert total_classes >= 3, \
@@ -1199,16 +1201,11 @@ def test_circular_imports_all_modules_indexed():
     """Test that all modules in circular import chain are indexed."""
     db_path = DB_PATH
 
-    # Check that all 4 modules are in the database
-    files = fetchall(
-        db_path,
-        """
-        SELECT DISTINCT file FROM symbols
-        WHERE file LIKE '%circular_imports%'
-        """
-    )
+    # Get ALL distinct files, filter in Python
+    all_files = fetchall(db_path, "SELECT DISTINCT path FROM symbols")
 
-    file_names = {row[0] for row in files}
+    # Filter for circular_imports
+    file_names = {row[0] for row in all_files if 'circular_imports' in row[0]}
 
     # Should have models.py, services.py, controllers.py, utils.py
     assert any("models.py" in f for f in file_names), "models.py not indexed"
@@ -1221,15 +1218,11 @@ def test_circular_imports_models_extracted():
     """Test that model classes in circular imports are extracted."""
     db_path = DB_PATH
 
-    # Models: User, Post, Comment
-    models = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%circular_imports%models.py%'
-        """
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for circular_imports/models.py
+    models = {name for name, path in all_classes if 'circular_imports' in path and 'models.py' in path}
 
     expected_models = {"User", "Post", "Comment"}
 
@@ -1241,15 +1234,11 @@ def test_circular_imports_services_extracted():
     """Test that service classes in circular imports are extracted."""
     db_path = DB_PATH
 
-    # Services: UserService, PostService, CommentService
-    services = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%circular_imports%services.py%'
-        """
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for circular_imports/services.py
+    services = {name for name, path in all_classes if 'circular_imports' in path and 'services.py' in path}
 
     expected_services = {"UserService", "PostService", "CommentService"}
 
@@ -1261,15 +1250,11 @@ def test_circular_imports_controllers_extracted():
     """Test that controller classes in circular imports are extracted."""
     db_path = DB_PATH
 
-    # Controllers: UserController, PostController, CommentController
-    controllers = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%circular_imports%controllers.py%'
-        """
-    )}
+    # Get ALL classes, filter in Python
+    all_classes = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'class'")
+
+    # Filter for circular_imports/controllers.py
+    controllers = {name for name, path in all_classes if 'circular_imports' in path and 'controllers.py' in path}
 
     expected_controllers = {"UserController", "PostController", "CommentController"}
 
@@ -1281,15 +1266,11 @@ def test_circular_imports_utils_functions_extracted():
     """Test that utility functions in circular imports are extracted."""
     db_path = DB_PATH
 
-    # Utils functions
-    utils = {row[0] for row in fetchall(
-        db_path,
-        """
-        SELECT name FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%circular_imports%utils.py%'
-        """
-    )}
+    # Get ALL functions, filter in Python
+    all_functions = fetchall(db_path, "SELECT name, path FROM symbols WHERE type = 'function'")
+
+    # Filter for circular_imports/utils.py
+    utils = {name for name, path in all_functions if 'circular_imports' in path and 'utils.py' in path}
 
     expected_utils = {
         "get_user_summary",
@@ -1307,15 +1288,14 @@ def test_circular_imports_have_refs():
     """Test that circular imports create import references in refs table."""
     db_path = DB_PATH
 
-    # Check that import refs exist between circular modules
-    refs = fetchall(
+    # Get ALL import refs, filter in Python
+    all_refs = fetchall(
         db_path,
-        """
-        SELECT DISTINCT src, value FROM refs
-        WHERE ref_type = 'import'
-        AND src LIKE '%circular_imports%'
-        """
+        "SELECT DISTINCT src, value FROM refs WHERE ref_type = 'import'"
     )
+
+    # Filter for circular_imports
+    refs = [r for r in all_refs if 'circular_imports' in r[0]]
 
     # Should have refs between the circular modules
     ref_pairs = {(row[0], row[1]) for row in refs}
@@ -1328,29 +1308,21 @@ def test_circular_imports_symbol_count():
     """Test overall extraction completeness for circular imports package."""
     db_path = DB_PATH
 
-    # Total classes extracted (models + services + controllers)
-    total_classes = fetchall(
-        db_path,
-        """
-        SELECT COUNT(*) FROM symbols
-        WHERE type = 'class'
-        AND file LIKE '%circular_imports%'
-        """
-    )[0][0]
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT type, path FROM symbols")
+
+    # Filter for circular_imports
+    circular_symbols = [s for s in all_symbols if 'circular_imports' in s[1]]
+
+    # Count classes
+    total_classes = len([s for s in circular_symbols if s[0] == 'class'])
 
     # Should extract 9+ classes (User, Post, Comment, 3 services, 3 controllers)
     assert total_classes >= 9, \
         f"Expected 9+ classes from circular_imports, found {total_classes}"
 
-    # Total functions extracted
-    total_functions = fetchall(
-        db_path,
-        """
-        SELECT COUNT(*) FROM symbols
-        WHERE type = 'function'
-        AND file LIKE '%circular_imports%'
-        """
-    )[0][0]
+    # Count functions
+    total_functions = len([s for s in circular_symbols if s[0] == 'function'])
 
     # Should extract 30+ functions (methods + module-level functions)
     assert total_functions >= 25, \
@@ -1362,13 +1334,11 @@ def test_circular_imports_no_infinite_loop():
     # If we can index and query the database, no infinite loop occurred
     db_path = DB_PATH
 
-    # Simple smoke test - just check we can query
-    result = fetchall(
-        db_path,
-        "SELECT COUNT(*) FROM symbols WHERE file LIKE '%circular_imports%'"
-    )
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT path FROM symbols")
+    circular_symbols = [s for s in all_symbols if 'circular_imports' in s[0]]
 
-    assert result[0][0] > 0, "No symbols extracted - possible indexer failure"
+    assert len(circular_symbols) > 0, "No symbols extracted - possible indexer failure"
 
 
 # ==============================================================================
@@ -1633,21 +1603,21 @@ def test_type_annotations_symbol_count():
     """Test overall type annotations fixture extraction completeness."""
     db_path = DB_PATH
 
-    # Total classes extracted (generics, protocols, dataclasses)
-    total_classes = fetchall(
-        db_path,
-        "SELECT COUNT(*) FROM symbols WHERE type = 'class' AND file LIKE '%type_annotations.py%'"
-    )[0][0]
+    # Get ALL symbols, filter in Python
+    all_symbols = fetchall(db_path, "SELECT type, path FROM symbols")
+
+    # Filter for type_annotations.py
+    type_symbols = [s for s in all_symbols if 'type_annotations.py' in s[1]]
+
+    # Count classes
+    total_classes = len([s for s in type_symbols if s[0] == 'class'])
 
     # Should extract 7+ classes
     assert total_classes >= 7, \
         f"Expected 7+ classes from type_annotations.py, found {total_classes}"
 
-    # Total functions extracted
-    total_functions = fetchall(
-        db_path,
-        "SELECT COUNT(*) FROM symbols WHERE type = 'function' AND file LIKE '%type_annotations.py%'"
-    )[0][0]
+    # Count functions
+    total_functions = len([s for s in type_symbols if s[0] == 'function'])
 
     # Should extract 35+ functions
     assert total_functions >= 35, \
