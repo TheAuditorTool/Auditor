@@ -531,23 +531,70 @@ pip install -e .  # ML dependencies always installed
 ## Core Components
 
 ### Indexer Package (`theauditor/indexer/`)
-The indexer has been refactored from a monolithic 2000+ line file into a modular package structure:
+The indexer has undergone comprehensive modular refactoring in v1.4.2-RC1, splitting monolithic files into focused, domain-specific modules:
 
 ```
 theauditor/indexer/
-├── __init__.py           # IndexOrchestrator + backward compatibility
-├── config.py             # Constants, patterns, and configuration
-├── database.py           # DatabaseManager class for all DB operations
-├── core.py               # FileWalker and ASTCache classes
-├── metadata_collector.py # Git churn and test coverage analysis
+├── __init__.py              # Public API exports (71 lines)
+├── orchestrator.py          # IndexerOrchestrator - extraction coordination (740 lines)
+├── storage.py               # DataStorer - 66 storage handlers (1,385 lines)
+├── schema.py                # Backward-compatible schema stub (561 lines)
+├── config.py                # Constants, patterns, and configuration
+├── core.py                  # FileWalker and ASTCache classes
+├── metadata_collector.py    # Git churn and test coverage analysis
+├── schemas/                 # Schema definitions (108 tables split by domain)
+│   ├── __init__.py          # Registry merger & exports
+│   ├── utils.py             # Column, ForeignKey, TableSchema classes
+│   ├── core_schema.py       # 21 language-agnostic tables
+│   ├── python_schema.py     # 34 Python framework tables
+│   ├── node_schema.py       # 17 Node.js/TypeScript/React/Vue tables
+│   ├── infrastructure_schema.py # 18 IaC tables (Docker, Terraform, CDK, GitHub Actions)
+│   ├── security_schema.py   # 5 security tables (SQL, JWT, env vars)
+│   ├── frameworks_schema.py # 5 framework tables (ORM, API routing)
+│   ├── planning_schema.py   # 5 planning tables
+│   └── graphs_schema.py     # 3 graph database tables (separate .pf/graphs.db)
+├── database/                # Database operations (92 methods split by domain)
+│   ├── __init__.py          # DatabaseManager + exports
+│   ├── base_database.py     # BaseDatabaseManager - core infrastructure (12 methods)
+│   ├── core_database.py     # CoreDatabaseMixin - 21 core tables (16 methods)
+│   ├── python_database.py   # PythonDatabaseMixin - 34 Python tables (34 methods)
+│   ├── node_database.py     # NodeDatabaseMixin - 17 Node tables (14 methods)
+│   ├── infrastructure_database.py # InfraDatabaseMixin - 18 IaC tables (18 methods)
+│   ├── security_database.py # SecurityDatabaseMixin - 5 security tables (4 methods)
+│   ├── frameworks_database.py # FrameworksDatabaseMixin - 5 framework tables (4 methods)
+│   └── planning_database.py # PlanningDatabaseMixin - 5 planning tables (stub)
 └── extractors/
-    ├── __init__.py       # BaseExtractor abstract class and registry
-    ├── python.py         # Python-specific extraction logic
-    ├── javascript.py     # JavaScript/TypeScript extraction
-    ├── docker.py         # Docker/docker-compose extraction
-    ├── sql.py            # SQL extraction
-    └── generic.py        # Generic extractor (webpack, nginx, compose)
+    ├── __init__.py          # BaseExtractor abstract class and registry
+    ├── python.py            # Python-specific extraction logic
+    ├── javascript.py        # JavaScript/TypeScript extraction
+    ├── docker.py            # Docker/docker-compose extraction
+    ├── sql.py               # SQL extraction
+    └── generic.py           # Generic extractor (webpack, nginx, compose)
 ```
+
+**v1.4.2-RC1 Refactor Summary:**
+
+1. **Schema System** (`schemas/`) - 2,874-line `schema.py` split into 8 domain modules
+   - **Before**: Single monolithic file with all 108 table definitions
+   - **After**: Domain-specific schema files (21-34 tables each) with registry pattern
+   - **Benefit**: Developers can modify Python schemas without touching Node schemas
+
+2. **Database Layer** (`database/`) - Monolithic `DatabaseManager` split into 8 mixins
+   - **Before**: Single 1,965-line class with 92 methods
+   - **After**: `BaseDatabaseManager` + 7 domain mixins using multiple inheritance
+   - **Benefit**: Clean separation of concerns, improved testability, easier to extend
+
+3. **Storage Operations** (`storage.py`) - Extracted 1,169-line God Method
+   - **Before**: `_store_extracted_data()` method with 1,169 lines of inline storage logic
+   - **After**: `DataStorer` class with 66 focused handlers (10-40 lines each)
+   - **Benefit**: Handler registry pattern, clear separation from orchestration
+
+4. **Orchestration** (`orchestrator.py`) - Separated orchestration from storage
+   - **Responsibilities**: File walking, AST parsing, extractor coordination, JSX dual-pass
+   - **Delegates to**: `DataStorer` for all storage operations
+   - **Benefit**: Single responsibility principle, easier to test and maintain
+
+**Backward Compatibility**: All refactors maintain 100% backward compatibility through re-exports and delegation patterns. External code continues to work without modification.
 
 #### File Path Responsibility Architecture
 
@@ -678,6 +725,50 @@ db_manager.add_object_literal(
 - Code reviews check for architectural violations
 - Database NULL constraints catch missing file paths immediately
 - Unit tests verify implementations return correct key structures
+
+#### TypeScript/JavaScript AST Extractors (v1.4.2-RC1 Refactor)
+
+The TypeScript implementation has been split into two specialized layers for improved maintainability:
+
+```
+theauditor/ast_extractors/
+├── typescript_impl_structure.py  # Structural Layer (1,031 lines)
+│   ├── Stateless AST traversal
+│   ├── JSX detection system (35 node types)
+│   ├── Scope mapping (build_scope_map - solves "100% anonymous caller" bug)
+│   └── Structural extractors (functions, classes, calls, imports, exports, properties)
+├── typescript_impl.py             # Behavioral Layer (1,292 lines)
+│   ├── Context-dependent analysis
+│   ├── Imports from typescript_impl_structure
+│   ├── Re-exports structural functions (backward compatibility)
+│   └── Behavioral extractors (assignments, function_params, calls_with_args, returns, CFG, object_literals)
+└── batch_templates.js             # JavaScript-side batch processing templates
+```
+
+**Architectural Separation:**
+
+- **Structural Layer** (`typescript_impl_structure.py`):
+  - **Stateless operations** - No scope-dependent context required
+  - AST utility functions (name extraction, member resolution, comment stripping)
+  - JSX detection (complete `JSX_NODE_KINDS` enumeration with 35 node types)
+  - **`build_scope_map()`** - O(1) line-to-function lookups (critical for accurate caller detection)
+  - Structural extractors - "What exists in the code?" (functions, classes, imports, exports)
+
+- **Behavioral Layer** (`typescript_impl.py`):
+  - **Context-dependent analysis** - Requires scope resolution via `build_scope_map()`
+  - Used by 4 extractors: assignments, calls_with_args, returns, object_literals
+  - Behavioral extractors - "What does the code do?" (data flow, control flow, state changes)
+  - Re-exports structural functions for backward compatibility with orchestrator
+
+**Critical Fix Preserved:**
+
+The `build_scope_map()` function (lines 371-555 in `typescript_impl_structure.py`) solves the "100% anonymous caller" bug by creating a scope mapping that enables O(1) lookups from line numbers to containing functions. This ensures accurate function context for all behavioral extractors.
+
+**Benefits:**
+- Clear separation: Structural (stateless) vs. Behavioral (stateful)
+- Improved testability: Structural layer can be tested without scope context
+- Easier maintenance: 26 functions organized by responsibility
+- 100% backward compatibility: Re-export pattern preserves all existing imports
 
 Key features:
 - **Dynamic extractor registry** for automatic language detection

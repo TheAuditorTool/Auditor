@@ -1,0 +1,132 @@
+{
+  "exploration": "TheAuditor Rule Engine - Complete Architecture",
+  "total_rules": 52,
+  "total_categories": 16,
+  "database_tables": 109,
+  "core_guaranteed_tables": 46,
+  "rules_by_category": {
+    "security": [
+      "find_apiauth_issues",
+      "find_cors_issues",
+      "find_crypto_issues",
+      "find_input_validation_issues",
+      "find_pii_issues",
+      "find_rate_limit_issues",
+      "find_sourcemap_issues",
+      "find_websocket_issues"
+    ],
+    "sql": [
+      "find_sql_injection",
+      "find_sql_safety_issues",
+      "find_multi_tenant_issues"
+    ],
+    "xss": [
+      "find_xss_issues",
+      "find_dom_xss",
+      "find_react_xss",
+      "find_express_xss",
+      "find_template_injection",
+      "find_vue_xss"
+    ],
+    "auth": [
+      "find_jwt_flaws",
+      "find_oauth_issues",
+      "find_password_issues",
+      "find_session_issues"
+    ],
+    "secrets": [
+      "find_hardcoded_secrets"
+    ],
+    "deployment": [
+      "find_docker_issues",
+      "find_compose_issues",
+      "find_nginx_issues",
+      "find_cdk_encryption_issues",
+      "find_cdk_iam_issues",
+      "find_cdk_s3_issues",
+      "find_cdk_sg_issues"
+    ],
+    "github_actions": [
+      "find_untrusted_checkout_sequence",
+      "find_pull_request_injection",
+      "find_unpinned_action_with_secrets",
+      "find_excessive_pr_permissions",
+      "find_artifact_poisoning_risk",
+      "find_external_reusable_with_secrets"
+    ],
+    "react": [
+      "find_react_xss",
+      "find_react_component_issues",
+      "find_react_hooks_issues",
+      "find_react_render_issues"
+    ],
+    "vue": [
+      "find_vue_render_issues",
+      "find_vue_xss",
+      "find_vue_component_issues",
+      "find_vue_hooks_issues",
+      "find_vue_state_issues",
+      "find_vue_reactivity_issues"
+    ],
+    "orm": [
+      "find_prisma_issues",
+      "find_typeorm_issues",
+      "find_sequelize_issues"
+    ],
+    "python": [
+      "find_python_injection_analyze",
+      "find_python_deserialization_analyze",
+      "find_python_crypto_analyze",
+      "find_python_globals_analyze",
+      "find_async_concurrency_analyze"
+    ],
+    "node": [
+      "find_runtime_issue_analyze",
+      "find_async_concurrency_analyze"
+    ],
+    "logic": [
+      "find_logic_issues"
+    ],
+    "typescript": [
+      "find_type_safety_issues"
+    ],
+    "terraform": [
+      "find_terraform_issues"
+    ],
+    "performance": [
+      "find_performance_issues"
+    ]
+  },
+  "core_components": {
+    "base.py": {
+      "description": "Standardized contracts",
+      "classes": [
+        "StandardRuleContext",
+        "StandardFinding",
+        "RuleMetadata",
+        "Severity",
+        "Confidence"
+      ]
+    },
+    "orchestrator.py": {
+      "description": "Discovery and execution engine",
+      "lines": 889,
+      "key_methods": [
+        "_discover_all_rules",
+        "run_all_rules",
+        "run_database_rules",
+        "run_rules_for_file",
+        "collect_rule_patterns"
+      ]
+    }
+  },
+  "key_principles": [
+    "Zero Fallback Policy - database is fresh every run",
+    "Database-First Approach - indexed lookups, minimal file I/O",
+    "Auto-Discovery - no manual rule registration",
+    "Standardized Interface - all rules follow same signature",
+    "Schema Contract - 46 core tables guaranteed to exist",
+    "Smart Filtering - METADATA controls execution",
+    "Hard Failures - crashes expose database issues"
+  ]
+}
