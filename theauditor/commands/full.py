@@ -72,6 +72,29 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache):
       Use --wipecache to force a complete cache rebuild.
       This is useful for recovering from cache corruption.
 
+    FLAG INTERACTIONS:
+      --offline + --subprocess-taint: Air-gapped taint analysis
+      --wipecache: Overrides all caching (slowest, cleanest run)
+      --quiet + --offline: Minimal output for CI/CD (fastest)
+      --exclude-self: Must be used when testing TheAuditor on itself
+
+    TROUBLESHOOTING:
+      Pipeline hangs during taint phase:
+        Solution: Use --subprocess-taint to isolate taint analysis
+
+      Cache corruption errors:
+        Solution: Run with --wipecache to rebuild all caches
+
+      Network timeouts in CI:
+        Solution: Use --offline to skip version checks and docs
+
+      Memory errors on large codebase:
+        Solution: Run individual phases separately, not full pipeline
+
+      Exit code 3 (pipeline failed):
+        Cause: One or more phases failed to complete
+        Solution: Check .pf/pipeline.log for specific phase errors
+
     Note: Uses intelligent caching - second run is 5-10x faster"""
     from theauditor.pipelines import run_full_pipeline
     

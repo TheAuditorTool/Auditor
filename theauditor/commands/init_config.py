@@ -6,53 +6,52 @@ import click
 @click.command("init-config")
 @click.option("--pyproject", default="pyproject.toml", help="Path to pyproject.toml")
 def init_config(pyproject):
-    """Ensure minimal mypy configuration exists in pyproject.toml.
+    """Create or update minimal mypy type-checking configuration in pyproject.toml (idempotent).
 
-    This command creates or updates pyproject.toml with a minimal mypy configuration
-    required for type checking. It is idempotent (safe to run multiple times) and
-    will not overwrite existing mypy settings.
+    Scaffolds basic mypy configuration required for TheAuditor's lint command to perform
+    Python type checking. Idempotent operation that preserves existing mypy settings while
+    ensuring minimum required configuration exists. Prevents lint failures due to missing
+    mypy config.
 
-    WHY THIS IS NEEDED:
-    - TheAuditor's lint command runs mypy for type checking
-    - mypy requires a config file to function properly
-    - Missing config causes lint failures or incorrect type checking
-    - Ensures consistent type checking across all environments
+    AI ASSISTANT CONTEXT:
+      Purpose: Bootstrap mypy type-checking configuration
+      Input: Existing pyproject.toml (if present) or create new
+      Output: pyproject.toml with [tool.mypy] section
+      Prerequisites: None (creates from scratch if needed)
+      Integration: Enables 'aud lint' for Python type checking
+      Performance: ~1 second (file I/O only)
+
+    WHY NEEDED:
+      - TheAuditor's lint command runs mypy for type checking
+      - mypy requires config file to function properly
+      - Missing config causes lint failures or incorrect analysis
+      - Ensures consistent type checking across environments
 
     WHAT IT CREATES:
-    - Adds [tool.mypy] section to pyproject.toml if missing
-    - Sets basic type checking options (strict mode disabled by default)
-    - Preserves any existing mypy configuration
+      [tool.mypy] section in pyproject.toml:
+        - python_version = "3.11"
+        - warn_return_any = true
+        - warn_unused_configs = true
+        - Strict mode disabled (opt-in via manual edit)
 
     EXAMPLES:
-      # Initialize mypy config in current directory
       aud init-config
-
-      # Specify custom pyproject.toml location
       aud init-config --pyproject /path/to/pyproject.toml
-
-      # Run as part of project setup
       aud init && aud init-config && aud init-js
 
-    OUTPUT:
-      - Creates or updates pyproject.toml with [tool.mypy] section
-      - Prints confirmation message
+    PERFORMANCE: ~1 second
 
-    CREATED CONFIG:
-      [tool.mypy]
-      python_version = "3.11"
-      warn_return_any = true
-      warn_unused_configs = true
-
-    PREREQUISITES:
-      None - this command can be run anytime
+    EXIT CODES:
+      0 = Success
+      1 = File write error
 
     RELATED COMMANDS:
-      aud init              # Initialize .pf/ directory
-      aud init-js           # Initialize package.json for JS projects
-      aud lint              # Runs mypy using this config
+      aud init     # Python project initialization
+      aud init-js  # JavaScript/TypeScript configuration
+      aud lint     # Uses mypy with created config
 
-    NOTE: This command is idempotent. Running it multiple times will not
-    create duplicate config sections or overwrite existing settings.
+    NOTE: This command does NOT enable strict type checking by default. For
+    strict mode, manually edit pyproject.toml and set strict = true.
     """
     from theauditor.config import ensure_mypy_config
 

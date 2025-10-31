@@ -10,7 +10,69 @@ logger = setup_logger(__name__)
 @click.group()
 @click.help_option("-h", "--help")
 def metadata():
-    """Collect temporal (churn) and quality (coverage) metadata."""
+    """Collect temporal and quality metadata for FCE correlation and risk analysis.
+
+    Group of commands that extract pure facts about code quality over time. Provides
+    the temporal dimension (git churn, modification frequency) and quality dimension
+    (test coverage, complexity) for Feed-forward Correlation Engine (FCE) analysis.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Extract temporal and quality facts for risk correlation
+      Input: Git history, coverage reports, repo_index.db
+      Output: .pf/raw/churn_analysis.json, .pf/raw/coverage_analysis.json
+      Prerequisites: Git repository (for churn), coverage tool output (for coverage)
+      Integration: Data feeds into 'aud fce' for compound risk detection
+      Performance: ~5-20 seconds (git log parsing + database queries)
+
+    SUBCOMMANDS:
+      churn:
+        - Analyzes git commit history for file volatility
+        - Metrics: commits per file, unique authors, days since last change
+        - Time range: Configurable (default 90 days)
+        - Use case: Correlate high churn with vulnerabilities
+
+      coverage:
+        - Parses test coverage reports (coverage.py, Jest, etc.)
+        - Metrics: Line coverage %, uncovered lines, branch coverage
+        - Input: .coverage, coverage.xml, lcov.info
+        - Use case: Correlate low coverage with defects
+
+      analyze:
+        - Combined analysis of churn + coverage + findings
+        - Identifies hot spots (high churn + low coverage + vulnerabilities)
+        - Outputs prioritized risk report
+        - Use case: Focus refactoring on highest-risk files
+
+    COMMON WORKFLOWS:
+      Pre-Release Risk Assessment:
+        aud metadata churn --days 30
+        aud metadata coverage
+        aud metadata analyze
+
+      Continuous Monitoring:
+        aud full && aud metadata churn && aud fce
+
+      Technical Debt Tracking:
+        aud metadata analyze --output ./debt_report.json
+
+    EXAMPLES:
+      # Analyze git churn for last 90 days
+      aud metadata churn
+
+      # Parse test coverage report
+      aud metadata coverage
+
+      # Combined hot spot analysis
+      aud metadata analyze
+
+    SEE ALSO:
+      aud fce --help             # Understand FCE correlation engine
+      aud metadata churn --help  # Detailed churn analysis options
+      aud metadata coverage --help  # Coverage parsing options
+
+    NOTE: Metadata commands extract raw facts only - no pattern detection or
+    heuristics. Analysis and correlation happen in 'aud fce' and 'aud full'.
+    """
     pass
 
 

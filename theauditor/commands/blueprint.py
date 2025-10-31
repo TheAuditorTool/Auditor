@@ -26,18 +26,64 @@ from theauditor.utils.error_handler import handle_exceptions
               help="Output format: text (visual tree), json (structured)")
 @handle_exceptions
 def blueprint(structure, graph, security, taint, all, output_format):
-    """Architectural blueprint - Truth courier visualization of indexed codebase.
+    """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
-    Shows facts about code architecture with NO recommendations or prescriptive language.
-    Pure data extraction from TypeScript compiler semantic analysis.
+    Truth-courier mode visualization that presents pure architectural facts extracted from
+    indexed codebase with zero prescriptive language. Supports drill-down flags to focus on
+    specific dimensions (structure, dependencies, security surface, data flow). Output format
+    toggles between visual ASCII tree and structured JSON for programmatic consumption.
 
-    USAGE MODES:
+    AI ASSISTANT CONTEXT:
+      Purpose: Visualize codebase architecture facts (no recommendations)
+      Input: .pf/repo_index.db (indexed code)
+      Output: Terminal tree or JSON (configurable via --format)
+      Prerequisites: aud index (populates database)
+      Integration: Architecture documentation, onboarding, refactoring planning
+      Performance: ~2-5 seconds (database queries + formatting)
 
-        aud blueprint                    # Top-level overview (tree structure)
-        aud blueprint --structure        # Drill down: file organization
-        aud blueprint --graph            # Drill down: dependencies, cycles
-        aud blueprint --security         # Drill down: JWT, OAuth, SQL, APIs
-        aud blueprint --taint            # Drill down: data flow, sources, sinks
+    DRILL-DOWN MODES:
+      (default): Top-level overview
+        - Module count, file organization tree
+        - High-level statistics only
+
+      --structure: File organization details
+        - Directory structure with LOC counts
+        - Module boundaries and package structure
+
+      --graph: Import and call graph analysis
+        - Dependency relationships
+        - Circular dependency detection
+        - Hotspot identification (highly connected modules)
+
+      --security: Security surface facts
+        - JWT/OAuth usage locations
+        - SQL query locations
+        - API endpoint inventory
+        - External service calls
+
+      --taint: Data flow analysis
+        - Taint sources (user input, network, files)
+        - Taint sinks (SQL, commands, file writes)
+        - Data flow paths
+
+      --all: Export complete data as JSON
+
+    EXAMPLES:
+      aud blueprint
+      aud blueprint --structure
+      aud blueprint --graph --format json
+      aud blueprint --all > architecture.json
+
+    PERFORMANCE: ~2-5 seconds
+
+    RELATED COMMANDS:
+      aud structure  # Alternative visualization
+      aud graph      # Dedicated graph analysis
+
+    NOTE: This command shows FACTS ONLY - no recommendations, no prescriptive
+    language. For actionable insights, use 'aud fce' or 'aud full'.
+
+    ADDITIONAL EXAMPLES:
         aud blueprint --all              # Export everything to JSON
 
     PREREQUISITES:

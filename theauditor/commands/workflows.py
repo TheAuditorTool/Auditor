@@ -18,37 +18,46 @@ logger = setup_logger(__name__)
 @click.group()
 @click.help_option("-h", "--help")
 def workflows():
-    """Analyze GitHub Actions workflows for security issues.
+    """GitHub Actions CI/CD pipeline security analysis (supply chain attacks, permission escalation).
 
-    Provides CI/CD pipeline security analysis for GitHub Actions workflows,
-    detecting common attack patterns and misconfigurations.
+    Group command for analyzing GitHub Actions workflows to detect CI/CD-specific vulnerabilities
+    including untrusted code execution, command injection from PR data, overprivileged workflows,
+    and supply chain risks from external actions. Focuses on .github/workflows/*.yml files.
 
-    Subcommands:
-      analyze    - Extract workflow data and detect security issues
-      report     - Generate workflow security report (future)
+    AI ASSISTANT CONTEXT:
+      Purpose: Detect CI/CD security issues in GitHub Actions workflows
+      Input: .github/workflows/*.yml files (indexed by 'aud index')
+      Output: .pf/raw/workflow_findings.json (security issues)
+      Prerequisites: aud index (extracts workflow files)
+      Integration: CI/CD security audits, supply chain validation
+      Performance: ~2-5 seconds (workflow parsing + rule matching)
 
-    Typical Workflow:
-      1. aud index                     # Extract workflow files
-      2. aud detect-patterns           # Run security rules (or aud full)
-      3. aud workflows analyze         # Export workflow data + findings
+    SUBCOMMANDS:
+      analyze: Extract workflow data and run security rules
+      report:  Generate consolidated workflow security report
 
-    The analyzer detects:
-      - Untrusted code execution (pull_request_target risks)
-      - Unpinned actions with secret exposure
-      - Command injection from PR data
-      - Excessive permissions in untrusted contexts
+    VULNERABILITY CLASSES DETECTED:
+      - Untrusted code execution (pull_request_target with checkout)
+      - Unpinned actions with secret access
+      - Command injection from ${{github.event.*}} interpolation
+      - Excessive permissions (write-all in untrusted contexts)
       - Supply chain risks (external reusable workflows)
-      - Artifact poisoning attacks
 
-    Examples:
-      aud workflows analyze                  # Analyze all workflows
-      aud workflows analyze --workset        # Analyze changed files only
-      aud workflows analyze --severity high  # High+ severity only
+    TYPICAL WORKFLOW:
+      aud index
+      aud detect-patterns  # or aud full
+      aud workflows analyze
 
-    Output:
-      .pf/raw/github_workflows.json          # Complete workflow data
-      .pf/readthis/github_workflows_*.json   # AI-optimized chunks (<65KB)
-      .pf/raw/github_findings.json           # Security findings
+    EXAMPLES:
+      aud workflows analyze
+      aud workflows analyze --out ./workflow_issues.json
+
+    RELATED COMMANDS:
+      aud detect-patterns  # Includes workflow security rules
+      aud full             # Runs all analysis including workflows
+
+    NOTE: GitHub Actions security requires understanding CI/CD attack vectors.
+    See GitHub Security Lab for vulnerability research and patterns.
     """
     pass
 

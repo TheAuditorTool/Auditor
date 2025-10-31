@@ -38,24 +38,157 @@ def refactor(
     profile_file: Optional[str],
     output: Optional[str],
 ) -> None:
-    """Analyze refactoring impact from database migrations.
+    """Detect incomplete refactorings and breaking changes from database schema migrations.
 
-    This command:
-    1. Parses migrations to find removed/renamed tables and columns
-    2. Queries repo_index.db for code that references those items
-    3. Reports mismatches (code using deleted schema)
+    Analyzes database migration files to identify removed/renamed tables and columns, then
+    queries the codebase for references to those deleted schema elements. Reports code that
+    will break at runtime due to schema-code mismatch - the classic "forgot to update the
+    queries" problem that breaks production silently.
 
-    Examples:
-        # Analyze last 5 migrations
-        aud refactor
+    AI ASSISTANT CONTEXT:
+      Purpose: Detect code-schema mismatches from incomplete refactorings
+      Input: backend/migrations/ (SQL files), .pf/repo_index.db (code references)
+      Output: Breaking changes report (code using deleted tables/columns)
+      Prerequisites: aud index (for code symbol database)
+      Integration: Pre-deployment validation, refactoring safety checks
+      Performance: ~2-5 seconds (migration parsing + database queries)
 
-        # Analyze ALL migrations
-        aud refactor --migration-limit 0
+    WHAT IT DETECTS:
+      Schema Changes:
+        - Dropped tables (DROP TABLE users)
+        - Renamed tables (ALTER TABLE users RENAME TO accounts)
+        - Dropped columns (ALTER TABLE users DROP COLUMN email)
+        - Renamed columns (ALTER TABLE users RENAME COLUMN name TO full_name)
 
-        # Custom migration dir
-        aud refactor --migration-dir db/migrations
+      Code References:
+        - SQL queries mentioning deleted tables/columns
+        - ORM model references (SQLAlchemy, Django)
+        - Raw SQL in string literals
+        - Dynamic query builders
+
+      Mismatch Classification:
+        - CRITICAL: Code references deleted table (guaranteed break)
+        - HIGH: Code references deleted column in existing table
+        - MEDIUM: Code may reference renamed element (needs verification)
+
+    HOW IT WORKS (Refactoring Analysis):
+      1. Migration Parsing:
+         - Scans backend/migrations/ for SQL files
+         - Extracts DROP/ALTER statements
+         - Limits to recent N migrations (--migration-limit)
+
+      2. Schema Change Extraction:
+         - Identifies removed/renamed tables and columns
+         - Tracks old→new mapping for renames
+         - Builds schema change timeline
+
+      3. Code Reference Query:
+         - Searches repo_index.db for SQL strings
+         - Searches assignments table for ORM references
+         - Matches code references to deleted schema elements
+
+      4. Mismatch Reporting:
+         - Cross-references code with schema changes
+         - Classifies severity (CRITICAL/HIGH/MEDIUM)
+         - Outputs breaking change report
+
+    EXAMPLES:
+      # Use Case 1: Analyze last 5 migrations (default)
+      aud refactor
+
+      # Use Case 2: Analyze all migrations
+      aud refactor --migration-limit 0
+
+      # Use Case 3: Use custom migration directory
+      aud refactor --migration-dir ./db/migrations
+
+      # Use Case 4: Export detailed report
+      aud refactor --output ./refactor_analysis.json
+
+      # Use Case 5: Use refactor profile (YAML expectations)
+      aud refactor --file ./refactor_profile.yml
+
+    COMMON WORKFLOWS:
+      Pre-Deployment Validation:
+        aud index && aud refactor --migration-limit 1
+
+      Large Refactoring Review:
+        aud refactor --migration-limit 0 --output ./breaking_changes.json
+
+      CI/CD Integration:
+        aud refactor || exit 2  # Fail build on breaking changes
+
+    OUTPUT FORMAT (breaking changes report):
+      {
+        "schema_changes": [
+          {
+            "type": "dropped_table",
+            "name": "users",
+            "migration": "0042_drop_users_table.sql"
+          }
+        ],
+        "code_references": [
+          {
+            "file": "api/handlers.py",
+            "line": 45,
+            "code": "SELECT * FROM users WHERE id = ?",
+            "severity": "CRITICAL",
+            "issue": "References dropped table 'users'"
+          }
+        ],
+        "summary": {
+          "critical": 2,
+          "high": 5,
+          "medium": 3
+        }
+      }
+
+    PERFORMANCE EXPECTATIONS:
+      Small (<10 migrations):  ~1-2 seconds
+      Medium (50 migrations):  ~3-5 seconds
+      Large (100+ migrations): ~5-10 seconds
+
+    FLAG INTERACTIONS:
+      --migration-limit 0: Analyzes ALL migrations (thorough but slower)
+      --file: Uses custom refactor profile (expected schema changes)
+      --output: Saves detailed JSON report (for CI/CD integration)
+
+    PREREQUISITES:
+      Required:
+        aud index              # Populates code reference database
+        backend/migrations/    # Migration files directory
+
+      Optional:
+        refactor_profile.yml   # Expected schema changes (reduces false positives)
+
+    EXIT CODES:
+      0 = No breaking changes detected
+      1 = Breaking changes found (critical/high severity)
+      2 = Analysis error (database missing or migration parse failure)
+
+    RELATED COMMANDS:
+      aud index              # Populates code reference database
+      aud impact             # Broader change impact analysis
+      aud query              # Manual code search for schema elements
+
+    TROUBLESHOOTING:
+      Error: "No migrations found":
+        -> Check --migration-dir points to correct directory
+        -> Verify directory contains .sql files
+        -> Default: backend/migrations/
+
+      False positives (code flagged but not breaking):
+        -> Use --file with refactor_profile.yml to specify expected changes
+        -> Some references may be in commented code (check manually)
+
+      Missing schema changes (not detected):
+        -> Only analyzes DROP/ALTER TABLE statements
+        -> Index changes, constraint changes not tracked
+        -> Focus is on table/column structure only
+
+    NOTE: This command detects syntactic mismatches only, not semantic issues.
+    Code may still break if schema change affects data types or constraints.
     """
-
     # Find repository root
     repo_root = Path.cwd()
     while repo_root != repo_root.parent:

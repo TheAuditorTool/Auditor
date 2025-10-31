@@ -6,14 +6,40 @@ import click
 @click.command("tool-versions")
 @click.option("--out-dir", default="./.pf/raw", help="Output directory for version manifest")
 def tool_versions(out_dir):
-    """Detect and record versions of all analysis tools.
+    """Detect and record versions of all analysis tools for reproducibility.
 
-    This command creates a version manifest for reproducibility and debugging.
-    It detects versions of:
-    - Python linters (pylint, mypy, flake8, black, ruff)
-    - JavaScript linters (ESLint, TypeScript compiler)
-    - Security scanners (semgrep, bandit)
-    - TheAuditor itself
+    Creates a comprehensive version manifest of all installed analysis tools
+    including linters, security scanners, and TheAuditor itself. Critical for
+    debugging tool-specific issues and ensuring analysis reproducibility across
+    different environments and CI/CD runs.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Record tool versions for reproducibility and debugging
+      Input: Installed tools in environment (Python, Node.js, system)
+      Output: .pf/raw/tools.json (machine-readable), .pf/raw/TOOLS.md (human-readable)
+      Prerequisites: aud setup-ai (installs sandboxed tools)
+      Integration: CI/CD validation, environment verification, debugging
+      Performance: ~1-2 seconds (executes --version commands)
+
+    TOOLS DETECTED:
+      Python Linters:
+        - pylint (static analysis for Python)
+        - mypy (type checker)
+        - flake8 (style guide enforcement)
+        - black (code formatter)
+        - ruff (fast Python linter)
+
+      JavaScript/TypeScript:
+        - ESLint (JavaScript/TypeScript linter)
+        - TypeScript compiler (tsc)
+        - npm (package manager)
+
+      Security Scanners:
+        - semgrep (semantic code analysis)
+        - bandit (Python security linter)
+
+      TheAuditor:
+        - Current version and commit hash
 
     WHY THIS MATTERS:
     - Ensures analysis reproducibility across environments

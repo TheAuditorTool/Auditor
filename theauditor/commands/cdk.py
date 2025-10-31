@@ -16,73 +16,55 @@ logger = setup_logger(__name__)
 @click.group()
 @click.help_option("-h", "--help")
 def cdk():
-    """Analyze AWS CDK Infrastructure-as-Code security.
+    """AWS CDK Infrastructure-as-Code security analysis for Python/TypeScript/JavaScript.
 
-    Detects security misconfigurations in AWS Cloud Development Kit (CDK) code
-    (Python, TypeScript, JavaScript) before deployment. Findings are written to
-    the database for querying.
+    Group command for analyzing AWS Cloud Development Kit code to detect infrastructure
+    misconfigurations before deployment. Parses CDK construct definitions (Python, TypeScript,
+    JavaScript) and applies security rules for S3 buckets, databases, IAM policies, and
+    network configurations.
 
-    Prerequisites:
-        Run indexing first to extract CDK constructs:
-          aud index       (recommended - full project indexing)
+    AI ASSISTANT CONTEXT:
+      Purpose: Detect AWS infrastructure security issues in CDK code
+      Input: CDK code files (*.py, *.ts, *.js with CDK imports)
+      Output: .pf/repo_index.db (cdk_findings table)
+      Prerequisites: aud index (extracts CDK constructs)
+      Integration: Pre-deployment validation, IaC security auditing
+      Performance: ~5-10 seconds (AST parsing + security rules)
 
-    Typical Workflow:
-        1. aud index                     # Extract CDK constructs from all files
-        2. aud cdk analyze               # Detect security issues (writes to DB)
-        3. Query .pf/repo_index.db       # Read findings from cdk_findings table
+    SECURITY CHECKS:
+      S3 Buckets:
+        - Public read access enabled (public_read_access=True)
+        - Missing block_public_access configuration
+        - Unencrypted buckets (missing encryption)
 
-    Security Checks Performed:
-        S3 Buckets:
-          - Public read access enabled (public_read_access=True)
-          - Missing block_public_access configuration
+      Databases (RDS/DynamoDB):
+        - Unencrypted databases at rest
+        - Public accessibility enabled
+        - Missing backup retention
 
-        Databases:
-          - Unencrypted RDS instances
-          - Unencrypted EBS volumes
-          - DynamoDB tables with default encryption
+      IAM:
+        - Overprivileged policies (wildcard permissions)
+        - Missing least-privilege enforcement
 
-        Network Security:
-          - Security groups with unrestricted ingress (0.0.0.0/0, ::/0)
-          - Security groups with allow_all_outbound enabled
+      Network:
+        - Public subnets with sensitive resources
+        - Missing network ACLs
 
-        IAM Permissions:
-          - Wildcard actions in IAM policies (Action: "*")
-          - Wildcard resources in IAM policies (Resource: "*")
-          - IAM roles with AdministratorAccess policy
+    TYPICAL WORKFLOW:
+      aud index
+      aud cdk analyze
+      sqlite3 .pf/repo_index.db "SELECT * FROM cdk_findings"
 
-    Examples:
-        # Run all CDK security checks
-        aud cdk analyze
+    EXAMPLES:
+      aud cdk analyze
+      aud cdk analyze --severity high
 
-        # Filter by severity (useful for CI/CD)
-        aud cdk analyze --severity critical
+    RELATED COMMANDS:
+      aud terraform  # Terraform IaC analysis
+      aud detect-patterns  # Includes CDK security rules
 
-        # Human-readable report
-        aud cdk analyze --format json --output report.json
-
-    Output Locations:
-        .pf/repo_index.db::cdk_findings           # CDK findings (query this!)
-        .pf/repo_index.db::findings_consolidated  # All findings (includes CDK)
-        stdout or --output file                   # Human-readable report
-
-    For AI Integration (IMPORTANT):
-        Findings are written to DATABASE, not just stdout.
-        Query the database directly:
-
-          SELECT finding_id, file_path, line, severity, category, title
-          FROM cdk_findings
-          WHERE severity IN ('critical', 'high')
-          ORDER BY severity;
-
-        DO NOT parse JSON output - it's for human consumption only.
-        Database is the single source of truth.
-
-    Subcommands:
-        analyze     Detect CDK infrastructure security issues
-
-    See Also:
-        theauditor/aws_cdk/README.md              # CDK analyzer docs
-        tests/fixtures/cdk_test_project/          # Example CDK project
+    NOTE: CDK analysis requires CDK imports (aws_cdk library). For Terraform
+    configurations (.tf files), use 'aud terraform' instead.
     """
     pass
 
