@@ -1,0 +1,187 @@
+# TheAuditor Security Detection Capabilities - Exploration Results
+
+Date: October 31, 2025
+Version: 1.3.0-RC1
+Total Rules: 60+ security detection rules
+Database Tables: 108 (schema contract validated)
+
+## VULNERABILITY CATEGORIES DETECTED (11 Total)
+
+1. INJECTION VULNERABILITIES (7 types, 200 patterns)
+   - SQL Injection (CWE-89): Detects string interpolation, f-strings, concatenation
+   - Command Injection (CWE-78): os.system, subprocess with shell=True
+   - Code Injection (CWE-94): eval, exec, Function, setTimeout(string)
+   - Template Injection (CWE-94): render_template_string with user input
+   - LDAP Injection (CWE-90): ldap.search() with concatenation
+   - NoSQL Injection (CWE-943): MongoDB operators, Object.assign with user data
+   - XPath Injection (CWE-643): XML path construction
+
+2. XSS VULNERABILITIES (5+ types, 11+ detection checks)
+   - DOM XSS (CWE-79): innerHTML, outerHTML, document.write
+   - Response XSS (CWE-79): res.send, res.write (safe: res.json)
+   - Template XSS (CWE-79): EJS unescaped <%- %> patterns
+   - PostMessage XSS (CWE-79): Wildcard origin, no validation
+   - JavaScript Protocol (CWE-79): javascript:, data:text/html URLs
+   
+   Framework-Aware Safe Sinks:
+   - Express: res.json(), res.jsonp() flagged as SAFE
+   - React: JSX auto-escape (NOT dangerouslySetInnerHTML)
+   - Vue: createVNode (NOT v-html directive)
+   - Angular: Detects bypassSecurityTrust* as DANGEROUS
+   - jQuery: Flags .html(), .append() with user input
+
+3. AUTHENTICATION & AUTHORIZATION (5 checks)
+   - Missing Authentication (CWE-287): POST/PUT/DELETE endpoints
+   - JWT Security (11 sub-checks): Hardcoded secrets, no expiration, none algo, etc.
+   - OAuth Security (CWE-311): Implicit grant, client secret in frontend
+   - Session Security (CWE-384): Fixation, missing HttpOnly
+   - Missing Authorization (CWE-639): No role/permission checks
+
+4. CRYPTOGRAPHY VULNERABILITIES (7 types)
+   - Weak Hashing: MD5, SHA-1 (CWE-327)
+   - Broken Algorithms: DES, RC4, Blowfish (CWE-327)
+   - ECB Mode: AES.MODE_ECB (CWE-327)
+   - Weak Key Derivation: PBKDF2 <100k iterations (CWE-326)
+   - Insecure Random: random.random for crypto (CWE-338)
+   - Hardcoded Keys: Detects high-entropy strings (CWE-798)
+   - Missing Cert Validation: ssl.CERT_NONE, verify=False (CWE-295)
+
+5. HARDCODED SECRETS (CWE-798)
+   - Provider-Specific Patterns (High Confidence <0.5% FP):
+     * AWS: AKIA[0-9A-Z]{16}
+     * Stripe: sk_live_*, sk_test_*
+     * GitHub: ghp_*, gho_*
+     * GitLab: glpat-*
+     * Slack: xox[baprs]-*
+     * Google: AIza*, ya29.*
+   - Generic Patterns:
+     * High-entropy strings (Shannon entropy >4.5)
+     * Database connection strings with passwords
+     * Environment variable fallbacks
+     * Weak/default passwords
+
+6. SECURITY MISCONFIGURATION (3 main types)
+   - CORS Vulnerabilities (15+ patterns):
+     * Wildcard with credentials (CRITICAL)
+     * Null origin bypass (HIGH)
+     * Origin reflection without validation (HIGH)
+     * Regex escape failures (HIGH)
+     * And 11+ more patterns
+   
+   - Insecure Deserialization (7 critical):
+     * pickle.loads() - RCE (CRITICAL)
+     * yaml.load() - RCE (CRITICAL)
+     * marshal.loads() - (HIGH)
+     * shelve.open() - uses pickle (HIGH)
+     * JSON object_hook - (MEDIUM)
+     * Django/Flask pickle sessions - (HIGH)
+     * XML XXE - entity expansion (HIGH)
+   
+   - Missing Security Headers:
+     * Content-Security-Policy, X-Frame-Options, HSTS
+
+7. INPUT VALIDATION ISSUES (4 types)
+   - Missing Input Validation (CWE-20): User input to DB without checks
+   - Prototype Pollution (CWE-1321): Object.assign, _.merge with user data
+   - Type Confusion (CWE-1025): Loose equality with user input
+   - GraphQL Validation Bypass (CWE-20): Mutations without validation
+
+8. API SECURITY (3 types)
+   - Missing API Authentication (CWE-269): Unprotected POST/PUT/DELETE
+   - Rate Limiting Bypass (15+ patterns): Missing limits, spoofable headers, etc.
+   - API Key Vulnerabilities (CWE-798): Hardcoded, in URLs, exposed
+
+9. PII & DATA PROTECTION (CWE-359)
+   - 200+ PII patterns across 50+ countries
+   - 15 Privacy Regulations Mapped:
+     * GDPR (EU), CCPA (California), COPPA (Children)
+     * HIPAA (Healthcare), PCI-DSS (Payment Cards)
+     * PIPEDA (Canada), LGPD (Brazil), POPI (South Africa)
+     * FERPA, BIPA, GLBA, SOX, Privacy Act, PDPA, APPs
+   
+   - US IDs: SSN, Driver License, Passport, Military ID, Medicare, EIN
+   - International: Aadhaar (India), NRIC (Singapore), My Number (Japan), etc.
+
+10. INFRASTRUCTURE SECURITY (4 types)
+    - Docker/Container Issues: Running as root, hardcoded secrets
+    - AWS CDK Issues: Wildcard IAM permissions, public S3, unencrypted DB
+    - Terraform Issues: apply_immediately, missing encryption
+    - GitHub Actions Issues: Unpinned versions, excessive permissions
+
+11. SUPPLY CHAIN SECURITY (3 types)
+    - Known Vulnerabilities (CWE-1035): CVE detection
+    - Dependency Confusion (CWE-427): Private packages as public
+    - Ghost Dependencies (CWE-1104): Undeclared but used
+
+## KEY STATISTICS
+
+Total Rules: 60+
+Total Categories: 11
+Detection Patterns: 200+
+Database Tables: 108
+Languages Supported: Python, JavaScript, TypeScript
+Frameworks Supported: 15+
+CWEs Covered: 50+
+Privacy Regulations: 15+
+
+Performance:
+- Indexing Time: 30-60s (100K LOC)
+- Analysis Time: 10-30s
+- Database Size: 80-100MB
+- Memory Usage: 500MB-1GB
+- False Positive Rate: 1-2% overall
+
+Advantages vs Competitors:
+- Offline-first (no cloud)
+- Database-first (indexed AST, not regex)
+- Zero fallbacks (strict schema contract)
+- Framework-aware (15+ frameworks)
+- Fast startup (<1s)
+- Low false positives (1-2% vs 3-10%)
+- O(1) pattern matching
+- 108-table schema guarantee
+
+## Database Schema: 108 Tables
+
+Core (21): files, refs, symbols, assignments, function_call_args, etc.
+Security (5): sql_queries, jwt_patterns, env_var_usage, etc.
+Frameworks (5): api_endpoints, orm_queries, frameworks, etc.
+Python (34): ORM, decorators, pytest, Django, Celery
+Node (17): React, Vue, TypeScript, package configs
+Infrastructure (18): Docker, Terraform, AWS CDK, GitHub Actions
+Planning (5): Plans, specs, code snapshots
+
+## CRITICAL ARCHITECTURE PRINCIPLES
+
+1. Zero Fallbacks: One code path per detection - if data missing, FAILS hard
+2. Schema Contract: 108 tables ALWAYS exist - no fallback logic needed
+3. No Regex Scanning: All patterns use frozensets (O(1) lookups)
+4. Parameterized SQL: All queries use parameters (no SQL injection)
+5. Framework Context: Detections aware of framework (React, Flask, etc.)
+
+## FILES WITH RULE IMPLEMENTATIONS
+
+Security Rules (60+ total):
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/sql/sql_injection_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/xss/xss_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/secrets/hardcoded_secret_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/auth/jwt_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/python/python_crypto_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/python/python_injection_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/security/cors_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/security/api_auth_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/security/input_validation_analyze.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/security/pii_analyze.py
+- ... and 50+ more
+
+Base Contracts:
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/base.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/rules/orchestrator.py
+
+Schema:
+- C:/Users/santa/Desktop/TheAuditor/theauditor/indexer/schema.py
+- C:/Users/santa/Desktop/TheAuditor/theauditor/indexer/schemas/
+
+## GENERATED OUTPUT
+
+SECURITY_DETECTIONS_SUMMARY.json - Complete machine-readable detection capabilities

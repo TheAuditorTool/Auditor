@@ -436,17 +436,14 @@ async function main() {
                         vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
                     }
 
-                    // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
-                    // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
-                    // The 'preserved' batch is for JSX-specific symbol extraction only
-                    let cfg = [];
-                    if (jsxMode !== 'preserved') {
-                        console.error(`[DEBUG JS BATCH] Extracting CFG for ${fileInfo.original} (jsxMode=${jsxMode})`);
-                        cfg = extractCFG(sourceFile, ts);
-                        console.error(`[DEBUG JS BATCH] Extracted ${cfg.length} CFGs from ${fileInfo.original}`);
-                    } else {
-                        console.error(`[DEBUG JS BATCH] Skipping CFG for ${fileInfo.original} (jsxMode=preserved, CFG already extracted in first batch)`);
-                    }
+                    // Step 4: Extract CFG (handles BOTH jsx modes)
+                    // CRITICAL: Extract CFG for BOTH transform and preserved modes
+                    // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
+                    // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
+                    // Storage layer (Python) routes based on jsx_pass flag
+                    console.error(`[DEBUG JS BATCH] Extracting CFG for ${fileInfo.original} (jsxMode=${jsxMode})`);
+                    const cfg = extractCFG(sourceFile, ts);
+                    console.error(`[DEBUG JS BATCH] Extracted ${cfg.length} CFGs from ${fileInfo.original}`);
 
                     // Count nodes for complexity metrics
                     const nodeCount = countNodes(sourceFile, ts);
@@ -938,16 +935,12 @@ try {
                     vueDirectives = extractVueDirectives(fileInfo.vueMeta.templateAst, activeComponentName, VueNodeTypes);
                 }
 
-                // Step 4: Extract CFG (NEW - fixes jsx='preserved' 0 CFG bug)
-                // CRITICAL: Skip CFG extraction for jsx='preserved' to prevent double extraction
-                // The 'preserved' batch is for JSX-specific symbol extraction only
-                let cfg = [];
-                if (jsxMode !== 'preserved') {
-                    cfg = extractCFG(sourceFile, ts);
-                } else {
-                    // CFG already extracted in first batch, skip to avoid duplicates
-                    cfg = [];
-                }
+                // Step 4: Extract CFG (handles BOTH jsx modes)
+                // CRITICAL: Extract CFG for BOTH transform and preserved modes
+                // - jsxMode='transformed': CFG stored to main tables (cfg_blocks, cfg_edges, cfg_block_statements)
+                // - jsxMode='preserved': CFG stored to _jsx tables (cfg_blocks_jsx, cfg_edges_jsx, cfg_block_statements_jsx)
+                // Storage layer (Python) routes based on jsx_pass flag
+                const cfg = extractCFG(sourceFile, ts);
 
                 // Count nodes for complexity metrics
                 const nodeCount = countNodes(sourceFile, ts);

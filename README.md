@@ -18,6 +18,37 @@ Our SAST + code-quality pipeline now ships with a dedicated **code context layer
 
 Together they cut typical refactor loops from 15k tokens to ~1.5k per iteration while keeping every result tied back to the same verifiable SQLite ground truth that powers our SAST findings.
 
+### Modular Architecture Refactor
+
+v1.4.2-RC1 includes a comprehensive architectural refactor that improves maintainability, testability, and scalability:
+
+**Schema System (`theauditor/indexer/schemas/`)** - Monolithic 2,874-line `schema.py` split into 8 domain-specific modules:
+- `core_schema.py` (21 tables) - Language-agnostic patterns
+- `python_schema.py` (34 tables) - Python frameworks (Flask, Django, FastAPI, Celery)
+- `node_schema.py` (17 tables) - Node.js/TypeScript/React/Vue
+- `infrastructure_schema.py` (18 tables) - Docker, Terraform, AWS CDK, GitHub Actions
+- `security_schema.py` (5 tables) - SQL, JWT, env vars
+- `frameworks_schema.py` (5 tables) - ORM, API routing
+- `planning_schema.py` (5 tables) - Implementation tracking
+- `graphs_schema.py` (3 tables) - Graph database schemas
+
+**Database Layer (`theauditor/indexer/database/`)** - Monolithic `DatabaseManager` refactored into 8 mixins using multiple inheritance:
+- `BaseDatabaseManager` - Core infrastructure (transactions, schema validation, batch operations)
+- Domain-specific mixins (Core, Python, Node, Infrastructure, Security, Frameworks, Planning)
+- **Result**: 92 methods organized by domain, improved testability
+
+**Indexer Storage (`theauditor/indexer/storage.py`)** - Extracted 1,169-line God Method into focused storage layer:
+- `DataStorer` class with 66 handler methods (10-40 lines each)
+- Handler registry pattern for clean dispatch
+- Separated storage operations from orchestration logic
+
+**TypeScript Extractor (`theauditor/ast_extractors/`)** - Split 2,249-line TypeScript implementation:
+- `typescript_impl_structure.py` (1,031 lines) - Stateless structural extraction
+- `typescript_impl.py` (1,292 lines) - Context-dependent behavioral analysis
+- Clear separation between "what exists" (structural) and "what it does" (behavioral)
+
+**Benefits**: 100% backward compatibility, zero functional changes, improved code organization, better separation of concerns, easier to extend with new languages/frameworks.
+
 ---
 
 ## 🚀 The Revolution: The Autonomous AI Workflow

@@ -1,0 +1,73 @@
+# TheAuditor Database Schema System - Complete Exploration
+
+## Key Findings
+
+### Dual-Database Architecture
+- repo_index.db (91MB): 108 relational tables
+- graphs.db (79MB): 3 polymorphic tables
+- Critical: FCE reads from repo_index.db ONLY
+
+### 108 Tables Across 7 Domains
+- Core: 24 (symbols, data flow, CFG, findings)
+- Security: 5 (SQL, JWT, env vars)
+- Frameworks: 5 (cross-language ORM, API)
+- Python: 34 (Django, Flask, FastAPI, SQLAlchemy, Pydantic, testing)
+- Node: 16 (React, Vue, TypeScript, packages)
+- Infrastructure: 18 (Docker, Terraform, CDK, GitHub)
+- Planning: 5 (plans, tasks, specs, snapshots)
+
+### Schema System Classes
+- Column (name, type, nullable, default, PK, autoincrement, check)
+- ForeignKey (local_columns, foreign_table, foreign_columns)
+- TableSchema (columns, indexes, PK, unique, FK)
+- TABLES dict: 108 merged tables (unified registry)
+
+### Query Builders
+- build_query(): SELECT with schema validation
+- build_join_query(): Type-safe JOINs using FK metadata
+- validate_all_tables(): Database schema verification
+
+### Taint Analysis Critical
+- assignments: Variable assignments (source)
+- function_call_args: Function calls (sink)
+- idx_assignments_target: Backward tracing
+- idx_function_call_args_callee: Sink lookup
+
+### Design Patterns
+1. Normalization: JSON TEXT -> Junction tables
+2. Polymorphism: Single table for multiple types
+3. Denormalization: Metadata JSON for flexibility
+4. Dual-Write: Database + JSON for findings
+
+### Absolute Critical Rules
+1. ZERO FALLBACK POLICY: NO fallbacks, NO try/except
+2. DATABASE-FIRST: All queries from DB, never files
+3. SCHEMA VALIDATION: Required at startup
+4. NO MIGRATIONS: Fresh generation every run
+
+## Files Examined
+- theauditor/indexer/schema.py (stub)
+- theauditor/indexer/schemas/__init__.py (TABLES registry)
+- theauditor/indexer/schemas/utils.py (base classes)
+- theauditor/indexer/schemas/core_schema.py (24 tables)
+- theauditor/indexer/schemas/security_schema.py (5 tables)
+- theauditor/indexer/schemas/frameworks_schema.py (5 tables)
+- theauditor/indexer/schemas/python_schema.py (34 tables)
+- theauditor/indexer/schemas/node_schema.py (16 tables)
+- theauditor/indexer/schemas/infrastructure_schema.py (18 tables)
+- theauditor/indexer/schemas/planning_schema.py (5 tables)
+- theauditor/indexer/schemas/graphs_schema.py (3 tables)
+
+## Key Absolute Paths to Refer To
+C:/Users/santa/Desktop/TheAuditor/theauditor/indexer/schemas/
+C:/Users/santa/Desktop/TheAuditor/theauditor/indexer/schema.py
+C:/Users/santa/Desktop/TheAuditor/theauditor/indexer/database.py
+
+## For ARCHITECTURE_new.md
+- 4-layer pipeline with database as foundation
+- Complete ER diagram (108 tables)
+- Taint analysis query patterns
+- Index strategy for performance
+- Schema validation system
+- Junction table normalization
+- Polymorphic graph design

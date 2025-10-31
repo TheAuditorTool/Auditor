@@ -14,6 +14,8 @@ Design Philosophy:
 from typing import Dict
 from .utils import TableSchema
 from .core_schema import CORE_TABLES
+from .security_schema import SECURITY_TABLES
+from .frameworks_schema import FRAMEWORKS_TABLES
 from .python_schema import PYTHON_TABLES
 from .node_schema import NODE_TABLES
 from .infrastructure_schema import INFRASTRUCTURE_TABLES
@@ -27,6 +29,8 @@ from .graphs_schema import GRAPH_TABLES
 
 TABLES: Dict[str, TableSchema] = {
     **CORE_TABLES,
+    **SECURITY_TABLES,
+    **FRAMEWORKS_TABLES,
     **PYTHON_TABLES,
     **NODE_TABLES,
     **INFRASTRUCTURE_TABLES,
@@ -47,6 +51,8 @@ __all__ = [
     "GRAPH_TABLES",
     "TableSchema",
     "CORE_TABLES",
+    "SECURITY_TABLES",
+    "FRAMEWORKS_TABLES",
     "PYTHON_TABLES",
     "NODE_TABLES",
     "INFRASTRUCTURE_TABLES",
