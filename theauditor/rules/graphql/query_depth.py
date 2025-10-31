@@ -1,11 +1,14 @@
 """GraphQL Query Depth Check - Prevent DoS via nested queries."""
 
 import sqlite3
-from typing import List
-from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
 
 METADATA = RuleMetadata(
     name="graphql_query_depth",
@@ -15,7 +18,7 @@ METADATA = RuleMetadata(
 )
 
 
-def check_query_depth(context: StandardRuleContext) -> List[StandardFinding]:
+def check_query_depth(context: StandardRuleContext) -> list[StandardFinding]:
     """Check for unrestricted query depth (DoS risk).
 
     Detects:

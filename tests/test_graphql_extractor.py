@@ -16,7 +16,7 @@ class TestGraphQLExtractor:
     @pytest.fixture
     def extractor(self):
         """Create GraphQL extractor instance."""
-        return GraphQLExtractor(root_path=Path("."), config={})
+        return GraphQLExtractor(root_path=Path("."))
 
     @pytest.fixture
     def sample_schema(self):
@@ -56,7 +56,7 @@ input CreateUserInput {
 
     def test_supported_extensions(self, extractor):
         """Test that GraphQL extractor supports correct extensions."""
-        extensions = extractor.supported_extensions
+        extensions = extractor.supported_extensions()
         assert '.graphql' in extensions
         assert '.gql' in extensions
         assert '.graphqls' in extensions
@@ -261,7 +261,7 @@ class TestGraphQLFixtures:
 
     def test_schema_fixture_parseable(self):
         """Verify schema fixture can be parsed."""
-        extractor = GraphQLExtractor(root_path=Path("."), config={})
+        extractor = GraphQLExtractor(root_path=Path("."))
         schema_path = Path("tests/fixtures/graphql/schema.graphql")
         content = schema_path.read_text()
         file_info = {'path': str(schema_path), 'sha256': 'fixture'}

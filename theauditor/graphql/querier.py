@@ -3,10 +3,10 @@
 Stub implementation for querying GraphQL types, fields, and resolver mappings.
 """
 
+import logging
 import sqlite3
 from pathlib import Path
-from typing import Dict, Any, List
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class GraphQLQuerier:
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
 
-    def query_type(self, type_name: str, show_resolvers: bool = False, show_args: bool = False) -> Dict[str, Any]:
+    def query_type(self, type_name: str, show_resolvers: bool = False, show_args: bool = False) -> dict[str, Any]:
         """Query metadata for a specific GraphQL type."""
         cursor = self.conn.cursor()
 
@@ -70,7 +70,7 @@ class GraphQLQuerier:
 
         return result
 
-    def query_field(self, field_name: str, show_resolvers: bool = False) -> Dict[str, Any]:
+    def query_field(self, field_name: str, show_resolvers: bool = False) -> dict[str, Any]:
         """Query metadata for a specific field across all types."""
         cursor = self.conn.cursor()
 
@@ -97,7 +97,7 @@ class GraphQLQuerier:
 
         return {'fields': results}
 
-    def query_all_types(self) -> Dict[str, Any]:
+    def query_all_types(self) -> dict[str, Any]:
         """Query all GraphQL types."""
         cursor = self.conn.cursor()
 
@@ -119,7 +119,7 @@ class GraphQLQuerier:
 
         return {'types': types}
 
-    def _get_field_args(self, field_id: int) -> List[Dict[str, Any]]:
+    def _get_field_args(self, field_id: int) -> list[dict[str, Any]]:
         """Get arguments for a field."""
         cursor = self.conn.cursor()
 
@@ -141,7 +141,7 @@ class GraphQLQuerier:
 
         return args
 
-    def _get_resolver(self, field_id: int) -> Dict[str, Any]:
+    def _get_resolver(self, field_id: int) -> dict[str, Any]:
         """Get resolver mapping for a field."""
         cursor = self.conn.cursor()
 
@@ -165,7 +165,7 @@ class GraphQLQuerier:
             'binding_style': row['binding_style']
         }
 
-    def print_result(self, result: Dict[str, Any]):
+    def print_result(self, result: dict[str, Any]):
         """Pretty-print query result."""
         if 'error' in result:
             print(f"Error: {result['error']}")
@@ -179,7 +179,7 @@ class GraphQLQuerier:
 
         elif 'fields' in result and isinstance(result['fields'], list):
             # Field query
-            print(f"\nFields matching query:")
+            print("\nFields matching query:")
             for field in result['fields']:
                 print(f"  {field.get('type_name', '?')}.{field['field_name']}: {field['return_type']}")
                 if field.get('resolver'):

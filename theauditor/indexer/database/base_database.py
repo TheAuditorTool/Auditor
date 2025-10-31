@@ -197,9 +197,10 @@ class BaseDatabaseManager:
         # Get ALL columns except AUTOINCREMENT columns
         # DEFAULT values are IRRELEVANT - the add_* method signature determines what's provided
         # Schema column order MUST match add_* method parameter order
-        # NOTE: Changed from 'col.name != "id"' to 'not col.autoincrement' to support tables
-        #       with autoincrement columns named differently (type_id, field_id, etc.)
-        all_cols = [col for col in schema.columns if not col.autoincrement]
+        # NOTE: Hybrid approach to support both old and new table patterns:
+        #       - Old tables: autoincrement=False but named 'id' (legacy pattern)
+        #       - New tables: autoincrement=True with custom names (type_id, field_id, etc.)
+        all_cols = [col for col in schema.columns if col.name != 'id' and not col.autoincrement]
 
         # Determine how many columns the add_* method actually provides
         # by checking the first batch tuple size

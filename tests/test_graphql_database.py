@@ -23,7 +23,7 @@ class TestGraphQLDatabaseSchema:
             db_path = f.name
 
         manager = DatabaseManager(db_path)
-        manager.create_tables()
+        manager.create_schema()
         yield manager
         manager.close()
 
@@ -130,7 +130,7 @@ class TestGraphQLDatabaseOperations:
             db_path = f.name
 
         manager = DatabaseManager(db_path)
-        manager.create_tables()
+        manager.create_schema()
         yield manager
         manager.close()
 
