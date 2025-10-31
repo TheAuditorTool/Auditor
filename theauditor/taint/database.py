@@ -66,6 +66,66 @@ def _find_enclosing_canonical_function(
     return None
 
 
+def find_graphql_sources(cursor: sqlite3.Cursor) -> List[Dict[str, Any]]:
+    """Find GraphQL field arguments as taint sources.
+
+    GraphQL field arguments represent untrusted client input and should be
+    treated as taint sources. This function queries graphql_field_args to
+    find all argument definitions.
+
+    Args:
+        cursor: Database cursor
+
+    Returns:
+        List of GraphQL argument sources with file, line, name, pattern
+
+    Schema Contract:
+        Queries graphql_field_args joined with graphql_fields and graphql_types
+    """
+    sources = []
+
+    # Query all field arguments from GraphQL schema
+    # These represent untrusted input from GraphQL clients
+    query = build_query('graphql_field_args',
+        ['arg_name', 'arg_type'],
+        where="1=1"
+    )
+    cursor.execute(query)
+
+    # Get field context for each argument
+    for arg_name, arg_type in cursor.fetchall():
+        # Query field and type info for this argument
+        arg_query = """
+            SELECT t.schema_path, f.line, f.field_name, t.type_name
+            FROM graphql_field_args fa
+            JOIN graphql_fields f ON fa.field_id = f.field_id
+            JOIN graphql_types t ON f.type_id = t.type_id
+            WHERE fa.arg_name = ? AND fa.arg_type = ?
+            LIMIT 1
+        """
+        cursor.execute(arg_query, (arg_name, arg_type))
+        result = cursor.fetchone()
+
+        if result:
+            schema_path, line, field_name, type_name = result
+            sources.append({
+                "file": schema_path.replace("\\", "/") if schema_path else "",
+                "name": f"{type_name}.{field_name}({arg_name})",
+                "line": line or 0,
+                "column": 0,
+                "pattern": arg_name,
+                "type": "source",
+                "category": "graphql",
+                "metadata": {
+                    "arg_type": arg_type,
+                    "field_name": field_name,
+                    "type_name": type_name
+                }
+            })
+
+    return sources
+
+
 def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, List[str]]] = None,
                       cache: Optional[Any] = None) -> List[Dict[str, Any]]:
     """Find all occurrences of taint sources in the codebase.
@@ -165,6 +225,10 @@ def find_taint_sources(cursor: sqlite3.Cursor, sources_dict: Optional[Dict[str, 
 
     # P2 Enhancement: Add API endpoint context for prioritization
     sources = enhance_sources_with_api_context(cursor, sources)
+
+    # GraphQL Enhancement: Add GraphQL field arguments as taint sources
+    graphql_sources = find_graphql_sources(cursor)
+    sources.extend(graphql_sources)
 
     return sources
 

@@ -232,6 +232,31 @@ TAINT_SOURCES = {
         "serde_json::from_str",
         "serde_json::from_slice",
         "serde_json::from_reader",
+    ]),
+    # GraphQL sources - Resolver arguments and field inputs
+    "graphql": frozenset([
+        # Resolver function arguments (untrusted client input)
+        "args",  # GraphQL field arguments
+        "parent",  # Parent resolver return value
+        "context",  # Request context (may contain auth, headers, etc.)
+        "info",  # GraphQL execution info
+
+        # Python GraphQL frameworks
+        "resolve_args",  # Graphene
+        "obj",  # Graphene parent object
+        "info.context",  # Graphene context access
+        "root",  # Ariadne parent object
+        "value",  # Strawberry parent object
+
+        # JavaScript/TypeScript GraphQL frameworks
+        "args.",  # Apollo resolver args access
+        "context.",  # Apollo context access
+        "parent.",  # Apollo parent access
+        "@Args",  # NestJS decorator
+        "@Context",  # NestJS decorator
+        "@Root",  # Type-GraphQL decorator
+        "@Arg",  # Type-GraphQL decorator
+        "@Ctx",  # Type-GraphQL decorator
     ])
 }
 

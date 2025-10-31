@@ -194,18 +194,32 @@ class BaseDatabaseManager:
         if not schema:
             raise RuntimeError(f"No schema found for table '{table_name}' - check TABLES registry")
 
-        # Get ALL columns except AUTOINCREMENT id
+        # Get ALL columns except AUTOINCREMENT columns
         # DEFAULT values are IRRELEVANT - the add_* method signature determines what's provided
         # Schema column order MUST match add_* method parameter order
-        all_cols = [col for col in schema.columns if col.name != 'id']
+        # NOTE: Changed from 'col.name != "id"' to 'not col.autoincrement' to support tables
+        #       with autoincrement columns named differently (type_id, field_id, etc.)
+        all_cols = [col for col in schema.columns if not col.autoincrement]
 
         # Determine how many columns the add_* method actually provides
         # by checking the first batch tuple size
         tuple_size = len(batch[0]) if batch else 0
 
+        import os, sys
+        if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
+            print(f"[DEBUG] Flush: {table_name}", file=sys.stderr)
+            print(f"  all_cols count: {len(all_cols)}", file=sys.stderr)
+            print(f"  all_cols names: {[col.name for col in all_cols]}", file=sys.stderr)
+            print(f"  tuple_size from batch[0]: {tuple_size}", file=sys.stderr)
+            if batch:
+                print(f"  batch[0]: {batch[0]}", file=sys.stderr)
+
         # Take first N columns matching tuple size
         # This handles legacy tables where columns were added but add_* not updated
         columns = [col.name for col in all_cols[:tuple_size]]
+
+        if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
+            print(f"  columns taken (first {tuple_size}): {columns}", file=sys.stderr)
 
         if len(columns) != tuple_size:
             # This should never happen if schema column order matches add_* parameter order
@@ -221,9 +235,19 @@ class BaseDatabaseManager:
         column_list = ', '.join(columns)
         query = f"{insert_mode} INTO {table_name} ({column_list}) VALUES ({placeholders})"
 
+        if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
+            print(f"  query: {query}", file=sys.stderr)
+
         # Execute batch insert
         cursor = self.conn.cursor()
-        cursor.executemany(query, batch)
+        try:
+            cursor.executemany(query, batch)
+            if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
+                print(f"[DEBUG] Flush: {table_name} SUCCESS", file=sys.stderr)
+        except Exception as e:
+            if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
+                print(f"[DEBUG] Flush: {table_name} FAILED - {e}", file=sys.stderr)
+            raise
 
         # Clear batch after flush
         self.generic_batches[table_name] = []
@@ -318,6 +342,17 @@ class BaseDatabaseManager:
                 ('cdk_constructs', 'INSERT'),
                 ('cdk_construct_properties', 'INSERT'),  # Depends on cdk_constructs FK
                 ('cdk_findings', 'INSERT'),
+
+                # GraphQL tables (Section 7: Taint & FCE Integration)
+                # FK dependencies: graphql_schemas → graphql_types → graphql_fields → graphql_field_args
+                ('graphql_schemas', 'INSERT'),
+                ('graphql_types', 'INSERT'),  # Depends on graphql_schemas FK
+                ('graphql_fields', 'INSERT'),  # Depends on graphql_types FK
+                ('graphql_field_args', 'INSERT'),  # Depends on graphql_fields FK
+                ('graphql_resolver_mappings', 'INSERT'),  # Depends on graphql_fields + symbols FK
+                ('graphql_resolver_params', 'INSERT'),  # Depends on graphql_resolver_mappings FK
+                ('graphql_execution_edges', 'INSERT'),  # Depends on graphql_fields + symbols FK
+                ('graphql_findings_cache', 'INSERT'),  # Independent (findings cache)
 
                 # GitHub Actions tables (CI/CD Security)
                 ('github_workflows', 'INSERT'),
@@ -483,14 +518,26 @@ class BaseDatabaseManager:
                     self.generic_batches['cfg_block_statements_jsx'] = []
 
             # Flush all generic tables in dependency order
+            import os, sys
             for table_name, insert_mode in flush_order:
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
+                    if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
+                        print(f"[DEBUG] flush_batch: About to flush {table_name} with mode {insert_mode}, batch size {len(self.generic_batches[table_name])}", file=sys.stderr)
                     self.flush_generic_batch(table_name, insert_mode)
+                    if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
+                        print(f"[DEBUG] flush_batch: {table_name} flushed successfully", file=sys.stderr)
 
         except sqlite3.Error as e:
-            # DEBUG: Enhanced error reporting for UNIQUE constraint failures
+            # DEBUG: Enhanced error reporting for constraint failures
+            import os, sys
+            if os.environ.get('THEAUDITOR_DEBUG') == '1':
+                print(f"\n[DEBUG] SQL Error: {type(e).__name__}: {e}", file=sys.stderr)
+                print(f"[DEBUG] Tables with pending batches:", file=sys.stderr)
+                for table_name, batch in self.generic_batches.items():
+                    if batch:
+                        print(f"[DEBUG]   {table_name}: {len(batch)} records", file=sys.stderr)
+
             if "UNIQUE constraint failed" in str(e):
-                import sys
                 print(f"\n[DEBUG] UNIQUE constraint violation: {e}", file=sys.stderr)
                 # Report which table had the violation
                 for table_name, batch in self.generic_batches.items():

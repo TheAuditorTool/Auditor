@@ -23,6 +23,7 @@ REFACTORED ARCHITECTURE:
 - SecurityDatabaseMixin: SQL injection, JWT, env vars
 - FrameworksDatabaseMixin: API endpoints, ORM, Prisma
 - PlanningDatabaseMixin: Planning system (stub for future iteration)
+- GraphQLDatabaseMixin: GraphQL schemas, types, fields, resolvers, execution graph
 
 DatabaseManager uses multiple inheritance to combine all capabilities.
 """
@@ -39,6 +40,7 @@ from .infrastructure_database import InfrastructureDatabaseMixin
 from .security_database import SecurityDatabaseMixin
 from .frameworks_database import FrameworksDatabaseMixin
 from .planning_database import PlanningDatabaseMixin
+from .graphql_database import GraphQLDatabaseMixin
 
 
 class DatabaseManager(
@@ -49,13 +51,14 @@ class DatabaseManager(
     InfrastructureDatabaseMixin,
     SecurityDatabaseMixin,
     FrameworksDatabaseMixin,
-    PlanningDatabaseMixin
+    PlanningDatabaseMixin,
+    GraphQLDatabaseMixin
 ):
     """Complete database manager combining all language-specific capabilities.
 
     This class uses multiple inheritance to combine:
     - BaseDatabaseManager: Core infrastructure (schema, transactions, batching)
-    - 7 Mixin classes: Language-specific and domain-specific add_* methods
+    - 8 Mixin classes: Language-specific and domain-specific add_* methods
 
     Method Resolution Order (MRO):
     1. DatabaseManager (this class)
@@ -67,8 +70,9 @@ class DatabaseManager(
     7. SecurityDatabaseMixin (5 security tables, 4 methods)
     8. FrameworksDatabaseMixin (5 framework tables, 4 methods)
     9. PlanningDatabaseMixin (5 planning tables, 0 methods - stub)
+    10. GraphQLDatabaseMixin (8 GraphQL tables, 7 methods)
 
-    Total: 105 tables, 90 methods
+    Total: 116 tables, 97 methods
     """
     pass
 

@@ -287,14 +287,15 @@ class XGraphAnalyzer:
         node_count = len(nodes)
         edge_count = len(edges)
         density = edge_count / (node_count * (node_count - 1)) if node_count > 1 else 0
-        
+
         # Find isolated nodes
         connected_nodes = set()
         for edge in edges:
             connected_nodes.add(edge["source"])
             connected_nodes.add(edge["target"])
-        isolated_count = len([n for n in nodes if n["id"] not in connected_nodes])
-        
+        isolated_nodes = [n["id"] for n in nodes if n["id"] not in connected_nodes]
+        isolated_count = len(isolated_nodes)
+
         # Create summary with raw data only
         summary = {
             "statistics": {
@@ -302,6 +303,7 @@ class XGraphAnalyzer:
                 "total_edges": edge_count,
                 "graph_density": round(density, 4),
                 "isolated_nodes": isolated_count,
+                "isolated_nodes_list": isolated_nodes,  # ALWAYS include full list
                 "average_connections": round(edge_count / node_count, 2) if node_count > 0 else 0
             },
             "top_connected_nodes": top_connected,

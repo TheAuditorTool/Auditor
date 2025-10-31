@@ -126,15 +126,18 @@ MONOREPO_ENTRY_FILES: List[str] = [
 
 # File extensions that support AST parsing
 SUPPORTED_AST_EXTENSIONS: List[str] = [
-    ".py",      # Python
-    ".js",      # JavaScript
-    ".jsx",     # React JavaScript
-    ".ts",      # TypeScript
-    ".tsx",     # React TypeScript
-    ".mjs",     # ES Module JavaScript
-    ".cjs",     # CommonJS JavaScript
-    ".tf",      # Terraform/HCL
-    ".tfvars",  # Terraform variables
+    ".py",       # Python
+    ".js",       # JavaScript
+    ".jsx",      # React JavaScript
+    ".ts",       # TypeScript
+    ".tsx",      # React TypeScript
+    ".mjs",      # ES Module JavaScript
+    ".cjs",      # CommonJS JavaScript
+    ".tf",       # Terraform/HCL
+    ".tfvars",   # Terraform variables
+    ".graphql",  # GraphQL SDL
+    ".gql",      # GraphQL SDL (short)
+    ".graphqls", # GraphQL SDL (schema)
 ]
 
 # SQL file extensions
