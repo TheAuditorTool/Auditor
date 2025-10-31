@@ -107,6 +107,12 @@ class DataStorer:
             'terraform_variables': self._store_terraform_variables,
             'terraform_variable_values': self._store_terraform_variable_values,
             'terraform_outputs': self._store_terraform_outputs,
+            'graphql_schemas': self._store_graphql_schemas,
+            'graphql_types': self._store_graphql_types,
+            'graphql_fields': self._store_graphql_fields,
+            'graphql_field_args': self._store_graphql_field_args,
+            'graphql_resolver_mappings': self._store_graphql_resolver_mappings,
+            'graphql_resolver_params': self._store_graphql_resolver_params,
         }
 
     def store(self, file_path: str, extracted: Dict[str, Any], jsx_pass: bool = False):
@@ -1382,3 +1388,107 @@ class DataStorer:
             if 'terraform_outputs' not in self.counts:
                 self.counts['terraform_outputs'] = 0
             self.counts['terraform_outputs'] += 1
+
+    # ========================================================
+    # GRAPHQL STORAGE METHODS
+    # ========================================================
+
+    def _store_graphql_schemas(self, file_path: str, graphql_schemas: List, jsx_pass: bool):
+        """Store GraphQL schema file records."""
+        for schema in graphql_schemas:
+            self.db_manager.add_graphql_schema(
+                file_path=schema['file_path'],
+                schema_hash=schema['schema_hash'],
+                language=schema['language'],
+                last_modified=schema.get('last_modified')
+            )
+            if 'graphql_schemas' not in self.counts:
+                self.counts['graphql_schemas'] = 0
+            self.counts['graphql_schemas'] += 1
+
+    def _store_graphql_types(self, file_path: str, graphql_types: List, jsx_pass: bool):
+        """Store GraphQL type definition records."""
+        import os, sys
+        if os.environ.get('THEAUDITOR_DEBUG') == '1':
+            print(f"[DEBUG] Storage: _store_graphql_types called with {len(graphql_types)} types", file=sys.stderr)
+
+        for i, type_def in enumerate(graphql_types):
+            if os.environ.get('THEAUDITOR_DEBUG') == '1' and i == 0:
+                print(f"[DEBUG] Storage: First type_def keys: {list(type_def.keys())}", file=sys.stderr)
+                print(f"[DEBUG] Storage: First type_def values: {type_def}", file=sys.stderr)
+
+            self.db_manager.add_graphql_type(
+                schema_path=type_def['schema_path'],
+                type_name=type_def['type_name'],
+                kind=type_def['kind'],
+                implements=type_def.get('implements'),
+                description=type_def.get('description'),
+                line=type_def.get('line')
+            )
+            if 'graphql_types' not in self.counts:
+                self.counts['graphql_types'] = 0
+            self.counts['graphql_types'] += 1
+
+    def _store_graphql_fields(self, file_path: str, graphql_fields: List, jsx_pass: bool):
+        """Store GraphQL field definition records."""
+        for field in graphql_fields:
+            self.db_manager.add_graphql_field(
+                type_id=field['type_id'],
+                field_name=field['field_name'],
+                return_type=field['return_type'],
+                is_list=field.get('is_list', False),
+                is_nullable=field.get('is_nullable', True),
+                directives_json=field.get('directives_json'),
+                line=field.get('line'),
+                column=field.get('column')
+            )
+            if 'graphql_fields' not in self.counts:
+                self.counts['graphql_fields'] = 0
+            self.counts['graphql_fields'] += 1
+
+    def _store_graphql_field_args(self, file_path: str, graphql_field_args: List, jsx_pass: bool):
+        """Store GraphQL field argument definition records."""
+        for arg in graphql_field_args:
+            self.db_manager.add_graphql_field_arg(
+                field_id=arg['field_id'],
+                arg_name=arg['arg_name'],
+                arg_type=arg['arg_type'],
+                has_default=arg.get('has_default', False),
+                default_value=arg.get('default_value'),
+                is_nullable=arg.get('is_nullable', True),
+                directives_json=arg.get('directives_json')
+            )
+            if 'graphql_field_args' not in self.counts:
+                self.counts['graphql_field_args'] = 0
+            self.counts['graphql_field_args'] += 1
+
+    def _store_graphql_resolver_mappings(self, file_path: str, graphql_resolver_mappings: List, jsx_pass: bool):
+        """Store GraphQL resolver mapping records."""
+        for mapping in graphql_resolver_mappings:
+            self.db_manager.add_graphql_resolver_mapping(
+                field_id=mapping['field_id'],
+                resolver_symbol_id=mapping['resolver_symbol_id'],
+                resolver_path=mapping['resolver_path'],
+                resolver_line=mapping['resolver_line'],
+                resolver_language=mapping['resolver_language'],
+                binding_style=mapping['binding_style'],
+                resolver_export=mapping.get('resolver_export')
+            )
+            if 'graphql_resolver_mappings' not in self.counts:
+                self.counts['graphql_resolver_mappings'] = 0
+            self.counts['graphql_resolver_mappings'] += 1
+
+    def _store_graphql_resolver_params(self, file_path: str, graphql_resolver_params: List, jsx_pass: bool):
+        """Store GraphQL resolver parameter mapping records."""
+        for param in graphql_resolver_params:
+            self.db_manager.add_graphql_resolver_param(
+                resolver_symbol_id=param['resolver_symbol_id'],
+                arg_name=param['arg_name'],
+                param_name=param['param_name'],
+                param_index=param['param_index'],
+                is_kwargs=param.get('is_kwargs', False),
+                is_list_input=param.get('is_list_input', False)
+            )
+            if 'graphql_resolver_params' not in self.counts:
+                self.counts['graphql_resolver_params'] = 0
+            self.counts['graphql_resolver_params'] += 1

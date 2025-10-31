@@ -10,6 +10,7 @@ The actual table definitions have been split into:
 - schemas/node_schema.py (17 tables - Node/React/Vue/TypeScript)
 - schemas/infrastructure_schema.py (18 tables - Docker/Terraform/CDK/GitHub Actions)
 - schemas/planning_schema.py (5 tables - Planning/meta-system)
+- schemas/graphql_schema.py (8 tables - GraphQL schema, types, fields, resolvers)
 
 This stub maintains 100% backward compatibility with all existing imports.
 
@@ -53,6 +54,7 @@ from .schemas.python_schema import PYTHON_TABLES
 from .schemas.node_schema import NODE_TABLES
 from .schemas.infrastructure_schema import INFRASTRUCTURE_TABLES
 from .schemas.planning_schema import PLANNING_TABLES
+from .schemas.graphql_schema import GRAPHQL_TABLES
 
 
 # ============================================================================
@@ -67,12 +69,13 @@ TABLES: Dict[str, TableSchema] = {
     **NODE_TABLES,           # 17 tables (React/Vue/TypeScript + build tools)
     **INFRASTRUCTURE_TABLES, # 18 tables (Docker/Terraform/CDK + GitHub Actions)
     **PLANNING_TABLES,       # 5 tables (Planning/meta-system)
+    **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 108 tables (24 core [+3 cfg_jsx] + 5 security + 5 frameworks + 34 python + 17 node + 18 infrastructure + 5 planning)
+# Total: 116 tables (24 core [+3 cfg_jsx] + 5 security + 5 frameworks + 34 python + 17 node + 18 infrastructure + 5 planning + 8 graphql)
 
 # Verify table count at module load time
-assert len(TABLES) == 108, f"Schema contract violation: Expected 108 tables, got {len(TABLES)}"
+assert len(TABLES) == 116, f"Schema contract violation: Expected 116 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 

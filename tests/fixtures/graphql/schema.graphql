@@ -1,0 +1,67 @@
+"""Sample GraphQL schema for testing TheAuditor GraphQL support."""
+
+type Query {
+  "Get a user by ID"
+  user(id: ID!): User
+  "List all users"
+  users(limit: Int, offset: Int): [User!]!
+  "Get posts by user ID"
+  posts(userId: ID!): [Post!]!
+  "Search posts by keyword"
+  searchPosts(keyword: String!): [Post!]!
+}
+
+type Mutation {
+  "Create a new user"
+  createUser(input: CreateUserInput!): User
+  "Update user profile"
+  updateUser(id: ID!, input: UpdateUserInput!): User
+  "Delete a user"
+  deleteUser(id: ID!): Boolean
+  "Create a new post"
+  createPost(input: CreatePostInput!): Post
+}
+
+type User {
+  id: ID!
+  username: String!
+  email: String!
+  password: String!
+  apiKey: String!
+  createdAt: String!
+  posts: [Post!]!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  content: String!
+  author: User!
+  comments: [Comment!]!
+  createdAt: String!
+}
+
+type Comment {
+  id: ID!
+  text: String!
+  author: User!
+  post: Post!
+}
+
+input CreateUserInput {
+  username: String!
+  email: String!
+  password: String!
+}
+
+input UpdateUserInput {
+  username: String
+  email: String
+  password: String
+}
+
+input CreatePostInput {
+  title: String!
+  content: String!
+  authorId: ID!
+}

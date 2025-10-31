@@ -59,9 +59,14 @@ class MemoryCache:
         self.variable_usage = []
 
         # Specialized security tables (4 indexes: api_endpoints, jwt_patterns)
-        # INDEX BREAKDOWN: 31 primary indexes = 11 base + 8 CFG + 8 taint-specialized + 4 security-specialized
+        # GraphQL tables (8 indexes: graphql_types, graphql_fields, graphql_field_args, graphql_resolver_mappings, etc.)
+        # INDEX BREAKDOWN: 39 primary indexes = 11 base + 8 CFG + 8 taint-specialized + 4 security-specialized + 8 graphql-specialized
         self.api_endpoints = []
         self.jwt_patterns = []
+        self.graphql_types = []
+        self.graphql_fields = []
+        self.graphql_field_args = []
+        self.graphql_resolver_mappings = []
 
         # Python-specific data loader (extracted to separate module)
         self.python_loader = PythonMemoryCacheLoader(self)
@@ -117,6 +122,13 @@ class MemoryCache:
         self.api_endpoints_by_method = defaultdict(list)  # method -> [endpoints]
         self.jwt_patterns_by_file = defaultdict(list)  # file -> [patterns]
         self.jwt_patterns_by_type = defaultdict(list)  # pattern_type -> [patterns]
+
+        # GraphQL indexes (Section 7: Taint & FCE Integration)
+        self.graphql_types_by_name = defaultdict(list)  # type_name -> [types]
+        self.graphql_types_by_file = defaultdict(list)  # schema_path -> [types]
+        self.graphql_fields_by_type = defaultdict(list)  # type_id -> [fields]
+        self.graphql_field_args_by_field = defaultdict(list)  # field_id -> [args]
+        self.graphql_resolver_mappings_by_field = defaultdict(list)  # field_id -> [mappings]
 
         # Python-specific indexes: see self.python_loader (python_memory_cache.py)
         # All Python data structures and indexes are in PythonMemoryCacheLoader
@@ -558,6 +570,98 @@ class MemoryCache:
 
             print(f"[MEMORY] Loaded {len(self.jwt_patterns)} JWT patterns", file=sys.stderr)
 
+            # Step 7.5: Load GraphQL tables (Section 7: Taint & FCE Integration)
+            # Load graphql_types
+            query = build_query('graphql_types', [
+                'type_id', 'schema_path', 'type_name', 'kind', 'line'
+            ])
+            cursor.execute(query)
+            graphql_types_data = cursor.fetchall()
+
+            for type_id, schema_path, type_name, kind, line in graphql_types_data:
+                schema_path = schema_path.replace("\\", "/") if schema_path else ""
+
+                gql_type = {
+                    "type_id": type_id,
+                    "schema_path": schema_path,
+                    "type_name": type_name or "",
+                    "kind": kind or "",
+                    "line": line or 0
+                }
+
+                self.graphql_types.append(gql_type)
+                self.graphql_types_by_name[type_name].append(gql_type)
+                self.graphql_types_by_file[schema_path].append(gql_type)
+                self.current_memory += sys.getsizeof(gql_type) + 50
+
+            print(f"[MEMORY] Loaded {len(self.graphql_types)} GraphQL types", file=sys.stderr)
+
+            # Load graphql_fields
+            query = build_query('graphql_fields', [
+                'field_id', 'type_id', 'field_name', 'return_type', 'line'
+            ])
+            cursor.execute(query)
+            graphql_fields_data = cursor.fetchall()
+
+            for field_id, type_id, field_name, return_type, line in graphql_fields_data:
+                gql_field = {
+                    "field_id": field_id,
+                    "type_id": type_id,
+                    "field_name": field_name or "",
+                    "return_type": return_type or "",
+                    "line": line or 0
+                }
+
+                self.graphql_fields.append(gql_field)
+                self.graphql_fields_by_type[type_id].append(gql_field)
+                self.current_memory += sys.getsizeof(gql_field) + 50
+
+            print(f"[MEMORY] Loaded {len(self.graphql_fields)} GraphQL fields", file=sys.stderr)
+
+            # Load graphql_field_args
+            query = build_query('graphql_field_args', [
+                'field_id', 'arg_name', 'arg_type', 'is_nullable'
+            ])
+            cursor.execute(query)
+            graphql_field_args_data = cursor.fetchall()
+
+            for field_id, arg_name, arg_type, is_nullable in graphql_field_args_data:
+                gql_arg = {
+                    "field_id": field_id,
+                    "arg_name": arg_name or "",
+                    "arg_type": arg_type or "",
+                    "is_nullable": bool(is_nullable)
+                }
+
+                self.graphql_field_args.append(gql_arg)
+                self.graphql_field_args_by_field[field_id].append(gql_arg)
+                self.current_memory += sys.getsizeof(gql_arg) + 50
+
+            print(f"[MEMORY] Loaded {len(self.graphql_field_args)} GraphQL field arguments", file=sys.stderr)
+
+            # Load graphql_resolver_mappings
+            query = build_query('graphql_resolver_mappings', [
+                'field_id', 'resolver_symbol_id', 'resolver_path', 'resolver_line'
+            ])
+            cursor.execute(query)
+            graphql_resolver_mappings_data = cursor.fetchall()
+
+            for field_id, resolver_symbol_id, resolver_path, resolver_line in graphql_resolver_mappings_data:
+                resolver_path = resolver_path.replace("\\", "/") if resolver_path else ""
+
+                gql_mapping = {
+                    "field_id": field_id,
+                    "resolver_symbol_id": resolver_symbol_id,
+                    "resolver_path": resolver_path,
+                    "resolver_line": resolver_line or 0
+                }
+
+                self.graphql_resolver_mappings.append(gql_mapping)
+                self.graphql_resolver_mappings_by_field[field_id].append(gql_mapping)
+                self.current_memory += sys.getsizeof(gql_mapping) + 50
+
+            print(f"[MEMORY] Loaded {len(self.graphql_resolver_mappings)} GraphQL resolver mappings", file=sys.stderr)
+
             # Step 8: Pre-compute call graph (NEW OPTIMIZATION!)
             self._precompute_call_graph()
 
@@ -565,7 +669,7 @@ class MemoryCache:
             self._update_pattern_sets(sources_dict, sinks_dict)
 
             print(f"[MEMORY] Total memory used: {self.current_memory / 1024 / 1024:.1f}MB", file=sys.stderr)
-            print(f"[MEMORY] Indexes built: 31 primary (11 base + 8 CFG + 8 taint-specialized + 4 security-specialized), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
+            print(f"[MEMORY] Indexes built: 39 primary (11 base + 8 CFG + 8 taint-specialized + 4 security-specialized + 8 graphql-specialized), 3 pre-computed (sources, sinks, call_graph)", file=sys.stderr)
 
             self.is_loaded = True
             return True
@@ -1056,6 +1160,12 @@ class MemoryCache:
         self.api_endpoints.clear()
         self.jwt_patterns.clear()
 
+        # Clear GraphQL tables (Section 7)
+        self.graphql_types.clear()
+        self.graphql_fields.clear()
+        self.graphql_field_args.clear()
+        self.graphql_resolver_mappings.clear()
+
         self.symbols_by_line.clear()
         self.symbols_by_name.clear()
         self.symbols_by_file.clear()
@@ -1113,6 +1223,13 @@ class MemoryCache:
         self.api_endpoints_by_method.clear()
         self.jwt_patterns_by_file.clear()
         self.jwt_patterns_by_type.clear()
+
+        # Clear GraphQL indexes (Section 7)
+        self.graphql_types_by_name.clear()
+        self.graphql_types_by_file.clear()
+        self.graphql_fields_by_type.clear()
+        self.graphql_field_args_by_field.clear()
+        self.graphql_resolver_mappings_by_field.clear()
 
         self.precomputed_sources.clear()
         self.precomputed_sinks.clear()
