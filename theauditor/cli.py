@@ -22,153 +22,127 @@ if platform.system() == "Windows":
 
 
 class VerboseGroup(click.Group):
-    """Custom group that shows all subcommands and their key options in help."""
-    
+    """AI-First help system - dynamically generates help from registered commands."""
+
+    # Command taxonomy (metadata only - NOT help text)
+    COMMAND_CATEGORIES = {
+        'PROJECT_SETUP': {
+            'title': 'PROJECT SETUP',
+            'description': 'Initial configuration and environment setup',
+            'commands': ['init', 'setup-ai', 'setup-claude', 'init-js', 'init-config'],
+            'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
+        },
+        'CORE_ANALYSIS': {
+            'title': 'CORE ANALYSIS',
+            'description': 'Essential indexing and workset commands',
+            'commands': ['full', 'index', 'workset'],
+            'ai_context': 'Foundation commands. index builds DB, workset filters scope, full runs everything.',
+        },
+        'SECURITY_SCANNING': {
+            'title': 'SECURITY SCANNING',
+            'description': 'Vulnerability detection and taint analysis',
+            'commands': ['detect-patterns', 'taint-analyze', 'docker-analyze',
+                        'detect-frameworks', 'rules', 'context', 'workflows', 'cdk', 'terraform', 'deadcode'],
+            'ai_context': 'Security-focused analysis. detect-patterns=rules, taint-analyze=data flow.',
+        },
+        'DEPENDENCIES': {
+            'title': 'DEPENDENCIES',
+            'description': 'Package analysis and documentation',
+            'commands': ['deps', 'docs'],
+            'ai_context': 'deps checks CVEs and versions, docs fetches/summarizes package documentation.',
+        },
+        'CODE_QUALITY': {
+            'title': 'CODE QUALITY',
+            'description': 'Linting and complexity analysis',
+            'commands': ['lint', 'cfg', 'graph'],
+            'ai_context': 'Quality checks. lint=linters, cfg=complexity, graph=architecture.',
+        },
+        'DATA_REPORTING': {
+            'title': 'DATA & REPORTING',
+            'description': 'Analysis aggregation and report generation',
+            'commands': ['fce', 'report', 'structure', 'summary', 'metadata', 'tool-versions', 'blueprint'],
+            'ai_context': 'fce correlates findings, report generates AI chunks, structure maps codebase.',
+        },
+        'ADVANCED_QUERIES': {
+            'title': 'ADVANCED QUERIES',
+            'description': 'Direct database queries and impact analysis',
+            'commands': ['query', 'impact', 'refactor'],
+            'ai_context': 'query=SQL-like symbol lookup, impact=blast radius, refactor=migration analysis.',
+        },
+        'INSIGHTS_ML': {
+            'title': 'INSIGHTS & ML',
+            'description': 'Machine learning and risk predictions',
+            'commands': ['insights', 'learn', 'suggest', 'learn-feedback'],
+            'ai_context': 'Optional ML layer. learn trains models, suggest predicts risky files.',
+        },
+        'UTILITIES': {
+            'title': 'UTILITIES',
+            'description': 'Educational and helper commands',
+            'commands': ['explain', 'planning'],
+            'ai_context': 'explain teaches concepts (taint, workset, fce), planning tracks work.',
+        },
+    }
+
     def format_help(self, ctx, formatter):
-        """Format help to show all commands with their key options."""
-        # Original help text
+        """Generate AI-first help dynamically from registered commands."""
         super().format_help(ctx, formatter)
-        
-        # Add detailed command listing
-        formatter.write_paragraph()
-        formatter.write_text("Detailed Command Overview:")
-        formatter.write_paragraph()
-        
-        # Core commands
-        formatter.write_text("CORE ANALYSIS:")
-        with formatter.indentation():
-            formatter.write_text("aud full                    # Complete 20-phase security audit")
-            formatter.write_text("  --offline                 # Skip network operations (deps, docs)")
-            formatter.write_text("  --exclude-self            # Exclude TheAuditor's own files")
-            formatter.write_text("  --quiet                   # Minimal output")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud index                   # Build file manifest and symbol database")
-            formatter.write_text("  --exclude-self            # Exclude TheAuditor's own files")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud workset                 # Analyze only changed files")
-            formatter.write_text("  --diff HEAD~3..HEAD       # Specify git commit range")
-            formatter.write_text("  --all                     # Include all files")
-        
-        formatter.write_paragraph()
-        formatter.write_text("SECURITY SCANNING:")
-        with formatter.indentation():
-            formatter.write_text("aud detect-patterns         # Run 100+ security pattern rules")
-            formatter.write_text("  --workset                 # Scan only workset files")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud taint-analyze           # Track data flow from sources to sinks")
-            formatter.write_text("  --no-interprocedural      # Disable cross-function tracking")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud docker-analyze          # Analyze Docker security issues")
-            formatter.write_text("  --severity critical       # Filter by severity")
-            formatter.write_text("  --check-vulns             # Enable vulnerability scanning")
-        
-        formatter.write_paragraph()
-        formatter.write_text("DEPENDENCIES:")
-        with formatter.indentation():
-            formatter.write_text("aud deps                    # Analyze project dependencies")
-            formatter.write_text("  --vuln-scan               # Run npm audit + OSV-Scanner")
-            formatter.write_text("  --offline                 # Use offline databases (no network)")
-            formatter.write_text("  --check-latest            # Check for outdated packages")
-            formatter.write_text("  --upgrade-all             # YOLO: upgrade everything to latest")
-            formatter.write_paragraph()
-
-            formatter.write_text("aud docs fetch              # Fetch documentation for dependencies")
-            formatter.write_text("aud docs summarize          # Create AI-optimized doc capsules")
-            formatter.write_text("aud docs list               # List available documentation")
-            formatter.write_text("aud docs view <package>     # View specific package docs")
-        
-        formatter.write_paragraph()
-        formatter.write_text("CODE QUALITY:")
-        with formatter.indentation():
-            formatter.write_text("aud lint                    # Run all configured linters")
-            formatter.write_text("  --workset                 # Lint only changed files")
-            formatter.write_text("  --print-plan              # Preview linters without running")
-        
-        formatter.write_paragraph()
-        formatter.write_text("ANALYSIS & REPORTING:")
-        with formatter.indentation():
-            formatter.write_text("aud graph build             # Build dependency graph")
-            formatter.write_text("aud graph analyze           # Find cycles and architectural issues")
-            formatter.write_text("aud graph viz               # Visualize dependency graph")
-            formatter.write_text("  --view full|cycles|hotspots|layers|impact  # Visualization mode")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud cfg analyze             # Analyze control flow complexity")
-            formatter.write_text("  --complexity-threshold 15 # Set complexity threshold")
-            formatter.write_text("  --find-dead-code          # Find unreachable code")
-            formatter.write_text("  --workset                 # Analyze workset files only")
-            formatter.write_text("aud cfg viz                 # Visualize function control flow")
-            formatter.write_text("  --file src/auth.py        # File containing function")
-            formatter.write_text("  --function validate       # Function to visualize")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud impact                  # Analyze change impact radius")
-            formatter.write_text("  --file src/auth.py        # Specify file to analyze")
-            formatter.write_text("  --line 42                 # Specific line number")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud refactor                # Detect incomplete refactorings")
-            formatter.write_text("  --auto-detect             # Auto-detect from migrations")
-            formatter.write_text("  --workset                 # Check current changes")
-            formatter.write_paragraph()
-
-            formatter.write_text("aud context                 # Apply user-defined business logic")
-            formatter.write_text("  --file context.yaml       # Semantic context YAML file")
-            formatter.write_text("  --verbose                 # Show detailed findings")
-            formatter.write_paragraph()
-
-            formatter.write_text("aud blueprint               # Architectural visualization (NO ML/CUDA)")
-            formatter.write_text("  --format text             # Visual ASCII display (default)")
-            formatter.write_text("  --format json             # Structured JSON export")
-            formatter.write_text("  # Shows: structure, hot files, security, data flow, imports")
-            formatter.write_text("  # Prereq: Run 'aud full' for complete blueprint")
-            formatter.write_paragraph()
-
-            formatter.write_text("aud fce                     # Run Factual Correlation Engine")
-            formatter.write_text("aud report                  # Generate final report")
-            formatter.write_text("aud structure               # Generate project structure report")
-            formatter.write_text("  --max-depth 5             # Directory depth limit")
-            formatter.write_text("  --output structure.json   # Custom output path")
-        
-        formatter.write_paragraph()
-        formatter.write_text("ADVANCED:")
-        with formatter.indentation():
-            formatter.write_text("aud insights                # Run optional insights analysis")
-            formatter.write_text("  --mode ml                 # ML risk predictions")
-            formatter.write_text("  --mode graph              # Architecture health scoring")
-            formatter.write_text("  --mode taint              # Security severity analysis")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud learn                   # Train ML models on codebase")
-            formatter.write_text("aud suggest                 # Get ML-powered suggestions")
-        
-        formatter.write_paragraph()
-        formatter.write_text("SETUP & CONFIG:")
-        with formatter.indentation():
-            formatter.write_text("aud init                    # Initialize .pf/ directory")
-            formatter.write_text("aud setup-ai                # Setup sandboxed tools + vuln databases")
-            formatter.write_text("  --target .                # Target directory (downloads ~500MB)")
-            formatter.write_paragraph()
-            
-            formatter.write_text("aud init-js                 # Create/merge package.json")
-            formatter.write_text("aud init-config             # Initialize configuration")
 
         formatter.write_paragraph()
-        formatter.write_text("UTILITIES:")
-        with formatter.indentation():
-            formatter.write_text("aud explain                 # Learn TheAuditor concepts (taint, workset, fce, etc.)")
-            formatter.write_text("  --list                    # List all available concepts")
+        formatter.write_text("=" * 80)
+        formatter.write_text("COMMAND REFERENCE (AI-Optimized Categorization)")
+        formatter.write_text("=" * 80)
+        formatter.write_paragraph()
+
+        registered = {name: cmd for name, cmd in self.commands.items()
+                     if not name.startswith('_')}
+
+        formatter.write_text("AI ASSISTANT GUIDANCE:")
+        formatter.write_text("  - Commands are grouped by purpose for optimal workflow ordering")
+        formatter.write_text("  - Each category shows WHEN and WHY to use commands")
+        formatter.write_text("  - Run 'aud <command> --help' for detailed AI-consumable documentation")
+        formatter.write_text("  - Use 'aud explain <concept>' to learn about taint, workset, fce, etc.")
+        formatter.write_paragraph()
+
+        for category_id, category_data in self.COMMAND_CATEGORIES.items():
+            formatter.write_text(f"{category_data['title']}:")
+            with formatter.indentation():
+                formatter.write_text(f"# {category_data['description']}")
+                formatter.write_text(f"# AI: {category_data['ai_context']}")
+                formatter.write_paragraph()
+
+                for cmd_name in category_data['commands']:
+                    if cmd_name not in registered:
+                        continue
+
+                    cmd = registered[cmd_name]
+                    short_help = (cmd.help or "No description").split('\n')[0].strip()
+                    formatter.write_text(f"aud {cmd_name:20s} # {short_help}")
+
+                    if hasattr(cmd, 'params'):
+                        key_options = [p for p in cmd.params[:3] if hasattr(p, 'help') and p.help]
+                        for param in key_options:
+                            opt_name = f"--{param.name.replace('_', '-')}"
+                            formatter.write_text(f"  {opt_name:22s} # {param.help}")
+
+                formatter.write_paragraph()
+
+        all_categorized = set()
+        for cat_data in self.COMMAND_CATEGORIES.values():
+            all_categorized.update(cat_data['commands'])
+
+        ungrouped = set(registered.keys()) - all_categorized
+        if ungrouped:
+            formatter.write_text("=" * 80)
+            formatter.write_text("WARNING: The following commands are not categorized:")
+            formatter.write_text("=" * 80)
+            for cmd_name in sorted(ungrouped):
+                formatter.write_text(f"  - {cmd_name}")
+            formatter.write_paragraph()
+            formatter.write_text("^ Report this to maintainers - all commands should be categorized")
             formatter.write_paragraph()
 
-            formatter.write_text("aud detect-frameworks       # Display detected frameworks from database")
-            formatter.write_text("  --output-json             # Custom output path")
-
-        formatter.write_paragraph()
-        formatter.write_text("For detailed help on any command: aud <command> --help")
+        formatter.write_text("For detailed help: aud <command> --help")
+        formatter.write_text("For concepts: aud explain --list")
 
 
 @click.group(cls=VerboseGroup)
@@ -295,6 +269,7 @@ from theauditor.commands.metadata import metadata
 from theauditor.commands.terraform import terraform
 from theauditor.commands.cdk import cdk
 from theauditor.commands.workflows import workflows
+from theauditor.commands.deadcode import deadcode
 
 # Register simple commands
 cli.add_command(init)
@@ -350,6 +325,7 @@ cli.add_command(terraform)
 cli.add_command(cdk)
 cli.add_command(workflows)
 cli.add_command(planning)
+cli.add_command(deadcode)
 
 # All commands have been migrated to separate modules
 
