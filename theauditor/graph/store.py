@@ -5,6 +5,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from theauditor.indexer.schemas.graphs_schema import GRAPH_TABLES
+
 
 class XGraphStore:
     """Store and query cross-project graphs in SQLite."""
@@ -21,54 +23,17 @@ class XGraphStore:
         self._init_schema()
     
     def _init_schema(self) -> None:
-        """Initialize database schema."""
+        """Initialize database schema using TableSchema definitions."""
         with sqlite3.connect(self.db_path) as conn:
-            # Nodes table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS nodes (
-                    id TEXT PRIMARY KEY,
-                    file TEXT NOT NULL,
-                    lang TEXT,
-                    loc INTEGER DEFAULT 0,
-                    churn INTEGER,
-                    type TEXT DEFAULT 'module',
-                    graph_type TEXT NOT NULL,
-                    metadata TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
+            cursor = conn.cursor()
 
-            # Edges table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS edges (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source TEXT NOT NULL,
-                    target TEXT NOT NULL,
-                    type TEXT DEFAULT 'import',
-                    file TEXT,
-                    line INTEGER,
-                    graph_type TEXT NOT NULL,
-                    metadata TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(source, target, type, graph_type)
-                )
-            """)
-            
-            # Analysis results table
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS analysis_results (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    analysis_type TEXT NOT NULL,
-                    result_json TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Create indexes
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type)")
+            # Create tables using schema definitions from graphs_schema.py
+            for table_name, schema in GRAPH_TABLES.items():
+                cursor.execute(schema.create_table_sql())
+
+                # Create indexes for this table
+                for index_sql in schema.create_indexes_sql():
+                    cursor.execute(index_sql)
 
             conn.commit()
     
