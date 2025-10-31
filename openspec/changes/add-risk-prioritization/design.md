@@ -1,264 +1,379 @@
 ## Overview
-Reorganize TheAuditor's output architecture to make results consumable by humans and AI agents. The change shifts from "chunk everything in `.pf/readthis/`" (24-27 files) to "generate focused summaries" (7-8 files). `.pf/raw/` remains the data warehouse (full fidelity), while `.pf/readthis/` becomes the primary consumption layer with per-analyzer summaries. FCE remains unchanged (correlation only). This aligns with the new `aud blueprint` / `aud query` AI interaction model where structured queries replace raw JSON parsing.
+Reorganize TheAuditor's output architecture from fragmented file explosion (20+ files) to consolidated group outputs (6 files) + guidance summaries (3-5 files). Deprecate the `.pf/readthis/` chunking system entirely in favor of database-first AI interaction via `aud query` / `aud context`. This change shifts consumption from "parse 20+ JSON files" to "query database directly + read 3-5 summaries for orientation".
+
+## Core Principle: Database-First Architecture
+
+**CRITICAL SHIFT**: The original proposal (per-domain summaries) is **obsolete** because we now have:
+- `aud query` - Direct SQL queries over indexed code (100x faster than file parsing)
+- `aud context` - Semantic classification of findings via YAML rules
+- `aud planning` - Database-centric task management
+
+**AI Consumption Model**:
+1. **Primary**: Query database directly via `aud query --symbol X`, `aud context`, etc.
+2. **Secondary**: Read 3-5 guidance summaries for quick orientation
+3. **Fallback**: Read consolidated group files for archival/debugging only
+
+**Key Insight**: Why chunk 20+ files into 24-27 smaller files when AIs can query the database directly in <10ms?
 
 ## Data Model & Persistence
 
-**Primary Storage**: All findings and analysis results already exist in `findings_consolidated`, graph tables, taint tables, etc. **No new database tables required** - this change is purely about output generation.
+**Primary Storage**: All findings and analysis results already exist in:
+- `repo_index.db` (91MB) - Raw AST facts, symbols, calls, assignments
+- `graphs.db` (79MB) - Pre-computed graph structures
 
-**Core Implementation**: This change is **summary generation focused**, not database schema focused. We're reorganizing how data flows from raw JSON outputs → summary JSON files → `.pf/readthis/` consumption.
+**NO NEW DATABASE TABLES REQUIRED** - this change is purely about output file organization.
 
-**Key Principle**: Load from existing JSON files in `.pf/raw/`, not from database queries. Current architecture (summary.py:94-168) already does this.
+**Output Consolidation Targets**:
+| Current (20+ files) | Consolidated (6 files) | Purpose |
+|---------------------|------------------------|---------|
+| graph_analysis.json<br>graph_cycles.json<br>graph_hotspots.json<br>graph_layers.json<br>call_graph.json | **graph_analysis.json** | All graph outputs combined |
+| patterns.json<br>taint_analysis.json<br>vulnerabilities.json | **security_analysis.json** | All security findings combined |
+| lint.json<br>cfg.json<br>deadcode.json | **quality_analysis.json** | All code quality findings combined |
+| deps.json<br>docs.json<br>frameworks.json | **dependency_analysis.json** | All dependency data combined |
+| terraform_findings.json<br>cdk_findings.json<br>docker_findings.json<br>workflows_findings.json | **infrastructure_analysis.json** | All IaC/CI findings combined |
+| fce.json | **correlation_analysis.json** | FCE meta-findings only |
 
-## Per-Analyzer Summary Generation
+## Output Consolidation Strategy
 
-**Goal**: Each major analyzer gets a dedicated summary file that provides:
-- Top N findings (sorted by severity, typically top 20)
-- Key metrics (total issues, critical count, files affected)
-- Cross-references to `.pf/raw/` for full detail
-- Reference to `aud query` alternatives for structured access
-- Size target: ≤50 KB per summary (but can be any size in /raw/, extraction will chunk if needed)
+### Phase 1: Modify Analyzers to Write to Consolidated Files
 
-**Implementation Pattern** (Apply to each analyzer):
+Each analyzer should append its findings to the appropriate consolidated group file instead of creating separate files.
+
+**Example: Graph Analyzers** (theauditor/commands/graph.py):
+
+**CURRENT** (creates 5 separate files):
+```python
+# graph build → graph_analysis.json
+# graph analyze → graph_cycles.json, graph_hotspots.json
+# graph viz → call_graph.json, graph_layers.json
+```
+
+**NEW** (all write to 1 file):
+```python
+def write_graph_output(analysis_type: str, data: Dict[str, Any]):
+    """Append graph analysis to consolidated file."""
+    consolidated_path = Path('.pf/raw/graph_analysis.json')
+
+    # Load existing data if file exists
+    if consolidated_path.exists():
+        with open(consolidated_path, 'r') as f:
+            consolidated = json.load(f)
+    else:
+        consolidated = {
+            "analyzer": "graph",
+            "generated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
+            "analyses": {}
+        }
+
+    # Add new analysis section
+    consolidated["analyses"][analysis_type] = data
+    consolidated["last_updated"] = time.strftime('%Y-%m-%d %H:%M:%S')
+
+    # Write back
+    with open(consolidated_path, 'w') as f:
+        json.dump(consolidated, f, indent=2)
+```
+
+**Apply this pattern to**:
+- `theauditor/commands/graph.py` → `graph_analysis.json`
+- `theauditor/commands/detect_patterns.py` + `theauditor/commands/taint_analyze.py` → `security_analysis.json`
+- `theauditor/commands/lint.py` + `theauditor/commands/cfg.py` + `theauditor/commands/deadcode.py` → `quality_analysis.json`
+- `theauditor/commands/deps.py` + `theauditor/commands/docs.py` + `theauditor/commands/detect_frameworks.py` → `dependency_analysis.json`
+- `theauditor/commands/terraform.py` + `theauditor/commands/cdk.py` + `theauditor/commands/docker_analyze.py` + `theauditor/commands/workflows.py` → `infrastructure_analysis.json`
+
+### Phase 2: Add Guidance Summary Generation
+
+Create new command `aud summarize` (not to be confused with existing `aud summary` which generates stats).
+
+**File**: `theauditor/commands/summarize.py` (NEW)
 
 ```python
-# File: theauditor/commands/summary.py
+import json
+from pathlib import Path
+import click
+from theauditor.utils.error_handler import handle_exceptions
 
-def generate_taint_summary(raw_path: Path, db_path: Path) -> Dict[str, Any]:
-    """Generate taint analysis domain summary."""
-    # Load raw taint data from JSON file
-    taint = {}
-    if (raw_path / "taint_analysis.json").exists():
-        with open(raw_path / "taint_analysis.json", 'r', encoding='utf-8') as f:
-            taint = json.load(f)
+@click.command()
+@handle_exceptions
+def summarize():
+    """Generate 3-5 guidance summaries from consolidated analysis files.
 
-    # Extract top 20 taint paths by severity
-    taint_paths = taint.get("taint_paths", [])
+    Reads consolidated group files and generates focused summaries for quick
+    orientation. These are truth courier documents - highlight findings, show
+    metrics, point to hotspots, but NEVER recommend fixes.
+    """
+    raw_dir = Path('.pf/raw')
+
+    # Generate SAST Summary
+    sast = generate_sast_summary(raw_dir)
+    with open(raw_dir / 'SAST_Summary.json', 'w') as f:
+        json.dump(sast, f, indent=2)
+
+    # Generate SCA Summary
+    sca = generate_sca_summary(raw_dir)
+    with open(raw_dir / 'SCA_Summary.json', 'w') as f:
+        json.dump(sca, f, indent=2)
+
+    # Generate Intelligence Summary
+    intelligence = generate_intelligence_summary(raw_dir)
+    with open(raw_dir / 'Intelligence_Summary.json', 'w') as f:
+        json.dump(intelligence, f, indent=2)
+
+    # Generate Quick Start
+    quick_start = generate_quick_start(raw_dir)
+    with open(raw_dir / 'Quick_Start.json', 'w') as f:
+        json.dump(quick_start, f, indent=2)
+
+    # Generate Query Guide
+    query_guide = generate_query_guide()
+    with open(raw_dir / 'Query_Guide.json', 'w') as f:
+        json.dump(query_guide, f, indent=2)
+
+    print("[OK] Generated 5 guidance summaries in .pf/raw/")
+
+
+def generate_sast_summary(raw_dir: Path) -> Dict[str, Any]:
+    """Generate SAST summary from security_analysis.json."""
+    security_path = raw_dir / 'security_analysis.json'
+    if not security_path.exists():
+        return {"error": "security_analysis.json not found"}
+
+    with open(security_path, 'r') as f:
+        security = json.load(f)
+
+    # Extract top 20 security findings by severity
+    all_findings = []
+
+    # Patterns
+    if "patterns" in security.get("analyses", {}):
+        patterns = security["analyses"]["patterns"]
+        for category, findings in patterns.get("findings_by_category", {}).items():
+            all_findings.extend(findings)
+
+    # Taint flows
+    if "taint" in security.get("analyses", {}):
+        taint = security["analyses"]["taint"]
+        all_findings.extend(taint.get("vulnerabilities", []))
+
+    # Sort by severity
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    sorted_paths = sorted(
-        taint_paths,
-        key=lambda p: severity_order.get(p.get("severity", "low"), 99)
+    sorted_findings = sorted(
+        all_findings,
+        key=lambda f: severity_order.get(f.get("severity", "low"), 99)
     )[:20]
 
-    # Build summary
-    summary = {
-        "analyzer": "taint",
+    return {
+        "summary_type": "SAST",
         "generated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
-        "metrics": {
-            "total_taint_paths": len(taint_paths),
-            "total_vulnerabilities": taint.get("total_vulnerabilities", 0),
-            "sources_found": taint.get("sources_found", 0),
-            "sinks_found": taint.get("sinks_found", 0),
-            "by_severity": {
-                "critical": sum(1 for p in taint_paths if p.get("severity") == "critical"),
-                "high": sum(1 for p in taint_paths if p.get("severity") == "high"),
-                "medium": sum(1 for p in taint_paths if p.get("severity") == "medium"),
-                "low": sum(1 for p in taint_paths if p.get("severity") == "low")
-            }
+        "total_vulnerabilities": len(all_findings),
+        "by_severity": {
+            "critical": sum(1 for f in all_findings if f.get("severity") == "critical"),
+            "high": sum(1 for f in all_findings if f.get("severity") == "high"),
+            "medium": sum(1 for f in all_findings if f.get("severity") == "medium"),
+            "low": sum(1 for f in all_findings if f.get("severity") == "low")
         },
-        "top_findings": sorted_paths,
-        "detail_location": ".pf/raw/taint_analysis.json",
-        "query_alternative": "This domain can also be queried with: aud query --taint"
+        "top_20_findings": sorted_findings,
+        "detail_location": ".pf/raw/security_analysis.json",
+        "query_alternative": "Use 'aud query --category jwt' or 'aud context' for structured queries"
     }
 
-    return summary
-```
 
-**Summaries to Generate**:
-1. `summary_graph.json` - Cycles, hotspots, impact analysis
-2. `summary_taint.json` - High-confidence taint paths (top 20)
-3. `summary_lint.json` - Lint findings by severity + file hotspots
-4. `summary_rules.json` - Security rules grouped by category
-5. `summary_dependencies.json` - Vulnerable deps + outdated packages
-6. `summary_fce.json` - Correlated findings + meta-findings
+def generate_sca_summary(raw_dir: Path) -> Dict[str, Any]:
+    """Generate SCA summary from dependency_analysis.json."""
+    # Similar pattern - load dependency_analysis.json, extract top 20 CVEs/outdated deps
+    pass
 
-**Master Summary**: `The_Auditor_Summary.json`
-- Combines top findings from ALL domains
-- Severity-sorted across all analyzers (top 20-30)
-- Per-domain metrics + cross-links to per-domain summaries
-- Single entry point for "what matters most"
 
-**CLI Integration**:
-- Extend `aud summary` command with `--generate-domain-summaries` flag
-- Generates all per-analyzer summaries + master summary in one pass
-- Summaries written to `.pf/raw/` first (any size allowed)
-- Backward compatible: `aud summary` without flag still generates legacy `audit_summary.json`
+def generate_intelligence_summary(raw_dir: Path) -> Dict[str, Any]:
+    """Generate intelligence summary from graph + correlation analysis."""
+    # Load graph_analysis.json + correlation_analysis.json
+    # Extract top 20 hotspots, cycles, FCE correlations
+    pass
 
-## Pipeline & Summary Integration
 
-**How Summaries Get Generated**:
+def generate_quick_start(raw_dir: Path) -> Dict[str, Any]:
+    """Generate ultra-condensed top 10 across ALL domains."""
+    # Load all 3 summaries, pick top 10 critical issues
+    pass
 
-**Stage 13** (NEW): Generate per-domain summaries
-- Runs at end of `aud full` pipeline, after FCE (Stage 12)
-- Invokes `aud summary --generate-domain-summaries`
-- Reads from JSON files in `.pf/raw/`: taint_analysis.json, graph_analysis.json, lint.json, patterns.json, fce.json, deps.json
-- Generates 6-7 per-domain summaries + 1 master summary
-- Outputs to `.pf/raw/summary_*.json` and `.pf/raw/The_Auditor_Summary.json`
 
-**Stage 14** (MODIFIED): Extract to readthis
-- Already exists (extraction.py), now modified to be selective
-- **NEW BEHAVIOR**: Only chunk summary files (summary_*.json, The_Auditor_Summary.json)
-- Raw data files (taint_analysis.json, graph_analysis.json, etc.) stay in /raw/ only
-- Result: 7-8 files in `/readthis/` instead of 24-27
-
-**Master Summary Structure** (`The_Auditor_Summary.json`):
-```json
-{
-  "analyzer": "THE_AUDITOR_MASTER",
-  "generated_at": "2025-10-26 12:34:56",
-  "overview": {
-    "total_findings": 147,
-    "by_severity": {
-      "critical": 5,
-      "high": 23,
-      "medium": 89,
-      "low": 30,
-      "info": 0
-    },
-    "domains_analyzed": 6
-  },
-  "per_domain_metrics": {
-    "graph": {"cycles_detected": 3, "hotspots_identified": 12},
-    "taint": {"total_taint_paths": 8, "total_vulnerabilities": 8},
-    "lint": {"total_issues": 89},
-    "rules": {"total_patterns_matched": 15},
-    "dependencies": {"vulnerable_packages": 12, "outdated_packages": 8},
-    "fce": {"raw_findings": 147, "meta_findings": 23}
-  },
-  "top_findings_all_domains": [
-    {
-      "rank": 1,
-      "domain": "taint",
-      "severity": "critical",
-      "file": "auth.py",
-      "line": 45,
-      "message": "Taint path: auth.py -> db.py (SQL injection)",
-      "detail": { ... }
+def generate_query_guide() -> Dict[str, Any]:
+    """Generate query reference guide."""
+    return {
+        "guide_type": "Query Reference",
+        "generated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
+        "purpose": "AI assistants should query database directly instead of parsing JSON files",
+        "queries_by_domain": {
+            "Security Patterns": [
+                "aud query --category jwt",
+                "aud query --category oauth",
+                "aud query --pattern 'password%'"
+            ],
+            "Taint Analysis": [
+                "aud query --variable user_input --show-flow",
+                "aud query --symbol db.execute --show-callers"
+            ],
+            "Graph Analysis": [
+                "aud query --file api.py --show-dependencies",
+                "aud query --symbol authenticate --show-callers --depth 3"
+            ],
+            "Code Quality": [
+                "aud query --symbol calculate_total --show-callees",
+                "aud cfg analyze --complexity-threshold 20"
+            ],
+            "Dependencies": [
+                "aud deps --vuln-scan",
+                "aud docs fetch"
+            ],
+            "Infrastructure": [
+                "aud terraform analyze",
+                "aud workflows analyze"
+            ],
+            "Semantic Classification": [
+                "aud context --file refactor_rules.yaml"
+            ]
+        },
+        "performance": {
+            "database_query": "<10ms per query",
+            "json_parsing": "1-2s to read multiple files",
+            "token_savings": "5,000-10,000 tokens per refactoring iteration"
+        }
     }
-  ],
-  "per_domain_summaries": {
-    "graph": ".pf/raw/summary_graph.json",
-    "taint": ".pf/raw/summary_taint.json",
-    "lint": ".pf/raw/summary_lint.json",
-    "rules": ".pf/raw/summary_rules.json",
-    "dependencies": ".pf/raw/summary_dependencies.json",
-    "fce": ".pf/raw/summary_fce.json"
-  },
-  "detail_locations": {
-    "taint": ".pf/raw/taint_analysis.json",
-    "graph": ".pf/raw/graph_analysis.json",
-    "lint": ".pf/raw/lint.json",
-    "rules": ".pf/raw/patterns.json",
-    "dependencies": ".pf/raw/deps.json",
-    "fce": ".pf/raw/fce.json"
-  },
-  "query_alternatives": {
-    "structured_queries": "Use 'aud blueprint' or 'aud query' for structured database queries",
-    "per_domain": "See per_domain_summaries section for domain-specific summaries"
-  }
-}
 ```
 
-## Summary & Report Outputs
+### Phase 3: Deprecate Extraction System
 
-**BEFORE** (Current - The Problem):
+**Remove from pipeline** (theauditor/pipelines.py:1462-1476):
+
+**BEFORE**:
+```python
+# CRITICAL: Run extraction AFTER FCE and BEFORE report
+if "factual correlation" in phase_name.lower():
+    try:
+        from theauditor.extraction import extract_all_to_readthis
+
+        log_output("\n" + "="*60)
+        log_output("[EXTRACTION] Creating AI-consumable chunks from raw data")
+        log_output("="*60)
+
+        extraction_start = time.time()
+        extraction_success = extract_all_to_readthis(root)
+        extraction_elapsed = time.time() - extraction_start
+```
+
+**AFTER**:
+```python
+# CRITICAL: Run summarize AFTER FCE
+if "factual correlation" in phase_name.lower():
+    try:
+        log_output("\n" + "="*60)
+        log_output("[SUMMARIZE] Generating guidance summaries")
+        log_output("="*60)
+
+        # Call aud summarize
+        summarize_cmd = [sys.executable, "-m", "theauditor.cli", "summarize"]
+        summarize_result = subprocess.run(summarize_cmd, cwd=root, capture_output=True, text=True)
+
+        if summarize_result.returncode == 0:
+            log_output("[OK] Generated 5 guidance summaries in .pf/raw/")
+        else:
+            log_output(f"[WARN] Summarize failed: {summarize_result.stderr}")
+```
+
+**Mark extraction.py as deprecated**:
+- Add comment at top of file: `# DEPRECATED: Extraction system obsolete - use 'aud query' for database-first AI interaction`
+- Keep file for backward compatibility but log warning when called
+
+**Update .gitignore**:
+```
+# Deprecated - no longer generated
+.pf/readthis/
+```
+
+### Phase 4: Update Documentation
+
+**Update README.md OUTPUT STRUCTURE section**:
+
+**BEFORE**:
 ```
 .pf/
-├── raw/ (18 files, NO summaries)
-│   ├── taint_analysis.json (2.1 MB)
-│   ├── graph_analysis.json (890 KB)
-│   ├── lint.json (1.5 MB)
-│   ├── patterns.json (780 KB)
-│   ├── fce.json (3.2 MB)
-│   └── audit_summary.json (8 KB)
-│
-└── readthis/ (29 files, EVERYTHING chunked)
-    ├── taint_analysis_chunk01.json
-    ├── taint_analysis_chunk02.json
-    ├── taint_analysis_chunk03.json
-    ├── graph_analysis_chunk01.json
-    ├── graph_analysis_chunk02.json
-    ├── fce_chunk01.json
-    ├── fce_chunk02.json
-    └── ... (24-27 total chunked files) ❌ NOBODY READS THIS
+├── raw/          # Immutable tool outputs (ground truth)
+├── readthis/     # AI-optimized chunks (<65KB each)
+│   ├── *_chunk01.json
+│   └── summary.json
 ```
 
-**AFTER** (Proposed - The Solution):
+**AFTER**:
 ```
 .pf/
-├── raw/ (25 files, includes summaries + raw data)
-│   ├── taint_analysis.json (2.1 MB) [RAW DATA - stays here]
-│   ├── graph_analysis.json (890 KB) [RAW DATA - stays here]
-│   ├── lint.json (1.5 MB) [RAW DATA - stays here]
-│   ├── patterns.json (780 KB) [RAW DATA - stays here]
-│   ├── fce.json (3.2 MB) [RAW DATA - stays here]
-│   ├── deps.json (120 KB) [RAW DATA - stays here]
-│   ├── audit_summary.json (8 KB) [LEGACY - still generated]
-│   ├── summary_taint.json (45 KB) ⭐ [NEW - summary]
-│   ├── summary_graph.json (38 KB) ⭐ [NEW - summary]
-│   ├── summary_lint.json (42 KB) ⭐ [NEW - summary]
-│   ├── summary_rules.json (35 KB) ⭐ [NEW - summary]
-│   ├── summary_dependencies.json (28 KB) ⭐ [NEW - summary]
-│   ├── summary_fce.json (41 KB) ⭐ [NEW - summary]
-│   └── The_Auditor_Summary.json (95 KB) ⭐⭐ [NEW - master summary]
+├── raw/
+│   ├── Consolidated Analysis (6 files):
+│   │   ├── graph_analysis.json        # All graph outputs
+│   │   ├── security_analysis.json     # Patterns + taint + vulnerabilities
+│   │   ├── quality_analysis.json      # Lint + cfg + deadcode
+│   │   ├── dependency_analysis.json   # Deps + docs + frameworks
+│   │   ├── infrastructure_analysis.json # Terraform + CDK + Docker + Workflows
+│   │   └── correlation_analysis.json  # FCE meta-findings
+│   │
+│   └── Guidance Summaries (5 files):
+│       ├── SAST_Summary.json         # Top 20 security findings
+│       ├── SCA_Summary.json          # Top 20 dependency issues
+│       ├── Intelligence_Summary.json # Top 20 code intelligence insights
+│       ├── Quick_Start.json          # Top 10 critical issues
+│       └── Query_Guide.json          # How to query via aud commands
 │
-└── readthis/ (7-8 files, ONLY summaries)
-    ├── summary_taint.json (45 KB, or chunked if >65KB)
-    ├── summary_graph.json (38 KB)
-    ├── summary_lint.json (42 KB)
-    ├── summary_rules.json (35 KB)
-    ├── summary_dependencies.json (28 KB)
-    ├── summary_fce.json (41 KB)
-    └── The_Auditor_Summary.json (95 KB, or chunked if >65KB)
-
-    Total: 7-8 files ✅ ACTUALLY READABLE
+├── repo_index.db   # PRIMARY DATA SOURCE - query via 'aud query'
+└── graphs.db       # Graph structures - query via 'aud graph'
 ```
-
-**Consumption Flow**:
-1. **Humans start here**: Read `The_Auditor_Summary.json` from /readthis/ (~100 KB, 30 seconds) - understand "what matters"
-2. **Drill into domain**: Read `summary_<domain>.json` (~50 KB) - see top 20 findings for that analyzer
-3. **Full detail needed**: Check `.pf/raw/` for complete data OR use `aud blueprint` / `aud query` for structured database access
-4. **AI agents**: Start with `The_Auditor_Summary.json` for quick sync, use `aud blueprint` / `aud query` for deep analysis
-
-**Key Behavior Change in extraction.py**:
-- **OLD**: Chunk ALL files in /raw/ → 24-27 files in /readthis/
-- **NEW**: Chunk ONLY summary files → 7-8 files in /readthis/
-- Raw data files never copied to /readthis/ (stay in /raw/ only)
-
-**Documentation Updates**:
-- README: Explain `.pf/readthis/` is for human overview, `.pf/raw/` is archival + raw data
-- CLI help: `aud summary --help` documents `--generate-domain-summaries` flag
-- Make clear: Summary system for humans/quick sync, `aud blueprint` / `aud query` for AI structured access
 
 ## Verification & Testing Strategy
 
-**Automated Tests**:
-1. **Summary generation tests** (`tests/test_summary_generation.py`):
-   - Verify each analyzer function generates correct structure
-   - Assert summaries contain: analyzer, metrics, top_findings, query_alternative
-   - Validate JSON structure matches expected schema
-   - Check size is reasonable (≤100 KB for most summaries)
+**Verification Goals**:
+1. Verify analyzers write to consolidated files (not separate files)
+2. Verify summaries are generated after FCE
+3. Verify extraction is no longer called
+4. Verify 6 consolidated files exist in .pf/raw/
+5. Verify 5 guidance summaries exist in .pf/raw/
+6. Verify .pf/readthis/ is NOT created
 
-2. **Extraction skip test** (`tests/test_extraction_skip_raw.py`):
-   - Verify extraction skips raw files (taint_analysis.json stays in /raw/ only)
-   - Assert summary files are extracted to /readthis/
-   - Check file count in /readthis/ is 7-8 (not 24-27)
+**Manual Test**:
+```bash
+# Clean slate
+rm -rf .pf/
 
-3. **Pipeline integration test**:
-   - Run `aud full` and assert all summaries exist in `.pf/raw/`
-   - Verify `.pf/readthis/` has only summary files
-   - Confirm backward compatibility (legacy `audit_summary.json` still generated)
+# Run full pipeline
+aud full --offline
 
-**Manual Verification**:
-1. Run `aud full` on a test project
-2. Check `.pf/raw/` contains 7 summary files + 1 master summary
-3. Check `.pf/readthis/` contains 7-8 files (no raw data files)
-4. Verify each summary is human-readable (top 20 findings visible)
-5. Confirm master summary cross-links to per-domain summaries
+# Check outputs
+ls .pf/raw/
+# EXPECTED:
+#   graph_analysis.json
+#   security_analysis.json
+#   quality_analysis.json
+#   dependency_analysis.json
+#   infrastructure_analysis.json
+#   correlation_analysis.json
+#   SAST_Summary.json
+#   SCA_Summary.json
+#   Intelligence_Summary.json
+#   Quick_Start.json
+#   Query_Guide.json
+
+# Verify readthis NOT created
+ls .pf/readthis/ 2>&1
+# EXPECTED: "No such file or directory"
+
+# Test database queries work
+aud query --symbol authenticate
+aud query --category jwt
+aud context --file test_rules.yaml
+```
 
 **Success Criteria**:
-- ✅ `.pf/readthis/` becomes the "start here" directory (7-8 files, not 24-27)
-- ✅ Each summary is actionable and references `aud query` alternative
-- ✅ Master summary answers "what are top 20-30 things to fix?"
-- ✅ `.pf/raw/` has full data preserved (nothing lost)
-- ✅ FCE unchanged (still does correlation, not summarization)
-- ✅ Backward compatible (legacy `aud summary` still works)
+- ✅ 6 consolidated files in .pf/raw/ (not 20+)
+- ✅ 5 guidance summaries in .pf/raw/
+- ✅ .pf/readthis/ directory NOT created
+- ✅ All data preserved in consolidated files
+- ✅ Database queries return correct results
+- ✅ Summaries are truth couriers (no recommendations)
+- ✅ Pipeline runs without extraction stage
