@@ -54,8 +54,8 @@ class VerboseGroup(click.Group):
         'CODE_QUALITY': {
             'title': 'CODE QUALITY',
             'description': 'Linting and complexity analysis',
-            'commands': ['lint', 'cfg', 'graph'],
-            'ai_context': 'Quality checks. lint=linters, cfg=complexity, graph=architecture.',
+            'commands': ['lint', 'cfg', 'graph', 'graphql'],
+            'ai_context': 'Quality checks. lint=linters, cfg=complexity, graph=architecture, graphql=schema analysis.',
         },
         'DATA_REPORTING': {
             'title': 'DATA & REPORTING',
@@ -229,6 +229,7 @@ from theauditor.commands.deps import deps
 from theauditor.commands.report import report
 from theauditor.commands.summary import summary
 from theauditor.commands.graph import graph
+from theauditor.commands.graphql import graphql
 from theauditor.commands.cfg import cfg
 from theauditor.commands.full import full
 from theauditor.commands.fce import fce
@@ -319,6 +320,7 @@ cli.add_command(structure)
 
 # Register command groups
 cli.add_command(graph)
+cli.add_command(graphql)
 cli.add_command(cfg)
 cli.add_command(metadata)
 cli.add_command(terraform)

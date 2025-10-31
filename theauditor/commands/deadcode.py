@@ -238,8 +238,7 @@ def _format_text(modules) -> str:
     lines.append("=" * 80)
     lines.append("Dead Code Analysis Report")
     lines.append("=" * 80)
-    lines.append(f"Dead code files: {len(modules)}")
-    lines.append(f"Estimated wasted LOC: {sum(m.lines_estimated for m in modules)}")
+    lines.append(f"Total dead code items: {len(modules)}")
     lines.append("")
 
     if not modules:
@@ -258,7 +257,6 @@ def _format_text(modules) -> str:
 
         lines.append(f"{confidence_marker} {module.path}")
         lines.append(f"   Symbols: {module.symbol_count}")
-        lines.append(f"   Estimated LOC: {module.lines_estimated}")
         lines.append(f"   Confidence: {module.confidence.upper()}")
         lines.append(f"   Reason: {module.reason}")
         lines.append("")
@@ -270,14 +268,15 @@ def _format_json(modules) -> str:
     """Format as JSON for CI/CD."""
     data = {
         'summary': {
-            'total_dead_code_files': len(modules),
-            'estimated_wasted_loc': sum(m.lines_estimated for m in modules)
+            'total_items': len(modules)
         },
-        'isolated_modules': [
+        'findings': [
             {
+                'type': m.type,
                 'path': m.path,
+                'name': m.name,
+                'line': m.line,
                 'symbol_count': m.symbol_count,
-                'lines_estimated': m.lines_estimated,
                 'confidence': m.confidence,
                 'reason': m.reason
             }
@@ -289,7 +288,12 @@ def _format_json(modules) -> str:
 
 def _format_summary(modules) -> str:
     """Format as counts only."""
-    return f"""Dead Code Summary:
-  Dead code files: {len(modules)}
-  Estimated wasted LOC: {sum(m.lines_estimated for m in modules)}
-"""
+    by_type = {}
+    for m in modules:
+        by_type[m.type] = by_type.get(m.type, 0) + 1
+
+    lines = ["Dead Code Summary:"]
+    lines.append(f"  Total: {len(modules)}")
+    for typ, count in sorted(by_type.items()):
+        lines.append(f"  {typ}s: {count}")
+    return "\n".join(lines) + "\n"
