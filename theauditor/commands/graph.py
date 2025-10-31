@@ -9,41 +9,70 @@ from theauditor.config_runtime import load_runtime_config
 @click.group()
 @click.help_option("-h", "--help")
 def graph():
-    """Analyze code structure through dependency and call graphs.
+    """Dependency and call graph analysis for architecture understanding and impact assessment.
 
-    Build and analyze import/call graphs to understand your codebase's
-    architecture, detect cycles, find hotspots, and measure change impact.
-    Supports Python, JavaScript/TypeScript, and Go.
+    Group command for building and analyzing import/call graphs from indexed codebases. Detects
+    circular dependencies, architectural hotspots, change impact radius, and hidden coupling.
+    Supports Python, JavaScript/TypeScript with graph database backend for complex queries.
 
-    Subcommands:
-      build    - Construct import and call graphs from code
-      analyze  - Find cycles, hotspots, and architectural issues
-      query    - Interactive graph relationship queries
-      viz      - Generate visual graph representations
+    AI ASSISTANT CONTEXT:
+      Purpose: Analyze code architecture via dependency and call graphs
+      Input: .pf/repo_index.db (code index)
+      Output: .pf/graphs.db (graph database), visualizations
+      Prerequisites: aud index (populates refs and calls tables)
+      Integration: Architecture reviews, refactoring planning, impact analysis
+      Performance: ~5-30 seconds (graph construction + analysis)
 
-    Typical Workflow:
-      1. aud graph build              # Build graphs from codebase
-      2. aud graph analyze            # Detect issues and hotspots
-      3. aud graph query --uses auth  # Query specific relationships
-      4. aud graph viz --format dot   # Generate visualizations
+    SUBCOMMANDS:
+      build:   Construct import and call graphs from indexed code
+      analyze: Detect cycles, hotspots, architectural anti-patterns
+      query:   Interactive graph relationship queries (who uses/imports X?)
+      viz:     Generate visual representations (DOT, SVG, interactive HTML)
 
-    The graphs reveal:
-      - Circular dependencies (import cycles)
-      - Architectural hotspots (highly connected modules)
-      - Change impact radius (what breaks if X changes)
-      - Hidden dependencies and coupling
+    GRAPH TYPES:
+      Import Graph: File-level dependencies (who imports what)
+      Call Graph:   Function-level dependencies (who calls what)
+      Combined:     Multi-level analysis (files + functions)
 
-    Examples:
-      aud graph build                        # Build complete graphs
-      aud graph build --workset workset.json # Build for specific files
-      aud graph analyze --workset            # Analyze change impact
-      aud graph query --uses database.py     # Who depends on database.py?
+    INSIGHTS PROVIDED:
+      - Circular dependencies (import cycles breaking modular design)
+      - Architectural hotspots (modules with >20 dependencies)
+      - Change impact radius (blast radius for modifications)
+      - Hidden coupling (indirect dependencies via intermediaries)
+
+    TYPICAL WORKFLOW:
+      aud index
+      aud graph build
+      aud graph analyze
+      aud graph query --uses auth.py
+
+    EXAMPLES:
+      aud graph build
+      aud graph analyze --workset
+      aud graph query --imports database
+      aud graph viz --format dot --output deps.svg
+
+    PERFORMANCE:
+      Small (<100 files):  ~2-5 seconds
+      Medium (500 files):  ~10-20 seconds
+      Large (2K+ files):   ~30-60 seconds
+
+    RELATED COMMANDS:
+      aud impact    # Uses graph for change impact analysis
+      aud deadcode  # Uses graph for isolation detection
+      aud index     # Populates refs/calls tables
+
+    NOTE: Graph commands use separate graphs.db database (not repo_index.db).
+    This is an optimization for complex graph traversal queries.
+
+    EXAMPLE:
       aud graph query --calls api.send_email # What does send_email call?
 
     Output:
       .pf/graphs.db                   # SQLite database with graphs
       .pf/raw/graph_analysis.json     # Cycles, hotspots, metrics
-      .pf/raw/graph_summary.json      # AI-readable summary"""
+      .pf/raw/graph_summary.json      # AI-readable summary
+    """
     pass
 
 
@@ -77,6 +106,27 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         - import_edges: Import relationships
         - call_nodes: Functions and methods
         - call_edges: Call relationships
+
+    FLAG INTERACTIONS:
+      --workset + --langs: Analyze specific files in specific languages only
+      --resume: Safe to use after interrupted builds (preserves partial progress)
+      --batch-size: Larger = faster but more memory, smaller = slower but safer
+
+    TROUBLESHOOTING:
+      "No manifest found" error:
+        Solution: Run 'aud index' first to create manifest.json
+
+      Graph build very slow (>10 minutes):
+        Cause: Large codebase or small batch size
+        Solution: Increase --batch-size to 500, use --workset for subset
+
+      Missing edges in graph:
+        Cause: Dynamic imports or conditional requires not detected
+        Solution: This is expected - only static imports captured
+
+      Memory errors during build:
+        Cause: Batch size too large for available RAM
+        Solution: Reduce --batch-size to 100 or 50
 
     Note: Must run 'aud index' first to build manifest."""
     from theauditor.graph.builder import XGraphBuilder
@@ -261,7 +311,63 @@ def graph_build_dfg(root, db, repo_db):
 @click.option("--workset", help="Path to workset.json for change impact")
 @click.option("--no-insights", is_flag=True, help="Skip interpretive insights (health scores, recommendations)")
 def graph_analyze(db, out, max_depth, workset, no_insights):
-    """Analyze graphs for cycles, hotspots, and impact."""
+    """Analyze dependency graphs for architectural issues and change impact.
+
+    Performs comprehensive graph analysis to detect circular dependencies,
+    architectural hotspots, and measure the blast radius of code changes.
+    Generates health metrics and recommendations for improving codebase
+    architecture.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Detect architectural issues via graph analysis
+      Input: .pf/graphs.db (import and call graphs from 'aud graph build')
+      Output: .pf/raw/graph_analysis.json (cycles, hotspots, health metrics)
+      Prerequisites: aud index, aud graph build
+      Integration: Architecture reviews, refactoring planning, impact analysis
+      Performance: ~3-10 seconds (graph traversal + metrics calculation)
+
+    ANALYSIS PERFORMED:
+      Cycle Detection:
+        - Identifies circular import dependencies
+        - Ranks cycles by size and complexity
+        - Highlights most problematic cycles
+
+      Hotspot Ranking:
+        - Finds highly connected modules (centrality metrics)
+        - Identifies bottleneck components
+        - Scores fragility risk
+
+      Change Impact:
+        - Calculates upstream dependencies (what depends on this)
+        - Calculates downstream dependencies (what this depends on)
+        - Measures total blast radius
+
+      Health Metrics (unless --no-insights):
+        - Graph density (connectivity level)
+        - Fragility score (brittleness measure)
+        - Health grade (A-F overall assessment)
+
+    EXAMPLES:
+      aud graph analyze
+      aud graph analyze --workset workset.json
+      aud graph analyze --no-insights --max-depth 5
+      aud graph analyze --out custom_analysis.json
+
+    FLAG INTERACTIONS:
+      --workset + --max-depth: Limits impact analysis to specific files and depth
+      --no-insights: Disables health scoring (faster, basic metrics only)
+
+    TROUBLESHOOTING:
+      No graphs found:
+        Solution: Run 'aud graph build' first
+
+      High fragility score:
+        Cause: Many circular dependencies or high coupling
+        Solution: Review hotspots and refactor to reduce coupling
+
+      Slow analysis (>30 seconds):
+        Cause: Very large graph (>10K nodes)
+        Solution: Use --workset to analyze subset, increase --max-depth cautiously"""
     from theauditor.graph.analyzer import XGraphAnalyzer
     from theauditor.graph.store import XGraphStore
     

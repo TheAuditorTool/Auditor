@@ -16,39 +16,52 @@ logger = setup_logger(__name__)
 @click.group()
 @click.help_option("-h", "--help")
 def terraform():
-    """Analyze Terraform Infrastructure as Code.
+    """Infrastructure-as-Code security analysis for Terraform configurations and provisioning flows.
 
-    Provides infrastructure security analysis, provisioning flow tracking,
-    and blast radius assessment for Terraform configurations.
+    Group command for analyzing Terraform .tf files to detect infrastructure misconfigurations,
+    build resource dependency graphs, track sensitive data propagation, and assess blast radius
+    for infrastructure changes. Focuses on security issues that would be deployed to production.
 
-    Subcommands:
-      provision  - Build provisioning flow graph from Terraform resources
-      analyze    - Detect infrastructure security issues (Phase 7)
-      report     - Generate infrastructure security report (Phase 7)
+    AI ASSISTANT CONTEXT:
+      Purpose: Detect infrastructure security issues in Terraform code
+      Input: *.tf files (indexed by 'aud index')
+      Output: .pf/raw/terraform_findings.json (security issues)
+      Prerequisites: aud index (extracts Terraform resources)
+      Integration: Pre-deployment security validation, IaC auditing
+      Performance: ~5-15 seconds (HCL parsing + security rules)
 
-    Typical Workflow:
-      1. aud index                     # Extract Terraform resources
-      2. aud terraform provision       # Build provisioning flow graph
-      3. aud terraform analyze         # Detect security issues (Phase 7)
-      4. aud terraform report          # Generate report (Phase 7)
+    SUBCOMMANDS:
+      provision: Build provisioning flow graph (var→resource→output)
+      analyze:   Run security rules on Terraform configurations
+      report:    Generate consolidated infrastructure security report
 
-    The provisioning graph reveals:
+    PROVISIONING GRAPH INSIGHTS:
       - Variable → Resource → Output data flows
-      - Resource dependency chains
-      - Sensitive data propagation paths
-      - Public exposure blast radius
+      - Resource dependency chains (depends_on, implicit)
+      - Sensitive data propagation (secrets, credentials)
+      - Public exposure blast radius (internet-facing resources)
 
-    Examples:
-      aud terraform provision                    # Build provisioning graph
-      aud terraform provision --workset          # Graph for changed files only
-      aud terraform analyze                      # Detect security issues
-      aud terraform report --format json         # Export findings
+    SECURITY CHECKS:
+      - Public S3 buckets, unencrypted databases
+      - Overprivileged IAM policies (wildcard permissions)
+      - Missing encryption at rest/transit
+      - Hard-coded secrets in configurations
 
-    Output:
-      .pf/graphs.db                      # Provisioning flow graph
-      .pf/raw/terraform_graph.json       # Graph export (JSON)
-      .pf/raw/terraform_findings.json    # Security findings (Phase 7)
-      .pf/readthis/terraform_*.json      # AI-optimized capsules
+    TYPICAL WORKFLOW:
+      aud index
+      aud terraform provision
+      aud terraform analyze
+
+    EXAMPLES:
+      aud terraform provision
+      aud terraform analyze --output ./tf_issues.json
+
+    RELATED COMMANDS:
+      aud cdk       # AWS CDK security analysis
+      aud detect-patterns  # Includes IaC security rules
+
+    NOTE: Terraform analysis requires .tf files in project. For AWS CDK
+    (Python/TypeScript), use 'aud cdk' instead.
     """
     pass
 
@@ -91,9 +104,9 @@ def provision(root, workset, output, db, graphs_db):
         - Outputs (sink nodes): Exported values
 
       Edges:
-        - variable_reference: Variable → Resource (var.X used in resource)
-        - resource_dependency: Resource → Resource (depends_on)
-        - output_reference: Resource → Output (output references resource)
+        - variable_reference: Variable -> Resource (var.X used in resource)
+        - resource_dependency: Resource -> Resource (depends_on)
+        - output_reference: Resource -> Output (output references resource)
     """
     from ..terraform.graph import TerraformGraphBuilder
 

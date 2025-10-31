@@ -11,33 +11,65 @@ logger = setup_logger(__name__)
 @click.group()
 @click.help_option("-h", "--help")
 def cfg():
-    """Analyze function complexity through Control Flow Graphs.
+    """Control Flow Graph complexity analysis for maintainability and testability assessment.
 
-    Control Flow Graphs (CFGs) map all possible execution paths through
-    functions, revealing complexity, dead code, and potential bugs. CFGs
-    help identify functions that are too complex to maintain or test.
+    Group command for analyzing function complexity via Control Flow Graphs (CFG) - directed
+    graphs mapping all possible execution paths through functions. Calculates cyclomatic
+    complexity (McCabe metric), identifies unreachable code blocks, measures nesting depth,
+    and visualizes control flow for refactoring candidates.
 
-    Subcommands:
-      analyze  - Calculate complexity metrics and find issues
-      viz      - Visualize function control flow (requires Graphviz)
+    AI ASSISTANT CONTEXT:
+      Purpose: Measure function complexity for maintainability risk assessment
+      Input: .pf/repo_index.db (function definitions)
+      Output: Complexity metrics, dead code locations, visualizations
+      Prerequisites: aud index (populates functions/classes)
+      Integration: Code quality gates, refactoring prioritization, test planning
+      Performance: ~5-15 seconds (AST parsing + graph construction)
 
-    Key Metrics:
-      - Cyclomatic Complexity: Number of independent paths
-      - Dead Code: Unreachable code blocks
-      - Nested Depth: Maximum nesting level
-      - Loop Complexity: Nested loops and conditions
+    SUBCOMMANDS:
+      analyze: Calculate cyclomatic complexity and detect issues
+      viz:     Generate visual CFG diagrams (requires Graphviz)
 
-    McCabe Complexity Guidelines:
-      1-10   : Simple, low risk
-      11-20  : Moderate complexity, medium risk
-      21-50  : Complex, high risk, needs refactoring
-      50+    : Untestable, very high risk
+    KEY METRICS:
+      Cyclomatic Complexity:
+        - Number of linearly independent paths through code
+        - McCabe metric: edges - nodes + 2 * connected_components
+        - Higher = more complex = harder to test
 
-    Examples:
-      aud cfg analyze                            # Analyze all functions
-      aud cfg analyze --complexity-threshold 15  # Find complex functions
-      aud cfg analyze --find-dead-code           # Detect unreachable code
-      aud cfg analyze --file auth.py             # Analyze specific file
+      Dead Code Blocks:
+        - Unreachable code after return/break/continue
+        - Conditions that can never be true
+
+      Nesting Depth:
+        - Maximum indentation level (nested if/for/while)
+        - Deep nesting indicates high cognitive load
+
+      Loop Complexity:
+        - Nested loops and nested conditions
+        - Contributes to overall complexity
+
+    MCCABE COMPLEXITY THRESHOLDS:
+      1-10:   Simple, low risk, easily testable
+      11-20:  Moderate, medium risk, needs attention
+      21-50:  Complex, high risk, refactor candidate
+      50+:    Untestable, very high risk, immediate refactor
+
+    EXAMPLES:
+      aud cfg analyze
+      aud cfg analyze --complexity-threshold 15
+      aud cfg analyze --find-dead-code
+      aud cfg viz --function process_payment
+
+    PERFORMANCE: ~5-15 seconds
+
+    RELATED COMMANDS:
+      aud deadcode  # Module-level isolation
+      aud graph     # File-level dependencies
+
+    NOTE: CFG analysis is function-level (not module). For module-level dead
+    code detection, use 'aud deadcode'.
+
+    EXAMPLES:
       aud cfg analyze --workset                  # Analyze changed files only
       aud cfg viz --file auth.py --function login # Visualize login function
 
@@ -51,7 +83,8 @@ def cfg():
       - Code review: Find overly complex functions
       - Testing: Identify hard-to-test code
       - Refactoring: Prioritize by complexity
-      - Security: Complex functions hide bugs"""
+      - Security: Complex functions hide bugs
+    """
     pass
 
 
