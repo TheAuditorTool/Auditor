@@ -1,9 +1,7 @@
 """GraphQL Rate Limiting Check - Stub implementation."""
 
-from typing import List
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, RuleMetadata
-
+from theauditor.rules.base import RuleMetadata, StandardFinding, StandardRuleContext
 
 METADATA = RuleMetadata(
     name="graphql_rate_limiting",
@@ -12,7 +10,7 @@ METADATA = RuleMetadata(
 )
 
 
-def check_rate_limiting(context: StandardRuleContext) -> List[StandardFinding]:
+def check_rate_limiting(context: StandardRuleContext) -> list[StandardFinding]:
     """Check for missing rate limiting on expensive queries.
 
     Note: This is a stub. Full implementation requires:

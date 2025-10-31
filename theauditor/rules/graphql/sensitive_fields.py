@@ -1,11 +1,15 @@
 """GraphQL Sensitive Fields Check - Detect exposed sensitive data."""
 
 import sqlite3
-from typing import List
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
 
 METADATA = RuleMetadata(
     name="graphql_sensitive_fields",
@@ -26,7 +30,7 @@ class SensitiveFieldPatterns:
     ])
 
 
-def check_sensitive_fields(context: StandardRuleContext) -> List[StandardFinding]:
+def check_sensitive_fields(context: StandardRuleContext) -> list[StandardFinding]:
     """Check for exposed sensitive fields in GraphQL schema."""
     if not context.db_path:
         return []

@@ -1,10 +1,14 @@
 """GraphQL Input Validation Check."""
 
 import sqlite3
-from typing import List
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
 
 METADATA = RuleMetadata(
     name="graphql_input_validation",
@@ -13,7 +17,7 @@ METADATA = RuleMetadata(
 )
 
 
-def check_input_validation(context: StandardRuleContext) -> List[StandardFinding]:
+def check_input_validation(context: StandardRuleContext) -> list[StandardFinding]:
     """Check for missing input validation on mutation arguments."""
     if not context.db_path:
         return []

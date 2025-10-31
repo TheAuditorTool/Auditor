@@ -316,39 +316,71 @@ class ApiAuthAnalyzer:
                 ))
 
     def _check_graphql_mutations(self):
-        """Check GraphQL mutations for authentication."""
-        # Fetch all function_call_args, filter in Python
+        """Check GraphQL mutations for authentication using database queries.
+
+        Replaces regex-based heuristics with direct database queries against:
+        - graphql_types (to find Mutation type)
+        - graphql_fields (to get mutation fields)
+        - graphql_resolver_mappings (to find resolver implementations)
+        """
+        # Check if GraphQL tables exist (may not be in all databases)
         self.cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IS NOT NULL
-            ORDER BY file, line
-            LIMIT 2000
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='graphql_resolver_mappings'
+        """)
+        if not self.cursor.fetchone():
+            return  # No GraphQL data indexed, skip
+
+        # Find all Mutation fields with their resolver paths
+        self.cursor.execute("""
+            SELECT
+                f.field_name,
+                f.line AS field_line,
+                t.schema_path,
+                rm.resolver_path,
+                rm.resolver_line,
+                f.directives_json
+            FROM graphql_types t
+            JOIN graphql_fields f ON f.type_id = t.type_id
+            LEFT JOIN graphql_resolver_mappings rm ON rm.field_id = f.field_id
+            WHERE t.type_name = 'Mutation'
+            ORDER BY f.field_name
         """)
 
-        for file, line, func, args in self.cursor.fetchall():
-            # Check if function matches GraphQL patterns
-            func_lower = func.lower()
-            if not (func in self.patterns.GRAPHQL_PATTERNS or
-                   'resolver' in func_lower or
-                   'Mutation' in func):
-                continue
+        for field_name, field_line, schema_path, resolver_path, resolver_line, directives_json in self.cursor.fetchall():
+            # Check for @auth directive on field
+            has_auth_directive = False
+            if directives_json:
+                import json
+                try:
+                    directives = json.loads(directives_json)
+                    for directive in directives:
+                        if any(auth in directive.get('name', '') for auth in ['@auth', '@authenticated', '@requireAuth', '@authorize']):
+                            has_auth_directive = True
+                            break
+                except json.JSONDecodeError:
+                    pass
 
-            if 'mutation' in func.lower() or 'Mutation' in func:
-                # Check if there's auth nearby
-                has_auth = self._check_auth_nearby(file, line)
+            if has_auth_directive:
+                continue  # Has auth directive, skip
 
-                if not has_auth:
-                    self.findings.append(StandardFinding(
-                        rule_name='graphql-mutation-no-auth',
-                        message=f'GraphQL mutation "{func}" lacks authentication',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='authentication',
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-306'
-                    ))
+            # Check if resolver exists and has auth nearby
+            if resolver_path and resolver_line:
+                has_auth = self._check_auth_nearby(resolver_path, resolver_line)
+                if has_auth:
+                    continue  # Has auth check, skip
+
+            # No authentication found - report finding
+            self.findings.append(StandardFinding(
+                rule_name='graphql-mutation-no-auth',
+                message=f'GraphQL mutation "{field_name}" lacks authentication directive or resolver protection',
+                file_path=schema_path if schema_path else resolver_path if resolver_path else 'unknown',
+                line=field_line if field_line else resolver_line if resolver_line else 0,
+                severity=Severity.HIGH,
+                category='authentication',
+                confidence=Confidence.HIGH,  # Upgraded from MEDIUM since database-based detection is more accurate
+                cwe_id='CWE-306'
+            ))
 
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""

@@ -29,7 +29,7 @@ class TestMutationAuthRule:
             db_path = f.name
 
         manager = DatabaseManager(db_path)
-        manager.create_tables()
+        manager.create_schema()
 
         # Add Mutation type
         mutation_type_id = manager.add_graphql_type(
@@ -121,7 +121,7 @@ class TestQueryDepthRule:
             db_path = f.name
 
         manager = DatabaseManager(db_path)
-        manager.create_tables()
+        manager.create_schema()
 
         # Add User type with list field
         user_type_id = manager.add_graphql_type(
@@ -198,7 +198,7 @@ class TestInputValidationRule:
             db_path = f.name
 
         manager = DatabaseManager(db_path)
-        manager.create_tables()
+        manager.create_schema()
 
         # Add Mutation type
         mutation_type_id = manager.add_graphql_type(
@@ -263,7 +263,7 @@ class TestSensitiveFieldsRule:
             db_path = f.name
 
         manager = DatabaseManager(db_path)
-        manager.create_tables()
+        manager.create_schema()
 
         # Add User type
         user_type_id = manager.add_graphql_type(

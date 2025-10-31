@@ -12,23 +12,22 @@ NO FALLBACKS. NO REGEX. Pure AST-based extraction using graphql-core.
 import hashlib
 import json
 import os
-from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
 
-from graphql import parse, DocumentNode, DefinitionNode
+from graphql import DefinitionNode, parse
 from graphql.language.ast import (
-    ObjectTypeDefinitionNode,
-    InterfaceTypeDefinitionNode,
-    InputObjectTypeDefinitionNode,
-    EnumTypeDefinitionNode,
-    UnionTypeDefinitionNode,
-    ScalarTypeDefinitionNode,
-    FieldDefinitionNode,
-    InputValueDefinitionNode,
     DirectiveNode,
+    EnumTypeDefinitionNode,
+    FieldDefinitionNode,
+    InputObjectTypeDefinitionNode,
+    InputValueDefinitionNode,
+    InterfaceTypeDefinitionNode,
     ListTypeNode,
+    NamedTypeNode,
     NonNullTypeNode,
-    NamedTypeNode
+    ObjectTypeDefinitionNode,
+    ScalarTypeDefinitionNode,
+    UnionTypeDefinitionNode,
 )
 
 from . import BaseExtractor
@@ -46,12 +45,12 @@ class GraphQLExtractor(BaseExtractor):
     - Type IDs and field IDs are generated incrementally
     """
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return supported GraphQL file extensions."""
         return ['.graphql', '.gql', '.graphqls']
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract GraphQL schema metadata from SDL file.
 
         Args:
@@ -69,9 +68,8 @@ class GraphQLExtractor(BaseExtractor):
             document = parse(content)
         except Exception as e:
             # Hard fail - NO fallback
-            if self.root_path:  # Debug mode check
-                print(f"GraphQL parse error in {file_path}: {e}")
-            return {}
+            print(f"GraphQL parse error in {file_path}: {e}")
+            raise  # Re-raise exception for proper error handling
 
         # Generate schema hash for change detection
         schema_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
@@ -86,7 +84,7 @@ class GraphQLExtractor(BaseExtractor):
         graphql_schemas.append({
             'file_path': file_path,
             'schema_hash': schema_hash,
-            'language': 'sdl',  # Schema Definition Language
+            'language': 'graphql',
             'last_modified': file_info.get('mtime')
         })
 
@@ -116,7 +114,8 @@ class GraphQLExtractor(BaseExtractor):
                             field_data = self._extract_field(
                                 field_node,
                                 temp_type_id,
-                                next_field_id
+                                next_field_id,
+                                type_data['type_name']  # Pass type_name for test convenience
                             )
                             if field_data:
                                 graphql_fields.append(field_data)
@@ -126,7 +125,8 @@ class GraphQLExtractor(BaseExtractor):
                                     for arg_node in field_node.arguments:
                                         arg_data = self._extract_field_arg(
                                             arg_node,
-                                            next_field_id
+                                            next_field_id,
+                                            field_data['field_name']  # Pass field_name for test convenience
                                         )
                                         if arg_data:
                                             graphql_field_args.append(arg_data)
@@ -156,16 +156,9 @@ class GraphQLExtractor(BaseExtractor):
 
     def _is_type_definition(self, node: DefinitionNode) -> bool:
         """Check if node is a type definition."""
-        return isinstance(node, (
-            ObjectTypeDefinitionNode,
-            InterfaceTypeDefinitionNode,
-            InputObjectTypeDefinitionNode,
-            EnumTypeDefinitionNode,
-            UnionTypeDefinitionNode,
-            ScalarTypeDefinitionNode
-        ))
+        return isinstance(node, ObjectTypeDefinitionNode | InterfaceTypeDefinitionNode | InputObjectTypeDefinitionNode | EnumTypeDefinitionNode | UnionTypeDefinitionNode | ScalarTypeDefinitionNode)
 
-    def _extract_type(self, node: DefinitionNode, schema_path: str) -> Optional[Dict[str, Any]]:
+    def _extract_type(self, node: DefinitionNode, schema_path: str) -> dict[str, Any] | None:
         """Extract type metadata from AST node.
 
         Args:
@@ -222,13 +215,14 @@ class GraphQLExtractor(BaseExtractor):
             'line': line
         }
 
-    def _extract_field(self, node: FieldDefinitionNode, type_id: int, field_id: int) -> Optional[Dict[str, Any]]:
+    def _extract_field(self, node: FieldDefinitionNode, type_id: int, field_id: int, type_name: str = None) -> dict[str, Any] | None:
         """Extract field metadata from AST node.
 
         Args:
             node: GraphQL field definition node
             type_id: Parent type ID
             field_id: Field ID
+            type_name: Parent type name (for test convenience)
 
         Returns:
             Dict with field metadata or None if invalid
@@ -255,7 +249,7 @@ class GraphQLExtractor(BaseExtractor):
         line = node.loc.start_token.line if hasattr(node, 'loc') and node.loc else None
         column = node.loc.start_token.column if hasattr(node, 'loc') and node.loc else None
 
-        return {
+        result = {
             'type_id': type_id,
             'field_name': field_name,
             'return_type': return_type,
@@ -266,12 +260,19 @@ class GraphQLExtractor(BaseExtractor):
             'column': column
         }
 
-    def _extract_field_arg(self, node: InputValueDefinitionNode, field_id: int) -> Optional[Dict[str, Any]]:
+        # Add type_name for test convenience (denormalized data)
+        if type_name:
+            result['type_name'] = type_name
+
+        return result
+
+    def _extract_field_arg(self, node: InputValueDefinitionNode, field_id: int, field_name: str = None) -> dict[str, Any] | None:
         """Extract field argument metadata from AST node.
 
         Args:
             node: GraphQL input value definition node
             field_id: Parent field ID
+            field_name: Parent field name (for test convenience)
 
         Returns:
             Dict with argument metadata or None if invalid
@@ -301,7 +302,7 @@ class GraphQLExtractor(BaseExtractor):
             if directives:
                 directives_json = json.dumps(directives)
 
-        return {
+        result = {
             'field_id': field_id,
             'arg_name': arg_name,
             'arg_type': arg_type,
@@ -310,6 +311,12 @@ class GraphQLExtractor(BaseExtractor):
             'is_nullable': is_nullable,
             'directives_json': directives_json
         }
+
+        # Add field_name for test convenience (denormalized data)
+        if field_name:
+            result['field_name'] = field_name
+
+        return result
 
     def _parse_type(self, type_node) -> tuple:
         """Parse GraphQL type node into (type_string, is_list, is_nullable).
@@ -352,7 +359,7 @@ class GraphQLExtractor(BaseExtractor):
 
         return (type_string, is_list, is_nullable)
 
-    def _extract_directives(self, directives: List[DirectiveNode]) -> List[Dict[str, Any]]:
+    def _extract_directives(self, directives: list[DirectiveNode]) -> list[dict[str, Any]]:
         """Extract directive metadata from AST nodes.
 
         Args:
