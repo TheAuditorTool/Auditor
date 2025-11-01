@@ -308,6 +308,36 @@ class IndexerOrchestrator:
         # Final commit
         self.db_manager.commit()
 
+        # Populate refactor_candidates table from existing database data
+        from datetime import datetime
+        conn = self.db_manager.conn
+        cursor = conn.cursor()
+
+        # Query files table for high LOC
+        cursor.execute("SELECT path, loc FROM files WHERE loc > 500")
+        for row in cursor:
+            self.db_manager.add_refactor_candidate(
+                file_path=row[0],
+                reason='size',
+                severity='high' if row[1] > 1000 else 'medium',
+                loc=row[1],
+                detected_at=datetime.now().isoformat()
+            )
+
+        # Query for high coupling (many imports)
+        cursor.execute("SELECT src, COUNT(*) as import_count FROM refs WHERE kind IN ('import', 'from', 'require') GROUP BY src HAVING import_count > 20")
+        for row in cursor:
+            self.db_manager.add_refactor_candidate(
+                file_path=row[0],
+                reason='coupling',
+                severity='medium',
+                num_dependencies=row[1],
+                detected_at=datetime.now().isoformat()
+            )
+
+        self.db_manager.flush_batch()
+        self.db_manager.commit()
+
         # PHASE 6: Resolve cross-file parameter names
         # After all files indexed, update function_call_args.param_name with actual parameter names
         # from symbols table (fixes file-scoped limitation in JavaScript extraction)
