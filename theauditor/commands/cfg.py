@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 import click
 from theauditor.utils.logger import setup_logger
-from theauditor.utils.consolidated_output import write_to_group
 
 logger = setup_logger(__name__)
 
@@ -237,9 +236,12 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             except Exception as e:
                 click.echo(f"  Warning: Could not write findings to database: {e}", err=True)
 
-        # Write to consolidated group
-        write_to_group("quality_analysis", "cfg", results, root=".")
-        click.echo(f"\n[OK] CFG analysis saved to quality_analysis.json")
+        # Write CFG results to JSON
+        output_path = Path(".pf") / "raw" / "cfg.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            json.dump(results, f, indent=2)
+        click.echo(f"\n[OK] CFG analysis saved to {output_path}")
         
         # Summary statistics
         click.echo("\n[SUMMARY]")

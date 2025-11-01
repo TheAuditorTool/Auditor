@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 import click
 from theauditor.config_runtime import load_runtime_config
-from theauditor.utils.consolidated_output import write_to_group
 
 
 @click.group()
@@ -184,9 +183,6 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_import_graph(import_graph)
 
-        # Write to consolidated group file
-        write_to_group("graph_analysis", "import_graph", import_graph, root=root)
-
         click.echo(f"  Nodes: {len(import_graph['nodes'])}")
         click.echo(f"  Edges: {len(import_graph['edges'])}")
         
@@ -200,9 +196,6 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_call_graph(call_graph)
-
-        # Write to consolidated group file
-        write_to_group("graph_analysis", "call_graph", call_graph, root=root)
 
         # Call graph uses 'nodes' for functions and 'edges' for calls
         click.echo(f"  Functions: {len(call_graph.get('nodes', []))}")
@@ -282,15 +275,7 @@ def graph_build_dfg(root, db, repo_db):
         click.echo(f"\nSaving to {db}...")
         store.save_data_flow_graph(graph)
 
-        # Write to consolidated group file
-        write_to_group("graph_analysis", "data_flow_graph", graph, root=root)
-
-        # Consolidated output path
-        from pathlib import Path
-        consolidated_path = Path(root) / ".pf" / "raw" / "graph_analysis.json"
-
         click.echo(f"Data flow graph saved to {db}")
-        click.echo(f"Raw JSON saved to {consolidated_path}")
 
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
@@ -519,8 +504,8 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
                 click.echo(f"  Warning: Could not write findings to database: {e}", err=True)
 
         # Write JSON for AI consumption (existing behavior)
-        # Write to consolidated group file (ignore --out parameter for consolidation)
-        write_to_group("graph_analysis", "analyze", analysis, root=root)
+        with open(out, "w") as f:
+            json.dump(analysis, f, indent=2)
 
         click.echo(f"\nAnalysis saved to {out}")
         
@@ -529,15 +514,18 @@ def graph_analyze(root, db, out, max_depth, workset, no_insights):
             metrics = {}
             for hotspot in hotspots:
                 metrics[hotspot['id']] = hotspot.get('centrality', 0)
-            # Write to consolidated group file
-            write_to_group("graph_analysis", "metrics", metrics, root=root)
-            click.echo(f"  Saved graph metrics to consolidated graph_analysis.json")
+
+            metrics_path = Path(root) / ".pf" / "raw" / "graph_metrics.json"
+            with open(metrics_path, "w") as f:
+                json.dump(metrics, f, indent=2)
+            click.echo(f"  Saved graph metrics to {metrics_path}")
         
         # Create AI-readable summary
         graph_summary = analyzer.get_graph_summary(import_graph)
-        # Write to consolidated group file
-        write_to_group("graph_analysis", "summary", graph_summary, root=root)
-        click.echo(f"  Saved graph summary to consolidated graph_analysis.json")
+        summary_path = Path(root) / ".pf" / "raw" / "graph_summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(graph_summary, f, indent=2)
+        click.echo(f"  Saved graph summary to {summary_path}")
         
     except Exception as e:
         click.echo(f"Error: {e}", err=True)

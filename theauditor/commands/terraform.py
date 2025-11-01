@@ -9,7 +9,6 @@ from pathlib import Path
 import click
 
 from ..utils.logger import setup_logger
-from ..utils.consolidated_output import write_to_group
 
 logger = setup_logger(__name__)
 
@@ -154,13 +153,14 @@ def provision(root, workset, output, db, graphs_db):
             graph['edges'] = filtered_edges
             graph['metadata']['stats']['workset_filtered'] = True
 
-        # Write to consolidated group
-        write_to_group("infrastructure_analysis", "terraform_graph", graph, root=".")
-        click.echo(f"[OK] Terraform graph saved to infrastructure_analysis.json")
+        # Write output
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(graph, f, indent=2)
 
         # Display summary
         stats = graph['metadata']['stats']
-        consolidated_path = Path(".") / ".pf" / "raw" / "infrastructure_analysis.json"
 
         click.echo(f"\nProvisioning Graph Built:")
         click.echo(f"  Variables: {stats['total_variables']}")
@@ -169,7 +169,7 @@ def provision(root, workset, output, db, graphs_db):
         click.echo(f"  Edges: {stats['edges_created']}")
         click.echo(f"  Files: {stats['files_processed']}")
         click.echo(f"\nGraph stored in: {graphs_db}")
-        click.echo(f"JSON export: {consolidated_path}")
+        click.echo(f"JSON export: {output_path}")
 
         # Check for sensitive data flows
         sensitive_nodes = [n for n in graph['nodes'] if n.get('is_sensitive')]
@@ -264,9 +264,8 @@ def analyze(root, severity, categories, output, db):
             for f in findings
         ]
 
-        # Write to consolidated group
-        write_to_group("infrastructure_analysis", "terraform_findings", findings_json, root=".")
-        click.echo(f"[OK] Terraform findings saved to infrastructure_analysis.json")
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(findings_json, f, indent=2)
 
         # Display summary
         click.echo(f"\nTerraform Security Analysis Complete:")

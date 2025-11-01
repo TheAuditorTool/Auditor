@@ -6,7 +6,6 @@ import click
 from pathlib import Path
 from datetime import datetime, UTC
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.consolidated_output import write_to_group
 
 # Detect if running on Windows for character encoding
 IS_WINDOWS = platform.system() == "Windows"
@@ -524,10 +523,14 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
             click.echo("[DB] JSON output will still be generated for AI consumption")
     # ===== END DUAL-WRITE =====
 
-    # Write to consolidated group instead of separate file
-    write_to_group("security_analysis", "taint", result, root=".")
-    click.echo(f"[OK] Taint analysis saved to security_analysis.json")
-    
+    # Write taint results to JSON file
+    output_path = Path(".pf") / "raw" / "taint.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        import json as json_lib
+        json_lib.dump(result, f, indent=2, sort_keys=True)
+    click.echo(f"[OK] Taint analysis saved to {output_path}")
+
     # Output results
     if json:
         # JSON output for programmatic use
