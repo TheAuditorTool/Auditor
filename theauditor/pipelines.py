@@ -41,7 +41,6 @@ COMMAND_TIMEOUTS = {
     "taint": 36000,             # 10 hours - Alias for taint-analyze
     "fce": 1800,                # 30 minutes - Correlation analysis
     "report": 600,              # 10 minutes - Report generation
-    "summary": 300,             # 5 minutes - Quick summary generation
 }
 
 # Allow environment variable override for all timeouts
@@ -453,7 +452,6 @@ def run_full_pipeline(
         ("taint-analyze", []),
         ("fce", []),
         ("report", []),
-        ("summary", []),
     ]
     
     # Build command list from available commands in the defined order
@@ -530,8 +528,6 @@ def run_full_pipeline(
                 description = f"{phase_num}. Factual correlation engine"
             elif cmd_name == "report":
                 description = f"{phase_num}. Generate report"
-            elif cmd_name == "summary":
-                description = f"{phase_num}. Generate audit summary"
             else:
                 # Generic description for any new commands
                 description = f"{phase_num}. Run {cmd_name.replace('-', ' ')}"
@@ -664,8 +660,6 @@ def run_full_pipeline(
         elif "fce" in cmd_str:
             final_commands.append((phase_name, cmd))
         elif "report" in cmd_str:
-            final_commands.append((phase_name, cmd))
-        elif "summary" in cmd_str:
             final_commands.append((phase_name, cmd))
         else:
             # Default to final commands for safety
@@ -1444,39 +1438,7 @@ def run_full_pipeline(
                         if log_callback and not quiet:
                             log_callback(error_msg, True)
                         log_lines.append(error_msg)
-                
-                # CRITICAL: Run summarize AFTER FCE
-                if "factual correlation" in phase_name.lower():
-                    try:
-                        log_output("\n" + "="*60)
-                        log_output("[SUMMARIZE] Generating guidance summaries")
-                        log_output("="*60)
 
-                        summarize_start = time.time()
-
-                        # Call aud summarize
-                        summarize_cmd = [sys.executable, "-m", "theauditor.cli", "summarize"]
-                        summarize_result = subprocess.run(
-                            summarize_cmd,
-                            cwd=root,
-                            capture_output=True,
-                            text=True,
-                            timeout=300  # 5 minute timeout
-                        )
-
-                        summarize_elapsed = time.time() - summarize_start
-
-                        if summarize_result.returncode == 0:
-                            log_output(f"[OK] Generated 5 guidance summaries in {summarize_elapsed:.1f}s")
-                            log_output("[INFO] Summaries available in .pf/raw/")
-                        else:
-                            log_output(f"[WARN] Summarize failed: {summarize_result.stderr}")
-                            log_output("[WARN] Guidance summaries may be incomplete")
-                            
-                    except Exception as e:
-                        log_output(f"[ERROR] Summarize command failed: {e}", is_error=True)
-                        log_output("[ERROR] Raw data preserved in .pf/raw/ but no summaries created", is_error=True)
-                
             except Exception as e:
                 failed_phases += 1
                 log_output(f"[FAILED] {phase_name} failed: {e}", is_error=True)

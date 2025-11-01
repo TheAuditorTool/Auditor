@@ -1,253 +1,314 @@
+# Design Document - add-risk-prioritization (CORRECTED)
+
 ## Overview
-Reorganize TheAuditor's output architecture from fragmented file explosion (20+ files) to consolidated group outputs (6 files) + guidance summaries (3-5 files). Deprecate the `.pf/readthis/` chunking system entirely in favor of database-first AI interaction via `aud query` / `aud context`. This change shifts consumption from "parse 20+ JSON files" to "query database directly + read 3-5 summaries for orientation".
+Replace TheAuditor's extraction.py chunking system (generates 24-27 chunk files) with 5 intelligent summaries in `.pf/readthis/`. Keep ALL `/raw/` tool outputs UNCHANGED. This change shifts `/readthis/` from "chunked raw data" to "FCE-guided summaries for quick orientation".
 
-## Core Principle: Database-First Architecture
+## Core Principle: Immutable Raw Outputs + Smart Summaries
 
-**CRITICAL SHIFT**: The original proposal (per-domain summaries) is **obsolete** because we now have:
-- `aud query` - Direct SQL queries over indexed code (100x faster than file parsing)
-- `aud context` - Semantic classification of findings via YAML rules
-- `aud planning` - Database-centric task management
+**CRITICAL RULE**: `/raw/` files are immutable ground truth. NEVER consolidate or modify analyzer outputs.
 
-**AI Consumption Model**:
-1. **Primary**: Query database directly via `aud query --symbol X`, `aud context`, etc.
-2. **Secondary**: Read 3-5 guidance summaries for quick orientation
-3. **Fallback**: Read consolidated group files for archival/debugging only
+**Architecture**:
+1. **`/raw/`** = 20+ separate tool outputs (patterns.json, taint.json, cfg.json, fce.json, etc.) - UNCHANGED
+2. **`/readthis/`** = 5 intelligent summaries that READ FROM `/raw/` files
+3. **Database** = Primary data source (query with `aud query`, `aud context`)
 
-**Key Insight**: Why chunk 20+ files into 24-27 smaller files when AIs can query the database directly in <10ms?
+**Why this design?**:
+- Raw tool outputs are "our only value" - consolidation loses ground truth fidelity
+- Chunking provides no value when database queries are 100x faster
+- Summaries provide quick orientation using FCE correlations
 
-## Data Model & Persistence
+## Data Flow
 
-**Primary Storage**: All findings and analysis results already exist in:
-- `repo_index.db` (91MB) - Raw AST facts, symbols, calls, assignments
-- `graphs.db` (79MB) - Pre-computed graph structures
-
-**NO NEW DATABASE TABLES REQUIRED** - this change is purely about output file organization.
-
-**Output Consolidation Targets**:
-| Current (20+ files) | Consolidated (6 files) | Purpose |
-|---------------------|------------------------|---------|
-| graph_analysis.json<br>graph_cycles.json<br>graph_hotspots.json<br>graph_layers.json<br>call_graph.json | **graph_analysis.json** | All graph outputs combined |
-| patterns.json<br>taint_analysis.json<br>vulnerabilities.json | **security_analysis.json** | All security findings combined |
-| lint.json<br>cfg.json<br>deadcode.json | **quality_analysis.json** | All code quality findings combined |
-| deps.json<br>docs.json<br>frameworks.json | **dependency_analysis.json** | All dependency data combined |
-| terraform_findings.json<br>cdk_findings.json<br>docker_findings.json<br>workflows_findings.json | **infrastructure_analysis.json** | All IaC/CI findings combined |
-| fce.json | **correlation_analysis.json** | FCE meta-findings only |
-
-## Output Consolidation Strategy
-
-### Phase 1: Modify Analyzers to Write to Consolidated Files
-
-Each analyzer should append its findings to the appropriate consolidated group file instead of creating separate files.
-
-**Example: Graph Analyzers** (theauditor/commands/graph.py):
-
-**CURRENT** (creates 5 separate files):
-```python
-# graph build → graph_analysis.json
-# graph analyze → graph_cycles.json, graph_hotspots.json
-# graph viz → call_graph.json, graph_layers.json
+```
+Analyzers → /raw/ separate files (UNCHANGED)
+                    ↓
+               FCE reads /raw/
+                    ↓
+            FCE writes fce.json
+                    ↓
+     `aud summarize` reads /raw/ + fce.json
+                    ↓
+        Summaries written to /readthis/
 ```
 
-**NEW** (all write to 1 file):
-```python
-def write_graph_output(analysis_type: str, data: Dict[str, Any]):
-    """Append graph analysis to consolidated file."""
-    consolidated_path = Path('.pf/raw/graph_analysis.json')
+**Key Points**:
+- Analyzers DON'T CHANGE - they continue writing to separate /raw/ files
+- Summaries READ FROM existing /raw/ files, don't modify them
+- No consolidation - /raw/ structure stays 1:1 with current pipeline
 
-    # Load existing data if file exists
-    if consolidated_path.exists():
-        with open(consolidated_path, 'r') as f:
-            consolidated = json.load(f)
-    else:
-        consolidated = {
-            "analyzer": "graph",
-            "generated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
-            "analyses": {}
-        }
+## File Structure
 
-    # Add new analysis section
-    consolidated["analyses"][analysis_type] = data
-    consolidated["last_updated"] = time.strftime('%Y-%m-%d %H:%M:%S')
-
-    # Write back
-    with open(consolidated_path, 'w') as f:
-        json.dump(consolidated, f, indent=2)
+### BEFORE (current):
+```
+.pf/
+├── raw/
+│   ├── patterns.json       (detect-patterns output)
+│   ├── taint.json          (taint-analyze output)
+│   ├── cfg.json            (cfg analyze output)
+│   ├── deadcode.json       (deadcode output)
+│   ├── frameworks.json     (detect-frameworks output)
+│   ├── graph_analysis.json (graph analyze output)
+│   ├── fce.json            (fce correlations)
+│   └── ... (20+ separate files)
+├── readthis/
+│   ├── patterns_chunk01.json
+│   ├── patterns_chunk02.json
+│   ├── taint_chunk01.json
+│   └── ... (24-27 chunked files)
+└── repo_index.db
 ```
 
-**Apply this pattern to**:
-- `theauditor/commands/graph.py` → `graph_analysis.json`
-- `theauditor/commands/detect_patterns.py` + `theauditor/commands/taint_analyze.py` → `security_analysis.json`
-- `theauditor/commands/lint.py` + `theauditor/commands/cfg.py` + `theauditor/commands/deadcode.py` → `quality_analysis.json`
-- `theauditor/commands/deps.py` + `theauditor/commands/docs.py` + `theauditor/commands/detect_frameworks.py` → `dependency_analysis.json`
-- `theauditor/commands/terraform.py` + `theauditor/commands/cdk.py` + `theauditor/commands/docker_analyze.py` + `theauditor/commands/workflows.py` → `infrastructure_analysis.json`
+### AFTER (target):
+```
+.pf/
+├── raw/
+│   ├── patterns.json       (UNCHANGED - detect-patterns output)
+│   ├── taint.json          (UNCHANGED - taint-analyze output)
+│   ├── cfg.json            (UNCHANGED - cfg analyze output)
+│   ├── deadcode.json       (UNCHANGED - deadcode output)
+│   ├── frameworks.json     (UNCHANGED - detect-frameworks output)
+│   ├── graph_analysis.json (UNCHANGED - graph analyze output)
+│   ├── fce.json            (UNCHANGED - fce correlations)
+│   └── ... (20+ separate files - ALL UNCHANGED)
+├── readthis/
+│   ├── SAST_Summary.json         (NEW - security findings summary)
+│   ├── SCA_Summary.json          (NEW - dependency issues summary)
+│   ├── Intelligence_Summary.json (NEW - code intelligence summary)
+│   ├── Quick_Start.json          (NEW - FCE-guided top issues)
+│   └── Query_Guide.json          (NEW - database query reference)
+└── repo_index.db
+```
 
-### Phase 2: Add Guidance Summary Generation
+## Implementation Design
 
-Create new command `aud summarize` (not to be confused with existing `aud summary` which generates stats).
+### Phase 1: Create Summarize Command
 
-**File**: `theauditor/commands/summarize.py` (NEW)
+**File**: `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\summarize.py` (NEW)
 
+**Structure**:
 ```python
 import json
 from pathlib import Path
 import click
-from theauditor.utils.error_handler import handle_exceptions
+from typing import Dict, Any
 
-@click.command()
-@handle_exceptions
-def summarize():
-    """Generate 3-5 guidance summaries from consolidated analysis files.
+@click.command("summarize")
+@click.option("--project-path", default=".", help="Root directory to analyze")
+def summarize(project_path):
+    """Generate 5 intelligent summaries from raw analysis files.
 
-    Reads consolidated group files and generates focused summaries for quick
-    orientation. These are truth courier documents - highlight findings, show
-    metrics, point to hotspots, but NEVER recommend fixes.
+    Reads from .pf/raw/ files and generates summaries in .pf/readthis/.
+    Summaries are truth couriers - show facts and FCE correlations only.
     """
-    raw_dir = Path('.pf/raw')
+    project_path = Path(project_path).resolve()
+    raw_dir = project_path / ".pf" / "raw"
+    readthis_dir = project_path / ".pf" / "readthis"
 
-    # Generate SAST Summary
-    sast = generate_sast_summary(raw_dir)
-    with open(raw_dir / 'SAST_Summary.json', 'w') as f:
-        json.dump(sast, f, indent=2)
+    # Create readthis directory
+    readthis_dir.mkdir(parents=True, exist_ok=True)
 
-    # Generate SCA Summary
-    sca = generate_sca_summary(raw_dir)
-    with open(raw_dir / 'SCA_Summary.json', 'w') as f:
-        json.dump(sca, f, indent=2)
+    # Generate 5 summaries
+    summaries = {
+        "SAST_Summary.json": generate_sast_summary(raw_dir),
+        "SCA_Summary.json": generate_sca_summary(raw_dir),
+        "Intelligence_Summary.json": generate_intelligence_summary(raw_dir),
+        "Quick_Start.json": generate_quick_start(raw_dir),
+        "Query_Guide.json": generate_query_guide()
+    }
 
-    # Generate Intelligence Summary
-    intelligence = generate_intelligence_summary(raw_dir)
-    with open(raw_dir / 'Intelligence_Summary.json', 'w') as f:
-        json.dump(intelligence, f, indent=2)
+    # Write summaries
+    for filename, data in summaries.items():
+        output_path = readthis_dir / filename
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
 
-    # Generate Quick Start
-    quick_start = generate_quick_start(raw_dir)
-    with open(raw_dir / 'Quick_Start.json', 'w') as f:
-        json.dump(quick_start, f, indent=2)
-
-    # Generate Query Guide
-    query_guide = generate_query_guide()
-    with open(raw_dir / 'Query_Guide.json', 'w') as f:
-        json.dump(query_guide, f, indent=2)
-
-    print("[OK] Generated 5 guidance summaries in .pf/raw/")
+    click.echo(f"[OK] Generated 5 summaries in {readthis_dir}")
 
 
 def generate_sast_summary(raw_dir: Path) -> Dict[str, Any]:
-    """Generate SAST summary from security_analysis.json."""
-    security_path = raw_dir / 'security_analysis.json'
-    if not security_path.exists():
-        return {"error": "security_analysis.json not found"}
+    """Generate security findings summary."""
+    # Read from patterns.json, taint.json, docker_findings.json, github_workflows.json
+    patterns_path = raw_dir / "patterns.json"
+    taint_path = raw_dir / "taint.json"
+    fce_path = raw_dir / "fce.json"
 
-    with open(security_path, 'r') as f:
-        security = json.load(f)
+    # Count findings
+    total_findings = 0
+    patterns_count = 0
+    taint_count = 0
+    fce_security_correlations = 0
 
-    # Extract top 20 security findings by severity
-    all_findings = []
+    # Read patterns.json if exists
+    if patterns_path.exists():
+        with open(patterns_path, 'r') as f:
+            patterns_data = json.load(f)
+            patterns_count = len(patterns_data.get("findings", []))
+            total_findings += patterns_count
 
-    # Patterns
-    if "patterns" in security.get("analyses", {}):
-        patterns = security["analyses"]["patterns"]
-        for category, findings in patterns.get("findings_by_category", {}).items():
-            all_findings.extend(findings)
+    # Read taint.json if exists
+    if taint_path.exists():
+        with open(taint_path, 'r') as f:
+            taint_data = json.load(f)
+            taint_count = len(taint_data.get("vulnerabilities", []))
+            total_findings += taint_count
 
-    # Taint flows
-    if "taint" in security.get("analyses", {}):
-        taint = security["analyses"]["taint"]
-        all_findings.extend(taint.get("vulnerabilities", []))
-
-    # Sort by severity
-    severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    sorted_findings = sorted(
-        all_findings,
-        key=lambda f: severity_order.get(f.get("severity", "low"), 99)
-    )[:20]
+    # Read FCE correlations if exists
+    if fce_path.exists():
+        with open(fce_path, 'r') as f:
+            fce_data = json.load(f)
+            # Count security-related FCE findings
+            fce_security_correlations = len([
+                f for f in fce_data.get("correlations", {}).get("meta_findings", [])
+                if "security" in f.get("type", "").lower()
+            ])
 
     return {
-        "summary_type": "SAST",
-        "generated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
-        "total_vulnerabilities": len(all_findings),
-        "by_severity": {
-            "critical": sum(1 for f in all_findings if f.get("severity") == "critical"),
-            "high": sum(1 for f in all_findings if f.get("severity") == "high"),
-            "medium": sum(1 for f in all_findings if f.get("severity") == "medium"),
-            "low": sum(1 for f in all_findings if f.get("severity") == "low")
+        "summary": f"{total_findings} security findings detected ({patterns_count} patterns, {taint_count} taint paths), {fce_security_correlations} FCE security correlations",
+        "counts": {
+            "total_findings": total_findings,
+            "patterns": patterns_count,
+            "taint_paths": taint_count,
+            "fce_security_correlations": fce_security_correlations
         },
-        "top_20_findings": sorted_findings,
-        "detail_location": ".pf/raw/security_analysis.json",
-        "query_alternative": "Use 'aud query --category jwt' or 'aud context' for structured queries"
+        "source_files": ["patterns.json", "taint.json", "fce.json"],
+        "query_alternative": "aud query --tool patterns --severity critical"
     }
 
 
 def generate_sca_summary(raw_dir: Path) -> Dict[str, Any]:
-    """Generate SCA summary from dependency_analysis.json."""
-    # Similar pattern - load dependency_analysis.json, extract top 20 CVEs/outdated deps
-    pass
+    """Generate dependency issues summary."""
+    frameworks_path = raw_dir / "frameworks.json"
+
+    frameworks_count = 0
+
+    # Read frameworks.json if exists
+    if frameworks_path.exists():
+        with open(frameworks_path, 'r') as f:
+            frameworks_data = json.load(f)
+            if isinstance(frameworks_data, list):
+                frameworks_count = len(frameworks_data)
+
+    return {
+        "summary": f"{frameworks_count} frameworks detected",
+        "counts": {
+            "frameworks_detected": frameworks_count
+        },
+        "source_files": ["frameworks.json"],
+        "query_alternative": "aud query --symbol-type import --group-by package"
+    }
 
 
 def generate_intelligence_summary(raw_dir: Path) -> Dict[str, Any]:
-    """Generate intelligence summary from graph + correlation analysis."""
-    # Load graph_analysis.json + correlation_analysis.json
-    # Extract top 20 hotspots, cycles, FCE correlations
-    pass
+    """Generate code intelligence summary."""
+    graph_path = raw_dir / "graph_analysis.json"
+    cfg_path = raw_dir / "cfg.json"
+    fce_path = raw_dir / "fce.json"
+
+    hotspots = 0
+    cycles = 0
+    complex_functions = 0
+    fce_meta_findings = 0
+
+    # Read graph_analysis.json if exists
+    if graph_path.exists():
+        with open(graph_path, 'r') as f:
+            graph_data = json.load(f)
+            hotspots = len(graph_data.get("hotspots", []))
+            cycles = len(graph_data.get("cycles", []))
+
+    # Read cfg.json if exists
+    if cfg_path.exists():
+        with open(cfg_path, 'r') as f:
+            cfg_data = json.load(f)
+            complex_functions = len(cfg_data.get("complex_functions", []))
+
+    # Read fce.json for meta-findings
+    if fce_path.exists():
+        with open(fce_path, 'r') as f:
+            fce_data = json.load(f)
+            fce_meta_findings = len(fce_data.get("correlations", {}).get("meta_findings", []))
+
+    return {
+        "summary": f"{hotspots} hotspots, {cycles} cycles, {complex_functions} complex functions, {fce_meta_findings} FCE meta-findings",
+        "counts": {
+            "architectural_hotspots": hotspots,
+            "dependency_cycles": cycles,
+            "complex_functions": complex_functions,
+            "fce_meta_findings": fce_meta_findings
+        },
+        "source_files": ["graph_analysis.json", "cfg.json", "fce.json"],
+        "query_alternative": "aud context --file api.py --show-dependencies"
+    }
 
 
 def generate_quick_start(raw_dir: Path) -> Dict[str, Any]:
-    """Generate ultra-condensed top 10 across ALL domains."""
-    # Load all 3 summaries, pick top 10 critical issues
-    pass
+    """Generate top FCE-correlated issues."""
+    fce_path = raw_dir / "fce.json"
+
+    top_issues = []
+
+    # Read fce.json for meta-findings
+    if fce_path.exists():
+        with open(fce_path, 'r') as f:
+            fce_data = json.load(f)
+            meta_findings = fce_data.get("correlations", {}).get("meta_findings", [])
+
+            # Take top 10 FCE findings
+            for finding in meta_findings[:10]:
+                top_issues.append({
+                    "type": finding.get("type", "UNKNOWN"),
+                    "file": finding.get("file", "unknown"),
+                    "finding_count": finding.get("finding_count", 0),
+                    "message": finding.get("message", "")
+                })
+
+    return {
+        "summary": f"{len(top_issues)} critical FCE correlations",
+        "top_issues": top_issues,
+        "guidance": "These are factual correlations identified by FCE. Query database for details.",
+        "query_examples": [
+            "aud query --file api.py --show-calls",
+            "aud context --file api.py --show-dependencies"
+        ],
+        "source_files": ["fce.json"]
+    }
 
 
 def generate_query_guide() -> Dict[str, Any]:
-    """Generate query reference guide."""
+    """Generate database query reference."""
     return {
-        "guide_type": "Query Reference",
-        "generated_at": time.strftime('%Y-%m-%d %H:%M:%S'),
         "purpose": "AI assistants should query database directly instead of parsing JSON files",
-        "queries_by_domain": {
-            "Security Patterns": [
-                "aud query --category jwt",
-                "aud query --category oauth",
-                "aud query --pattern 'password%'"
-            ],
-            "Taint Analysis": [
-                "aud query --variable user_input --show-flow",
-                "aud query --symbol db.execute --show-callers"
-            ],
-            "Graph Analysis": [
-                "aud query --file api.py --show-dependencies",
-                "aud query --symbol authenticate --show-callers --depth 3"
-            ],
-            "Code Quality": [
-                "aud query --symbol calculate_total --show-callees",
-                "aud cfg analyze --complexity-threshold 20"
-            ],
-            "Dependencies": [
-                "aud deps --vuln-scan",
-                "aud docs fetch"
-            ],
-            "Infrastructure": [
-                "aud terraform analyze",
-                "aud workflows analyze"
-            ],
-            "Semantic Classification": [
-                "aud context --file refactor_rules.yaml"
-            ]
-        },
-        "performance": {
-            "database_query": "<10ms per query",
-            "json_parsing": "1-2s to read multiple files",
-            "token_savings": "5,000-10,000 tokens per refactoring iteration"
-        }
+        "security_queries": [
+            "aud query --tool taint --show-paths",
+            "aud query --tool patterns --severity critical"
+        ],
+        "dependency_queries": [
+            "aud query --symbol-type import --group-by package"
+        ],
+        "architecture_queries": [
+            "aud context --file api.py --show-dependencies",
+            "aud query --calls main --depth 3"
+        ],
+        "performance_note": "Database queries are 100x faster than parsing JSON files"
     }
 ```
 
-### Phase 3: Deprecate Extraction System
-
-**Remove from pipeline** (theauditor/pipelines.py:1462-1476):
-
-**BEFORE**:
+**Register in CLI** (`C:\Users\santa\Desktop\TheAuditor\theauditor\cli.py`):
 ```python
-# CRITICAL: Run extraction AFTER FCE and BEFORE report
+# Add import at top
+from theauditor.commands.summarize import summarize
+
+# Add registration with other commands
+cli.add_command(summarize)
+```
+
+### Phase 2: Modify Pipeline
+
+**File**: `C:\Users\santa\Desktop\TheAuditor\theauditor\pipelines.py`
+
+**Find extraction call** (around line 1462-1476):
+```python
+# OLD CODE - REMOVE THIS
 if "factual correlation" in phase_name.lower():
     try:
         from theauditor.extraction import extract_all_to_readthis
@@ -261,119 +322,171 @@ if "factual correlation" in phase_name.lower():
         extraction_elapsed = time.time() - extraction_start
 ```
 
-**AFTER**:
+**Replace with**:
 ```python
-# CRITICAL: Run summarize AFTER FCE
+# NEW CODE - ADD THIS
 if "factual correlation" in phase_name.lower():
     try:
+        import subprocess
+        import sys
+
         log_output("\n" + "="*60)
         log_output("[SUMMARIZE] Generating guidance summaries")
         log_output("="*60)
 
         # Call aud summarize
-        summarize_cmd = [sys.executable, "-m", "theauditor.cli", "summarize"]
-        summarize_result = subprocess.run(summarize_cmd, cwd=root, capture_output=True, text=True)
+        summarize_cmd = [sys.executable, "-m", "theauditor.cli", "summarize", "--project-path", str(root)]
+        summarize_result = subprocess.run(summarize_cmd, cwd=root, capture_output=True, text=True, timeout=60)
 
         if summarize_result.returncode == 0:
-            log_output("[OK] Generated 5 guidance summaries in .pf/raw/")
+            log_output("[OK] Generated 5 guidance summaries in .pf/readthis/")
         else:
             log_output(f"[WARN] Summarize failed: {summarize_result.stderr}")
+    except Exception as e:
+        log_output(f"[ERROR] Summarize exception: {e}")
 ```
 
-**Mark extraction.py as deprecated**:
-- Add comment at top of file: `# DEPRECATED: Extraction system obsolete - use 'aud query' for database-first AI interaction`
-- Keep file for backward compatibility but log warning when called
-
-**Update .gitignore**:
-```
-# Deprecated - no longer generated
-.pf/readthis/
+**Remove extraction import** (if it exists at top of file):
+```python
+# REMOVE THIS LINE
+from theauditor.extraction import extract_all_to_readthis
 ```
 
-### Phase 4: Update Documentation
+### Phase 3: Deprecate Extraction System
 
-**Update README.md OUTPUT STRUCTURE section**:
-
-**BEFORE**:
-```
-.pf/
-├── raw/          # Immutable tool outputs (ground truth)
-├── readthis/     # AI-optimized chunks (<65KB each)
-│   ├── *_chunk01.json
-│   └── summary.json
-```
-
-**AFTER**:
-```
-.pf/
-├── raw/
-│   ├── Consolidated Analysis (6 files):
-│   │   ├── graph_analysis.json        # All graph outputs
-│   │   ├── security_analysis.json     # Patterns + taint + vulnerabilities
-│   │   ├── quality_analysis.json      # Lint + cfg + deadcode
-│   │   ├── dependency_analysis.json   # Deps + docs + frameworks
-│   │   ├── infrastructure_analysis.json # Terraform + CDK + Docker + Workflows
-│   │   └── correlation_analysis.json  # FCE meta-findings
-│   │
-│   └── Guidance Summaries (5 files):
-│       ├── SAST_Summary.json         # Top 20 security findings
-│       ├── SCA_Summary.json          # Top 20 dependency issues
-│       ├── Intelligence_Summary.json # Top 20 code intelligence insights
-│       ├── Quick_Start.json          # Top 10 critical issues
-│       └── Query_Guide.json          # How to query via aud commands
-│
-├── repo_index.db   # PRIMARY DATA SOURCE - query via 'aud query'
-└── graphs.db       # Graph structures - query via 'aud graph'
-```
-
-## Verification & Testing Strategy
-
-**Verification Goals**:
-1. Verify analyzers write to consolidated files (not separate files)
-2. Verify summaries are generated after FCE
-3. Verify extraction is no longer called
-4. Verify 6 consolidated files exist in .pf/raw/
-5. Verify 5 guidance summaries exist in .pf/raw/
-6. Verify .pf/readthis/ is NOT created
-
-**Manual Test**:
+**Rename extraction.py**:
 ```bash
-# Clean slate
-rm -rf .pf/
-
-# Run full pipeline
-aud full --offline
-
-# Check outputs
-ls .pf/raw/
-# EXPECTED:
-#   graph_analysis.json
-#   security_analysis.json
-#   quality_analysis.json
-#   dependency_analysis.json
-#   infrastructure_analysis.json
-#   correlation_analysis.json
-#   SAST_Summary.json
-#   SCA_Summary.json
-#   Intelligence_Summary.json
-#   Quick_Start.json
-#   Query_Guide.json
-
-# Verify readthis NOT created
-ls .pf/readthis/ 2>&1
-# EXPECTED: "No such file or directory"
-
-# Test database queries work
-aud query --symbol authenticate
-aud query --category jwt
-aud context --file test_rules.yaml
+# Windows command
+move C:\Users\santa\Desktop\TheAuditor\theauditor\extraction.py C:\Users\santa\Desktop\TheAuditor\theauditor\extraction.py.bak
 ```
+
+**Verify no imports remain**:
+```bash
+# Search for any remaining imports
+grep -r "from theauditor.extraction import" C:\Users\santa\Desktop\TheAuditor\theauditor\
+grep -r "import extraction" C:\Users\santa\Desktop\TheAuditor\theauditor\
+# Should find ZERO matches
+```
+
+**Update .gitignore** (`C:\Users\santa\Desktop\TheAuditor\.gitignore`):
+```
+# Chunked files deprecated - only summaries remain
+.pf/readthis/*_chunk*.json
+```
+
+### Phase 4: NO Changes to Analyzers
+
+**CRITICAL**: Do NOT modify any analyzer commands. They continue writing to separate /raw/ files:
+
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\graph.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\detect_patterns.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\taint.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\cfg.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\deadcode.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\detect_frameworks.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\terraform.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\docker_analyze.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\workflows.py` - UNCHANGED
+- ✅ `C:\Users\santa\Desktop\TheAuditor\theauditor\fce.py` - UNCHANGED
+
+## Truth Courier Principle
+
+**Summaries MUST follow truth courier format**:
+- ✅ Show counts and metrics
+- ✅ Show FCE correlations as-is
+- ✅ Show file:line locations
+- ✅ Cross-reference to /raw/ files
+- ❌ NO severity filtering
+- ❌ NO recommendations
+- ❌ NO interpretation
+
+**Example**:
+```json
+{
+  "summary": "1250 security findings detected (890 patterns, 360 taint paths), 42 FCE security correlations",
+  "counts": { "total_findings": 1250, "patterns": 890, "taint_paths": 360 },
+  "query_alternative": "aud query --tool patterns --severity critical"
+}
+```
+
+## Verification Strategy
 
 **Success Criteria**:
-- ✅ 6 consolidated files in .pf/raw/ (not 20+)
-- ✅ 5 guidance summaries in .pf/raw/
-- ✅ .pf/readthis/ directory NOT created
-- ✅ All data preserved in consolidated files
-- ✅ Database queries return correct results
-- ✅ Summaries are truth couriers (no recommendations)
-- ✅ Pipeline runs without extraction stage
+1. ✅ All 20+ /raw/ files UNCHANGED (patterns.json, taint.json, cfg.json, etc.)
+2. ✅ 5 summaries in /readthis/ (SAST, SCA, Intelligence, Quick_Start, Query_Guide)
+3. ✅ NO chunks in /readthis/ (*_chunk*.json files)
+4. ✅ extraction.py renamed to .bak
+5. ✅ Pipeline runs without errors
+6. ✅ Summaries follow truth courier model
+
+**Test Commands**:
+```bash
+# Clean test
+rm -rf C:\Users\santa\Desktop\TheAuditor\.pf
+
+# Run pipeline
+aud init
+aud full --offline
+
+# Verify /raw/ unchanged
+dir C:\Users\santa\Desktop\TheAuditor\.pf\raw
+# EXPECT: patterns.json, taint.json, cfg.json, fce.json, etc. (20+ files)
+
+# Verify /readthis/ has summaries only
+dir C:\Users\santa\Desktop\TheAuditor\.pf\readthis
+# EXPECT: SAST_Summary.json, SCA_Summary.json, Intelligence_Summary.json, Quick_Start.json, Query_Guide.json (5 files)
+
+# Verify no chunks
+dir C:\Users\santa\Desktop\TheAuditor\.pf\readthis\*_chunk*.json
+# EXPECT: "File Not Found"
+
+# Test summaries
+type C:\Users\santa\Desktop\TheAuditor\.pf\readthis\SAST_Summary.json
+# EXPECT: JSON with counts, NO recommendations
+```
+
+## Risk Assessment
+
+**Risk Level**: VERY LOW
+
+**Why**:
+- NO changes to analyzer commands (ground truth preserved)
+- NO changes to database schema
+- NO changes to /raw/ file structure
+- Only ADDING new summaries to /readthis/
+- Extraction removal is safe (already deprecated)
+
+**Rollback Plan**:
+```bash
+# If something breaks, revert:
+git checkout HEAD -- C:\Users\santa\Desktop\TheAuditor\theauditor\commands\summarize.py
+git checkout HEAD -- C:\Users\santa\Desktop\TheAuditor\theauditor\pipelines.py
+git checkout HEAD -- C:\Users\santa\Desktop\TheAuditor\theauditor\cli.py
+move C:\Users\santa\Desktop\TheAuditor\theauditor\extraction.py.bak C:\Users\santa\Desktop\TheAuditor\theauditor\extraction.py
+```
+
+## Timeline Estimate
+
+- Create summarize.py: 2-3 hours
+- Modify pipeline: 30 minutes
+- Rename extraction.py: 5 minutes
+- Update documentation: 1 hour
+- Testing & verification: 1-2 hours
+- **Total**: 5-7 hours
+
+## Files Modified Summary
+
+**New Files** (1):
+- `C:\Users\santa\Desktop\TheAuditor\theauditor\commands\summarize.py`
+
+**Modified Files** (2):
+- `C:\Users\santa\Desktop\TheAuditor\theauditor\pipelines.py` (remove extraction call, add summarize call)
+- `C:\Users\santa\Desktop\TheAuditor\theauditor\cli.py` (register summarize command)
+
+**Renamed Files** (1):
+- `C:\Users\santa\Desktop\TheAuditor\theauditor\extraction.py` → `extraction.py.bak`
+
+**NO Modifications**:
+- All 10+ analyzer commands - UNTOUCHED
+- All /raw/ file outputs - UNTOUCHED
+- Database schema - UNTOUCHED
