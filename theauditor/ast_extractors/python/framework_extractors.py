@@ -217,7 +217,7 @@ def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict],
     models: List[Dict[str, Any]] = []
     fields: List[Dict[str, Any]] = []
     relationships: List[Dict[str, Any]] = []
-    seen_relationships: Set[Tuple[str, str, str]] = set()
+    seen_relationships: Set[Tuple[int, str, str, str]] = set()  # (line, source, target, rel_type)
 
     actual_tree = tree.get("tree")
     if not isinstance(actual_tree, ast.AST):
@@ -346,7 +346,10 @@ def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict],
                     rel_line: int,
                 ) -> None:
                     target_name = target_model_name or "Unknown"
-                    key = (source_model, target_name, alias or "")
+                    # Dedup key MUST include relationship_type to prevent data loss
+                    # Example: User.posts (hasMany) and User.favorite (hasOne) both target Post
+                    # Without rel_type in key, second relationship would be skipped
+                    key = (rel_line, source_model, target_name, rel_type)
                     if key in seen_relationships:
                         return
                     relationships.append({
@@ -370,33 +373,29 @@ def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict],
                     line_no,
                 )
 
+                # Don't create inverse relationship for back_populates
+                # Each side will define its own forward relationship
+                # This prevents duplicate relationships when both sides have back_populates
                 back_populates_node = _keyword_arg(value, "back_populates")
-                if back_populates_node and target_model:
-                    inverse_alias = _get_str_constant(back_populates_node) or get_node_name(back_populates_node)
-                    _add_relationship(
-                        target_model,
-                        node.name,
-                        _inverse_relationship_type(relationship_type),
-                        inverse_alias,
-                        cascade_delete,
-                        foreign_key,
-                        line_no,
-                    )
+                # Note: back_populates is handled by each side defining its own relationship
 
                 backref_node = _keyword_arg(value, "backref")
                 if backref_node and target_model:
-                    backref_name = _extract_backref_name(backref_node)
-                    inverse_cascade = cascade_delete or _extract_backref_cascade(backref_node)
-                    inverse_type = _inverse_relationship_type(relationship_type)
-                    _add_relationship(
-                        target_model,
-                        node.name,
-                        inverse_type,
-                        backref_name,
-                        inverse_cascade,
-                        foreign_key,
-                        line_no,
-                    )
+                    # Skip inverse for self-referential relationships to avoid duplicates
+                    # Self-referential would create (line, Model, Model) twice
+                    if target_model != node.name:
+                        backref_name = _extract_backref_name(backref_node)
+                        inverse_cascade = cascade_delete or _extract_backref_cascade(backref_node)
+                        inverse_type = _inverse_relationship_type(relationship_type)
+                        _add_relationship(
+                            target_model,
+                            node.name,
+                            inverse_type,
+                            backref_name,
+                            inverse_cascade,
+                            foreign_key,
+                            line_no,
+                        )
 
     return models, fields, relationships
 
@@ -418,6 +417,7 @@ def extract_django_definitions(tree: Dict, parser_self) -> Tuple[List[Dict], Lis
     """Extract Django ORM models and relationships."""
     relationships: List[Dict[str, Any]] = []
     models: List[Dict[str, Any]] = []
+    seen_relationships: Set[Tuple[int, str, str, str]] = set()
 
     actual_tree = tree.get("tree")
     if not isinstance(actual_tree, ast.AST):
@@ -460,41 +460,56 @@ def extract_django_definitions(tree: Dict, parser_self) -> Tuple[List[Dict], Lis
                 on_delete = _keyword_arg(value, "on_delete")
                 if on_delete and get_node_name(on_delete).endswith("CASCADE"):
                     cascade = True
-                relationships.append({
-                    "line": line_no,
-                    "source_model": node.name,
-                    "target_model": target or "Unknown",
-                    "relationship_type": "belongsTo",
-                    "foreign_key": attr_name,
-                    "cascade_delete": cascade,
-                    "as_name": attr_name,
-                })
+                # Deduplicate relationships to prevent data loss
+                # Include relationship_type to allow multiple relationships to same model
+                rel_key = (line_no, node.name, target or "Unknown", "belongsTo")
+                if rel_key not in seen_relationships:
+                    relationships.append({
+                        "line": line_no,
+                        "source_model": node.name,
+                        "target_model": target or "Unknown",
+                        "relationship_type": "belongsTo",
+                        "foreign_key": attr_name,
+                        "cascade_delete": cascade,
+                        "as_name": attr_name,
+                    })
+                    seen_relationships.add(rel_key)
             elif func_name.endswith("ManyToManyField"):
                 target = None
                 if value.args:
                     target = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
-                relationships.append({
-                    "line": line_no,
-                    "source_model": node.name,
-                    "target_model": target or "Unknown",
-                    "relationship_type": "manyToMany",
-                    "foreign_key": None,
-                    "cascade_delete": False,
-                    "as_name": attr_name,
-                })
+                # Deduplicate relationships to prevent data loss
+                # Include relationship_type to allow multiple relationships to same model
+                rel_key = (line_no, node.name, target or "Unknown", "manyToMany")
+                if rel_key not in seen_relationships:
+                    relationships.append({
+                        "line": line_no,
+                        "source_model": node.name,
+                        "target_model": target or "Unknown",
+                        "relationship_type": "manyToMany",
+                        "foreign_key": None,
+                        "cascade_delete": False,
+                        "as_name": attr_name,
+                    })
+                    seen_relationships.add(rel_key)
             elif func_name.endswith("OneToOneField"):
                 target = None
                 if value.args:
                     target = _get_str_constant(value.args[0]) or get_node_name(value.args[0])
-                relationships.append({
-                    "line": line_no,
-                    "source_model": node.name,
-                    "target_model": target or "Unknown",
-                    "relationship_type": "hasOne",
-                    "foreign_key": attr_name,
-                    "cascade_delete": False,
-                    "as_name": attr_name,
-                })
+                # Deduplicate relationships to prevent data loss
+                # Include relationship_type to allow multiple relationships to same model
+                rel_key = (line_no, node.name, target or "Unknown", "hasOne")
+                if rel_key not in seen_relationships:
+                    relationships.append({
+                        "line": line_no,
+                        "source_model": node.name,
+                        "target_model": target or "Unknown",
+                        "relationship_type": "hasOne",
+                        "foreign_key": attr_name,
+                        "cascade_delete": False,
+                        "as_name": attr_name,
+                    })
+                    seen_relationships.add(rel_key)
 
     return models, relationships
 
