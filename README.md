@@ -33,14 +33,11 @@ aud init
 # Run complete security audit
 aud full
 
-# View quick start guidance
-cat .pf/raw/Quick_Start.json
-
-# Or query database directly (recommended)
-aud query --symbol authenticate
+# View findings
+cat .pf/readthis/summary.json
 ```
 
-**Output**: `.pf/raw/` contains 6 consolidated analysis files + 5 guidance summaries
+**Output**: `.pf/readthis/` contains AI-optimized finding reports (<65KB per file)
 
 ---
 
@@ -125,39 +122,20 @@ aud lint
 ```
 Runs all available linters (ruff, mypy, eslint, tsc, prettier) and normalizes output to unified format.
 
-### 5. Database-First AI Interaction
+### 5. AI-Optimized Output
 
-Query indexed code data directly via CLI commands (100x faster than parsing JSON):
+All findings chunked into <65KB JSON files optimized for LLM context windows:
 
-```bash
-# Security queries
-aud query --category jwt --show-findings
-aud context --file security_rules.yaml
-
-# Code intelligence queries
-aud query --symbol authenticate --show-callers --depth 3
-aud query --file api.py --show-dependencies
+```
+.pf/readthis/
+├── summary.json              # Executive summary
+├── patterns_chunk01.json     # Security patterns
+├── taint_chunk01.json        # Taint analysis results
+├── terraform_chunk01.json    # Infrastructure findings
+└── *_chunk*.json             # Maximum 3 chunks per analysis type
 ```
 
-**Consolidated Outputs** (`.pf/raw/`):
-```
-Consolidated Analysis (6 files):
-├── graph_analysis.json         # All graph/architecture data
-├── security_analysis.json      # Patterns + taint flows
-├── quality_analysis.json       # Lint + complexity + deadcode
-├── dependency_analysis.json    # Deps + docs + frameworks
-├── infrastructure_analysis.json # Terraform + Docker + CI/CD
-└── correlation_analysis.json   # FCE meta-findings
-
-Guidance Summaries (5 files):
-├── SAST_Summary.json          # Top 20 security findings
-├── SCA_Summary.json           # Top 20 dependency issues
-├── Intelligence_Summary.json  # Top 20 hotspots/cycles
-├── Quick_Start.json           # Top 10 critical (all domains)
-└── Query_Guide.json           # How to use aud query
-```
-
-**Design Goal**: AI queries database directly (5,000-10,000 token savings per iteration). Guidance summaries provide quick orientation. Consolidated files for archival/debugging only.
+**Design Goal**: Enable AI assistants to consume complete audit results without context overflow.
 
 ---
 
@@ -320,12 +298,8 @@ aud init
 # Run complete audit
 aud full
 
-# View quick start guidance
-cat .pf/raw/Quick_Start.json
-
-# Or query database directly (recommended for AI assistants)
-aud query --symbol <function_name>
-aud context --file <rules.yaml>
+# View findings
+cat .pf/readthis/summary.json
 ```
 
 ### Incremental Analysis (10-100x faster)
@@ -475,104 +449,6 @@ Use absolute paths with backslashes:
 cd C:\Users\YourName\Desktop\TheAuditor
 aud index --root C:\Users\YourName\Desktop\TheAuditor
 ```
-
----
-
-## Migration Guide: .pf/readthis/ Deprecated
-
-**IMPORTANT**: As of version 1.3.0, the `.pf/readthis/` directory is **deprecated** and no longer generated.
-
-### What Changed
-
-**Before (v1.2.x and earlier)**:
-- `aud full` generated 20+ separate files in `.pf/raw/`
-- Extraction system chunked all files to `.pf/readthis/` (24-27 chunk files)
-- AI assistants parsed JSON chunks from `/readthis/`
-
-**After (v1.3.0+)**:
-- `aud full` generates 6 consolidated files + 5 guidance summaries in `.pf/raw/`
-- **NO** `.pf/readthis/` directory created
-- AI assistants query database directly via `aud query` / `aud context`
-
-### For AI Assistants
-
-**Old Workflow** (DEPRECATED):
-```bash
-# Parse 24-27 JSON chunk files
-cat .pf/readthis/patterns_chunk01.json
-cat .pf/readthis/taint_chunk01.json
-# ... (repeat for all chunks)
-```
-
-**New Workflow** (RECOMMENDED):
-```bash
-# Query database directly (100x faster, 5,000-10,000 token savings)
-aud query --symbol authenticate --show-callers
-aud query --category jwt --show-findings
-aud context --file security_rules.yaml
-
-# Or read guidance summaries for quick orientation
-cat .pf/raw/Quick_Start.json      # Top 10 critical issues
-cat .pf/raw/SAST_Summary.json     # Top 20 security findings
-cat .pf/raw/Query_Guide.json      # Database query examples
-```
-
-### For Script Authors
-
-If you have scripts that read `.pf/readthis/`, update them to:
-
-**Option 1: Query Database** (fastest, recommended)
-```python
-import subprocess
-import json
-
-# Query for JWT findings
-result = subprocess.run(
-    ['aud', 'query', '--category', 'jwt', '--json'],
-    capture_output=True, text=True
-)
-findings = json.loads(result.stdout)
-```
-
-**Option 2: Read Consolidated Files** (archival/debugging)
-```python
-import json
-from pathlib import Path
-
-# Read security analysis
-security_path = Path('.pf/raw/security_analysis.json')
-with open(security_path) as f:
-    data = json.load(f)
-
-# Access specific analysis
-patterns = data['analyses']['patterns']
-taint = data['analyses']['taint']
-```
-
-**Option 3: Read Guidance Summaries** (quick orientation)
-```python
-# Read top 10 critical issues
-quick_start_path = Path('.pf/raw/Quick_Start.json')
-with open(quick_start_path) as f:
-    top_issues = json.load(f)
-```
-
-### File Mapping
-
-| Old (.pf/readthis/) | New (.pf/raw/) | Notes |
-|---------------------|----------------|-------|
-| `summary.json` | `Quick_Start.json` | Now top 10 critical issues |
-| `patterns_chunk01.json` | `security_analysis.json` → `analyses.patterns` | Consolidated |
-| `taint_chunk01.json` | `security_analysis.json` → `analyses.taint` | Consolidated |
-| `graph_*.json` chunks | `graph_analysis.json` → `analyses.*` | All graph data in one file |
-| `terraform_*.json` chunks | `infrastructure_analysis.json` → `analyses.terraform` | Consolidated |
-| *(no equivalent)* | `Query_Guide.json` | NEW: How to use `aud query` |
-
-### Backward Compatibility
-
-- Existing `.pf/readthis/` directories will NOT be deleted automatically
-- `theauditor/extraction.py` is deprecated but kept for backward compatibility
-- To clean up: `rm -rf .pf/readthis/`
 
 ---
 
