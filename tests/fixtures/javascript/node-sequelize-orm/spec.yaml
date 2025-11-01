@@ -1,0 +1,38 @@
+name: node-sequelize-orm
+description: Sequelize ORM model extraction test fixture
+language: javascript
+
+tables:
+  sequelize_models:
+    min_rows: 2  # User, Post models
+    queries:
+      - name: verify_user_model
+        sql: SELECT * FROM sequelize_models WHERE model_name = 'User'
+        expect_rows: 1
+
+      - name: verify_table_mapping
+        sql: SELECT * FROM sequelize_models WHERE model_name = 'User' AND table_name = 'users'
+        expect_rows: 1
+
+      - name: verify_extends_model
+        sql: SELECT * FROM sequelize_models WHERE extends_model = 1
+        expect_rows: 2  # Both User and Post extend Model
+
+  sequelize_associations:
+    min_rows: 4  # User.hasMany(Post), User.belongsTo(Role), User.belongsToMany(Group), Post.belongsTo(User)
+    queries:
+      - name: verify_hasmany_association
+        sql: SELECT * FROM sequelize_associations WHERE model_name = 'User' AND association_type = 'hasMany' AND target_model LIKE '%post%'
+        expect_rows: 1
+
+      - name: verify_belongsto_association
+        sql: SELECT * FROM sequelize_associations WHERE model_name = 'Post' AND association_type = 'belongsTo' AND target_model LIKE '%user%'
+        expect_rows: 1
+
+      - name: verify_belongstomany_association
+        sql: SELECT * FROM sequelize_associations WHERE model_name = 'User' AND association_type = 'belongsToMany' AND through_table = 'UserGroups'
+        expect_rows: 1
+
+      - name: verify_foreign_key_tracking
+        sql: SELECT * FROM sequelize_associations WHERE foreign_key = 'userId'
+        expect_rows_min: 2  # User.hasMany(Post) and Post.belongsTo(User) both use userId

@@ -1,16 +1,41 @@
 # Python Extraction Phase 3: Complete Parity & Integration
 
+**Change ID**: python-extraction-phase3-complete
 **Document Version**: 1.0
 **Date**: 2025-11-01
 **Author**: Lead Coder (Opus AI)
 **Reviewer**: Lead Auditor (Gemini AI)
 **Approver**: Architect (Human)
+**Status**: Proposed
+**Type**: Enhancement (Python Extraction Parity)
 
 ---
 
-## EXECUTIVE SUMMARY
+## Why
 
-Phase 3 builds on Phase 2's foundation (49 extractors, 34 tables, 2,723 records) to achieve complete Python/JavaScript parity, optimize performance, and integrate with taint analysis. This proposal consolidates all remaining work into a single, atomic plan.
+Phase 2 achieved 40% Python/JavaScript extraction parity with 49 extractors and 34 tables. However, critical Python patterns remain unextracted, creating blind spots in taint analysis and limiting TheAuditor's effectiveness on Python projects.
+
+**The Gap**:
+- Flask ecosystem only partially covered (routes yes, extensions/hooks/websockets no)
+- Testing frameworks incomplete (pytest fixtures yes, unittest/hypothesis no)
+- Async patterns missing (async/await, asyncio, aiohttp)
+- Django ORM incomplete (models yes, managers/querysets/signals no)
+- Type annotations basic (simple types yes, generics/protocols no)
+
+**Impact on Downstream Consumers**:
+- `aud taint-analyze` misses SQL injection in Django custom managers
+- `aud taint-analyze` cannot track async data flows through aiohttp
+- `aud blueprint` cannot show Flask extension security patterns
+- `aud context` cannot apply business logic to test fixtures
+- Performance: 15-min analysis time blocks multihop algorithm iteration
+
+**This is critical**: Python is 50% of target projects. 40% parity means TheAuditor is blind to 60% of Python code patterns.
+
+---
+
+## What Changes
+
+Phase 3 adds 30 extractors across 5 work blocks to reach 70% parity, optimize performance to <10ms per file, and complete taint integration.
 
 **Target**: 70% Python/JavaScript parity (from current 40%)
 **Timeline**: 20 sessions (10 days at 2 sessions/day)
