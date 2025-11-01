@@ -27,6 +27,17 @@ from . import BaseExtractor
 from .sql import parse_sql_query
 from theauditor.ast_extractors import python as python_impl
 from theauditor.ast_extractors.base import get_node_name
+from theauditor.ast_extractors.python import (
+    async_extractors,
+    cdk_extractor,
+    core_extractors,
+    django_advanced_extractors,
+    flask_extractors,
+    framework_extractors,
+    security_extractors,
+    testing_extractors,
+    type_extractors
+)
 
 
 class PythonExtractor(BaseExtractor):
@@ -104,6 +115,35 @@ class PythonExtractor(BaseExtractor):
             'python_celery_beat_schedules': [],  # Celery Beat periodic schedules
             # Generators
             'python_generators': [],  # Generator functions and expressions
+            # Flask Framework (Phase 3.1)
+            'python_flask_apps': [],  # Flask application factories
+            'python_flask_extensions': [],  # Flask extension registrations
+            'python_flask_hooks': [],  # Flask request/response hooks
+            'python_flask_error_handlers': [],  # Flask error handlers
+            'python_flask_websockets': [],  # Flask-SocketIO WebSocket handlers
+            'python_flask_cli_commands': [],  # Flask CLI commands
+            'python_flask_cors': [],  # Flask CORS configurations
+            'python_flask_rate_limits': [],  # Flask rate limiting
+            'python_flask_cache': [],  # Flask caching decorators
+            # Testing Ecosystem (Phase 3.2)
+            'python_unittest_test_cases': [],  # Unittest TestCase classes
+            'python_assertion_patterns': [],  # Assertion statements
+            'python_pytest_plugin_hooks': [],  # Pytest conftest.py hooks
+            'python_hypothesis_strategies': [],  # Hypothesis strategies
+            # Security Patterns (Phase 3.3 - OWASP Top 10)
+            'python_auth_decorators': [],  # Authentication decorators
+            'python_password_hashing': [],  # Password hashing patterns
+            'python_jwt_operations': [],  # JWT operations
+            'python_sql_injection': [],  # SQL injection vulnerabilities
+            'python_command_injection': [],  # Command injection patterns
+            'python_path_traversal': [],  # Path traversal vulnerabilities
+            'python_dangerous_eval': [],  # eval/exec dangerous calls
+            'python_crypto_operations': [],  # Cryptography operations
+            # Phase 3.4: Django Advanced Patterns
+            'python_django_signals': [],  # Django signal definitions and connections
+            'python_django_receivers': [],  # Django @receiver decorators
+            'python_django_managers': [],  # Django custom managers
+            'python_django_querysets': [],  # Django QuerySet definitions
         }
         seen_symbols = set()
         
@@ -167,7 +207,7 @@ class PythonExtractor(BaseExtractor):
                         seen_symbols.add(key)
                         result['symbols'].append(symbol_entry)
                 # Class/module attribute annotations
-                attribute_annotations = python_impl.extract_python_attribute_annotations(tree, self.ast_parser)
+                attribute_annotations = core_extractors.extract_python_attribute_annotations(tree, self.ast_parser)
                 if attribute_annotations:
                     result['type_annotations'].extend(attribute_annotations)
                 
@@ -200,7 +240,7 @@ class PythonExtractor(BaseExtractor):
                         result['symbols'].append(symbol_entry)
 
                 # ORM metadata (SQLAlchemy & Django)
-                sql_models, sql_fields, sql_relationships = python_impl.extract_sqlalchemy_definitions(tree, self.ast_parser)
+                sql_models, sql_fields, sql_relationships = framework_extractors.extract_sqlalchemy_definitions(tree, self.ast_parser)
                 if sql_models:
                     result['python_orm_models'].extend(sql_models)
                 if sql_fields:
@@ -208,89 +248,193 @@ class PythonExtractor(BaseExtractor):
                 if sql_relationships:
                     result['orm_relationships'].extend(sql_relationships)
 
-                django_models, django_relationships = python_impl.extract_django_definitions(tree, self.ast_parser)
+                django_models, django_relationships = framework_extractors.extract_django_definitions(tree, self.ast_parser)
                 if django_models:
                     result['python_orm_models'].extend(django_models)
                 if django_relationships:
                     result['orm_relationships'].extend(django_relationships)
 
                 # Django Class-Based Views
-                django_cbvs = python_impl.extract_django_cbvs(tree, self.ast_parser)
+                django_cbvs = framework_extractors.extract_django_cbvs(tree, self.ast_parser)
                 if django_cbvs:
                     result['python_django_views'].extend(django_cbvs)
 
                 # Django Forms
-                django_forms = python_impl.extract_django_forms(tree, self.ast_parser)
+                django_forms = framework_extractors.extract_django_forms(tree, self.ast_parser)
                 if django_forms:
                     result['python_django_forms'].extend(django_forms)
 
                 # Django Form Fields
-                django_form_fields = python_impl.extract_django_form_fields(tree, self.ast_parser)
+                django_form_fields = framework_extractors.extract_django_form_fields(tree, self.ast_parser)
                 if django_form_fields:
                     result['python_django_form_fields'].extend(django_form_fields)
 
                 # Django Admin
-                django_admins = python_impl.extract_django_admin(tree, self.ast_parser)
+                django_admins = framework_extractors.extract_django_admin(tree, self.ast_parser)
                 if django_admins:
                     result['python_django_admin'].extend(django_admins)
 
                 # Django Middleware
-                django_middlewares = python_impl.extract_django_middleware(tree, self.ast_parser)
+                django_middlewares = framework_extractors.extract_django_middleware(tree, self.ast_parser)
                 if django_middlewares:
                     result['python_django_middleware'].extend(django_middlewares)
 
                 # Marshmallow Schemas
-                marshmallow_schemas = python_impl.extract_marshmallow_schemas(tree, self.ast_parser)
+                marshmallow_schemas = framework_extractors.extract_marshmallow_schemas(tree, self.ast_parser)
                 if marshmallow_schemas:
                     result['python_marshmallow_schemas'].extend(marshmallow_schemas)
 
                 # Marshmallow Fields
-                marshmallow_fields = python_impl.extract_marshmallow_fields(tree, self.ast_parser)
+                marshmallow_fields = framework_extractors.extract_marshmallow_fields(tree, self.ast_parser)
                 if marshmallow_fields:
                     result['python_marshmallow_fields'].extend(marshmallow_fields)
 
                 # DRF Serializers
-                drf_serializers = python_impl.extract_drf_serializers(tree, self.ast_parser)
+                drf_serializers = framework_extractors.extract_drf_serializers(tree, self.ast_parser)
                 if drf_serializers:
                     result['python_drf_serializers'].extend(drf_serializers)
 
                 # DRF Serializer Fields
-                drf_serializer_fields = python_impl.extract_drf_serializer_fields(tree, self.ast_parser)
+                drf_serializer_fields = framework_extractors.extract_drf_serializer_fields(tree, self.ast_parser)
                 if drf_serializer_fields:
                     result['python_drf_serializer_fields'].extend(drf_serializer_fields)
 
                 # WTForms
-                wtforms_forms = python_impl.extract_wtforms_forms(tree, self.ast_parser)
+                wtforms_forms = framework_extractors.extract_wtforms_forms(tree, self.ast_parser)
                 if wtforms_forms:
                     result['python_wtforms_forms'].extend(wtforms_forms)
 
                 # WTForms Fields
-                wtforms_fields = python_impl.extract_wtforms_fields(tree, self.ast_parser)
+                wtforms_fields = framework_extractors.extract_wtforms_fields(tree, self.ast_parser)
                 if wtforms_fields:
                     result['python_wtforms_fields'].extend(wtforms_fields)
 
                 # Celery Tasks
-                celery_tasks = python_impl.extract_celery_tasks(tree, self.ast_parser)
+                celery_tasks = framework_extractors.extract_celery_tasks(tree, self.ast_parser)
                 if celery_tasks:
                     result['python_celery_tasks'].extend(celery_tasks)
 
                 # Celery Task Calls
-                celery_task_calls = python_impl.extract_celery_task_calls(tree, self.ast_parser)
+                celery_task_calls = framework_extractors.extract_celery_task_calls(tree, self.ast_parser)
                 if celery_task_calls:
                     result['python_celery_task_calls'].extend(celery_task_calls)
 
                 # Celery Beat Schedules
-                celery_beat_schedules = python_impl.extract_celery_beat_schedules(tree, self.ast_parser)
+                celery_beat_schedules = framework_extractors.extract_celery_beat_schedules(tree, self.ast_parser)
                 if celery_beat_schedules:
                     result['python_celery_beat_schedules'].extend(celery_beat_schedules)
 
                 # Generators
-                generators = python_impl.extract_generators(tree, self.ast_parser)
+                generators = core_extractors.extract_generators(tree, self.ast_parser)
                 if generators:
                     result['python_generators'].extend(generators)
 
+                # Flask Framework (Phase 3.1)
+                flask_apps = flask_extractors.extract_flask_app_factories(tree, self.ast_parser)
+                if flask_apps:
+                    result['python_flask_apps'].extend(flask_apps)
+
+                flask_extensions = flask_extractors.extract_flask_extensions(tree, self.ast_parser)
+                if flask_extensions:
+                    result['python_flask_extensions'].extend(flask_extensions)
+
+                flask_hooks = flask_extractors.extract_flask_request_hooks(tree, self.ast_parser)
+                if flask_hooks:
+                    result['python_flask_hooks'].extend(flask_hooks)
+
+                flask_error_handlers = flask_extractors.extract_flask_error_handlers(tree, self.ast_parser)
+                if flask_error_handlers:
+                    result['python_flask_error_handlers'].extend(flask_error_handlers)
+
+                flask_websockets = flask_extractors.extract_flask_websocket_handlers(tree, self.ast_parser)
+                if flask_websockets:
+                    result['python_flask_websockets'].extend(flask_websockets)
+
+                flask_cli_commands = flask_extractors.extract_flask_cli_commands(tree, self.ast_parser)
+                if flask_cli_commands:
+                    result['python_flask_cli_commands'].extend(flask_cli_commands)
+
+                flask_cors = flask_extractors.extract_flask_cors_configs(tree, self.ast_parser)
+                if flask_cors:
+                    result['python_flask_cors'].extend(flask_cors)
+
+                flask_rate_limits = flask_extractors.extract_flask_rate_limits(tree, self.ast_parser)
+                if flask_rate_limits:
+                    result['python_flask_rate_limits'].extend(flask_rate_limits)
+
+                flask_cache = flask_extractors.extract_flask_cache_decorators(tree, self.ast_parser)
+                if flask_cache:
+                    result['python_flask_cache'].extend(flask_cache)
+
+                # Testing Ecosystem (Phase 3.2)
+                unittest_test_cases = testing_extractors.extract_unittest_test_cases(tree, self.ast_parser)
+                if unittest_test_cases:
+                    result['python_unittest_test_cases'].extend(unittest_test_cases)
+
+                assertion_patterns = testing_extractors.extract_assertion_patterns(tree, self.ast_parser)
+                if assertion_patterns:
+                    result['python_assertion_patterns'].extend(assertion_patterns)
+
+                pytest_plugin_hooks = testing_extractors.extract_pytest_plugin_hooks(tree, self.ast_parser)
+                if pytest_plugin_hooks:
+                    result['python_pytest_plugin_hooks'].extend(pytest_plugin_hooks)
+
+                hypothesis_strategies = testing_extractors.extract_hypothesis_strategies(tree, self.ast_parser)
+                if hypothesis_strategies:
+                    result['python_hypothesis_strategies'].extend(hypothesis_strategies)
+
+                # Security Patterns (Phase 3.3 - OWASP Top 10)
+                auth_decorators = security_extractors.extract_auth_decorators(tree, self.ast_parser)
+                if auth_decorators:
+                    result['python_auth_decorators'].extend(auth_decorators)
+
+                password_hashing = security_extractors.extract_password_hashing(tree, self.ast_parser)
+                if password_hashing:
+                    result['python_password_hashing'].extend(password_hashing)
+
+                jwt_operations = security_extractors.extract_jwt_operations(tree, self.ast_parser)
+                if jwt_operations:
+                    result['python_jwt_operations'].extend(jwt_operations)
+
+                sql_injection = security_extractors.extract_sql_injection_patterns(tree, self.ast_parser)
+                if sql_injection:
+                    result['python_sql_injection'].extend(sql_injection)
+
+                command_injection = security_extractors.extract_command_injection_patterns(tree, self.ast_parser)
+                if command_injection:
+                    result['python_command_injection'].extend(command_injection)
+
+                path_traversal = security_extractors.extract_path_traversal_patterns(tree, self.ast_parser)
+                if path_traversal:
+                    result['python_path_traversal'].extend(path_traversal)
+
+                dangerous_eval = security_extractors.extract_dangerous_eval_exec(tree, self.ast_parser)
+                if dangerous_eval:
+                    result['python_dangerous_eval'].extend(dangerous_eval)
+
+                crypto_operations = security_extractors.extract_crypto_operations(tree, self.ast_parser)
+                if crypto_operations:
+                    result['python_crypto_operations'].extend(crypto_operations)
+
+                # Phase 3.4: Django Advanced Patterns
+                django_signals = django_advanced_extractors.extract_django_signals(tree, self.ast_parser)
+                if django_signals:
+                    result['python_django_signals'].extend(django_signals)
+
+                django_receivers = django_advanced_extractors.extract_django_receivers(tree, self.ast_parser)
+                if django_receivers:
+                    result['python_django_receivers'].extend(django_receivers)
+
+                django_managers = django_advanced_extractors.extract_django_managers(tree, self.ast_parser)
+                if django_managers:
+                    result['python_django_managers'].extend(django_managers)
+
+                django_querysets = django_advanced_extractors.extract_django_querysets(tree, self.ast_parser)
+                if django_querysets:
+                    result['python_django_querysets'].extend(django_querysets)
+
                 # AWS CDK Infrastructure-as-Code constructs
-                cdk_constructs = python_impl.extract_python_cdk_constructs(tree, self.ast_parser)
+                cdk_constructs = cdk_extractor.extract_python_cdk_constructs(tree, self.ast_parser)
                 if cdk_constructs:
                     # Return raw CDK construct data - indexer generates composite keys
                     result['cdk_constructs'] = cdk_constructs
@@ -309,7 +453,7 @@ class PythonExtractor(BaseExtractor):
                 # Extract function calls with arguments
                 # CRITICAL: Call Python extractor directly to pass resolved_imports for cross-file taint analysis
                 function_params = self.ast_parser._extract_function_parameters(tree, 'python')
-                calls_with_args = python_impl.extract_python_calls_with_args(
+                calls_with_args = core_extractors.extract_python_calls_with_args(
                     tree,
                     function_params,
                     self.ast_parser,
@@ -388,72 +532,72 @@ class PythonExtractor(BaseExtractor):
 
         # Pydantic validators & Flask blueprints are AST-driven; safe to extract outside parser guard
         if tree and isinstance(tree, dict):
-            validators = python_impl.extract_pydantic_validators(tree, self.ast_parser)
+            validators = framework_extractors.extract_pydantic_validators(tree, self.ast_parser)
             if validators:
                 result['python_validators'].extend(validators)
-            blueprints = python_impl.extract_flask_blueprints(tree, self.ast_parser)
+            blueprints = framework_extractors.extract_flask_blueprints(tree, self.ast_parser)
             if blueprints:
                 result['python_blueprints'].extend(blueprints)
 
         # Phase 2.2A: Extract new Python patterns (decorators, async, testing, advanced types)
         if tree and isinstance(tree, dict):
             # Core patterns: decorators and context managers
-            decorators = python_impl.extract_python_decorators(tree, self.ast_parser)
+            decorators = core_extractors.extract_python_decorators(tree, self.ast_parser)
             if decorators:
                 result['python_decorators'].extend(decorators)
 
-            context_managers = python_impl.extract_python_context_managers(tree, self.ast_parser)
+            context_managers = core_extractors.extract_python_context_managers(tree, self.ast_parser)
             if context_managers:
                 result['python_context_managers'].extend(context_managers)
 
             # Async patterns
-            async_functions = python_impl.extract_async_functions(tree, self.ast_parser)
+            async_functions = async_extractors.extract_async_functions(tree, self.ast_parser)
             if async_functions:
                 result['python_async_functions'].extend(async_functions)
 
-            await_expressions = python_impl.extract_await_expressions(tree, self.ast_parser)
+            await_expressions = async_extractors.extract_await_expressions(tree, self.ast_parser)
             if await_expressions:
                 result['python_await_expressions'].extend(await_expressions)
 
-            async_generators = python_impl.extract_async_generators(tree, self.ast_parser)
+            async_generators = async_extractors.extract_async_generators(tree, self.ast_parser)
             if async_generators:
                 result['python_async_generators'].extend(async_generators)
 
             # Testing patterns
-            pytest_fixtures = python_impl.extract_pytest_fixtures(tree, self.ast_parser)
+            pytest_fixtures = testing_extractors.extract_pytest_fixtures(tree, self.ast_parser)
             if pytest_fixtures:
                 result['python_pytest_fixtures'].extend(pytest_fixtures)
 
-            pytest_parametrize = python_impl.extract_pytest_parametrize(tree, self.ast_parser)
+            pytest_parametrize = testing_extractors.extract_pytest_parametrize(tree, self.ast_parser)
             if pytest_parametrize:
                 result['python_pytest_parametrize'].extend(pytest_parametrize)
 
-            pytest_markers = python_impl.extract_pytest_markers(tree, self.ast_parser)
+            pytest_markers = testing_extractors.extract_pytest_markers(tree, self.ast_parser)
             if pytest_markers:
                 result['python_pytest_markers'].extend(pytest_markers)
 
-            mock_patterns = python_impl.extract_mock_patterns(tree, self.ast_parser)
+            mock_patterns = testing_extractors.extract_mock_patterns(tree, self.ast_parser)
             if mock_patterns:
                 result['python_mock_patterns'].extend(mock_patterns)
 
             # Advanced type patterns
-            protocols = python_impl.extract_protocols(tree, self.ast_parser)
+            protocols = type_extractors.extract_protocols(tree, self.ast_parser)
             if protocols:
                 result['python_protocols'].extend(protocols)
 
-            generics = python_impl.extract_generics(tree, self.ast_parser)
+            generics = type_extractors.extract_generics(tree, self.ast_parser)
             if generics:
                 result['python_generics'].extend(generics)
 
-            typed_dicts = python_impl.extract_typed_dicts(tree, self.ast_parser)
+            typed_dicts = type_extractors.extract_typed_dicts(tree, self.ast_parser)
             if typed_dicts:
                 result['python_typed_dicts'].extend(typed_dicts)
 
-            literals = python_impl.extract_literals(tree, self.ast_parser)
+            literals = type_extractors.extract_literals(tree, self.ast_parser)
             if literals:
                 result['python_literals'].extend(literals)
 
-            overloads = python_impl.extract_overloads(tree, self.ast_parser)
+            overloads = type_extractors.extract_overloads(tree, self.ast_parser)
             if overloads:
                 result['python_overloads'].extend(overloads)
 

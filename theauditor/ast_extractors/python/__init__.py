@@ -133,6 +133,19 @@ from .framework_extractors import (
     _extract_fastapi_dependencies,
 )
 
+from .flask_extractors import (
+    # Flask framework extraction
+    extract_flask_app_factories,
+    extract_flask_extensions,
+    extract_flask_request_hooks,
+    extract_flask_error_handlers,
+    extract_flask_websocket_handlers,
+    extract_flask_cli_commands,
+    extract_flask_cors_configs,
+    extract_flask_rate_limits,
+    extract_flask_cache_decorators,
+)
+
 from .cfg_extractor import (
     # CFG extraction functions
     extract_python_cfg,
@@ -156,6 +169,31 @@ from .testing_extractors import (
     extract_pytest_parametrize,
     extract_pytest_markers,
     extract_mock_patterns,
+    # Phase 3.2: Testing Ecosystem Additions
+    extract_unittest_test_cases,
+    extract_assertion_patterns,
+    extract_pytest_plugin_hooks,
+    extract_hypothesis_strategies,
+)
+
+from .security_extractors import (
+    # Phase 3.3: Security Patterns (OWASP Top 10)
+    extract_auth_decorators,
+    extract_password_hashing,
+    extract_jwt_operations,
+    extract_sql_injection_patterns,
+    extract_command_injection_patterns,
+    extract_path_traversal_patterns,
+    extract_dangerous_eval_exec,
+    extract_crypto_operations,
+)
+
+from .django_advanced_extractors import (
+    # Phase 3.4: Django Advanced Patterns
+    extract_django_signals,
+    extract_django_receivers,
+    extract_django_managers,
+    extract_django_querysets,
 )
 
 from .type_extractors import (
@@ -204,6 +242,16 @@ __all__ = [
     'extract_celery_tasks',
     'extract_celery_task_calls',
     'extract_celery_beat_schedules',
+    # Flask extractors
+    'extract_flask_app_factories',
+    'extract_flask_extensions',
+    'extract_flask_request_hooks',
+    'extract_flask_error_handlers',
+    'extract_flask_websocket_handlers',
+    'extract_flask_cli_commands',
+    'extract_flask_cors_configs',
+    'extract_flask_rate_limits',
+    'extract_flask_cache_decorators',
     # CFG extractor
     'extract_python_cfg',
     # CDK extractor
@@ -217,6 +265,24 @@ __all__ = [
     'extract_pytest_parametrize',
     'extract_pytest_markers',
     'extract_mock_patterns',
+    'extract_unittest_test_cases',
+    'extract_assertion_patterns',
+    'extract_pytest_plugin_hooks',
+    'extract_hypothesis_strategies',
+    # Security extractors
+    'extract_auth_decorators',
+    'extract_password_hashing',
+    'extract_jwt_operations',
+    'extract_sql_injection_patterns',
+    'extract_command_injection_patterns',
+    'extract_path_traversal_patterns',
+    'extract_dangerous_eval_exec',
+    'extract_crypto_operations',
+    # Django advanced extractors
+    'extract_django_signals',
+    'extract_django_receivers',
+    'extract_django_managers',
+    'extract_django_querysets',
     # Type extractors
     'extract_protocols',
     'extract_generics',

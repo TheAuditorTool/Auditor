@@ -77,6 +77,35 @@ class DataStorer:
             'python_celery_task_calls': self._store_python_celery_task_calls,
             'python_celery_beat_schedules': self._store_python_celery_beat_schedules,
             'python_generators': self._store_python_generators,
+            # Flask Framework (Phase 3.1)
+            'python_flask_apps': self._store_python_flask_apps,
+            'python_flask_extensions': self._store_python_flask_extensions,
+            'python_flask_hooks': self._store_python_flask_hooks,
+            'python_flask_error_handlers': self._store_python_flask_error_handlers,
+            'python_flask_websockets': self._store_python_flask_websockets,
+            'python_flask_cli_commands': self._store_python_flask_cli_commands,
+            'python_flask_cors': self._store_python_flask_cors,
+            'python_flask_rate_limits': self._store_python_flask_rate_limits,
+            'python_flask_cache': self._store_python_flask_cache,
+            # Testing Ecosystem (Phase 3.2)
+            'python_unittest_test_cases': self._store_python_unittest_test_cases,
+            'python_assertion_patterns': self._store_python_assertion_patterns,
+            'python_pytest_plugin_hooks': self._store_python_pytest_plugin_hooks,
+            'python_hypothesis_strategies': self._store_python_hypothesis_strategies,
+            # Security Patterns (Phase 3.3)
+            'python_auth_decorators': self._store_python_auth_decorators,
+            'python_password_hashing': self._store_python_password_hashing,
+            'python_jwt_operations': self._store_python_jwt_operations,
+            'python_sql_injection': self._store_python_sql_injection,
+            'python_command_injection': self._store_python_command_injection,
+            'python_path_traversal': self._store_python_path_traversal,
+            'python_dangerous_eval': self._store_python_dangerous_eval,
+            'python_crypto_operations': self._store_python_crypto_operations,
+            # Django Advanced (Phase 3.4)
+            'python_django_signals': self._store_python_django_signals,
+            'python_django_receivers': self._store_python_django_receivers,
+            'python_django_managers': self._store_python_django_managers,
+            'python_django_querysets': self._store_python_django_querysets,
             'python_validators': self._store_python_validators,
             'python_decorators': self._store_python_decorators,
             'python_context_managers': self._store_python_context_managers,
@@ -113,6 +142,18 @@ class DataStorer:
             'graphql_field_args': self._store_graphql_field_args,
             'graphql_resolver_mappings': self._store_graphql_resolver_mappings,
             'graphql_resolver_params': self._store_graphql_resolver_params,
+            # Sequelize ORM
+            'sequelize_models': self._store_sequelize_models,
+            'sequelize_associations': self._store_sequelize_associations,
+            # BullMQ Job Queues
+            'bullmq_queues': self._store_bullmq_queues,
+            'bullmq_workers': self._store_bullmq_workers,
+            # Angular Framework
+            'angular_components': self._store_angular_components,
+            'angular_services': self._store_angular_services,
+            'angular_modules': self._store_angular_modules,
+            'angular_guards': self._store_angular_guards,
+            'di_injections': self._store_di_injections,
         }
 
     def store(self, file_path: str, extracted: Dict[str, Any], jsx_pass: bool = False):
@@ -381,11 +422,36 @@ class DataStorer:
                 )
             else:
                 # Transform mode - store to main tables
+                # ZERO FALLBACK POLICY: Hard fail on wrong types
+                # If these are dicts, the extractor is broken and must be fixed
+                callee_file_path = call.get('callee_file_path')
+                param_name = call.get('param_name', '')
+
+                # Validate types - fail loudly if extractor produced wrong data
+                if isinstance(callee_file_path, dict):
+                    logger.error(
+                        f"[EXTRACTOR BUG] callee_file_path is dict (expected str or None) in {file_path}:{call['line']}\n"
+                        f"  Value: {callee_file_path}\n"
+                        f"  This indicates bug in TypeScript extractor (typescript_impl.py:518-524)\n"
+                        f"  SKIPPING this function call to prevent database corruption."
+                    )
+                    continue  # Skip this call - don't store corrupted data
+
+                if isinstance(param_name, dict):
+                    logger.error(
+                        f"[EXTRACTOR BUG] param_name is dict (expected str) in {file_path}:{call['line']}\n"
+                        f"  Value: {param_name}\n"
+                        f"  Callee: {call['callee_function']}\n"
+                        f"  This indicates bug in extraction layer producing dict instead of string.\n"
+                        f"  SKIPPING this function call to prevent database corruption."
+                    )
+                    continue  # Skip this call - don't store corrupted data
+
                 self.db_manager.add_function_call_arg(
                     file_path, call['line'], call['caller_function'],
                     call['callee_function'], call['argument_index'],
-                    call['argument_expr'], call['param_name'],
-                    callee_file_path=call.get('callee_file_path')
+                    call['argument_expr'], param_name,
+                    callee_file_path=callee_file_path
                 )
                 self.counts['function_calls'] += 1
 
@@ -893,6 +959,378 @@ class DataStorer:
             if 'python_generators' not in self.counts:
                 self.counts['python_generators'] = 0
             self.counts['python_generators'] += 1
+
+    # Flask Framework (Phase 3.1) storage methods
+
+    def _store_python_flask_apps(self, file_path: str, python_flask_apps: List, jsx_pass: bool):
+        """Store Flask application factories."""
+        for app in python_flask_apps:
+            self.db_manager.add_python_flask_app(
+                file_path,
+                app.get('line', 0),
+                app.get('factory_name', ''),
+                app.get('app_var_name'),
+                app.get('config_source'),
+                app.get('registers_blueprints', False)
+            )
+            if 'python_flask_apps' not in self.counts:
+                self.counts['python_flask_apps'] = 0
+            self.counts['python_flask_apps'] += 1
+
+    def _store_python_flask_extensions(self, file_path: str, python_flask_extensions: List, jsx_pass: bool):
+        """Store Flask extension registrations."""
+        for extension in python_flask_extensions:
+            self.db_manager.add_python_flask_extension(
+                file_path,
+                extension.get('line', 0),
+                extension.get('extension_type', ''),
+                extension.get('var_name'),
+                extension.get('app_passed_to_constructor', False)
+            )
+            if 'python_flask_extensions' not in self.counts:
+                self.counts['python_flask_extensions'] = 0
+            self.counts['python_flask_extensions'] += 1
+
+    def _store_python_flask_hooks(self, file_path: str, python_flask_hooks: List, jsx_pass: bool):
+        """Store Flask request/response hooks."""
+        for hook in python_flask_hooks:
+            self.db_manager.add_python_flask_hook(
+                file_path,
+                hook.get('line', 0),
+                hook.get('hook_type', ''),
+                hook.get('function_name', ''),
+                hook.get('app_var')
+            )
+            if 'python_flask_hooks' not in self.counts:
+                self.counts['python_flask_hooks'] = 0
+            self.counts['python_flask_hooks'] += 1
+
+    def _store_python_flask_error_handlers(self, file_path: str, python_flask_error_handlers: List, jsx_pass: bool):
+        """Store Flask error handlers."""
+        for handler in python_flask_error_handlers:
+            self.db_manager.add_python_flask_error_handler(
+                file_path,
+                handler.get('line', 0),
+                handler.get('function_name', ''),
+                handler.get('error_code'),
+                handler.get('exception_type')
+            )
+            if 'python_flask_error_handlers' not in self.counts:
+                self.counts['python_flask_error_handlers'] = 0
+            self.counts['python_flask_error_handlers'] += 1
+
+    def _store_python_flask_websockets(self, file_path: str, python_flask_websockets: List, jsx_pass: bool):
+        """Store Flask-SocketIO WebSocket handlers."""
+        for websocket in python_flask_websockets:
+            self.db_manager.add_python_flask_websocket(
+                file_path,
+                websocket.get('line', 0),
+                websocket.get('function_name', ''),
+                websocket.get('event_name'),
+                websocket.get('namespace')
+            )
+            if 'python_flask_websockets' not in self.counts:
+                self.counts['python_flask_websockets'] = 0
+            self.counts['python_flask_websockets'] += 1
+
+    def _store_python_flask_cli_commands(self, file_path: str, python_flask_cli_commands: List, jsx_pass: bool):
+        """Store Flask CLI commands."""
+        for command in python_flask_cli_commands:
+            self.db_manager.add_python_flask_cli_command(
+                file_path,
+                command.get('line', 0),
+                command.get('command_name', ''),
+                command.get('function_name', ''),
+                command.get('has_options', False)
+            )
+            if 'python_flask_cli_commands' not in self.counts:
+                self.counts['python_flask_cli_commands'] = 0
+            self.counts['python_flask_cli_commands'] += 1
+
+    def _store_python_flask_cors(self, file_path: str, python_flask_cors: List, jsx_pass: bool):
+        """Store Flask CORS configurations."""
+        for cors in python_flask_cors:
+            self.db_manager.add_python_flask_cors(
+                file_path,
+                cors.get('line', 0),
+                cors.get('config_type', ''),
+                cors.get('origins'),
+                cors.get('is_permissive', False)
+            )
+            if 'python_flask_cors' not in self.counts:
+                self.counts['python_flask_cors'] = 0
+            self.counts['python_flask_cors'] += 1
+
+    def _store_python_flask_rate_limits(self, file_path: str, python_flask_rate_limits: List, jsx_pass: bool):
+        """Store Flask rate limiting decorators."""
+        for limit in python_flask_rate_limits:
+            self.db_manager.add_python_flask_rate_limit(
+                file_path,
+                limit.get('line', 0),
+                limit.get('function_name', ''),
+                limit.get('limit_string')
+            )
+            if 'python_flask_rate_limits' not in self.counts:
+                self.counts['python_flask_rate_limits'] = 0
+            self.counts['python_flask_rate_limits'] += 1
+
+    def _store_python_flask_cache(self, file_path: str, python_flask_cache: List, jsx_pass: bool):
+        """Store Flask caching decorators."""
+        for cache in python_flask_cache:
+            self.db_manager.add_python_flask_cache(
+                file_path,
+                cache.get('line', 0),
+                cache.get('function_name', ''),
+                cache.get('cache_type', ''),
+                cache.get('timeout')
+            )
+            if 'python_flask_cache' not in self.counts:
+                self.counts['python_flask_cache'] = 0
+            self.counts['python_flask_cache'] += 1
+
+    # Testing Ecosystem (Phase 3.2) storage methods
+
+    def _store_python_unittest_test_cases(self, file_path: str, python_unittest_test_cases: List, jsx_pass: bool):
+        """Store unittest TestCase classes."""
+        for test_case in python_unittest_test_cases:
+            self.db_manager.add_python_unittest_test_case(
+                file_path,
+                test_case.get('line', 0),
+                test_case.get('test_class_name', ''),
+                test_case.get('test_method_count', 0),
+                test_case.get('has_setup', False),
+                test_case.get('has_teardown', False),
+                test_case.get('has_setupclass', False),
+                test_case.get('has_teardownclass', False)
+            )
+            if 'python_unittest_test_cases' not in self.counts:
+                self.counts['python_unittest_test_cases'] = 0
+            self.counts['python_unittest_test_cases'] += 1
+
+    def _store_python_assertion_patterns(self, file_path: str, python_assertion_patterns: List, jsx_pass: bool):
+        """Store assertion patterns."""
+        for assertion in python_assertion_patterns:
+            self.db_manager.add_python_assertion_pattern(
+                file_path,
+                assertion.get('line', 0),
+                assertion.get('function_name', ''),
+                assertion.get('assertion_type', ''),
+                assertion.get('test_expr'),
+                assertion.get('assertion_method')
+            )
+            if 'python_assertion_patterns' not in self.counts:
+                self.counts['python_assertion_patterns'] = 0
+            self.counts['python_assertion_patterns'] += 1
+
+    def _store_python_pytest_plugin_hooks(self, file_path: str, python_pytest_plugin_hooks: List, jsx_pass: bool):
+        """Store pytest plugin hooks."""
+        for hook in python_pytest_plugin_hooks:
+            self.db_manager.add_python_pytest_plugin_hook(
+                file_path,
+                hook.get('line', 0),
+                hook.get('hook_name', ''),
+                hook.get('param_count', 0)
+            )
+            if 'python_pytest_plugin_hooks' not in self.counts:
+                self.counts['python_pytest_plugin_hooks'] = 0
+            self.counts['python_pytest_plugin_hooks'] += 1
+
+    def _store_python_hypothesis_strategies(self, file_path: str, python_hypothesis_strategies: List, jsx_pass: bool):
+        """Store Hypothesis strategies."""
+        for strategy in python_hypothesis_strategies:
+            self.db_manager.add_python_hypothesis_strategy(
+                file_path,
+                strategy.get('line', 0),
+                strategy.get('test_name', ''),
+                strategy.get('strategy_count', 0),
+                strategy.get('strategies')
+            )
+            if 'python_hypothesis_strategies' not in self.counts:
+                self.counts['python_hypothesis_strategies'] = 0
+            self.counts['python_hypothesis_strategies'] += 1
+
+    # Security Patterns (Phase 3.3) storage methods
+
+    def _store_python_auth_decorators(self, file_path: str, python_auth_decorators: List, jsx_pass: bool):
+        """Store authentication decorators."""
+        for auth in python_auth_decorators:
+            self.db_manager.add_python_auth_decorator(
+                file_path,
+                auth.get('line', 0),
+                auth.get('function_name', ''),
+                auth.get('decorator_name', ''),
+                auth.get('permissions')
+            )
+            if 'python_auth_decorators' not in self.counts:
+                self.counts['python_auth_decorators'] = 0
+            self.counts['python_auth_decorators'] += 1
+
+    def _store_python_password_hashing(self, file_path: str, python_password_hashing: List, jsx_pass: bool):
+        """Store password hashing patterns."""
+        for hash_pattern in python_password_hashing:
+            self.db_manager.add_python_password_hashing(
+                file_path,
+                hash_pattern.get('line', 0),
+                hash_pattern.get('hash_library'),
+                hash_pattern.get('hash_method'),
+                hash_pattern.get('is_weak', False),
+                hash_pattern.get('has_hardcoded_value', False)
+            )
+            if 'python_password_hashing' not in self.counts:
+                self.counts['python_password_hashing'] = 0
+            self.counts['python_password_hashing'] += 1
+
+    def _store_python_jwt_operations(self, file_path: str, python_jwt_operations: List, jsx_pass: bool):
+        """Store JWT operations."""
+        for jwt_op in python_jwt_operations:
+            self.db_manager.add_python_jwt_operation(
+                file_path,
+                jwt_op.get('line', 0),
+                jwt_op.get('operation', ''),
+                jwt_op.get('algorithm'),
+                jwt_op.get('verify'),
+                jwt_op.get('is_insecure', False)
+            )
+            if 'python_jwt_operations' not in self.counts:
+                self.counts['python_jwt_operations'] = 0
+            self.counts['python_jwt_operations'] += 1
+
+    def _store_python_sql_injection(self, file_path: str, python_sql_injection: List, jsx_pass: bool):
+        """Store SQL injection patterns."""
+        for sql_pattern in python_sql_injection:
+            self.db_manager.add_python_sql_injection(
+                file_path,
+                sql_pattern.get('line', 0),
+                sql_pattern.get('db_method', ''),
+                sql_pattern.get('interpolation_type'),
+                sql_pattern.get('is_vulnerable', True)
+            )
+            if 'python_sql_injection' not in self.counts:
+                self.counts['python_sql_injection'] = 0
+            self.counts['python_sql_injection'] += 1
+
+    def _store_python_command_injection(self, file_path: str, python_command_injection: List, jsx_pass: bool):
+        """Store command injection patterns."""
+        for cmd_pattern in python_command_injection:
+            self.db_manager.add_python_command_injection(
+                file_path,
+                cmd_pattern.get('line', 0),
+                cmd_pattern.get('function', ''),
+                cmd_pattern.get('shell_true', False),
+                cmd_pattern.get('is_vulnerable', True)
+            )
+            if 'python_command_injection' not in self.counts:
+                self.counts['python_command_injection'] = 0
+            self.counts['python_command_injection'] += 1
+
+    def _store_python_path_traversal(self, file_path: str, python_path_traversal: List, jsx_pass: bool):
+        """Store path traversal patterns."""
+        for path_pattern in python_path_traversal:
+            self.db_manager.add_python_path_traversal(
+                file_path,
+                path_pattern.get('line', 0),
+                path_pattern.get('function', ''),
+                path_pattern.get('has_concatenation', False),
+                path_pattern.get('is_vulnerable', False)
+            )
+            if 'python_path_traversal' not in self.counts:
+                self.counts['python_path_traversal'] = 0
+            self.counts['python_path_traversal'] += 1
+
+    def _store_python_dangerous_eval(self, file_path: str, python_dangerous_eval: List, jsx_pass: bool):
+        """Store dangerous eval/exec patterns."""
+        for eval_pattern in python_dangerous_eval:
+            self.db_manager.add_python_dangerous_eval(
+                file_path,
+                eval_pattern.get('line', 0),
+                eval_pattern.get('function', ''),
+                eval_pattern.get('is_constant_input', False),
+                eval_pattern.get('is_critical', True)
+            )
+            if 'python_dangerous_eval' not in self.counts:
+                self.counts['python_dangerous_eval'] = 0
+            self.counts['python_dangerous_eval'] += 1
+
+    def _store_python_crypto_operations(self, file_path: str, python_crypto_operations: List, jsx_pass: bool):
+        """Store cryptography operations."""
+        for crypto_op in python_crypto_operations:
+            self.db_manager.add_python_crypto_operation(
+                file_path,
+                crypto_op.get('line', 0),
+                crypto_op.get('algorithm'),
+                crypto_op.get('mode'),
+                crypto_op.get('is_weak', False),
+                crypto_op.get('has_hardcoded_key', False)
+            )
+            if 'python_crypto_operations' not in self.counts:
+                self.counts['python_crypto_operations'] = 0
+            self.counts['python_crypto_operations'] += 1
+
+    # ============================================================================
+    # PHASE 3.4: DJANGO ADVANCED STORAGE METHODS
+    # ============================================================================
+
+    def _store_python_django_signals(self, file_path: str, python_django_signals: List, jsx_pass: bool):
+        """Store Django signal definitions and connections."""
+        for signal in python_django_signals:
+            self.db_manager.add_python_django_signal(
+                file_path,
+                signal.get('line', 0),
+                signal.get('signal_name', 'unknown'),
+                signal.get('signal_type'),
+                signal.get('providing_args', '[]'),
+                signal.get('sender'),
+                signal.get('receiver_function')
+            )
+            if 'python_django_signals' not in self.counts:
+                self.counts['python_django_signals'] = 0
+            self.counts['python_django_signals'] += 1
+
+    def _store_python_django_receivers(self, file_path: str, python_django_receivers: List, jsx_pass: bool):
+        """Store Django @receiver decorators."""
+        for receiver in python_django_receivers:
+            self.db_manager.add_python_django_receiver(
+                file_path,
+                receiver.get('line', 0),
+                receiver.get('function_name', 'unknown'),
+                receiver.get('signals', '[]'),
+                receiver.get('sender'),
+                receiver.get('is_weak', False)
+            )
+            if 'python_django_receivers' not in self.counts:
+                self.counts['python_django_receivers'] = 0
+            self.counts['python_django_receivers'] += 1
+
+    def _store_python_django_managers(self, file_path: str, python_django_managers: List, jsx_pass: bool):
+        """Store Django custom managers."""
+        for manager in python_django_managers:
+            self.db_manager.add_python_django_manager(
+                file_path,
+                manager.get('line', 0),
+                manager.get('manager_name', 'unknown'),
+                manager.get('base_class'),
+                manager.get('custom_methods', '[]'),
+                manager.get('model_assignment')
+            )
+            if 'python_django_managers' not in self.counts:
+                self.counts['python_django_managers'] = 0
+            self.counts['python_django_managers'] += 1
+
+    def _store_python_django_querysets(self, file_path: str, python_django_querysets: List, jsx_pass: bool):
+        """Store Django QuerySet definitions and chains."""
+        for queryset in python_django_querysets:
+            self.db_manager.add_python_django_queryset(
+                file_path,
+                queryset.get('line', 0),
+                queryset.get('queryset_name', 'unknown'),
+                queryset.get('base_class'),
+                queryset.get('custom_methods', '[]'),
+                queryset.get('has_as_manager', False),
+                queryset.get('method_chain')
+            )
+            if 'python_django_querysets' not in self.counts:
+                self.counts['python_django_querysets'] = 0
+            self.counts['python_django_querysets'] += 1
 
     def _store_python_validators(self, file_path: str, python_validators: List, jsx_pass: bool):
         """Store Python validators."""
@@ -1492,3 +1930,198 @@ class DataStorer:
             if 'graphql_resolver_params' not in self.counts:
                 self.counts['graphql_resolver_params'] = 0
             self.counts['graphql_resolver_params'] += 1
+
+    # ============================================================================
+    # SEQUELIZE ORM HANDLERS
+    # ============================================================================
+
+    def _store_sequelize_models(self, file_path: str, sequelize_models: List, jsx_pass: bool):
+        """Store Sequelize model definitions."""
+        cursor = self.db_manager.conn.cursor()
+        for model in sequelize_models:
+            # Handle both dict and string formats
+            if isinstance(model, str):
+                # If it's a string, create a basic dict with the model name
+                model_data = {'model_name': model, 'line': 0}
+            else:
+                model_data = model
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO sequelize_models
+                (file, line, model_name, table_name, extends_model)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                model_data.get('line', 0),
+                model_data.get('model_name', ''),
+                model_data.get('table_name'),  # Can be None
+                model_data.get('extends_model', False)
+            ))
+            if 'sequelize_models' not in self.counts:
+                self.counts['sequelize_models'] = 0
+            self.counts['sequelize_models'] += 1
+
+    def _store_sequelize_associations(self, file_path: str, sequelize_associations: List, jsx_pass: bool):
+        """Store Sequelize model associations."""
+        cursor = self.db_manager.conn.cursor()
+        for assoc in sequelize_associations:
+            cursor.execute("""
+                INSERT OR REPLACE INTO sequelize_associations
+                (file, line, model_name, association_type, target_model, foreign_key, through_table)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                assoc.get('line', 0),
+                assoc.get('model_name', ''),
+                assoc.get('association_type', ''),
+                assoc.get('target_model', ''),
+                assoc.get('foreign_key'),  # Can be None
+                assoc.get('through_table')  # Can be None
+            ))
+            if 'sequelize_associations' not in self.counts:
+                self.counts['sequelize_associations'] = 0
+            self.counts['sequelize_associations'] += 1
+
+    # ============================================================================
+    # BULLMQ JOB QUEUE HANDLERS
+    # ============================================================================
+
+    def _store_bullmq_queues(self, file_path: str, bullmq_queues: List, jsx_pass: bool):
+        """Store BullMQ queue definitions."""
+        cursor = self.db_manager.conn.cursor()
+        for queue in bullmq_queues:
+            cursor.execute("""
+                INSERT OR REPLACE INTO bullmq_queues
+                (file, line, queue_name, redis_config)
+                VALUES (?, ?, ?, ?)
+            """, (
+                file_path,
+                queue.get('line', 0),
+                queue.get('name', ''),  # NOTE: extractor returns 'name', we map to 'queue_name'
+                queue.get('redis_config')
+            ))
+            if 'bullmq_queues' not in self.counts:
+                self.counts['bullmq_queues'] = 0
+            self.counts['bullmq_queues'] += 1
+
+    def _store_bullmq_workers(self, file_path: str, bullmq_workers: List, jsx_pass: bool):
+        """Store BullMQ worker definitions."""
+        cursor = self.db_manager.conn.cursor()
+        for worker in bullmq_workers:
+            cursor.execute("""
+                INSERT OR REPLACE INTO bullmq_workers
+                (file, line, queue_name, worker_function, processor_path)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                worker.get('line', 0),
+                worker.get('queue_name', ''),
+                worker.get('worker_function'),
+                worker.get('processor_path')
+            ))
+            if 'bullmq_workers' not in self.counts:
+                self.counts['bullmq_workers'] = 0
+            self.counts['bullmq_workers'] += 1
+
+    # ============================================================================
+    # ANGULAR FRAMEWORK HANDLERS
+    # ============================================================================
+
+    def _store_angular_components(self, file_path: str, angular_components: List, jsx_pass: bool):
+        """Store Angular component definitions."""
+        cursor = self.db_manager.conn.cursor()
+        for component in angular_components:
+            cursor.execute("""
+                INSERT OR REPLACE INTO angular_components
+                (file, line, component_name, selector, template_path, style_paths, has_lifecycle_hooks)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                component.get('line', 0),
+                component.get('name', ''),
+                component.get('selector'),
+                component.get('template_path'),
+                component.get('style_paths'),  # Already stringified by extractor
+                component.get('has_lifecycle_hooks', False)
+            ))
+            if 'angular_components' not in self.counts:
+                self.counts['angular_components'] = 0
+            self.counts['angular_components'] += 1
+
+    def _store_angular_services(self, file_path: str, angular_services: List, jsx_pass: bool):
+        """Store Angular service definitions."""
+        cursor = self.db_manager.conn.cursor()
+        for service in angular_services:
+            cursor.execute("""
+                INSERT OR REPLACE INTO angular_services
+                (file, line, service_name, is_injectable, provided_in)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                service.get('line', 0),
+                service.get('name', ''),
+                service.get('is_injectable', True),
+                service.get('provided_in')
+            ))
+            if 'angular_services' not in self.counts:
+                self.counts['angular_services'] = 0
+            self.counts['angular_services'] += 1
+
+    def _store_angular_modules(self, file_path: str, angular_modules: List, jsx_pass: bool):
+        """Store Angular module definitions."""
+        cursor = self.db_manager.conn.cursor()
+        for module in angular_modules:
+            cursor.execute("""
+                INSERT OR REPLACE INTO angular_modules
+                (file, line, module_name, declarations, imports, providers, exports)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                module.get('line', 0),
+                module.get('name', ''),
+                module.get('declarations'),  # Already stringified
+                module.get('imports'),
+                module.get('providers'),
+                module.get('exports')
+            ))
+            if 'angular_modules' not in self.counts:
+                self.counts['angular_modules'] = 0
+            self.counts['angular_modules'] += 1
+
+    def _store_angular_guards(self, file_path: str, angular_guards: List, jsx_pass: bool):
+        """Store Angular guard definitions."""
+        cursor = self.db_manager.conn.cursor()
+        for guard in angular_guards:
+            cursor.execute("""
+                INSERT OR REPLACE INTO angular_guards
+                (file, line, guard_name, guard_type, implements_interface)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                guard.get('line', 0),
+                guard.get('name', ''),
+                guard.get('guard_type', ''),
+                guard.get('implements_interface')
+            ))
+            if 'angular_guards' not in self.counts:
+                self.counts['angular_guards'] = 0
+            self.counts['angular_guards'] += 1
+
+    def _store_di_injections(self, file_path: str, di_injections: List, jsx_pass: bool):
+        """Store Dependency Injection patterns."""
+        cursor = self.db_manager.conn.cursor()
+        for injection in di_injections:
+            cursor.execute("""
+                INSERT OR REPLACE INTO di_injections
+                (file, line, target_class, injected_service, injection_type)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                file_path,
+                injection.get('line', 0),
+                injection.get('target_class', ''),
+                injection.get('service', ''),  # NOTE: extractor returns 'service', map to 'injected_service'
+                injection.get('injection_type', 'constructor')
+            ))
+            if 'di_injections' not in self.counts:
+                self.counts['di_injections'] = 0
+            self.counts['di_injections'] += 1

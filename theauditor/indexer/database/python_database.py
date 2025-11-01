@@ -476,3 +476,303 @@ class PythonDatabaseMixin:
             1 if has_send else 0,
             1 if is_infinite else 0
         ))
+
+    # Phase 3.1: Flask framework add_* methods
+
+    def add_python_flask_app(self, file_path: str, line: int, factory_name: str,
+                             app_var_name: str, config_source: str, registers_blueprints: bool):
+        """Add a Flask application factory to the batch."""
+        self.generic_batches['python_flask_apps'].append((
+            file_path,
+            line,
+            factory_name,
+            app_var_name,  # nullable
+            config_source,  # nullable
+            1 if registers_blueprints else 0
+        ))
+
+    def add_python_flask_extension(self, file_path: str, line: int, extension_type: str,
+                                    var_name: str, app_passed_to_constructor: bool):
+        """Add a Flask extension registration to the batch."""
+        self.generic_batches['python_flask_extensions'].append((
+            file_path,
+            line,
+            extension_type,
+            var_name,  # nullable
+            1 if app_passed_to_constructor else 0
+        ))
+
+    def add_python_flask_hook(self, file_path: str, line: int, hook_type: str,
+                              function_name: str, app_var: str):
+        """Add a Flask request/response hook to the batch."""
+        self.generic_batches['python_flask_hooks'].append((
+            file_path,
+            line,
+            hook_type,
+            function_name,
+            app_var  # nullable
+        ))
+
+    def add_python_flask_error_handler(self, file_path: str, line: int, function_name: str,
+                                        error_code: int, exception_type: str):
+        """Add a Flask error handler to the batch."""
+        self.generic_batches['python_flask_error_handlers'].append((
+            file_path,
+            line,
+            function_name,
+            error_code,  # nullable
+            exception_type  # nullable
+        ))
+
+    def add_python_flask_websocket(self, file_path: str, line: int, function_name: str,
+                                    event_name: str, namespace: str):
+        """Add a Flask-SocketIO WebSocket handler to the batch."""
+        self.generic_batches['python_flask_websockets'].append((
+            file_path,
+            line,
+            function_name,
+            event_name,  # nullable
+            namespace  # nullable
+        ))
+
+    def add_python_flask_cli_command(self, file_path: str, line: int, command_name: str,
+                                      function_name: str, has_options: bool):
+        """Add a Flask CLI command to the batch."""
+        self.generic_batches['python_flask_cli_commands'].append((
+            file_path,
+            line,
+            command_name,
+            function_name,
+            1 if has_options else 0
+        ))
+
+    def add_python_flask_cors(self, file_path: str, line: int, config_type: str,
+                              origins: str, is_permissive: bool):
+        """Add a Flask CORS configuration to the batch."""
+        self.generic_batches['python_flask_cors'].append((
+            file_path,
+            line,
+            config_type,
+            origins,  # nullable
+            1 if is_permissive else 0
+        ))
+
+    def add_python_flask_rate_limit(self, file_path: str, line: int, function_name: str,
+                                      limit_string: str):
+        """Add a Flask rate limit decorator to the batch."""
+        self.generic_batches['python_flask_rate_limits'].append((
+            file_path,
+            line,
+            function_name,
+            limit_string  # nullable
+        ))
+
+    def add_python_flask_cache(self, file_path: str, line: int, function_name: str,
+                                cache_type: str, timeout: int):
+        """Add a Flask cache decorator to the batch."""
+        self.generic_batches['python_flask_cache'].append((
+            file_path,
+            line,
+            function_name,
+            cache_type,
+            timeout  # nullable
+        ))
+
+    # Phase 3.2: Testing Ecosystem add_* methods
+
+    def add_python_unittest_test_case(self, file_path: str, line: int, test_class_name: str,
+                                       test_method_count: int, has_setup: bool, has_teardown: bool,
+                                       has_setupclass: bool, has_teardownclass: bool):
+        """Add a unittest TestCase to the batch."""
+        self.generic_batches['python_unittest_test_cases'].append((
+            file_path,
+            line,
+            test_class_name,
+            test_method_count,
+            1 if has_setup else 0,
+            1 if has_teardown else 0,
+            1 if has_setupclass else 0,
+            1 if has_teardownclass else 0
+        ))
+
+    def add_python_assertion_pattern(self, file_path: str, line: int, function_name: str,
+                                      assertion_type: str, test_expr: str, assertion_method: str):
+        """Add an assertion pattern to the batch."""
+        self.generic_batches['python_assertion_patterns'].append((
+            file_path,
+            line,
+            function_name,
+            assertion_type,
+            test_expr,  # nullable
+            assertion_method  # nullable
+        ))
+
+    def add_python_pytest_plugin_hook(self, file_path: str, line: int, hook_name: str,
+                                       param_count: int):
+        """Add a pytest plugin hook to the batch."""
+        self.generic_batches['python_pytest_plugin_hooks'].append((
+            file_path,
+            line,
+            hook_name,
+            param_count
+        ))
+
+    def add_python_hypothesis_strategy(self, file_path: str, line: int, test_name: str,
+                                        strategy_count: int, strategies: str):
+        """Add a Hypothesis strategy to the batch."""
+        self.generic_batches['python_hypothesis_strategies'].append((
+            file_path,
+            line,
+            test_name,
+            strategy_count,
+            strategies  # nullable
+        ))
+
+    # Phase 3.3: Security Patterns add_* methods
+
+    def add_python_auth_decorator(self, file_path: str, line: int, function_name: str,
+                                   decorator_name: str, permissions: str):
+        """Add an authentication decorator to the batch."""
+        self.generic_batches['python_auth_decorators'].append((
+            file_path,
+            line,
+            function_name,
+            decorator_name,
+            permissions  # nullable
+        ))
+
+    def add_python_password_hashing(self, file_path: str, line: int, hash_library: str,
+                                     hash_method: str, is_weak: bool, has_hardcoded_value: bool):
+        """Add a password hashing pattern to the batch."""
+        self.generic_batches['python_password_hashing'].append((
+            file_path,
+            line,
+            hash_library,  # nullable
+            hash_method,  # nullable
+            1 if is_weak else 0,
+            1 if has_hardcoded_value else 0
+        ))
+
+    def add_python_jwt_operation(self, file_path: str, line: int, operation: str,
+                                  algorithm: str, verify: bool, is_insecure: bool):
+        """Add a JWT operation to the batch."""
+        self.generic_batches['python_jwt_operations'].append((
+            file_path,
+            line,
+            operation,
+            algorithm,  # nullable
+            1 if verify else 0 if verify is not None else None,  # nullable boolean
+            1 if is_insecure else 0
+        ))
+
+    def add_python_sql_injection(self, file_path: str, line: int, db_method: str,
+                                  interpolation_type: str, is_vulnerable: bool):
+        """Add a SQL injection pattern to the batch."""
+        self.generic_batches['python_sql_injection'].append((
+            file_path,
+            line,
+            db_method,
+            interpolation_type,  # nullable
+            1 if is_vulnerable else 0
+        ))
+
+    def add_python_command_injection(self, file_path: str, line: int, function: str,
+                                      shell_true: bool, is_vulnerable: bool):
+        """Add a command injection pattern to the batch."""
+        self.generic_batches['python_command_injection'].append((
+            file_path,
+            line,
+            function,
+            1 if shell_true else 0,
+            1 if is_vulnerable else 0
+        ))
+
+    def add_python_path_traversal(self, file_path: str, line: int, function: str,
+                                   has_concatenation: bool, is_vulnerable: bool):
+        """Add a path traversal pattern to the batch."""
+        self.generic_batches['python_path_traversal'].append((
+            file_path,
+            line,
+            function,
+            1 if has_concatenation else 0,
+            1 if is_vulnerable else 0
+        ))
+
+    def add_python_dangerous_eval(self, file_path: str, line: int, function: str,
+                                   is_constant_input: bool, is_critical: bool):
+        """Add a dangerous eval/exec pattern to the batch."""
+        self.generic_batches['python_dangerous_eval'].append((
+            file_path,
+            line,
+            function,
+            1 if is_constant_input else 0,
+            1 if is_critical else 0
+        ))
+
+    def add_python_crypto_operation(self, file_path: str, line: int, algorithm: str,
+                                     mode: str, is_weak: bool, has_hardcoded_key: bool):
+        """Add a cryptography operation to the batch."""
+        self.generic_batches['python_crypto_operations'].append((
+            file_path,
+            line,
+            algorithm,  # nullable
+            mode,  # nullable
+            1 if is_weak else 0,
+            1 if has_hardcoded_key else 0
+        ))
+
+    # ============================================================================
+    # PHASE 3.4: DJANGO ADVANCED PATTERNS
+    # ============================================================================
+
+    def add_python_django_signal(self, file_path: str, line: int, signal_name: str,
+                                  signal_type: str, providing_args: str, sender: str,
+                                  receiver_function: str):
+        """Add a Django signal definition or connection to the batch."""
+        self.generic_batches['python_django_signals'].append((
+            file_path,
+            line,
+            signal_name,
+            signal_type,  # nullable
+            providing_args,  # nullable
+            sender,  # nullable
+            receiver_function  # nullable
+        ))
+
+    def add_python_django_receiver(self, file_path: str, line: int, function_name: str,
+                                    signals: str, sender: str, is_weak: bool):
+        """Add a Django @receiver decorator to the batch."""
+        self.generic_batches['python_django_receivers'].append((
+            file_path,
+            line,
+            function_name,
+            signals,  # nullable
+            sender,  # nullable
+            1 if is_weak else 0
+        ))
+
+    def add_python_django_manager(self, file_path: str, line: int, manager_name: str,
+                                   base_class: str, custom_methods: str, model_assignment: str):
+        """Add a Django custom manager to the batch."""
+        self.generic_batches['python_django_managers'].append((
+            file_path,
+            line,
+            manager_name,
+            base_class,  # nullable
+            custom_methods,  # nullable
+            model_assignment  # nullable
+        ))
+
+    def add_python_django_queryset(self, file_path: str, line: int, queryset_name: str,
+                                    base_class: str, custom_methods: str, has_as_manager: bool,
+                                    method_chain: str):
+        """Add a Django QuerySet definition or chain to the batch."""
+        self.generic_batches['python_django_querysets'].append((
+            file_path,
+            line,
+            queryset_name,
+            base_class,  # nullable
+            custom_methods,  # nullable
+            1 if has_as_manager else 0,
+            method_chain  # nullable
+        ))
