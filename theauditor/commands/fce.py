@@ -66,9 +66,10 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
       - Control flow analysis
 
     Output:
-      .pf/raw/fce.json           # Correlated findings
-      .pf/raw/fce_failures.json  # Critical compound issues
-      .pf/readthis/fce_*.json    # AI-optimized chunks
+      .pf/raw/correlation_analysis.json  # Consolidated FCE results
+        └── analyses:
+            ├── fce               # Correlated findings
+            └── fce_failures      # Critical compound issues
 
     Finding Format:
       {
@@ -92,8 +93,8 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
 
     AI ASSISTANT CONTEXT:
       Purpose: Cross-reference findings to detect compound vulnerabilities
-      Input: .pf/raw/*.json (all analysis phase outputs)
-      Output: .pf/raw/fce.json (correlated findings), .pf/raw/fce_failures.json (critical)
+      Input: Database + .pf/raw/*_analysis.json (consolidated analysis files)
+      Output: .pf/raw/correlation_analysis.json (consolidated FCE results)
       Prerequisites: aud full (or multiple analysis commands)
       Integration: Final security validation, risk prioritization
       Performance: ~10-30 seconds (correlation rule matching)
