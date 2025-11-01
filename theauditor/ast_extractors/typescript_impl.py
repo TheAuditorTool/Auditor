@@ -293,17 +293,25 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
                 print(f"[DEBUG typescript_impl.py:1166] param_nodes type: {type(param_nodes)}, length: {len(param_nodes) if isinstance(param_nodes, list) else 'N/A'}", file=sys.stderr)
 
             for param in param_nodes:
-                if isinstance(param, dict):
-                    # Extract parameter name (identifier before type annotation)
-                    param_name = param.get("name")
-                    if isinstance(param_name, dict):
-                        # name is a node (e.g., Identifier node)
-                        param_text = param_name.get("text", "")
-                        if param_text:
-                            params.append(param_text)
-                    elif isinstance(param_name, str):
-                        # name is a string
-                        params.append(param_name)
+                # ARCHITECTURAL CONTRACT: JavaScript helper serializes parameters as:
+                # { name: "paramName" } where name is ALWAYS a string extracted from AST
+                # See core_ast_extractors.js:328-335 and :338
+                if not isinstance(param, dict):
+                    # Contract violation - parameters MUST be dict objects
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        print(f"[ERROR typescript_impl.py:298] Parameter is not dict: {type(param)}", file=sys.stderr)
+                    continue
+
+                param_name = param.get("name")
+                if not isinstance(param_name, str):
+                    # Contract violation - name field MUST be string
+                    if os.environ.get("THEAUDITOR_DEBUG"):
+                        print(f"[ERROR typescript_impl.py:302] Parameter name is not string: {type(param_name)}, value={param_name}", file=sys.stderr)
+                        print(f"[ERROR] This indicates JavaScript extractor bug at core_ast_extractors.js:338", file=sys.stderr)
+                    continue
+
+                if param_name:  # Only add non-empty param names
+                    params.append(param_name)
 
             if debug:
                 print(f"[DEBUG typescript_impl.py:1198] Extracted params for '{func_name}': {params}", file=sys.stderr)
@@ -340,17 +348,20 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
                     param_nodes = initializer.get("parameters", [])
 
                     for param in param_nodes:
-                        if isinstance(param, dict):
-                            # Extract parameter name (identifier before type annotation)
-                            param_name = param.get("name")
-                            if isinstance(param_name, dict):
-                                # name is a node (e.g., Identifier node)
-                                param_text = param_name.get("text", "")
-                                if param_text:
-                                    params.append(param_text)
-                            elif isinstance(param_name, str):
-                                # name is a string
-                                params.append(param_name)
+                        # ARCHITECTURAL CONTRACT: Same as above - params are { name: "str" } dicts
+                        if not isinstance(param, dict):
+                            if os.environ.get("THEAUDITOR_DEBUG"):
+                                print(f"[ERROR typescript_impl.py:345] Parameter is not dict: {type(param)}", file=sys.stderr)
+                            continue
+
+                        param_name = param.get("name")
+                        if not isinstance(param_name, str):
+                            if os.environ.get("THEAUDITOR_DEBUG"):
+                                print(f"[ERROR typescript_impl.py:349] Parameter name is not string: {type(param_name)}", file=sys.stderr)
+                            continue
+
+                        if param_name:
+                            params.append(param_name)
 
                     # Store parameter mapping
                     if prop_name and params:
@@ -383,17 +394,20 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
                             param_nodes = wrapped_func.get("parameters", [])
 
                             for param in param_nodes:
-                                if isinstance(param, dict):
-                                    # Extract parameter name (identifier before type annotation)
-                                    param_name = param.get("name")
-                                    if isinstance(param_name, dict):
-                                        # name is a node (e.g., Identifier node)
-                                        param_text = param_name.get("text", "")
-                                        if param_text:
-                                            params.append(param_text)
-                                    elif isinstance(param_name, str):
-                                        # name is a string
-                                        params.append(param_name)
+                                # ARCHITECTURAL CONTRACT: Same as above - params are { name: "str" } dicts
+                                if not isinstance(param, dict):
+                                    if os.environ.get("THEAUDITOR_DEBUG"):
+                                        print(f"[ERROR typescript_impl.py:390] Parameter is not dict: {type(param)}", file=sys.stderr)
+                                    continue
+
+                                param_name = param.get("name")
+                                if not isinstance(param_name, str):
+                                    if os.environ.get("THEAUDITOR_DEBUG"):
+                                        print(f"[ERROR typescript_impl.py:394] Parameter name is not string: {type(param_name)}", file=sys.stderr)
+                                    continue
+
+                                if param_name:
+                                    params.append(param_name)
 
                             # Store parameter mapping using PropertyDeclaration name
                             if prop_name and params:
@@ -513,7 +527,15 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                 callee_name = _canonical_callee_from_call(node) or "unknown"
 
                 # CRITICAL: Read resolved callee file path from AST (added by TypeScript checker)
-                callee_file_path = node.get("calleeFilePath")  # May be None if resolution failed
+                # FIX: Ensure callee_file_path is None or string, never a dict
+                callee_file_path_raw = node.get("calleeFilePath")
+                if isinstance(callee_file_path_raw, dict):
+                    # If it's a dict, it might contain the path as a field
+                    callee_file_path = None  # Safer to use None than risk another dict
+                elif isinstance(callee_file_path_raw, str):
+                    callee_file_path = callee_file_path_raw
+                else:
+                    callee_file_path = None
 
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG] CallExpression: caller={caller_function}, callee={callee_name}, callee_file={callee_file_path}, args={len(arguments)}")
@@ -526,7 +548,21 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
                     if isinstance(arg, dict):
                         raw_arg_text = arg.get("text", "")
                         arg_text = _strip_comment_prefix(raw_arg_text) or raw_arg_text.strip()
-                        param_name = callee_params[i] if i < len(callee_params) else f"arg{i}"
+
+                        # DEFENSIVE: Handle case where callee_params contains dicts instead of strings
+                        # Architectural contract says params should be strings, but handle legacy dict format
+                        if i < len(callee_params):
+                            param = callee_params[i]
+                            if isinstance(param, dict):
+                                # Legacy format: {name: "paramName"} - extract the name
+                                param_name = param.get("name", f"arg{i}")
+                            elif isinstance(param, str):
+                                # Correct format: just the string
+                                param_name = param
+                            else:
+                                param_name = f"arg{i}"
+                        else:
+                            param_name = f"arg{i}"
 
                         calls.append({
                             "line": line,
