@@ -11,6 +11,43 @@ from typing import Dict, List, Any, Optional
 import sys
 
 
+def _matches_file_io_pattern(func_name: str, patterns: List[str]) -> bool:
+    """
+    Strict pattern matching for file I/O functions to avoid false positives.
+
+    Prevents substring matches like 'open' in 'openSgIpv4.addIngressRule'.
+
+    Args:
+        func_name: Function name to check (e.g., 'fs.readFile', 'open', 'openSgIpv4.addIngressRule')
+        patterns: List of file I/O function names (e.g., ['open', 'readFile'])
+
+    Returns:
+        True if func_name is a file I/O function, False for false positives
+
+    Examples:
+        >>> _matches_file_io_pattern('open', ['open'])
+        True
+        >>> _matches_file_io_pattern('fs.open', ['open'])
+        True
+        >>> _matches_file_io_pattern('openSgIpv4.addIngressRule', ['open'])
+        False
+    """
+    if not func_name:
+        return False
+
+    for pattern in patterns:
+        # Exact match: 'open' == 'open'
+        if func_name == pattern:
+            return True
+
+        # Module-qualified suffix: 'fs.open', 'path.open'
+        # Ensures '.open' exists and function ends with pattern
+        if f'.{pattern}' in func_name and func_name.endswith(pattern):
+            return True
+
+    return False
+
+
 class TaintDiscovery:
     """Database-driven discovery of taint sources and sinks."""
 
@@ -66,22 +103,11 @@ class TaintDiscovery:
                             'metadata': symbol
                         })
 
-        # File Read Sources: Function calls that read from files
-        if hasattr(self.cache, 'function_call_args'):
-            file_funcs = ['readFile', 'readFileSync', 'open', 'read', 'load', 'parse']
-            for call in self.cache.function_call_args:
-                func_name = call.get('callee_function', '')
-                if any(f in func_name for f in file_funcs):
-                    sources.append({
-                        'type': 'file_read',
-                        'name': func_name,
-                        'file': call.get('file', ''),
-                        'line': call.get('line', 0),
-                        'pattern': func_name,
-                        'category': 'file_read',
-                        'risk': 'medium',
-                        'metadata': call
-                    })
+        # REMOVED: File Read Sources
+        # Reason: File operations (open, readFile) are SINKS (path traversal), not SOURCES
+        # Reading file contents doesn't create user-controlled data - the path is the vulnerability
+        # Sources should be things like HTTP request params, user input, environment vars
+        # If file contents need to be tracked as tainted, that's a different analysis (second-order)
 
         # Environment Variable Sources
         if hasattr(self.cache, 'env_accesses'):
@@ -209,11 +235,12 @@ class TaintDiscovery:
                     })
 
         # Path Traversal Sinks: File operations
+        # CRITICAL: Use strict matching to avoid false positives like 'open' in 'openSgIpv4'
         if hasattr(self.cache, 'function_call_args'):
             file_funcs = ['readFile', 'writeFile', 'open', 'unlink', 'mkdir', 'rmdir', 'access']
             for call in self.cache.function_call_args:
                 func_name = call.get('callee_function', '')
-                if any(f in func_name for f in file_funcs):
+                if _matches_file_io_pattern(func_name, file_funcs):
                     # Check if first argument could be user-controlled
                     arg = call.get('argument_expr', '')
                     if arg and not arg.startswith('"') and not arg.startswith("'"):

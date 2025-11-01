@@ -34,7 +34,9 @@ FILES = TableSchema(
         Column("loc", "INTEGER", nullable=False),
         Column("file_category", "TEXT", nullable=False, default="'source'"),
     ],
-    indexes=[]
+    indexes=[
+        ("idx_files_ext", ["ext"])  # Index for fast extension lookups (Python/Node/etc)
+    ]
 )
 
 CONFIG_FILES = TableSchema(

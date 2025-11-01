@@ -149,6 +149,51 @@ CODE_DIFFS = TableSchema(
     ]
 )
 
+REFACTOR_CANDIDATES = TableSchema(
+    name="refactor_candidates",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("reason", "TEXT", nullable=False),  # complexity, duplication, size, coupling
+        Column("severity", "TEXT", nullable=False),  # low, medium, high, critical
+        Column("loc", "INTEGER"),
+        Column("cyclomatic_complexity", "INTEGER"),
+        Column("duplication_percent", "REAL"),
+        Column("num_dependencies", "INTEGER"),
+        Column("detected_at", "TEXT", nullable=False),
+        Column("metadata_json", "TEXT", default="'{}'"),
+    ],
+    indexes=[
+        ("idx_refactor_candidates_file", ["file_path"]),
+        ("idx_refactor_candidates_reason", ["reason"]),
+        ("idx_refactor_candidates_severity", ["severity"]),
+        ("idx_refactor_candidates_detected", ["detected_at"]),
+    ],
+    unique_constraints=[
+        ["file_path", "reason"]  # One entry per file per reason
+    ]
+)
+
+REFACTOR_HISTORY = TableSchema(
+    name="refactor_history",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("timestamp", "TEXT", nullable=False),
+        Column("target_file", "TEXT", nullable=False),
+        Column("refactor_type", "TEXT", nullable=False),  # split, rename, consolidate
+        Column("migrations_found", "INTEGER"),
+        Column("migrations_complete", "INTEGER"),
+        Column("schema_consistent", "INTEGER"),  # SQLite uses INTEGER for BOOLEAN
+        Column("validation_status", "TEXT"),
+        Column("details_json", "TEXT", default="'{}'"),
+    ],
+    indexes=[
+        ("idx_refactor_history_file", ["target_file"]),
+        ("idx_refactor_history_type", ["refactor_type"]),
+        ("idx_refactor_history_timestamp", ["timestamp"]),
+    ]
+)
+
 # ============================================================================
 # PLANNING TABLES REGISTRY
 # ============================================================================
@@ -159,4 +204,6 @@ PLANNING_TABLES: Dict[str, TableSchema] = {
     "plan_specs": PLAN_SPECS,
     "code_snapshots": CODE_SNAPSHOTS,
     "code_diffs": CODE_DIFFS,
+    "refactor_candidates": REFACTOR_CANDIDATES,
+    "refactor_history": REFACTOR_HISTORY,
 }

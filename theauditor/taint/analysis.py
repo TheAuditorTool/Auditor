@@ -57,6 +57,7 @@ class TaintFlowAnalyzer:
             # Find the function containing this source
             source_function = self._get_containing_function(source)
             if not source_function:
+                # Hard fail - database is WRONG if function not found
                 continue
 
             # Analyze flow from this source using CFG
@@ -179,11 +180,18 @@ class TaintFlowAnalyzer:
         return paths
 
     def _get_containing_function(self, source: Dict) -> Optional[str]:
-        """Get the function containing a source."""
-        if hasattr(self.cache, 'symbols'):
-            file_path = source.get('file', '')
-            line = source.get('line', 0)
+        """
+        Get the function containing a source.
 
+        Checks both:
+        1. symbols table (traditional function symbols)
+        2. api_endpoints table (endpoint handlers that may not have function symbols)
+        """
+        file_path = source.get('file', '')
+        line = source.get('line', 0)
+
+        # Check traditional function symbols first
+        if hasattr(self.cache, 'symbols'):
             for symbol in self.cache.symbols:
                 start_line = symbol.get('line', 0) or 0
                 end_line = symbol.get('end_line')
@@ -193,6 +201,30 @@ class TaintFlowAnalyzer:
                     symbol.get('path') == file_path and
                     line is not None and start_line <= line <= end_line):
                     return symbol.get('name')
+
+        # Check api_endpoints for endpoint handlers (arrow functions in route definitions)
+        if hasattr(self.cache, 'api_endpoints'):
+            # Find endpoints in the same file, ordered by line
+            endpoints_in_file = [
+                ep for ep in self.cache.api_endpoints
+                if ep.get('file') == file_path
+            ]
+            endpoints_in_file.sort(key=lambda ep: ep.get('line', 0) or 0)
+
+            for i, endpoint in enumerate(endpoints_in_file):
+                start_line = endpoint.get('line', 0) or 0
+                # End of this handler is start of next handler (or +200 lines if last)
+                if i + 1 < len(endpoints_in_file):
+                    end_line = endpoints_in_file[i + 1].get('line', 0) or 0
+                else:
+                    end_line = start_line + 200  # Assume max 200 lines per handler
+
+                if start_line <= line < end_line:
+                    # Use endpoint path as function name
+                    method = endpoint.get('method', 'UNKNOWN')
+                    path = endpoint.get('pattern', endpoint.get('path', 'unknown'))
+                    return f"{method} {path}"
+
         return None
 
     def _get_cfg_blocks(self, function: str) -> List[Dict]:
@@ -295,9 +327,38 @@ class TaintFlowAnalyzer:
     def _get_function_assignments(self, function: str, file: str) -> List[Dict]:
         """Get all assignments in a function."""
         assignments = []
-        if hasattr(self.cache, 'assignments'):
-            assignments = [a for a in self.cache.assignments
-                         if a.get('file') == file and a.get('in_function') == function]
+
+        # Check if this is an API endpoint handler (synthetic function name)
+        if function and (function.startswith('GET ') or function.startswith('POST ') or
+                        function.startswith('PUT ') or function.startswith('DELETE ') or
+                        function.startswith('PATCH ')):
+            # Use spatial index with line ranges from api_endpoints
+            if hasattr(self.cache, 'api_endpoints') and hasattr(self.cache, 'assignments_by_location'):
+                # Find the endpoint to get line range
+                for endpoint in self.cache.api_endpoints:
+                    if endpoint.get('file') == file:
+                        method = endpoint.get('method', '')
+                        path = endpoint.get('pattern', endpoint.get('path', ''))
+                        endpoint_name = f"{method} {path}"
+
+                        if endpoint_name == function:
+                            start_line = endpoint.get('line', 0) or 0
+                            start_block = start_line // 100
+
+                            # Get assignments from spatial index (~500 lines, 5 blocks)
+                            for block_idx in range(start_block, start_block + 5):
+                                block_assignments = self.cache.assignments_by_location.get(file, {}).get(block_idx, [])
+                                for a in block_assignments:
+                                    a_line = a.get('line', 0) or 0
+                                    if a_line >= start_line:
+                                        assignments.append(a)
+                            break
+        else:
+            # Traditional function lookup
+            if hasattr(self.cache, 'assignments'):
+                assignments = [a for a in self.cache.assignments
+                             if a.get('file') == file and a.get('in_function') == function]
+
         return assignments
 
     def check_path_feasibility(self, path: List[Dict]) -> bool:
