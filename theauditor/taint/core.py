@@ -25,7 +25,8 @@ from .database import (
     build_call_graph,
     get_containing_function,
 )
-from .propagation import trace_from_source, deduplicate_paths
+from .propagation import deduplicate_paths
+from .analysis import TaintFlowAnalyzer
 
 
 class TaintPath:
@@ -218,17 +219,13 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
     # CRITICAL FIX: Use provided cache if available (avoids reload in pipeline)
     if use_memory_cache:
         if cache is None:  # Only create if not provided
-            from .memory_cache import attempt_cache_preload
-            cache = attempt_cache_preload(
-                cursor,
-                memory_limit_mb,
-                sources_dict=config.sources,
-                sinks_dict=config.sinks,
-            )
-            if cache:
-                print(f"[TAINT] Memory cache enabled: {cache.get_memory_usage_mb():.1f}MB used", file=sys.stderr)
-            else:
-                print("[TAINT] Memory cache disabled: falling back to disk queries", file=sys.stderr)
+            # Always use SchemaMemoryCache (feature flags removed)
+            from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
+            from .schema_cache_adapter import SchemaMemoryCacheAdapter
+            print("[TAINT] Using SchemaMemoryCache", file=sys.stderr)
+            schema_cache = SchemaMemoryCache(db_path)
+            cache = SchemaMemoryCacheAdapter(schema_cache)
+            print(f"[TAINT] SchemaMemoryCache loaded: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
         else:
             # Using pre-loaded cache from pipeline
             print(f"[TAINT] Using pre-loaded cache: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
@@ -236,18 +233,23 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         cache = None  # Explicitly disable cache if not requested
     
     try:
-        # Step 1: Find all taint sources in the codebase
-        # Pass config sources instead of global TAINT_SOURCES
-        sources = find_taint_sources(cursor, config.sources, cache=cache)
-
-        # Step 2: Find all security sinks in the codebase
-        # Pass config sinks instead of global SECURITY_SINKS
-        sinks = find_security_sinks(cursor, config.sinks, cache=cache)
-
-        # Step 2.1: Filter framework-safe sinks (P1 Enhancement)
-        # Remove sinks that are automatically sanitized by frameworks (e.g., res.json in Express)
-        from .database import filter_framework_safe_sinks
-        sinks = filter_framework_safe_sinks(cursor, sinks)
+        # Always use database-driven discovery when cache available (feature flags removed)
+        if cache:
+            # Use database-driven discovery
+            from .discovery import TaintDiscovery
+            print("[TAINT] Using database-driven discovery", file=sys.stderr)
+            discovery = TaintDiscovery(cache)
+            sources = discovery.discover_sources(config.sources)
+            sinks = discovery.discover_sinks(config.sinks)
+            sinks = discovery.filter_framework_safe_sinks(sinks)
+        else:
+            # Fallback when cache not available (should be rare)
+            # This is not a feature flag, just handling when cache is disabled
+            print("[TAINT] Cache not available, using direct database queries", file=sys.stderr)
+            sources = find_taint_sources(cursor, config.sources, cache=None)
+            sinks = find_security_sinks(cursor, config.sinks, cache=None)
+            from .database import filter_framework_safe_sinks
+            sinks = filter_framework_safe_sinks(cursor, sinks)
 
         # Step 3: Build a call graph for efficient traversal
         call_graph = build_call_graph(cursor)
@@ -288,20 +290,27 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         # Step 4: Trace taint flow from each source
         taint_paths = []
 
-        for source in sources:
-            # Find what function contains this source
-            source_function = get_containing_function(cursor, source)
-            if not source_function:
-                continue
+        # Use unified analyzer if CFG enabled and cache available
+        if use_cfg and cache:
+            analyzer = TaintFlowAnalyzer(cache, cursor)
+            taint_paths = analyzer.analyze_interprocedural(sources, sinks, call_graph, max_depth)
+        else:
+            # Fallback to old method for now (will be removed in final cleanup)
+            from .propagation import trace_from_source
+            for source in sources:
+                # Find what function contains this source
+                source_function = get_containing_function(cursor, source)
+                if not source_function:
+                    continue
 
-            # Filter sinks by proximity for performance (10x speedup)
-            relevant_sinks = filter_sinks_by_proximity(source, sinks)
+                # Filter sinks by proximity for performance (10x speedup)
+                relevant_sinks = filter_sinks_by_proximity(source, sinks)
 
-            # Trace taint propagation from this source
-            paths = trace_from_source(
-                cursor, source, source_function, relevant_sinks, call_graph, max_depth, use_cfg, cache=cache
-            )
-            taint_paths.extend(paths)
+                # Trace taint propagation from this source
+                paths = trace_from_source(
+                    cursor, source, source_function, relevant_sinks, call_graph, max_depth, use_cfg, cache=cache
+                )
+                taint_paths.extend(paths)
         
         # Step 5: Deduplicate paths
         unique_paths = deduplicate_paths(taint_paths)
