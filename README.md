@@ -620,9 +620,9 @@ Built with:
 
 ## Support
 
-- **Issues**: https://github.com/yourusername/theauditor/issues
-- **Discussions**: https://github.com/yourusername/theauditor/discussions
-- **Documentation**: https://docs.theauditor.dev
+- **Issues**: https://github.com/TheAuditorTool/Auditor/issues
+- **Discussions**: https://github.com/TheAuditorTool/Auditor/discussions
+- **Documentation**: https://github.com/TheAuditorTool/Auditor
 
 ---
 
