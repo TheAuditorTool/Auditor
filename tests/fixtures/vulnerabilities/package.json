@@ -1,0 +1,13 @@
+{
+  "name": "vulnerable-test-app",
+  "version": "1.0.0",
+  "description": "Test fixture for vulnerability scanning",
+  "dependencies": {
+    "lodash": "4.17.19",
+    "minimist": "1.2.5",
+    "marked": "0.3.6"
+  },
+  "devDependencies": {
+    "qs": "6.5.2"
+  }
+}

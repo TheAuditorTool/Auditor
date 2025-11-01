@@ -72,10 +72,10 @@ TABLES: Dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 116 tables (24 core [+3 cfg_jsx] + 5 security + 5 frameworks + 34 python + 17 node + 18 infrastructure + 5 planning + 8 graphql)
+# Total: 150 tables (schema continues to grow with framework extraction)
 
 # Verify table count at module load time
-assert len(TABLES) == 116, f"Schema contract violation: Expected 116 tables, got {len(TABLES)}"
+assert len(TABLES) == 150, f"Schema contract violation: Expected 150 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
