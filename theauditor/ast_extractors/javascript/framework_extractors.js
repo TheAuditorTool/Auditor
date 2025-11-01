@@ -526,13 +526,10 @@ function extractApolloResolvers(functions, classes, symbolTable) {
             const fieldName = func.name.replace(/Resolver$/i, '').replace(/^resolve/i, '');
 
             // Extract parameters (skip parent, args, context/info)
+            // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
             const params = (func.params || [])
                 .filter(p => !['parent', 'args', 'context', 'info', '_'].includes(p.name))
-                .map((p, idx) => ({
-                    param_name: p.name,
-                    param_index: idx,
-                    is_kwargs: p.name === 'args' || p.destructured
-                }));
+                .map(p => ({ name: p.name }));
 
             resolvers.push({
                 line: func.line,
@@ -590,13 +587,10 @@ function extractNestJSResolvers(functions, classes) {
                     else if (decoratorName === 'Subscription') resolverTypeName = 'Subscription';
 
                     // Extract parameters (skip decorated params like @Args(), @Context())
+                    // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
                     const params = (method.params || [])
                         .filter(p => !p.decorators || p.decorators.length === 0)
-                        .map((p, idx) => ({
-                            param_name: p.name,
-                            param_index: idx,
-                            is_kwargs: p.destructured || false
-                        }));
+                        .map(p => ({ name: p.name }));
 
                     resolvers.push({
                         line: method.line,
@@ -664,22 +658,10 @@ function extractTypeGraphQLResolvers(functions, classes) {
                     else if (decoratorName === 'Subscription') resolverTypeName = 'Subscription';
 
                     // Extract parameters decorated with @Arg()
+                    // ARCHITECTURAL CONTRACT: Return { name: "param" } dicts matching core_ast_extractors.js
                     const params = (method.params || [])
                         .filter(p => p.decorators && p.decorators.some(d => d.name === 'Arg'))
-                        .map((p, idx) => {
-                            // Extract arg name from @Arg('argName')
-                            const argDecorator = p.decorators.find(d => d.name === 'Arg');
-                            const argName = argDecorator && argDecorator.arguments && argDecorator.arguments.length > 0
-                                ? argDecorator.arguments[0].replace(/['"]/g, '')
-                                : p.name;
-
-                            return {
-                                param_name: p.name,
-                                param_index: idx,
-                                is_kwargs: false,
-                                arg_name: argName
-                            };
-                        });
+                        .map(p => ({ name: p.name }));
 
                     resolvers.push({
                         line: method.line,
