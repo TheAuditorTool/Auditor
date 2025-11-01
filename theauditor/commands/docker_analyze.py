@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
+from theauditor.utils.consolidated_output import write_to_group
 
 
 @click.command("docker-analyze")
@@ -238,12 +239,14 @@ def docker_analyze(db_path, output, severity, check_vulns):
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(output_path, 'w') as f:
-            json.dump({
-                "findings": findings,
-                "summary": severity_counts,
-                "total": len(findings)
-            }, f, indent=2)
+        # Write to consolidated group
+        docker_data = {
+            "findings": findings,
+            "summary": severity_counts,
+            "total": len(findings)
+        }
+        write_to_group("infrastructure_analysis", "docker", docker_data, root=".")
+        click.echo(f"[OK] Docker analysis saved to infrastructure_analysis.json")
         
         click.echo(f"\nResults saved to: {output}")
     
