@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from theauditor.context.deadcode import detect_isolated_modules
 from theauditor.utils.error_handler import handle_exceptions
+from theauditor.utils.consolidated_output import write_to_group
 
 
 @click.command("deadcode")
@@ -198,12 +199,10 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
             exclude_patterns=list(exclude)
         )
 
-        # ALWAYS save to .pf/raw/dead_code.json for AI/pipeline consumption
-        raw_dir = project_path / ".pf" / "raw"
-        raw_dir.mkdir(parents=True, exist_ok=True)
-        raw_output = raw_dir / "dead_code.json"
-        with open(raw_output, 'w', encoding='utf-8') as f:
-            f.write(_format_json(modules))
+        # Write to consolidated group
+        deadcode_data = json.loads(_format_json(modules))
+        write_to_group("quality_analysis", "deadcode", deadcode_data, root=str(project_path))
+        click.echo(f"[OK] Deadcode analysis saved to quality_analysis.json")
 
         # Format output for user
         if format == 'json':

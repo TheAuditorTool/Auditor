@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import click
 from theauditor.config_runtime import load_runtime_config
+from theauditor.utils.consolidated_output import write_to_group
 
 
 @click.group()
@@ -143,7 +144,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         if workset:
             workset_path = Path(workset)
             if workset_path.exists():
-                with open(workset_path) as f:
+                with open(workset_path, encoding='utf-8') as f:
                     workset_data = json.load(f)
                     # Extract file paths from workset
                     workset_files = {p["path"] for p in workset_data.get("paths", [])}
@@ -159,7 +160,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         manifest_path = Path(config["paths"]["manifest"])
         if manifest_path.exists():
             click.echo("Loading file manifest...")
-            with open(manifest_path, 'r') as f:
+            with open(manifest_path, 'r', encoding='utf-8') as f:
                 manifest_data = json.load(f)
             
             # Apply workset filtering if active
@@ -183,11 +184,8 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_import_graph(import_graph)
 
-        # Dual write: Save JSON to .pf/raw/ for human/AI consumption
-        raw_import = Path(".pf/raw/import_graph.json")
-        raw_import.parent.mkdir(parents=True, exist_ok=True)
-        with open(raw_import, 'w') as f:
-            json.dump(import_graph, f, indent=2)
+        # Write to consolidated group file
+        write_to_group("graph_analysis", "import_graph", import_graph, root=root)
 
         click.echo(f"  Nodes: {len(import_graph['nodes'])}")
         click.echo(f"  Edges: {len(import_graph['edges'])}")
@@ -203,11 +201,8 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         # Save to database (SINGLE SOURCE OF TRUTH)
         store.save_call_graph(call_graph)
 
-        # Dual write: Save JSON to .pf/raw/ for human/AI consumption
-        raw_call = Path(".pf/raw/call_graph.json")
-        raw_call.parent.mkdir(parents=True, exist_ok=True)
-        with open(raw_call, 'w') as f:
-            json.dump(call_graph, f, indent=2)
+        # Write to consolidated group file
+        write_to_group("graph_analysis", "call_graph", call_graph, root=root)
 
         # Call graph uses 'nodes' for functions and 'edges' for calls
         click.echo(f"  Functions: {len(call_graph.get('nodes', []))}")
@@ -287,14 +282,15 @@ def graph_build_dfg(root, db, repo_db):
         click.echo(f"\nSaving to {db}...")
         store.save_data_flow_graph(graph)
 
-        # Save JSON to .pf/raw/ for immutable record
-        raw_output = Path(".pf/raw/data_flow_graph.json")
-        raw_output.parent.mkdir(parents=True, exist_ok=True)
-        with open(raw_output, 'w') as f:
-            json.dump(graph, f, indent=2)
+        # Write to consolidated group file
+        write_to_group("graph_analysis", "data_flow_graph", graph, root=root)
+
+        # Consolidated output path
+        from pathlib import Path
+        consolidated_path = Path(root) / ".pf" / "raw" / "graph_analysis.json"
 
         click.echo(f"Data flow graph saved to {db}")
-        click.echo(f"Raw JSON saved to {raw_output}")
+        click.echo(f"Raw JSON saved to {consolidated_path}")
 
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
@@ -305,12 +301,13 @@ def graph_build_dfg(root, db, repo_db):
 
 
 @graph.command("analyze")
+@click.option("--root", default=".", help="Root directory")
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
 @click.option("--out", default="./.pf/raw/graph_analysis.json", help="Output JSON path")
 @click.option("--max-depth", default=3, type=int, help="Max traversal depth for impact analysis")
 @click.option("--workset", help="Path to workset.json for change impact")
 @click.option("--no-insights", is_flag=True, help="Skip interpretive insights (health scores, recommendations)")
-def graph_analyze(db, out, max_depth, workset, no_insights):
+def graph_analyze(root, db, out, max_depth, workset, no_insights):
     """Analyze dependency graphs for architectural issues and change impact.
 
     Performs comprehensive graph analysis to detect circular dependencies,
@@ -427,7 +424,7 @@ def graph_analyze(db, out, max_depth, workset, no_insights):
         if workset:
             workset_path = Path(workset)
             if workset_path.exists():
-                with open(workset_path) as f:
+                with open(workset_path, encoding='utf-8') as f:
                     workset_data = json.load(f)
                     targets = workset_data.get("seed_files", [])
                     
@@ -522,10 +519,8 @@ def graph_analyze(db, out, max_depth, workset, no_insights):
                 click.echo(f"  Warning: Could not write findings to database: {e}", err=True)
 
         # Write JSON for AI consumption (existing behavior)
-        out_path = Path(out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w") as f:
-            json.dump(analysis, f, indent=2, sort_keys=True)
+        # Write to consolidated group file (ignore --out parameter for consolidation)
+        write_to_group("graph_analysis", "analyze", analysis, root=root)
 
         click.echo(f"\nAnalysis saved to {out}")
         
@@ -534,18 +529,15 @@ def graph_analyze(db, out, max_depth, workset, no_insights):
             metrics = {}
             for hotspot in hotspots:
                 metrics[hotspot['id']] = hotspot.get('centrality', 0)
-            metrics_path = Path("./.pf/raw/graph_metrics.json")
-            metrics_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(metrics_path, "w") as f:
-                json.dump(metrics, f, indent=2)
-            click.echo(f"  Saved graph metrics to {metrics_path}")
+            # Write to consolidated group file
+            write_to_group("graph_analysis", "metrics", metrics, root=root)
+            click.echo(f"  Saved graph metrics to consolidated graph_analysis.json")
         
         # Create AI-readable summary
         graph_summary = analyzer.get_graph_summary(import_graph)
-        summary_path = Path("./.pf/raw/graph_summary.json")
-        with open(summary_path, "w") as f:
-            json.dump(graph_summary, f, indent=2)
-        click.echo(f"  Saved graph summary to {summary_path}")
+        # Write to consolidated group file
+        write_to_group("graph_analysis", "summary", graph_summary, root=root)
+        click.echo(f"  Saved graph summary to consolidated graph_analysis.json")
         
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
@@ -726,7 +718,7 @@ def graph_viz(db, graph_type, out_dir, limit_nodes, format, view, include_analys
             # Try to load analysis from file
             analysis_path = Path("./.pf/raw/graph_analysis.json")
             if analysis_path.exists():
-                with open(analysis_path) as f:
+                with open(analysis_path, encoding='utf-8') as f:
                     analysis_data = json.load(f)
                     analysis = {
                         'cycles': analysis_data.get('cycles', []),

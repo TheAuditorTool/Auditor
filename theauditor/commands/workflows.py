@@ -11,6 +11,7 @@ import click
 
 from ..utils.logger import setup_logger
 from ..utils.error_handler import handle_exceptions
+from ..utils.consolidated_output import write_to_group
 
 logger = setup_logger(__name__)
 
@@ -156,23 +157,12 @@ def analyze(root, workset, severity, output, db, chunk_size):
             "findings": findings
         }
 
-        # Export to JSON
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w') as f:
-            json.dump(analysis, f, indent=2)
+        # Write to consolidated group
+        write_to_group("infrastructure_analysis", "workflows", analysis, root=".")
+        click.echo(f"[OK] Workflows analysis saved to infrastructure_analysis.json")
 
-        # Create AI-optimized chunks using courier
-        readthis_dir = Path(".pf/readthis")
-        readthis_dir.mkdir(parents=True, exist_ok=True)
-
-        chunks = _create_chunks(workflow_data, findings, chunk_size)
-        chunk_files = []
-        for i, chunk in enumerate(chunks, 1):
-            chunk_path = readthis_dir / f"github_workflows_chunk{i:02d}.json"
-            with open(chunk_path, 'w') as f:
-                json.dump(chunk, f, indent=2)
-            chunk_files.append(str(chunk_path))
+        # Consolidated output path
+        consolidated_path = Path(".") / ".pf" / "raw" / "infrastructure_analysis.json"
 
         # Display summary
         click.echo(f"\nGitHub Actions Workflow Analysis:")
@@ -187,8 +177,7 @@ def analyze(root, workset, severity, output, db, chunk_size):
                     click.echo(f"    {sev.title()}: {count}")
 
         click.echo(f"\nOutput:")
-        click.echo(f"  Full report: {output_path}")
-        click.echo(f"  AI chunks: {len(chunks)} files in .pf/readthis/")
+        click.echo(f"  Full report: {consolidated_path}")
 
         # Highlight critical workflows
         critical_workflows = [

@@ -39,17 +39,18 @@ def report(
 ):
     """Generate consolidated audit report from analysis artifacts.
 
-    Aggregates findings from all analysis phases into AI-optimized chunks
-    in .pf/readthis/ directory. This is typically the final step after running
-    various analysis commands, creating machine-readable summaries designed for
-    LLM context windows.
+    **DEPRECATED**: This command generates .pf/readthis/ chunks which are obsolete
+    as of v1.3.0. Use `aud query` for database queries or read consolidated files
+    in .pf/raw/ directly. See migration guide in README.md.
+
+    This command is kept for backward compatibility only.
 
     AI ASSISTANT CONTEXT:
-      Purpose: Consolidate all analysis artifacts into AI-readable chunks
+      Purpose: [DEPRECATED] Consolidate artifacts into chunks (obsolete)
       Input: .pf/raw/*.json (all analysis phase outputs)
-      Output: .pf/readthis/*.json (chunked findings <65KB each)
+      Output: .pf/readthis/*.json (chunked findings <65KB each) [DEPRECATED]
       Prerequisites: aud full (or individual analysis commands)
-      Integration: AI consumption, final audit reporting, finding aggregation
+      Integration: [DEPRECATED] Use `aud query` or read .pf/raw/*.json instead
       Performance: ~2-5 seconds (JSON aggregation + chunking)
 
     Input Sources (Auto-Detected):

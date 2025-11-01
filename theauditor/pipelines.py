@@ -755,19 +755,11 @@ def run_full_pipeline(
                         # Check if this looks like table output (has header separator)
                         has_table = any("---" in line for line in lines[:5])
                         if has_table:
-                            # Show more lines for table output to include actual data
-                            display_lines = []
-                            for i, line in enumerate(lines):
-                                if i < 6 or (i == 0):  # Show first line (path info) + table header + first few data rows
-                                    display_lines.append(line)
-                                    if log_callback and not quiet:
-                                        log_callback(f"  {line}", False)
-                                    log_lines.append(f"  {line}")
-                            if len(lines) > 6:
-                                truncate_msg = f"  ... ({len(lines) - 6} more lines)"
+                            # Show ALL lines for framework table - users want to see all detected frameworks
+                            for line in lines:
                                 if log_callback and not quiet:
-                                    log_callback(truncate_msg, False)
-                                log_lines.append(truncate_msg)
+                                    log_callback(f"  {line}", False)
+                                log_lines.append(f"  {line}")
                         else:
                             # Regular truncation for non-table output
                             for line in lines[:3]:
@@ -1409,19 +1401,11 @@ def run_full_pipeline(
                             # Check if this looks like table output (has header separator)
                             has_table = any("---" in line for line in lines[:5])
                             if has_table:
-                                # Show more lines for table output to include actual data
-                                display_lines = []
-                                for i, line in enumerate(lines):
-                                    if i < 6 or (i == 0):  # Show first line (path info) + table header + first few data rows
-                                        display_lines.append(line)
-                                        if log_callback and not quiet:
-                                            log_callback(f"  {line}", False)
-                                        log_lines.append(f"  {line}")
-                                if len(lines) > 6:
-                                    truncate_msg = f"  ... ({len(lines) - 6} more lines)"
+                                # Show ALL lines for framework table - users want to see all detected frameworks
+                                for line in lines:
                                     if log_callback and not quiet:
-                                        log_callback(truncate_msg, False)
-                                    log_lines.append(truncate_msg)
+                                        log_callback(f"  {line}", False)
+                                    log_lines.append(f"  {line}")
                             else:
                                 # Regular truncation for non-table output
                                 for line in lines[:3]:
@@ -1461,32 +1445,37 @@ def run_full_pipeline(
                             log_callback(error_msg, True)
                         log_lines.append(error_msg)
                 
-                # CRITICAL: Run extraction AFTER FCE and BEFORE report
+                # CRITICAL: Run summarize AFTER FCE
                 if "factual correlation" in phase_name.lower():
                     try:
-                        from theauditor.extraction import extract_all_to_readthis
-                        
                         log_output("\n" + "="*60)
-                        log_output("[EXTRACTION] Creating AI-consumable chunks from raw data")
+                        log_output("[SUMMARIZE] Generating guidance summaries")
                         log_output("="*60)
-                        
-                        extraction_start = time.time()
-                        extraction_success = extract_all_to_readthis(root)
-                        extraction_elapsed = time.time() - extraction_start
-                        
-                        if extraction_success:
-                            log_output(f"[OK] Chunk extraction completed in {extraction_elapsed:.1f}s")
-                            log_output("[INFO] AI-readable chunks available in .pf/readthis/")
+
+                        summarize_start = time.time()
+
+                        # Call aud summarize
+                        summarize_cmd = [sys.executable, "-m", "theauditor.cli", "summarize"]
+                        summarize_result = subprocess.run(
+                            summarize_cmd,
+                            cwd=root,
+                            capture_output=True,
+                            text=True,
+                            timeout=300  # 5 minute timeout
+                        )
+
+                        summarize_elapsed = time.time() - summarize_start
+
+                        if summarize_result.returncode == 0:
+                            log_output(f"[OK] Generated 5 guidance summaries in {summarize_elapsed:.1f}s")
+                            log_output("[INFO] Summaries available in .pf/raw/")
                         else:
-                            log_output(f"[WARNING] Chunk extraction completed with errors in {extraction_elapsed:.1f}s", is_error=True)
-                            log_output("[WARNING] Some chunks may be incomplete", is_error=True)
+                            log_output(f"[WARN] Summarize failed: {summarize_result.stderr}")
+                            log_output("[WARN] Guidance summaries may be incomplete")
                             
-                    except ImportError as e:
-                        log_output(f"[ERROR] Could not import extraction module: {e}", is_error=True)
-                        log_output("[ERROR] Chunks will not be generated", is_error=True)
                     except Exception as e:
-                        log_output(f"[ERROR] Ticket extraction failed: {e}", is_error=True)
-                        log_output("[ERROR] Raw data preserved in .pf/raw/ but no chunks created", is_error=True)
+                        log_output(f"[ERROR] Summarize command failed: {e}", is_error=True)
+                        log_output("[ERROR] Raw data preserved in .pf/raw/ but no summaries created", is_error=True)
                 
             except Exception as e:
                 failed_phases += 1
