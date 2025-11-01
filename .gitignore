@@ -101,9 +101,6 @@ config.local.json
 .pf/capsules/
 .pf/context/
 
-# Deprecated - no longer generated (use consolidated outputs + summaries instead)
-.pf/readthis/
-
 # ML models (if any)
 *.pkl
 *.joblib
