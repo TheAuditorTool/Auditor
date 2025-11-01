@@ -48,7 +48,8 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
         modules: [],
         guards: [],
         pipes: [],
-        directives: []
+        directives: [],
+        di_injections: []
     };
 
     // Check if Angular is imported
@@ -67,25 +68,53 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
         const className = cls.name;
         if (!className) continue;
 
-        // Detect @Component decorator (HEURISTIC: class name + import check)
-        // LIMITATION: Does not verify decorator is actually applied, only that it's imported
-        if (className.includes('Component')) {
-            const hasComponentImport = imports.some(imp =>
-                imp.source === '@angular/core' && imp.specifier === 'Component'
-            );
+        // Detect @Component decorator using actual decorator data
+        const componentDecorator = cls.decorators && cls.decorators.find(d => d.name === 'Component');
 
-            if (hasComponentImport) {
+        if (componentDecorator) {
                 // Extract @Input/@Output properties from class
                 const inputs = [];
                 const outputs = [];
 
-                // Look for Input/Output decorator usage in function calls
-                for (const call of functionCallArgs) {
-                    if (call.callee_function === 'Input' && call.caller_class === className) {
-                        inputs.push({ line: call.line });
+                // Look for @Input/@Output decorators on class properties/methods
+                if (functions) {
+                    for (const func of functions) {
+                        if (func.parent_class === className && func.decorators) {
+                            for (const decorator of func.decorators) {
+                                if (decorator.name === 'Input') {
+                                    inputs.push({
+                                        name: func.name,
+                                        line: func.line
+                                    });
+                                } else if (decorator.name === 'Output') {
+                                    outputs.push({
+                                        name: func.name,
+                                        line: func.line
+                                    });
+                                }
+                            }
+                        }
                     }
-                    if (call.callee_function === 'Output' && call.caller_class === className) {
-                        outputs.push({ line: call.line });
+                }
+
+                // Also check class properties if available
+                if (cls.properties) {
+                    for (const prop of cls.properties) {
+                        if (prop.decorators) {
+                            for (const decorator of prop.decorators) {
+                                if (decorator.name === 'Input') {
+                                    inputs.push({
+                                        name: prop.name,
+                                        line: prop.line
+                                    });
+                                } else if (decorator.name === 'Output') {
+                                    outputs.push({
+                                        name: prop.name,
+                                        line: prop.line
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -96,19 +125,25 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
                     outputs_count: outputs.length,
                     has_lifecycle_hooks: _detectAngularLifecycleHooks(cls, functions)
                 });
-            }
+
+                // Extract DI for components
+                const dependencies = _extractAngularDI(cls, functionCallArgs);
+                for (const dep of dependencies) {
+                    results.di_injections.push({
+                        line: cls.line,
+                        target_class: className,
+                        service: dep.service,
+                        injection_type: 'constructor'
+                    });
+                }
         }
 
         // Detect @Injectable decorator (services)
-        // LIMITATION: Naming-based heuristic, not decorator AST parsing
-        if (className.includes('Service')) {
-            const hasInjectableImport = imports.some(imp =>
-                imp.source === '@angular/core' && imp.specifier === 'Injectable'
-            );
+        const injectableDecorator = cls.decorators && cls.decorators.find(d => d.name === 'Injectable');
 
-            if (hasInjectableImport) {
+        if (injectableDecorator) {
                 // Extract constructor DI parameters
-                const diDependencies = _extractAngularDI(cls, classes);
+                const diDependencies = _extractAngularDI(cls, functionCallArgs);
 
                 results.services.push({
                     name: className,
@@ -116,22 +151,41 @@ function extractAngularComponents(functions, classes, imports, functionCallArgs)
                     injectable: true,
                     dependencies: diDependencies
                 });
-            }
+
+                // Add DI injections for services
+                for (const dep of diDependencies) {
+                    results.di_injections.push({
+                        line: cls.line,
+                        target_class: className,
+                        service: dep.service,
+                        injection_type: 'constructor'
+                    });
+                }
         }
 
         // Detect @NgModule decorator
-        // LIMITATION: Naming-based heuristic, not decorator AST parsing
-        if (className.includes('Module')) {
-            const hasModuleImport = imports.some(imp =>
-                imp.source === '@angular/core' && imp.specifier === 'NgModule'
-            );
+        const ngModuleDecorator = cls.decorators && cls.decorators.find(d => d.name === 'NgModule');
 
-            if (hasModuleImport) {
-                results.modules.push({
-                    name: className,
-                    line: cls.line
-                });
+        if (ngModuleDecorator) {
+            const moduleConfig = {};
+
+            // Extract module configuration from decorator arguments
+            if (ngModuleDecorator.arguments && ngModuleDecorator.arguments[0]) {
+                const config = ngModuleDecorator.arguments[0];
+                if (typeof config === 'object') {
+                    moduleConfig.declarations = config.declarations || [];
+                    moduleConfig.imports = config.imports || [];
+                    moduleConfig.providers = config.providers || [];
+                    moduleConfig.exports = config.exports || [];
+                    moduleConfig.bootstrap = config.bootstrap || [];
+                }
             }
+
+            results.modules.push({
+                name: className,
+                line: cls.line,
+                ...moduleConfig
+            });
         }
 
         // Detect route guards (CanActivate, CanDeactivate interfaces)
@@ -180,19 +234,37 @@ function _detectAngularLifecycleHooks(cls, functions) {
 /**
  * Extract Angular dependency injection from constructor.
  *
- * STUB IMPLEMENTATION: Proper DI extraction requires analyzing constructor AST nodes
- * for parameter decorators and type annotations.
+ * Heuristic implementation: Looks for common service patterns in constructor calls.
+ * Full implementation would require analyzing constructor AST nodes for type annotations.
  *
  * @param {Object} cls - Class object from extractClasses()
- * @param {Array} classes - All classes (unused in stub)
- * @returns {Array} - Empty array (requires AST traversal for full implementation)
+ * @param {Array} functionCallArgs - All function calls
+ * @returns {Array} - Detected service dependencies
  * @private
  */
-function _extractAngularDI(cls, classes) {
-    // Angular DI is via constructor parameters with type annotations
-    // This would require analyzing constructor AST nodes
-    // For now, return empty array (full implementation needs AST traversal)
-    return [];
+function _extractAngularDI(cls, functionCallArgs) {
+    const dependencies = [];
+
+    // Look for constructor calls that might indicate DI
+    // Common patterns: this.http = http, this.router = router, etc.
+    for (const call of functionCallArgs) {
+        // Check for property assignments in the class that look like DI
+        if (call.caller_class === cls.name) {
+            // Look for common Angular service names
+            const commonServices = ['http', 'HttpClient', 'Router', 'ActivatedRoute',
+                                   'FormBuilder', 'AuthService', 'UserService',
+                                   'DataService', 'ApiService'];
+
+            for (const service of commonServices) {
+                if (call.callee_function && call.callee_function.toLowerCase().includes(service.toLowerCase())) {
+                    dependencies.push({ service: service });
+                    break;
+                }
+            }
+        }
+    }
+
+    return dependencies;
 }
 
 /**

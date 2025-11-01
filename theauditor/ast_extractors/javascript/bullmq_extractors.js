@@ -28,15 +28,16 @@
  * @param {Array} classes - From extractClasses()
  * @param {Array} functionCallArgs - From extractFunctionCallArgs()
  * @param {Array} imports - From extract imports
- * @returns {Array} - BullMQ queue/worker records
+ * @returns {Object} - Object with bullmq_queues and bullmq_workers arrays
  */
 function extractBullMQJobs(functions, classes, functionCallArgs, imports) {
-    const jobs = [];
+    const queues = [];
+    const workers = [];
 
     // Check if BullMQ is imported
     const hasBullMQ = imports && imports.some(imp => imp.source === 'bullmq');
     if (!hasBullMQ) {
-        return jobs;
+        return { bullmq_queues: queues, bullmq_workers: workers };
     }
 
     // Detect new Queue() instantiations
@@ -45,10 +46,21 @@ function extractBullMQJobs(functions, classes, functionCallArgs, imports) {
         if (call.callee_function === 'Queue' && call.argument_index === 0) {
             const queueName = call.argument_expr && call.argument_expr.replace(/['"]/g, '').trim();
             if (queueName) {
-                jobs.push({
-                    type: 'queue',
-                    name: queueName,
-                    line: call.line
+                // Extract redis config from second argument
+                let redisConfig = null;
+                const configCall = functionCallArgs.find(c =>
+                    c.callee_function === 'Queue' &&
+                    c.argument_index === 1 &&
+                    c.line === call.line
+                );
+                if (configCall && configCall.argument_expr) {
+                    redisConfig = configCall.argument_expr;
+                }
+
+                queues.push({
+                    line: call.line,
+                    name: queueName,  // Note: Python expects 'name' not 'queue_name' for queues
+                    redis_config: redisConfig
                 });
             }
         }
@@ -57,26 +69,34 @@ function extractBullMQJobs(functions, classes, functionCallArgs, imports) {
         if (call.callee_function === 'Worker' && call.argument_index === 0) {
             const queueName = call.argument_expr && call.argument_expr.replace(/['"]/g, '').trim();
             if (queueName) {
-                jobs.push({
-                    type: 'worker',
-                    queue_name: queueName,
-                    line: call.line
-                });
-            }
-        }
+                // Try to extract worker function name from second argument
+                let workerFunction = null;
+                const funcCall = functionCallArgs.find(c =>
+                    c.callee_function === 'Worker' &&
+                    c.argument_index === 1 &&
+                    c.line === call.line
+                );
+                if (funcCall && funcCall.argument_expr) {
+                    // Check if it's an arrow function or named function
+                    if (funcCall.argument_expr.includes('=>')) {
+                        workerFunction = 'anonymous';
+                    } else {
+                        workerFunction = funcCall.argument_expr.trim();
+                    }
+                }
 
-        // Detect job.add() calls to identify job types
-        if (call.callee_function && call.callee_function.endsWith('.add') && call.argument_index === 0) {
-            const jobType = call.argument_expr && call.argument_expr.replace(/['"]/g, '').trim();
-            if (jobType && jobType.length > 0 && jobType.length < 100) {
-                jobs.push({
-                    type: 'job_type',
-                    name: jobType,
-                    line: call.line
+                workers.push({
+                    line: call.line,
+                    queue_name: queueName,
+                    worker_function: workerFunction,
+                    processor_path: null  // Would need more context to extract
                 });
             }
         }
     }
 
-    return jobs;
+    return {
+        bullmq_queues: queues,
+        bullmq_workers: workers
+    };
 }

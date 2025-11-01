@@ -522,11 +522,9 @@ class BaseDatabaseManager:
             import os, sys
             for table_name, insert_mode in flush_order:
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
-                    if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
-                        print(f"[DEBUG] flush_batch: About to flush {table_name} with mode {insert_mode}, batch size {len(self.generic_batches[table_name])}", file=sys.stderr)
+                    print(f"[DEBUG] flush_batch: About to flush {table_name} with mode {insert_mode}, batch size {len(self.generic_batches[table_name])}", file=sys.stderr)
                     self.flush_generic_batch(table_name, insert_mode)
-                    if os.environ.get('THEAUDITOR_DEBUG') == '1' and table_name.startswith('graphql_'):
-                        print(f"[DEBUG] flush_batch: {table_name} flushed successfully", file=sys.stderr)
+                    print(f"[DEBUG] flush_batch: {table_name} flushed successfully", file=sys.stderr)
 
         except sqlite3.Error as e:
             # DEBUG: Enhanced error reporting for constraint failures

@@ -201,8 +201,26 @@ async function main() {
             throw new Error("projectRoot not provided in batch request");
         }
 
-        // Load TypeScript
-        const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+        // Load TypeScript - search up the directory tree for .auditor_venv
+        let tsPath = null;
+        let searchDir = projectRoot;
+
+        // Search up the directory tree for .auditor_venv (max 10 levels)
+        for (let i = 0; i < 10; i++) {
+            const potentialPath = path.join(searchDir, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+            if (fs.existsSync(potentialPath)) {
+                tsPath = potentialPath;
+                break;
+            }
+            const parent = path.dirname(searchDir);
+            if (parent === searchDir) break;  // Reached root
+            searchDir = parent;
+        }
+
+        // Fallback to project root if not found
+        if (!tsPath) {
+            tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+        }
 
         if (!fs.existsSync(tsPath)) {
             throw new Error(`TypeScript not found at: ${tsPath}`);
@@ -413,8 +431,8 @@ async function main() {
                     const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                     const sqlQueries = extractSQLQueries(functionCallArgs);
                     const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
-                    const sequelizeModels = extractSequelizeModels(functions, classes, functionCallArgs, imports);
-                    const bullmqJobs = extractBullMQJobs(functions, classes, functionCallArgs, imports);
+                    const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports);
+                    const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
                     const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
 
                     let vueComponents = [];
@@ -481,12 +499,15 @@ async function main() {
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
                             cdk_constructs: cdkConstructs,
-                            sequelize_models: sequelizeModels,
-                            bullmq_jobs: bullmqJobs,
-                            angular_components: angularData.components,
-                            angular_services: angularData.services,
-                            angular_modules: angularData.modules,
-                            angular_guards: angularData.guards,
+                            sequelize_models: sequelizeData.sequelize_models || [],
+                            sequelize_associations: sequelizeData.sequelize_associations || [],
+                            bullmq_queues: bullmqData.bullmq_queues || [],
+                            bullmq_workers: bullmqData.bullmq_workers || [],
+                            angular_components: angularData.components || [],
+                            angular_services: angularData.services || [],
+                            angular_modules: angularData.modules || [],
+                            angular_guards: angularData.guards || [],
+                            di_injections: angularData.di_injections || [],
                             vue_components: vueComponents,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
@@ -710,8 +731,26 @@ try {
         throw new Error("projectRoot not provided in batch request");
     }
 
-    // Load TypeScript
-    const tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+    // Load TypeScript - search up the directory tree for .auditor_venv
+    let tsPath = null;
+    let searchDir = projectRoot;
+
+    // Search up the directory tree for .auditor_venv (max 10 levels)
+    for (let i = 0; i < 10; i++) {
+        const potentialPath = path.join(searchDir, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+        if (fs.existsSync(potentialPath)) {
+            tsPath = potentialPath;
+            break;
+        }
+        const parent = path.dirname(searchDir);
+        if (parent === searchDir) break;  // Reached root
+        searchDir = parent;
+    }
+
+    // Fallback to project root if not found
+    if (!tsPath) {
+        tsPath = path.join(projectRoot, '.auditor_venv', '.theauditor_tools', 'node_modules', 'typescript', 'lib', 'typescript.js');
+    }
 
     if (!fs.existsSync(tsPath)) {
         throw new Error(`TypeScript not found at: ${tsPath}`);

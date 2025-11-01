@@ -74,7 +74,25 @@ class JSSemanticParser:
         
         # CRITICAL FIX: Find the sandboxed node executable (like linters do)
         # Platform-agnostic: Check multiple possible locations
-        sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools"
+        # Look for .auditor_venv by traversing up from project_root
+        search_dir = self.project_root
+        sandbox_base = None
+
+        # Search up the directory tree for .auditor_venv
+        for _ in range(10):  # Limit search depth to avoid infinite loop
+            potential_venv = search_dir / ".auditor_venv" / ".theauditor_tools"
+            if potential_venv.exists():
+                sandbox_base = potential_venv
+                break
+            parent = search_dir.parent
+            if parent == search_dir:  # Reached root of filesystem
+                break
+            search_dir = parent
+
+        # Fallback to project_root if not found
+        if sandbox_base is None:
+            sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools"
+
         node_runtime = sandbox_base / "node-runtime"
         
         # Check all possible node locations (Windows or Unix layout)
@@ -142,13 +160,29 @@ class JSSemanticParser:
         
     def _check_tsc_availability(self) -> bool:
         """Check if TypeScript compiler is available in our sandbox.
-        
+
         CRITICAL: We ONLY use our own sandboxed TypeScript installation.
         We do not check or use any user-installed versions.
         """
         # Check our sandbox location ONLY - no invasive checking of user's environment
-        # CRITICAL: Use absolute path from project root to avoid finding wrong sandboxes
-        sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools" / "node_modules"
+        # CRITICAL: Search up the directory tree for .auditor_venv
+        search_dir = self.project_root
+        sandbox_base = None
+
+        # Search up the directory tree for .auditor_venv
+        for _ in range(10):  # Limit search depth
+            potential_venv = search_dir / ".auditor_venv" / ".theauditor_tools" / "node_modules"
+            if potential_venv.exists():
+                sandbox_base = potential_venv
+                break
+            parent = search_dir.parent
+            if parent == search_dir:  # Reached root
+                break
+            search_dir = parent
+
+        # Fallback to project_root if not found
+        if sandbox_base is None:
+            sandbox_base = self.project_root / ".auditor_venv" / ".theauditor_tools" / "node_modules"
         
         # Check if sandbox exists at the absolute location
         sandbox_locations = [sandbox_base]

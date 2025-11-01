@@ -255,6 +255,171 @@ TYPE_ANNOTATIONS = TableSchema(
 # PRISMA_MODELS - Moved to frameworks_schema.py
 
 # ============================================================================
+# SEQUELIZE ORM TABLES
+# ============================================================================
+
+SEQUELIZE_MODELS = TableSchema(
+    name="sequelize_models",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("model_name", "TEXT", nullable=False),
+        Column("table_name", "TEXT", nullable=True),  # Can be NULL if inferred from model name
+        Column("extends_model", "BOOLEAN", default="0"),  # True if explicitly extends Model
+    ],
+    primary_key=["file", "model_name"],
+    indexes=[
+        ("idx_sequelize_models_file", ["file"]),
+        ("idx_sequelize_models_name", ["model_name"]),
+    ]
+)
+
+SEQUELIZE_ASSOCIATIONS = TableSchema(
+    name="sequelize_associations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("model_name", "TEXT", nullable=False),
+        Column("association_type", "TEXT", nullable=False),  # 'hasMany', 'belongsTo', 'hasOne', 'belongsToMany'
+        Column("target_model", "TEXT", nullable=False),
+        Column("foreign_key", "TEXT", nullable=True),  # Can be NULL if using convention
+        Column("through_table", "TEXT", nullable=True),  # Only for belongsToMany
+    ],
+    primary_key=["file", "model_name", "association_type", "target_model", "line"],
+    indexes=[
+        ("idx_sequelize_assoc_file", ["file"]),
+        ("idx_sequelize_assoc_model", ["model_name"]),
+        ("idx_sequelize_assoc_target", ["target_model"]),
+        ("idx_sequelize_assoc_type", ["association_type"]),
+    ]
+)
+
+# ============================================================================
+# BULLMQ JOB QUEUES TABLES
+# ============================================================================
+
+BULLMQ_QUEUES = TableSchema(
+    name="bullmq_queues",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("queue_name", "TEXT", nullable=False),
+        Column("redis_config", "TEXT", nullable=True),  # Stringified config
+    ],
+    primary_key=["file", "queue_name"],
+    indexes=[
+        ("idx_bullmq_queues_file", ["file"]),
+        ("idx_bullmq_queues_name", ["queue_name"]),
+    ]
+)
+
+BULLMQ_WORKERS = TableSchema(
+    name="bullmq_workers",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("queue_name", "TEXT", nullable=False),
+        Column("worker_function", "TEXT", nullable=True),  # Function name or 'anonymous'
+        Column("processor_path", "TEXT", nullable=True),  # File path if imported
+    ],
+    primary_key=["file", "queue_name", "line"],
+    indexes=[
+        ("idx_bullmq_workers_file", ["file"]),
+        ("idx_bullmq_workers_queue", ["queue_name"]),
+    ]
+)
+
+# ============================================================================
+# ANGULAR FRAMEWORK TABLES
+# ============================================================================
+
+ANGULAR_COMPONENTS = TableSchema(
+    name="angular_components",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("component_name", "TEXT", nullable=False),
+        Column("selector", "TEXT", nullable=True),  # Can be NULL for abstract components
+        Column("template_path", "TEXT", nullable=True),
+        Column("style_paths", "TEXT", nullable=True),  # JSON array of style file paths
+        Column("has_lifecycle_hooks", "BOOLEAN", default="0"),
+    ],
+    primary_key=["file", "component_name"],
+    indexes=[
+        ("idx_angular_components_file", ["file"]),
+        ("idx_angular_components_name", ["component_name"]),
+        ("idx_angular_components_selector", ["selector"]),
+    ]
+)
+
+ANGULAR_SERVICES = TableSchema(
+    name="angular_services",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("service_name", "TEXT", nullable=False),
+        Column("is_injectable", "BOOLEAN", default="1"),  # Always true for services
+        Column("provided_in", "TEXT", nullable=True),  # 'root', 'any', or module name
+    ],
+    primary_key=["file", "service_name"],
+    indexes=[
+        ("idx_angular_services_file", ["file"]),
+        ("idx_angular_services_name", ["service_name"]),
+    ]
+)
+
+ANGULAR_MODULES = TableSchema(
+    name="angular_modules",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("module_name", "TEXT", nullable=False),
+        Column("declarations", "TEXT", nullable=True),  # JSON array of component/directive names
+        Column("imports", "TEXT", nullable=True),  # JSON array of imported modules
+        Column("providers", "TEXT", nullable=True),  # JSON array of service providers
+        Column("exports", "TEXT", nullable=True),  # JSON array of exported declarations
+    ],
+    primary_key=["file", "module_name"],
+    indexes=[
+        ("idx_angular_modules_file", ["file"]),
+        ("idx_angular_modules_name", ["module_name"]),
+    ]
+)
+
+ANGULAR_GUARDS = TableSchema(
+    name="angular_guards",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("guard_name", "TEXT", nullable=False),
+        Column("guard_type", "TEXT", nullable=False),  # 'CanActivate', 'CanDeactivate', 'CanLoad', 'Resolve'
+        Column("implements_interface", "TEXT", nullable=True),  # Interface name
+    ],
+    primary_key=["file", "guard_name"],
+    indexes=[
+        ("idx_angular_guards_file", ["file"]),
+        ("idx_angular_guards_name", ["guard_name"]),
+        ("idx_angular_guards_type", ["guard_type"]),
+    ]
+)
+
+DI_INJECTIONS = TableSchema(
+    name="di_injections",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("target_class", "TEXT", nullable=False),  # Component/service that injects
+        Column("injected_service", "TEXT", nullable=False),  # Service being injected
+        Column("injection_type", "TEXT", nullable=False),  # 'constructor' or 'property'
+    ],
+    indexes=[
+        ("idx_di_injections_file", ["file"]),
+        ("idx_di_injections_target", ["target_class"]),
+        ("idx_di_injections_service", ["injected_service"]),
+    ]
+)
+
+# ============================================================================
 # BUILD ANALYSIS TABLES
 # ============================================================================
 
@@ -422,4 +587,19 @@ NODE_TABLES: Dict[str, TableSchema] = {
     "frameworks": FRAMEWORKS,
     "framework_safe_sinks": FRAMEWORK_SAFE_SINKS,
     "validation_framework_usage": VALIDATION_FRAMEWORK_USAGE,
+
+    # Sequelize ORM
+    "sequelize_models": SEQUELIZE_MODELS,
+    "sequelize_associations": SEQUELIZE_ASSOCIATIONS,
+
+    # BullMQ Job Queues
+    "bullmq_queues": BULLMQ_QUEUES,
+    "bullmq_workers": BULLMQ_WORKERS,
+
+    # Angular Framework
+    "angular_components": ANGULAR_COMPONENTS,
+    "angular_services": ANGULAR_SERVICES,
+    "angular_modules": ANGULAR_MODULES,
+    "angular_guards": ANGULAR_GUARDS,
+    "di_injections": DI_INJECTIONS,
 }
