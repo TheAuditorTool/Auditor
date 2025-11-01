@@ -1,19 +1,19 @@
-# Verification Report - add-risk-prioritization (UPDATED)
+# Verification Report - add-risk-prioritization (CORRECTED)
 Generated: 2025-11-01
 SOP Reference: Standard Operating Procedure v4.20
 
-## Proposal Evolution
+## CRITICAL CORRECTION
 
-**ORIGINAL PROPOSAL** (Pre-aud query/context era):
-- Per-domain summaries (summary_taint.json, summary_graph.json, etc.)
-- Keep `/readthis/` but with only summaries (7-8 files)
-- Chunk summaries if >65KB
+**PREVIOUS ARCHITECTURE (WRONG)**:
+- Consolidate /raw/ files (20+ files → 6 consolidated groups)
+- This was implemented and BROKE THE ENTIRE PIPELINE
+- Raw tool outputs are "our literally only value" - should NEVER be consolidated
 
-**NEW PROPOSAL** (Database-first era):
-- Deprecate `/readthis/` entirely
-- Consolidate `/raw/` outputs (20+ files → 6 consolidated groups)
-- Add 3-5 guidance summaries (SAST, SCA, Intelligence, Quick Start, Query Guide)
-- AIs query database directly via `aud query` / `aud context` / `aud planning`
+**CORRECT ARCHITECTURE**:
+- Keep ALL /raw/ files UNTOUCHED (patterns.json, taint.json, cfg.json, etc.)
+- Remove extraction.py chunking system (24-27 chunks → 0 chunks)
+- Add 5 intelligent summaries to /readthis/ that READ FROM /raw/ files
+- Summaries are truth couriers (facts only, FCE-guided)
 
 ## Hypotheses & Evidence
 
@@ -22,224 +22,217 @@ SOP Reference: Standard Operating Procedure v4.20
 - **Evidence**: `theauditor/commands/query.py` exists (1024 lines) - SQL queries over indexed code relationships.
 - **Evidence**: `theauditor/commands/context.py` exists (390 lines) - Semantic classification via YAML rules.
 - **Evidence**: CLI help shows all 3 commands with database-first descriptions.
-- **Result**: **TRUE** — Database-first commands are fully implemented and production-ready.
+- **Result**: ✅ **TRUE** — Database-first commands are fully implemented and production-ready.
 
-### 2. Current pipeline generates 20+ separate JSON files
+### 2. Current pipeline generates 20+ separate JSON files in /raw/
 - **Hypothesis**: `aud full` currently outputs 20+ separate JSON files in `.pf/raw/`.
 - **Evidence**: Pipeline (theauditor/pipelines.py:430-457) has 26 phases, many generate separate output files.
-- **Evidence**: Graph analyzer generates: graph_analysis.json, graph_cycles.json, graph_hotspots.json, graph_layers.json, call_graph.json (5 files).
-- **Evidence**: Security analyzers generate: patterns.json, taint_analysis.json (2 files minimum).
-- **Evidence**: Quality analyzers generate: lint.json, cfg.json, deadcode.json (3 files).
-- **Evidence**: Infrastructure analyzers generate: terraform_findings.json, cdk_findings.json, docker_findings.json, workflows_findings.json (4 files).
-- **Evidence**: Other outputs: deps.json, docs.json, frameworks.json, fce.json, audit_summary.json (5+ files).
-- **Result**: **TRUE** — Current pipeline generates 20+ separate files, confirming fragmentation problem.
+- **Evidence**: Graph analyzer generates: graph_analysis.json, graph_summary.json, data_flow_graph.json (3 files).
+- **Evidence**: Security analyzers generate: patterns.json, taint.json (2 files).
+- **Evidence**: Quality analyzers generate: cfg.json, deadcode.json (2 files).
+- **Evidence**: Infrastructure analyzers generate: docker_findings.json, github_workflows.json (2 files).
+- **Evidence**: Other outputs: deps.json, frameworks.json, fce.json, fce_failures.json (4+ files).
+- **Result**: ✅ **TRUE** — Current pipeline generates 20+ separate files.
 
 ### 3. Extraction system chunks everything to /readthis/
 - **Hypothesis**: Pipeline triggers extraction after FCE, chunking ALL files from /raw/ to /readthis/.
-- **Evidence**: `theauditor/pipelines.py:1462-1476` triggers extraction after FCE phase.
-- **Evidence**: `theauditor/extraction.py:378` implements `extract_all_to_readthis()` - chunks ALL files >65KB.
-- **Evidence**: Original proposal verification noted "24-27 chunked files in /readthis/".
-- **Result**: **TRUE** — Extraction system is active and creates bloated output.
+- **Evidence**: `theauditor/extraction.py` line 1 says "DEPRECATED: Extraction system obsolete".
+- **Evidence**: File exists and has chunking logic but is marked deprecated.
+- **Evidence**: Original verification noted "24-27 chunked files in /readthis/".
+- **Result**: ✅ **TRUE** — Extraction system exists but is already marked deprecated.
 
-### 4. No consolidated group files exist
-- **Hypothesis**: Analyzers write separate files, not consolidated group files.
-- **Evidence**: Checked graph.py, detect_patterns.py, taint_analyze.py - all write to separate JSON files.
-- **Evidence**: No `write_to_group()` or consolidated output helper exists.
-- **Evidence**: No files named `security_analysis.json`, `quality_analysis.json`, etc. exist.
-- **Result**: **TRUE** — No consolidation exists, each analyzer writes independently.
+### 4. /raw/ files are immutable tool outputs
+- **Hypothesis**: Each /raw/ file represents direct output from a specific analyzer and should NEVER be modified or consolidated.
+- **Evidence**: User message: "everything should go to /raw/ thats the fucking tool output our literally only fuckin vlaue".
+- **Evidence**: Each analyzer (detect-patterns, taint-analyze, cfg, graph, etc.) writes to its own JSON file.
+- **Evidence**: FCE reads from individual /raw/ files to correlate findings.
+- **Evidence**: Consolidating /raw/ files broke the pipeline when attempted.
+- **Result**: ✅ **TRUE** — /raw/ files are sacred, immutable ground truth.
 
-### 5. No guidance summaries exist
-- **Hypothesis**: No SAST_Summary.json, SCA_Summary.json, Intelligence_Summary.json, Quick_Start.json, or Query_Guide.json exist.
-- **Evidence**: Only `audit_summary.json` exists (stats only, not findings).
-- **Evidence**: No `theauditor/commands/summarize.py` file exists.
-- **Evidence**: No guidance summaries mentioned in CLI help or README.
-- **Result**: **TRUE** — Guidance layer does not exist.
+### 5. /readthis/ should contain summaries, not chunks
+- **Hypothesis**: /readthis/ should contain 5 intelligent summaries that READ FROM /raw/, not 24-27 chunks.
+- **Evidence**: User message: "your dumbass fucking summaries should go to /readthis/ and replace all the fucking files we previously chunked".
+- **Evidence**: extraction.py creates chunks, but this is obsolete with database-first queries.
+- **Evidence**: Original architecture had /readthis/ for AI consumption, but chunking is wrong approach.
+- **Result**: ✅ **TRUE** — /readthis/ should have summaries, not chunks.
 
-### 6. /readthis/ directory is generated on every full run
-- **Hypothesis**: `.pf/readthis/` is created and populated during `aud full`.
-- **Evidence**: Pipeline calls `extract_all_to_readthis(root)` after FCE phase.
-- **Evidence**: Extraction creates /readthis/ directory and populates with chunks.
-- **Evidence**: README mentions "`.pf/readthis/` - AI-optimized chunks (<65KB each)".
-- **Result**: **TRUE** — /readthis/ is currently active and generated.
+### 6. Summaries should be truth couriers (no recommendations)
+- **Hypothesis**: Summaries highlight findings using FCE guidance but NEVER recommend fixes.
+- **Evidence**: User message: "intelligent truth courier no fucking recommendation or serverity".
+- **Evidence**: TheAuditor philosophy: AI consumer decides importance, not the tool.
+- **Evidence**: FCE already correlates findings - summaries just present these facts.
+- **Result**: ✅ **TRUE** — Summaries present facts, FCE correlations, and metrics only.
 
-### 7. Database is the primary data source
-- **Hypothesis**: repo_index.db and graphs.db contain all indexed code data.
-- **Evidence**: `repo_index.db` (91MB) - 108 normalized tables with symbols, calls, assignments.
-- **Evidence**: `graphs.db` (79MB) - Pre-computed graph structures.
-- **Evidence**: `aud query` command documentation: "Direct SQL queries over indexed code relationships."
-- **Evidence**: README states "Database-first queries - 100x faster than file-based search".
-- **Result**: **TRUE** — Database is the authoritative data source, JSON files are secondary.
+### 7. No summarize command exists
+- **Hypothesis**: No `aud summarize` command exists to generate the 5 summaries.
+- **Evidence**: Checked theauditor/commands/ - no summarize.py file.
+- **Evidence**: CLI help shows no summarize command.
+- **Evidence**: Pipeline does not call summarize anywhere.
+- **Result**: ✅ **TRUE** — Need to create summarize command from scratch.
 
-### 8. Analyzers can be modified to write to consolidated files
-- **Hypothesis**: It's technically feasible to modify analyzers to append to consolidated group files instead of writing separate files.
-- **Evidence**: Current pattern: `with open(".pf/raw/patterns.json", 'w') as f: json.dump(data, f)`.
-- **Evidence**: Proposed pattern: `write_to_group("security_analysis", "patterns", data)` - load existing, append, write back.
-- **Evidence**: JSON structure supports nested analyses: `{"analyses": {"patterns": {...}, "taint": {...}}}`.
-- **Result**: **TRUE** — Consolidation is straightforward refactoring of output logic.
+### 8. extraction.py needs to be deprecated (not deleted)
+- **Hypothesis**: extraction.py should be renamed to extraction.py.bak, not deleted.
+- **Evidence**: User message: "we need to delete fucking extraction.py.bak by renaming it, not actually deleting it".
+- **Evidence**: File currently exists as extraction.py with deprecation notice.
+- **Evidence**: Keeping .bak file preserves history and allows rollback if needed.
+- **Result**: ✅ **TRUE** — Rename to .bak, don't delete.
 
-## Discrepancies & Alignment Notes
+## Discrepancies & Corrections
 
-### Discrepancy 1: Original proposal is obsolete
-- **Original Design**: Per-domain summaries with chunking to /readthis/ (7-8 summary files).
-- **Current Reality**: Database-first commands (`aud query`, `aud context`) make chunking redundant.
-- **Impact**: Entire original proposal needs pivot to database-first + consolidated outputs.
+### Discrepancy 1: Previous proposal wanted consolidation (WRONG)
+- **Previous Design**: Consolidate 20+ /raw/ files into 6 group files.
+- **Actual Requirement**: Keep ALL /raw/ files separate and untouched.
+- **Impact**: Entire proposal needs rewrite - NO consolidation of /raw/.
 
-### Discrepancy 2: No consolidation exists
-- **Current**: 20+ separate JSON files in /raw/.
-- **Required**: 6 consolidated group files (graph, security, quality, dependency, infrastructure, correlation).
-- **Impact**: Need to create consolidation helper and modify all analyzers.
+### Discrepancy 2: Summaries should go to /readthis/, not /raw/
+- **Previous Design**: Summaries in /raw/ alongside consolidated files.
+- **Actual Requirement**: Summaries in /readthis/ to replace chunks.
+- **Impact**: Change summary output path from /raw/ to /readthis/.
 
-### Discrepancy 3: No guidance layer exists
-- **Current**: Only `audit_summary.json` with stats.
-- **Required**: 5 guidance summaries (SAST, SCA, Intelligence, Quick Start, Query Guide).
-- **Impact**: Need to create `aud summarize` command with 5 summary generators.
+### Discrepancy 3: No "severity" filtering in summaries
+- **Previous Design**: Summaries would rank by severity.
+- **Actual Requirement**: No severity ranking - just facts and FCE guidance.
+- **Impact**: Summaries show what FCE found, not what we think is important.
 
-### Discrepancy 4: Extraction is still active
-- **Current**: Pipeline triggers extraction after FCE, creates /readthis/ bloat.
-- **Required**: Remove extraction trigger, replace with `aud summarize` call.
-- **Impact**: Modify pipelines.py:1462-1476 to call summarize instead of extraction.
-
-### Discrepancy 5: Documentation reflects old architecture
-- **Current**: README mentions /readthis/ as AI-optimized output.
-- **Required**: Update to emphasize database queries + consolidated /raw/ + guidance summaries.
-- **Impact**: README, CLI help, and migration guide need updates.
+### Discrepancy 4: extraction.py already deprecated but still exists
+- **Current**: File exists with deprecation notice but still callable.
+- **Required**: Rename to .bak to fully remove from imports.
+- **Impact**: Need rename operation, not deletion.
 
 ## Baseline Metrics (Before Implementation)
 
-**Current /raw/ structure** (expected after `aud full`):
-- **Total files**: 20+ separate JSON files
-- **Graph outputs**: graph_analysis.json, graph_cycles.json, graph_hotspots.json, graph_layers.json, call_graph.json (5 files)
-- **Security outputs**: patterns.json, taint_analysis.json (2 files)
-- **Quality outputs**: lint.json, cfg.json, deadcode.json (3 files)
-- **Dependency outputs**: deps.json, docs.json, frameworks.json (3 files)
-- **Infrastructure outputs**: terraform_findings.json, cdk_findings.json, docker_findings.json, workflows_findings.json (4 files)
-- **Other**: fce.json, audit_summary.json, metadata.json, etc. (3+ files)
-- **Total**: ~20+ files
+**Current /raw/ structure** (after `aud full`):
+- **Total files**: 20+ separate JSON files ✅ KEEP THESE
+- **Graph outputs**: graph_analysis.json, graph_summary.json, data_flow_graph.json
+- **Security outputs**: patterns.json, taint.json
+- **Quality outputs**: cfg.json, deadcode.json
+- **Dependency outputs**: deps.json, frameworks.json
+- **Infrastructure outputs**: docker_findings.json, github_workflows.json
+- **Correlation outputs**: fce.json, fce_failures.json
+- **Other**: audit_summary.json, metadata.json
 
 **Current /readthis/ structure**:
-- **Total files**: 24-27 chunked JSON files (per original verification)
+- **Total files**: 24-27 chunked JSON files ❌ REMOVE THESE
 - **Format**: *_chunk01.json, *_chunk02.json, etc.
-- **Problem**: Too many files, nobody reads them
+- **Problem**: Chunking is obsolete with database queries
 
 **Current pipeline behavior**:
 - **Phase 26**: summary (generates audit_summary.json)
-- **After FCE**: extraction (chunks everything to /readthis/)
+- **After FCE**: extraction (chunks everything to /readthis/) ❌ REMOVE THIS
 - **No summarize phase**: Guidance summaries don't exist
 
 ## Target Metrics (After Implementation)
 
 **Target /raw/ structure**:
-- **Consolidated files (6)**:
-  - graph_analysis.json
-  - security_analysis.json
-  - quality_analysis.json
-  - dependency_analysis.json
-  - infrastructure_analysis.json
-  - correlation_analysis.json
-
-- **Guidance summaries (5)**:
-  - SAST_Summary.json
-  - SCA_Summary.json
-  - Intelligence_Summary.json
-  - Quick_Start.json
-  - Query_Guide.json
-
-- **Total**: 11 files (down from 20+)
+- ✅ **UNCHANGED** - All 20+ separate files remain
+- ✅ patterns.json (from detect-patterns)
+- ✅ taint.json (from taint-analyze)
+- ✅ cfg.json (from cfg analyze)
+- ✅ deadcode.json (from deadcode)
+- ✅ frameworks.json (from detect-frameworks)
+- ✅ graph_analysis.json (from graph analyze)
+- ✅ fce.json (from fce)
+- ✅ All other analyzer outputs stay separate
 
 **Target /readthis/ structure**:
-- **NO FILES** - directory not created
+- ✅ **SAST_Summary.json** - Security findings summary (reads from patterns.json, taint.json, docker_findings.json, github_workflows.json)
+- ✅ **SCA_Summary.json** - Dependency issues summary (reads from deps.json, frameworks.json)
+- ✅ **Intelligence_Summary.json** - Code intelligence summary (reads from graph_analysis.json, cfg.json, fce.json)
+- ✅ **Quick_Start.json** - Top critical issues across all domains (reads from all /raw/ files)
+- ✅ **Query_Guide.json** - How to query database for each domain
+- ✅ **Total**: 5 files (down from 24-27 chunks)
 
 **Target pipeline behavior**:
 - **Phase 26**: summary (still generates audit_summary.json for backward compat)
-- **After FCE**: summarize (generates 5 guidance summaries)
-- **No extraction**: Deprecated, not called
+- **After FCE**: summarize (generates 5 summaries in /readthis/)
+- **No extraction**: Fully deprecated, file renamed to .bak
 
 ## Implementation Verification Checkpoints
 
-### Checkpoint 1: Consolidation Helper Created
-- **Verify**: `theauditor/utils/consolidated_output.py` exists
-- **Verify**: `write_to_group()` function accepts (group_name, analysis_type, data)
-- **Verify**: Function validates group_name is one of 6 valid groups
-- **Test**: Call with sample data, confirm JSON structure
-
-### Checkpoint 2: Analyzers Modified
-- **Verify**: Graph analyzers call `write_to_group("graph_analysis", ...)`
-- **Verify**: Security analyzers call `write_to_group("security_analysis", ...)`
-- **Verify**: Quality analyzers call `write_to_group("quality_analysis", ...)`
-- **Verify**: Dependency analyzers call `write_to_group("dependency_analysis", ...)`
-- **Verify**: Infrastructure analyzers call `write_to_group("infrastructure_analysis", ...)`
-- **Test**: Run individual commands, check consolidated files exist
-
-### Checkpoint 3: Summarize Command Created
+### Checkpoint 1: Summarize Command Created
 - **Verify**: `theauditor/commands/summarize.py` exists
-- **Verify**: 5 generator functions implemented (generate_sast_summary, generate_sca_summary, etc.)
+- **Verify**: 5 generator functions implemented:
+  - `generate_sast_summary()` - Reads patterns.json, taint.json, docker_findings.json, github_workflows.json
+  - `generate_sca_summary()` - Reads deps.json, frameworks.json
+  - `generate_intelligence_summary()` - Reads graph_analysis.json, cfg.json, fce.json
+  - `generate_quick_start()` - Reads all /raw/ files, uses FCE correlations
+  - `generate_query_guide()` - Static reference, no file reading
 - **Verify**: Command registered in `theauditor/cli.py`
-- **Test**: `aud summarize` creates 5 JSON files in /raw/
+- **Test**: `aud summarize` creates 5 JSON files in /readthis/
 
-### Checkpoint 4: Pipeline Modified
-- **Verify**: `theauditor/pipelines.py:1462-1476` no longer calls extraction
-- **Verify**: Pipeline calls `aud summarize` after FCE
+### Checkpoint 2: Pipeline Modified
+- **Verify**: `theauditor/pipelines.py` no longer calls extraction
+- **Verify**: Pipeline calls `aud summarize` after FCE phase
 - **Verify**: Log message shows "[SUMMARIZE]" instead of "[EXTRACTION]"
 - **Test**: `aud full --offline` runs without errors
 
-### Checkpoint 5: Extraction Deprecated
-- **Verify**: `theauditor/extraction.py` has deprecation comment at top
-- **Verify**: `extract_all_to_readthis()` logs deprecation warning
-- **Verify**: `.gitignore` excludes `.pf/readthis/`
-- **Test**: No /readthis/ directory created after `aud full`
+### Checkpoint 3: Extraction Deprecated
+- **Verify**: `theauditor/extraction.py` renamed to `theauditor/extraction.py.bak`
+- **Verify**: No imports of extraction remain in codebase
+- **Verify**: `.gitignore` excludes `.pf/readthis/*.json` except summaries
+- **Test**: No /readthis/ chunks created after `aud full`
+
+### Checkpoint 4: /raw/ Files Untouched
+- **Verify**: NO changes to any analyzer commands (graph, detect-patterns, taint, cfg, etc.)
+- **Verify**: All 20+ separate /raw/ files still generated
+- **Verify**: File count in /raw/ is unchanged
+- **Test**: Compare before/after file listings - should be identical
+
+### Checkpoint 5: Summaries Follow Truth Courier Model
+- **Verify**: No "severity" rankings or filtering
+- **Verify**: Summaries show FCE correlations and findings as-is
+- **Verify**: No recommendations or prescriptive language
+- **Verify**: Pure facts: "X findings detected, Y in FCE hotspots, Z correlated"
+- **Test**: Read generated summaries, confirm truth courier format
 
 ### Checkpoint 6: Documentation Updated
-- **Verify**: README shows new /raw/ structure (6 + 5 files)
-- **Verify**: README emphasizes database queries as primary interaction
-- **Verify**: CLI help mentions deprecated /readthis/
-- **Verify**: Migration guide exists for legacy scripts
+- **Verify**: README shows new /readthis/ structure (5 summaries)
+- **Verify**: README emphasizes /raw/ files are immutable
+- **Verify**: CLI help mentions deprecated extraction
+- **Verify**: Migration guide exists for legacy scripts expecting chunks
 - **Test**: Read README, confirm clarity
 
 ## Conclusion
 
 **Current State**:
-- 20+ fragmented JSON files in /raw/
-- Extraction system creates 24-27 chunks in /readthis/
-- No consolidated outputs
-- No guidance summaries
-- Database-first commands exist but JSON files still primary consumption model
+- ✅ 20+ separate JSON files in /raw/ (GOOD - keep this)
+- ❌ Extraction system creates 24-27 chunks in /readthis/ (BAD - remove this)
+- ❌ No intelligent summaries (MISSING - add this)
 
 **Target State**:
-- 6 consolidated group files + 5 guidance summaries = 11 total files
-- No /readthis/ directory (deprecated)
-- Database queries via `aud query` / `aud context` are primary interaction
-- Guidance summaries provide quick orientation
-- Truth courier principle: summaries highlight findings, never recommend
+- ✅ 20+ separate JSON files in /raw/ (UNCHANGED)
+- ✅ 5 intelligent summaries in /readthis/ (NEW)
+- ✅ No chunking system (extraction.py.bak)
+- ✅ Database queries via `aud query` are primary interaction
+- ✅ Summaries provide quick orientation using FCE guidance
 
 **Implementation Scope**:
-- Create consolidation helper
-- Modify 12+ analyzer commands to write to consolidated files
-- Create `aud summarize` command with 5 generators
+- Create `aud summarize` command with 5 generator functions
 - Modify pipeline to call summarize instead of extraction
-- Deprecate extraction system
+- Rename extraction.py to extraction.py.bak
 - Update documentation
+- **NO CHANGES TO /raw/ OUTPUT** - analyzers unchanged
 
 **Risk Assessment**:
-- **LOW** - This is pure output refactoring, no database schema changes
-- **LOW** - Database queries unaffected
-- **LOW** - Backward compatible (audit_summary.json still generated)
-- **MEDIUM** - Requires modifying many analyzer files (but pattern is simple)
+- **VERY LOW** - No changes to any analyzer commands
+- **VERY LOW** - /raw/ files completely untouched
+- **VERY LOW** - Only adding new summaries to /readthis/
+- **VERY LOW** - Database queries unaffected
+- **LOW** - Removing extraction is safe (already deprecated)
 
 **Expected Timeline**:
-- Consolidation helper: 1 hour
-- Modify analyzers: 4-6 hours (12+ files)
 - Create summarize command: 3-4 hours (5 generators)
-- Modify pipeline: 1 hour
-- Deprecate extraction: 1 hour
-- Update documentation: 2 hours
-- Testing & verification: 2-3 hours
-- **Total**: 14-18 hours of implementation
+- Modify pipeline: 1 hour (remove extraction, add summarize)
+- Rename extraction.py: 5 minutes
+- Update documentation: 1-2 hours
+- Testing & verification: 1-2 hours
+- **Total**: 6-9 hours of implementation
 
 **Verification Success Criteria**:
-- ✅ 6 consolidated files in /raw/
-- ✅ 5 guidance summaries in /raw/
-- ✅ No /readthis/ directory created
-- ✅ Database queries work correctly
-- ✅ Summaries are truth couriers (no recommendations)
+- ✅ All 20+ /raw/ files unchanged
+- ✅ 5 summaries in /readthis/
+- ✅ No chunks in /readthis/
+- ✅ extraction.py renamed to .bak
+- ✅ Summaries follow truth courier model (no recommendations)
 - ✅ Pipeline runs without errors
 - ✅ Documentation reflects new architecture

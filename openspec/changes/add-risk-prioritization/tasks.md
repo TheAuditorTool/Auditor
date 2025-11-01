@@ -1,210 +1,393 @@
-## Implementation Status Summary
+# Implementation Tasks - add-risk-prioritization (CORRECTED)
 
-**Last Updated**: 2025-11-01 18:30 UTC
-**Overall Status**: ✅ **IMPLEMENTATION COMPLETE** | ✅ **VERIFICATION COMPLETE** | ⚠️ **75% FUNCTIONAL**
+## CRITICAL CORRECTION
 
-**Progress**:
-- Sections 0-11: ✅ **COMPLETE** (all implementation tasks)
-- Section 12: ✅ **COMPLETE** (4x aud full runs analyzed)
-- Section 13: ✅ **COMPLETE** (linters, validation, tests)
+**PREVIOUS IMPLEMENTATION (WRONG)**:
+- Created consolidated_output.py to merge /raw/ files
+- Modified 18 analyzer files to write to consolidated groups
+- This BROKE THE ENTIRE PIPELINE
+- All changes have been REVERTED
 
-**Files Modified**: 20 total (2 commits)
-- 2 new files: `consolidated_output.py`, `summarize.py`
-- 18 updated files: analyzers, pipeline, CLI, docs
-
-**Verification** (4x aud full runs: PlantFlow, project_anarchy, TheAuditor, plant):
-- ✅ OpenSpec validation PASSED
-- ✅ Linters PASSED (minor style warnings only)
-- ✅ Source code verification PASSED (17 consolidation points implemented)
-- ⚠️ Consolidated files: 23 of 24 exist (93% success)
-- ⚠️ Guidance summaries: 9 of 20 exist (45% success - 2 summaries missing)
-- ✅ Extraction deprecated: 0 .pf/readthis/ files across all projects
-- ✅ Pipeline integration: [SUMMARIZE] executes successfully
-
-**Known Issues**:
-- ❌ Intelligence_Summary.json not implemented (0 of 4 projects)
-- ❌ Quick_Start.json not implemented (0 of 4 projects)
-- ❌ Silent failure masking (claims "5 summaries" when only 0-3 created)
-
-**Legend**:
-- `[x]` = Complete
-- `[ ]` = Blocked on end-to-end test
-- `[~]` = Skipped (with justification)
+**CORRECT IMPLEMENTATION**:
+- Keep ALL /raw/ files unchanged
+- Create summaries in /readthis/ that READ FROM /raw/
+- Deprecate extraction.py chunking system
+- NO changes to analyzer commands
 
 ---
 
-## 0. Verification (SOP v4.20 alignment)
-- [x] 0.1 Record hypotheses, evidence, and discrepancies in `verification.md` before implementation.
-- [x] 0.2 Review current analyzer output patterns to confirm file generation behavior.
-- [x] 0.3 Review `theauditor/pipelines.py` extraction trigger (lines 1462-1476).
-- [x] 0.4 Capture baseline: list all files currently generated in `.pf/raw/` after `aud full`.
+## 0. Verification (COMPLETE ✅)
+- [x] Read proposal and understand requirements
+- [x] Verify database-first commands exist (query, context, planning)
+- [x] Verify current /raw/ structure (20+ separate files)
+- [x] Verify extraction system creates chunks in /readthis/
+- [x] Document hypotheses and evidence in verification.md
+- [x] **CRITICAL**: Identify that consolidating /raw/ was WRONG architecture
+- [x] Rewrite verification.md with correct architecture
+- [x] Rewrite proposal.md with correct approach
+- [x] Rewrite tasks.md (this file)
 
-## 1. Create Consolidated Output Helper Functions
-- [x] 1.1 Create `theauditor/utils/consolidated_output.py` with `write_to_group()` helper function.
-- [x] 1.2 Implement `write_to_group(group_name, analysis_type, data)` that:
-  - Loads existing group file if it exists
-  - Appends new analysis to `analyses[analysis_type]` key
-  - Updates `last_updated` timestamp
-  - Writes back to `.pf/raw/{group_name}.json`
-- [x] 1.3 Add validation: ensure group_name is one of 6 valid consolidated files.
-- [x] 1.4 Test helper function with sample data.
+## 1. Create Summarize Command
 
-## 2. Modify Graph Analyzers (theauditor/commands/graph.py)
-- [x] 2.1 Import `write_to_group` from `theauditor.utils.consolidated_output`.
-- [x] 2.2 Replace output writes in `graph build` to call `write_to_group("graph_analysis", "import_graph/call_graph/data_flow_graph", data)`.
-- [x] 2.3 Replace output writes in `graph analyze` to call `write_to_group("graph_analysis", "analyze", data)`.
-- [x] 2.4 Replace output writes in `graph metrics/summary` to use consolidated output.
-- [ ] 2.5 Verify `graph_analysis.json` contains all sub-analyses after running `aud graph build && aud graph analyze`. (BLOCKED: requires end-to-end test)
+### 1.1 Create Command File
+- [ ] Create `theauditor/commands/summarize.py`
+- [ ] Add click command decorator `@click.command("summarize")`
+- [ ] Add options: `--project-path` (default ".")
+- [ ] Register command in `theauditor/cli.py`
 
-## 3. Modify Security Analyzers
-- [x] 3.1 Update `theauditor/commands/detect_patterns.py` to write to `security_analysis.json` via `write_to_group("security_analysis", "patterns", data)`.
-- [x] 3.2 Update `theauditor/commands/taint.py` to write to `security_analysis.json` via `write_to_group("security_analysis", "taint", data)`.
-- [ ] 3.3 Verify `security_analysis.json` contains both patterns and taint analyses. (BLOCKED: requires end-to-end test)
+### 1.2 Implement SAST_Summary Generator
+- [ ] Create function `generate_sast_summary(raw_dir: Path) -> dict`
+- [ ] Read from:
+  - patterns.json
+  - taint.json
+  - docker_findings.json (if exists)
+  - github_workflows.json (if exists)
+- [ ] Extract:
+  - Total findings count across all security analyzers
+  - File locations (no duplicates)
+  - FCE correlations (read from fce.json, filter for security-related)
+- [ ] Output truth courier format:
+  ```json
+  {
+    "summary": "X patterns detected, Y taint paths found, Z FCE security correlations",
+    "counts": {
+      "total_findings": X,
+      "patterns": Y,
+      "taint_paths": Z,
+      "fce_security_correlations": W
+    },
+    "files_with_findings": ["file1.py", "file2.js", ...],
+    "fce_correlated_files": ["file3.py:42", ...],
+    "query_alternative": "aud query --tool patterns --severity critical"
+  }
+  ```
+- [ ] Write to `.pf/readthis/SAST_Summary.json`
 
-## 4. Modify Quality Analyzers
-- [~] 4.1 Update `theauditor/commands/lint.py` - SKIPPED (only writes to database, no JSON file output).
-- [x] 4.2 Update `theauditor/commands/cfg.py` to write to `quality_analysis.json` via `write_to_group("quality_analysis", "cfg", data)`.
-- [x] 4.3 Update `theauditor/commands/deadcode.py` to write to `quality_analysis.json` via `write_to_group("quality_analysis", "deadcode", data)`.
-- [ ] 4.4 Verify `quality_analysis.json` contains all three analyses. (BLOCKED: requires end-to-end test)
+### 1.3 Implement SCA_Summary Generator
+- [ ] Create function `generate_sca_summary(raw_dir: Path) -> dict`
+- [ ] Read from:
+  - deps.json (if exists)
+  - frameworks.json
+- [ ] Extract:
+  - Total packages count
+  - Frameworks detected count
+  - Outdated packages count (if deps.json has CVE data)
+- [ ] Output truth courier format:
+  ```json
+  {
+    "summary": "X packages analyzed, Y frameworks detected",
+    "counts": {
+      "total_packages": X,
+      "frameworks_detected": Y,
+      "outdated_packages": Z
+    },
+    "frameworks": ["Flask 2.3.0", "React 18.2.0", ...],
+    "query_alternative": "aud query --symbol-type import --group-by package"
+  }
+  ```
+- [ ] Write to `.pf/readthis/SCA_Summary.json`
 
-## 5. Modify Dependency Analyzers
-- [~] 5.1 Update `theauditor/commands/deps.py` - SKIPPED (database-centric, no standalone JSON output).
-- [~] 5.2 Update `theauditor/commands/docs.py` - SKIPPED (database-centric, no standalone JSON output).
-- [x] 5.3 Update `theauditor/commands/detect_frameworks.py` to write to `dependency_analysis.json` via `write_to_group("dependency_analysis", "frameworks", data)`.
-- [ ] 5.4 Verify `dependency_analysis.json` contains all three analyses. (BLOCKED: requires end-to-end test)
+### 1.4 Implement Intelligence_Summary Generator
+- [ ] Create function `generate_intelligence_summary(raw_dir: Path) -> dict`
+- [ ] Read from:
+  - graph_analysis.json
+  - cfg.json
+  - fce.json
+- [ ] Extract:
+  - Hotspot count (from graph_analysis.json)
+  - Cycle count (from graph_analysis.json)
+  - Complex function count (from cfg.json)
+  - FCE meta-findings (from fce.json correlations.meta_findings)
+- [ ] Output truth courier format:
+  ```json
+  {
+    "summary": "X hotspots, Y cycles, Z complex functions, W FCE meta-findings",
+    "counts": {
+      "architectural_hotspots": X,
+      "dependency_cycles": Y,
+      "complex_functions": Z,
+      "fce_meta_findings": W
+    },
+    "fce_meta_findings": [
+      {"type": "ARCHITECTURAL_RISK_ESCALATION", "file": "api.py", "finding_count": 5},
+      ...
+    ],
+    "query_alternative": "aud context --file api.py --show-dependencies"
+  }
+  ```
+- [ ] Write to `.pf/readthis/Intelligence_Summary.json`
 
-## 6. Modify Infrastructure Analyzers
-- [x] 6.1 Update `theauditor/commands/terraform.py` to write to `infrastructure_analysis.json` via `write_to_group("infrastructure_analysis", "terraform", data)`.
-- [~] 6.2 Update `theauditor/commands/cdk.py` - SKIPPED (only returns output_text, no file writes).
-- [x] 6.3 Update `theauditor/commands/docker_analyze.py` to write to `infrastructure_analysis.json` via `write_to_group("infrastructure_analysis", "docker", data)`.
-- [x] 6.4 Update `theauditor/commands/workflows.py` to write to `infrastructure_analysis.json` via `write_to_group("infrastructure_analysis", "workflows", data)`.
-- [ ] 6.5 Verify `infrastructure_analysis.json` contains all four analyses. (BLOCKED: requires end-to-end test)
+### 1.5 Implement Quick_Start Generator
+- [ ] Create function `generate_quick_start(raw_dir: Path) -> dict`
+- [ ] Read from:
+  - fce.json (correlations.meta_findings)
+- [ ] Extract:
+  - Top FCE meta-findings (ARCHITECTURAL_RISK_ESCALATION, COMPLEXITY_RISK_CORRELATION, etc.)
+  - Show file:line locations
+  - Show finding counts per file
+- [ ] Output truth courier format:
+  ```json
+  {
+    "summary": "X critical FCE correlations across Y files",
+    "top_issues": [
+      {
+        "type": "ARCHITECTURAL_RISK_ESCALATION",
+        "file": "api.py",
+        "finding_count": 5,
+        "severity": "critical",
+        "message": "Critical security issues in architectural hotspot"
+      },
+      ...
+    ],
+    "guidance": "These are factual correlations identified by FCE. Query database for details.",
+    "query_examples": [
+      "aud query --file api.py --show-calls",
+      "aud context --file api.py --show-dependencies"
+    ]
+  }
+  ```
+- [ ] Write to `.pf/readthis/Quick_Start.json`
 
-## 7. Modify FCE (Correlation)
-- [x] 7.1 Update `theauditor/fce.py` to write to `correlation_analysis.json` via `write_to_group()` (2 analyses: fce + fce_failures).
-- [ ] 7.2 Verify `correlation_analysis.json` contains FCE meta-findings. (BLOCKED: requires end-to-end test)
+### 1.6 Implement Query_Guide Generator
+- [ ] Create function `generate_query_guide() -> dict`
+- [ ] Static reference document (no file reading)
+- [ ] Output query examples for each domain:
+  ```json
+  {
+    "security_queries": [
+      "aud query --tool taint --show-paths",
+      "aud query --tool patterns --severity critical"
+    ],
+    "dependency_queries": [
+      "aud query --symbol-type import --group-by package"
+    ],
+    "architecture_queries": [
+      "aud context --file api.py --show-dependencies",
+      "aud query --calls main --depth 3"
+    ],
+    "performance_note": "Database queries are 100x faster than parsing JSON files"
+  }
+  ```
+- [ ] Write to `.pf/readthis/Query_Guide.json`
 
-## 8. Create Summary Generation Command
-- [x] 8.1 Create `theauditor/commands/summarize.py` with `aud summarize` command.
-- [x] 8.2 Implement `generate_sast_summary(raw_dir)` function:
-  - Load `security_analysis.json`
-  - Extract all findings from patterns + taint analyses
-  - Sort by severity (critical, high, medium, low)
-  - Return top 20 findings + metrics
-  - Include `query_alternative` field
-- [x] 8.3 Implement `generate_sca_summary(raw_dir)` function:
-  - Load `dependency_analysis.json`
-  - Extract CVEs, outdated packages, vulnerable deps
-  - Sort by severity
-  - Return top 20 issues + metrics
-- [x] 8.4 Implement `generate_intelligence_summary(raw_dir)` function:
-  - Load `graph_analysis.json` + `correlation_analysis.json`
-  - Extract hotspots, cycles, FCE correlations
-  - Sort by impact
-  - Return top 20 insights + metrics
-- [x] 8.5 Implement `generate_quick_start(raw_dir)` function:
-  - Load all 3 summaries (SAST, SCA, Intelligence)
-  - Extract top 10 most critical issues across ALL domains
-  - Include pointers to full consolidated files
-- [x] 8.6 Implement `generate_query_guide()` function:
-  - Return static reference guide with `aud query` examples per domain
-  - Include performance metrics (database vs JSON parsing)
-- [x] 8.7 Register `summarize` command in `theauditor/cli.py`.
+### 1.7 Wire Up Command
+- [ ] In summarize command main function:
+  - Call all 5 generators
+  - Create `.pf/readthis/` directory if it doesn't exist
+  - Write all 5 JSON files
+  - Print summary: "[OK] Generated 5 summaries in .pf/readthis/"
+- [ ] Add error handling (graceful failure if /raw/ files missing)
+- [ ] Add CLI help documentation
 
-## 9. Modify Pipeline to Call Summarize
-- [x] 9.1 Update `theauditor/pipelines.py` lines 1462-1476 (extraction trigger).
-- [x] 9.2 Replace extraction call with summarize call:
-  - Change log message from "[EXTRACTION]" to "[SUMMARIZE]"
-  - Call `aud summarize` via subprocess
-  - Log success: "[OK] Generated 5 guidance summaries in .pf/raw/"
-- [x] 9.3 Remove extraction import and function call.
-- [ ] 9.4 Verify pipeline runs without errors. (BLOCKED: requires end-to-end test)
+## 2. Modify Pipeline
 
-## 10. Deprecate Extraction System
-- [x] 10.1 Add deprecation comment to `theauditor/extraction.py` header:
+### 2.1 Find and Remove Extraction Call
+- [ ] Open `theauditor/pipelines.py`
+- [ ] Search for "extraction" or "extract_all_to_readthis"
+- [ ] Find the line that calls extraction (likely after FCE phase)
+- [ ] Comment out or remove extraction call
+- [ ] Remove extraction import statement
+
+### 2.2 Add Summarize Call
+- [ ] After FCE phase (where extraction was called)
+- [ ] Add summarize call via subprocess:
   ```python
-  # DEPRECATED: Extraction system obsolete - use 'aud query' for database-first AI interaction
-  # This file is kept for backward compatibility only. New code should NOT use this module.
+  # Generate guidance summaries
+  summarize_result = subprocess.run(
+      ["aud", "summarize", "--project-path", str(root)],
+      cwd=root,
+      capture_output=True,
+      text=True
+  )
+  if summarize_result.returncode == 0:
+      logger.info("[SUMMARIZE] Generated 5 guidance summaries")
+  else:
+      logger.warning(f"[SUMMARIZE] Failed: {summarize_result.stderr}")
   ```
-- [x] 10.2 Add deprecation warning to `extract_all_to_readthis()` function:
-  ```python
-  print("[WARN] extraction.py is deprecated - use 'aud query' for database queries instead")
+- [ ] Update phase counter if needed
+
+### 2.3 Test Pipeline
+- [ ] Run `aud full --offline` on test project
+- [ ] Verify: Log shows "[SUMMARIZE]" message
+- [ ] Verify: No errors in pipeline execution
+- [ ] Verify: 5 summaries created in .pf/readthis/
+
+## 3. Deprecate Extraction System
+
+### 3.1 Rename extraction.py
+- [ ] Rename `theauditor/extraction.py` to `theauditor/extraction.py.bak`
+- [ ] Use git mv to preserve history: `git mv theauditor/extraction.py theauditor/extraction.py.bak`
+
+### 3.2 Verify No Remaining Imports
+- [ ] Search codebase: `grep -r "from.*extraction import" theauditor/`
+- [ ] Search codebase: `grep -r "import extraction" theauditor/`
+- [ ] Should find ZERO matches (extraction should only be in pipeline, which we removed)
+- [ ] If any found, remove those imports
+
+### 3.3 Update .gitignore
+- [ ] Add to `.gitignore`:
   ```
-- [x] 10.3 Update `.gitignore` to exclude `.pf/readthis/`:
+  # Chunked files deprecated - only summaries remain
+  .pf/readthis/*_chunk*.json
   ```
-  # Deprecated - no longer generated
-  .pf/readthis/
+- [ ] Leave summaries unignored (we want to commit them)
+
+## 4. Verify NO Changes to Analyzers
+
+### 4.1 Verify Analyzer Commands Unchanged
+- [ ] Check: `theauditor/commands/graph.py` - NO modifications
+- [ ] Check: `theauditor/commands/detect_patterns.py` - NO modifications
+- [ ] Check: `theauditor/commands/taint.py` - NO modifications (except what was cleaned up)
+- [ ] Check: `theauditor/commands/cfg.py` - NO modifications
+- [ ] Check: `theauditor/commands/deadcode.py` - NO modifications
+- [ ] Check: `theauditor/commands/detect_frameworks.py` - NO modifications
+- [ ] Check: `theauditor/commands/terraform.py` - NO modifications
+- [ ] Check: `theauditor/commands/docker_analyze.py` - NO modifications
+- [ ] Check: `theauditor/commands/workflows.py` - NO modifications
+- [ ] Check: `theauditor/fce.py` - NO modifications
+
+### 4.2 Verify /raw/ Files Still Generated
+- [ ] Run individual commands and check outputs:
+  - `aud detect-patterns` → creates patterns.json
+  - `aud taint-analyze` → creates taint.json
+  - `aud cfg analyze` → creates cfg.json
+  - `aud deadcode` → creates deadcode.json
+  - `aud detect-frameworks` → creates frameworks.json
+  - `aud graph analyze` → creates graph_analysis.json
+  - `aud fce` → creates fce.json
+- [ ] All files should exist in `.pf/raw/` with original names
+
+## 5. Update Documentation
+
+### 5.1 Update README.md
+- [ ] Find "OUTPUT STRUCTURE" section
+- [ ] Update to show:
+  ```
+  .pf/
+  ├── raw/                    # Immutable tool outputs (ground truth)
+  │   ├── patterns.json       # detect-patterns output
+  │   ├── taint.json          # taint-analyze output
+  │   ├── cfg.json            # cfg analyze output
+  │   ├── deadcode.json       # deadcode output
+  │   ├── frameworks.json     # detect-frameworks output
+  │   ├── graph_analysis.json # graph analyze output
+  │   ├── fce.json            # fce correlations
+  │   └── ... (20+ separate files)
+  ├── readthis/              # AI-optimized summaries
+  │   ├── SAST_Summary.json  # Security findings summary
+  │   ├── SCA_Summary.json   # Dependency issues summary
+  │   ├── Intelligence_Summary.json # Code intelligence summary
+  │   ├── Quick_Start.json   # Top critical issues (FCE-guided)
+  │   └── Query_Guide.json   # Database query reference
+  ├── repo_index.db          # PRIMARY DATA SOURCE - query with `aud query`
+  └── pipeline.log           # Detailed execution trace
+  ```
+- [ ] Add note: "AIs should query repo_index.db via `aud query` for full analysis. Summaries provide quick orientation only."
+
+### 5.2 Add Migration Guide
+- [ ] Add section to README:
+  ```markdown
+  ## Migration from Chunks to Summaries
+
+  If you have scripts that previously read `.pf/readthis/*_chunk*.json` files:
+
+  **Option 1 (Recommended)**: Use database queries
+  ```bash
+  # Instead of parsing JSON chunks
+  aud query --tool taint --show-paths
+  aud query --file api.py --show-calls
   ```
 
-## 11. Update Documentation
-- [x] 11.1 Update README.md OUTPUT STRUCTURE section to show:
-  - 6 consolidated files in `.pf/raw/`
-  - 5 guidance summaries in `.pf/raw/`
-  - NO `.pf/readthis/` directory
-  - Emphasize `repo_index.db` as PRIMARY DATA SOURCE
-- [x] 11.2 Update CLI help text for `aud summarize --help`.
-- [x] 11.3 Update CLI help text for `aud report --help` to mention deprecated `.pf/readthis/`.
-- [x] 11.4 Add migration guide: "If you have scripts that read `.pf/readthis/`, update them to use `aud query` or read consolidated files in `.pf/raw/`".
+  **Option 2**: Read /raw/ files directly
+  - patterns.json - All pattern findings
+  - taint.json - All taint paths
+  - fce.json - All FCE correlations
 
-## 12. Testing & Verification
-**STATUS: ✅ COMPLETED - 4x aud full runs analyzed (PlantFlow, project_anarchy, TheAuditor, plant)**
-- [x] 12.1 Clean test: 4x `aud full --offline` runs analyzed (20251101_181245-181247)
-- [~] 12.2 Verify 6 consolidated files exist in `.pf/raw/`:
-  - ✓ `graph_analysis.json` (9.3MB-94MB across projects)
-  - ✓ `security_analysis.json` (368KB-2.7MB across projects)
-  - ✓ `quality_analysis.json` (382B-21KB across projects)
-  - ✓ `dependency_analysis.json` (1.3KB-3KB across projects)
-  - ✓ `infrastructure_analysis.json` (596B-132KB across projects)
-  - ⚠ `correlation_analysis.json` (1.4MB-59MB, missing in 1 of 4 projects)
-  **Result**: 23 of 24 files exist (93% success rate)
-- [~] 12.3 Verify 5 guidance summaries exist in `.pf/raw/`:
-  - ✓ `SAST_Summary.json` (7KB-11KB, 3 of 4 projects)
-  - ✓ `SCA_Summary.json` (330B, 3 of 4 projects)
-  - ✗ `Intelligence_Summary.json` (0 of 4 projects - NOT IMPLEMENTED)
-  - ✗ `Quick_Start.json` (0 of 4 projects - NOT IMPLEMENTED)
-  - ✓ `Query_Guide.json` (2.4KB, 3 of 4 projects)
-  **Result**: 9 of 20 expected files (45% success - 2 summaries missing)
-- [x] 12.4 Verify `.pf/readthis/` directory is NOT created.
-  **Result**: ✓ All 4 projects show "0 files" in .pf/readthis/ (deprecated successfully)
-- [~] 12.5 Verify summaries contain:
-  - ✓ Top 20 findings (SAST_Summary has 20, from 2,056 total)
-  - ✓ Severity counts (critical: 289, high: 989, medium: 339, low: 439)
-  - ✓ `query_alternative` field present in all findings
-  - ✓ Cross-references to consolidated files
-  - ✓ NO recommendations (truth courier verified)
-  **Result**: ✓ Working summaries (3 of 5) contain all required fields
-  **Issue**: 2 summaries don't exist to verify
-- [~] 12.6 Test database queries still work:
-  **Result**: ⏸️ Not tested (requires interactive CLI testing)
-  **Evidence**: All 4 databases healthy (151 tables, 4,603-55,702 symbols)
-- [x] 12.7 Verify pipeline log shows "[SUMMARIZE]" instead of "[EXTRACTION]".
-  **Result**: ✓ All 3 successful runs show "[SUMMARIZE] Generating guidance summaries"
-  **Evidence**: PlantFlow line 364, project_anarchy line 345, plant line 363
-- [x] 12.8 Run integration test: `aud full --offline` on test project, count files in `.pf/raw/`.
-  **Result**: ✓ PlantFlow: 462 files, plant: 1878 files, TheAuditor: variable (run aborted)
+  **Option 3**: Read summaries for quick overview
+  - SAST_Summary.json - Security overview
+  - Intelligence_Summary.json - Architecture overview
+  ```
 
-## 13. Cleanup & Final Verification
-- [~] 13.1 Remove old JSON files from previous runs - N/A (verified no legacy files remain in all 4 projects).
-- [x] 13.2 Run linters: `ruff theauditor/` (minor style warnings only, no errors).
-- [x] 13.3 Verify OpenSpec ticket passes validation: `openspec validate add-risk-prioritization`. **PASSED ✓**
-- [x] 13.4 Run test suite: `pytest tests/` (26 tests pass, 2 pre-existing failures unrelated to this change).
-- [~] 13.5 Manual smoke test: Read `Quick_Start.json` - is it human-readable and actionable?
-  **Result**: ✗ File does not exist (not implemented)
-  **Alternative**: Verified SAST_Summary.json is human-readable with 20 findings
+### 5.3 Update CLI Help
+- [ ] Update `aud summarize --help` documentation
+- [ ] Add note to `aud full --help`: "Generates summaries in .pf/readthis/, not chunks"
+
+## 6. Integration Testing
+
+### 6.1 Clean Test Run
+- [ ] Delete `.pf/` directory
+- [ ] Run `aud init`
+- [ ] Run `aud full --offline`
+- [ ] Verify: Pipeline completes without errors
+
+### 6.2 Verify /raw/ Files
+- [ ] Check `.pf/raw/` directory
+- [ ] Count files: Should have 20+ separate JSON files
+- [ ] Verify key files exist:
+  - patterns.json
+  - taint.json
+  - cfg.json
+  - deadcode.json
+  - frameworks.json
+  - graph_analysis.json
+  - fce.json
+
+### 6.3 Verify /readthis/ Summaries
+- [ ] Check `.pf/readthis/` directory
+- [ ] Should have EXACTLY 5 files:
+  - SAST_Summary.json
+  - SCA_Summary.json
+  - Intelligence_Summary.json
+  - Quick_Start.json
+  - Query_Guide.json
+- [ ] Should have ZERO chunk files (*_chunk*.json)
+
+### 6.4 Verify Summary Content
+- [ ] Open SAST_Summary.json:
+  - Has "summary" field with count statement
+  - Has "counts" object with numbers
+  - Has "query_alternative" field
+  - NO severity filtering
+  - NO recommendations
+- [ ] Open Intelligence_Summary.json:
+  - Has FCE meta-findings
+  - Shows file:line locations
+  - NO recommendations
+- [ ] Open Quick_Start.json:
+  - Shows FCE correlations
+  - Has file:line locations
+  - Truth courier format only
+
+## 7. Final Verification Checklist
+
+- [ ] ✅ All 20+ /raw/ files UNCHANGED
+- [ ] ✅ 5 summaries in /readthis/
+- [ ] ✅ NO chunks in /readthis/
+- [ ] ✅ extraction.py renamed to .bak
+- [ ] ✅ NO changes to analyzer commands
+- [ ] ✅ Pipeline runs without errors
+- [ ] ✅ Summaries follow truth courier model
+- [ ] ✅ Documentation updated
+- [ ] ✅ Migration guide added
 
 ## Completion Criteria
-**Implementation Status: ✅ COMPLETE (all codeable tasks done)**
-**Verification Status: ✅ COMPLETE (4x aud full runs analyzed)**
-**Production Status: ⚠️ PARTIAL (75% functional - 2 summaries missing)**
 
-- [x] All analyzers modified to write to appropriate consolidated files
-- [x] Summaries implement truth courier principle (no recommendations)
-- [x] Pipeline modified to call `aud summarize` instead of extraction
-- [x] Extraction system marked as deprecated
-- [x] Documentation updated (README + migration guide)
-- [x] OpenSpec validation PASSED
-- [~] 6 consolidated group files verified in `.pf/raw/` (23 of 24 exist - 93% success)
-- [~] 5 guidance summaries verified in `.pf/raw/` (3 of 5 exist - 45% success)
-- [x] `.pf/readthis/` directory verified NOT created (0 files across all projects)
-- [~] Database queries verified working (databases healthy, queries not interactively tested)
-- [~] No regressions in `aud full` pipeline (3 of 4 runs successful, known issues documented)
+**Must Have**:
+- Create summarize command with 5 generators ✅
+- Modify pipeline to call summarize instead of extraction ✅
+- Rename extraction.py to .bak ✅
+- NO changes to any analyzer ✅
+- 5 summaries generated in /readthis/ ✅
+
+**Must NOT Have**:
+- Any consolidation of /raw/ files ❌
+- Any modifications to analyzer commands ❌
+- Any severity filtering in summaries ❌
+- Any recommendations in summaries ❌
+
+**Success Metrics**:
+- `aud full --offline` runs without errors
+- 20+ /raw/ files generated (unchanged from before)
+- 5 summaries in /readthis/ (no chunks)
+- All summaries follow truth courier model
+- Database queries still work correctly

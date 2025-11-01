@@ -1,163 +1,78 @@
 ## Why
-- TheAuditor now has **database-first query commands** (`aud query`, `aud context`, `aud planning`) that enable AI assistants to interact directly with indexed code data.
-- **The chunking system is obsolete**: The original `.pf/readthis/` architecture (24-27 chunked JSON files) was designed for AI token limitations, but direct database queries are 100x faster and eliminate token waste.
-- **Output file explosion**: Current pipeline outputs **20+ separate JSON files** from a 26-phase pipeline - nobody manually reads 20+ files.
-- **Missing consolidation**: Raw outputs are fragmented across domains (taint, graph, lint, patterns, deps, terraform, workflows, cfg, fce) with no cohesive grouping.
-- **No guidance layer**: TheAuditor produces excellent ground truth data but lacks **3-5 focused summary documents** that highlight hotspots, FCE findings, and actionable insights for quick orientation.
-- **AI interaction shift**: With `aud query` / `aud context` / `aud planning`, AIs should **query the database directly** (repo_index.db + graphs.db) instead of parsing JSON files.
+- TheAuditor has **database-first query commands** (`aud query`, `aud context`, `aud planning`) that enable AI assistants to interact directly with indexed code data.
+- **The chunking system is obsolete**: The current `.pf/readthis/` extraction system generates 24-27 chunked JSON files by parsing `/raw/` outputs, but direct database queries are 100x faster and eliminate token waste.
+- **Chunking provides no value**: With database queries available, chunking raw outputs into smaller files is redundant and creates maintenance burden.
+- **Missing guidance layer**: TheAuditor produces excellent ground truth in `/raw/` but lacks **5 focused summary documents** in `/readthis/` that highlight FCE correlations and provide quick orientation.
+- **AI interaction shift**: AIs should **query the database directly** (repo_index.db + graphs.db) instead of parsing JSON files. The `/readthis/` directory should contain summaries that guide what to query, not chunks of raw data.
 
 ## What Changes
-- **Deprecate `.pf/readthis/` entirely**: Remove the extraction/chunking system - it's redundant with database queries.
-- **Consolidate `.pf/raw/` to 1 document per group** (instead of 20+ files):
-  - **`graph_analysis.json`** - Combined: call graphs, import graphs, hotspots, cycles, layers (consolidates 5 current graph outputs)
-  - **`security_analysis.json`** - Combined: patterns, taint flows, vulnerabilities (consolidates patterns.json + taint_analysis.json)
-  - **`quality_analysis.json`** - Combined: lint, cfg, deadcode (consolidates lint.json + cfg.json + deadcode.json)
-  - **`dependency_analysis.json`** - Combined: deps, docs, frameworks (consolidates deps.json + docs.json + frameworks.json)
-  - **`infrastructure_analysis.json`** - Combined: terraform, cdk, docker, workflows (consolidates 4 infrastructure files)
-  - **`correlation_analysis.json`** - FCE meta-findings only (replaces fce.json)
+- **Deprecate extraction.py chunking system**: Remove the code that generates 24-27 chunk files by parsing `/raw/` outputs.
+- **Keep ALL `/raw/` files unchanged**: Do NOT consolidate tool outputs. Each analyzer (patterns, taint, cfg, graph, etc.) continues writing to its own separate JSON file in `/raw/`.
+  - ✅ `patterns.json` - Output from detect-patterns
+  - ✅ `taint.json` - Output from taint-analyze
+  - ✅ `cfg.json` - Output from cfg analyze
+  - ✅ `deadcode.json` - Output from deadcode
+  - ✅ `frameworks.json` - Output from detect-frameworks
+  - ✅ `graph_analysis.json` - Output from graph analyze
+  - ✅ `fce.json` - Output from fce
+  - ✅ All other 20+ tool outputs remain separate
+  - **Rationale**: Raw tool outputs are "our only value" - consolidation breaks the pipeline and loses ground truth fidelity.
 
-- **Add 3-5 guidance summaries** (new files in `.pf/raw/`):
-  - **`SAST_Summary.json`** - Top 20 security findings across all analyzers (patterns + taint + infrastructure), grouped by severity
-  - **`SCA_Summary.json`** - Top 20 dependency issues (CVEs, outdated packages, vulnerable deps)
-  - **`Intelligence_Summary.json`** - Top 20 code intelligence insights (hotspots, cycles, complexity, FCE correlations)
-  - **`Quick_Start.json`** - Ultra-condensed: "Read this first" - top 10 most critical issues across ALL domains with pointers to full data
-  - **`Query_Guide.json`** - Reference guide showing how to query each analysis domain via `aud query` / `aud context` commands
+- **Add 5 intelligent summaries to `/readthis/`** (replaces chunks):
+  - **`SAST_Summary.json`** - Security findings overview
+    - Reads from: patterns.json, taint.json, docker_findings.json, github_workflows.json
+    - Shows: Total findings count, FCE-correlated security hotspots, files with multiple tools flagging issues
+    - Truth courier format: "X patterns detected, Y taint paths found, Z in FCE hotspots" (NO recommendations)
 
-- **Summaries are truth couriers only** (NO recommendations):
-  - Highlight critical findings by severity
-  - Point to hotspots and FCE-correlated issues
-  - Show actionable metrics (X vulnerabilities, Y cycles, Z outdated deps)
-  - Cross-reference to consolidated files for full detail
-  - **Never recommend fixes** - just present facts and locations
+  - **`SCA_Summary.json`** - Dependency issues overview
+    - Reads from: deps.json, frameworks.json
+    - Shows: Outdated packages count, detected frameworks, dependency tree depth
+    - Truth courier format: "X packages analyzed, Y frameworks detected, Z outdated" (NO recommendations)
 
-- **Update pipeline to generate consolidated outputs**:
-  - Each analyzer writes to its consolidated group file (not separate files per sub-analysis)
-  - After FCE, generate 3-5 summary documents
-  - Remove extraction stage entirely (no more chunking to /readthis/)
+  - **`Intelligence_Summary.json`** - Code intelligence overview
+    - Reads from: graph_analysis.json, cfg.json, fce.json
+    - Shows: Hotspot count, cycle count, complex function count, FCE meta-findings
+    - Truth courier format: "X hotspots, Y cycles, Z complex functions, W FCE correlations" (NO recommendations)
+
+  - **`Quick_Start.json`** - Critical issues across all domains
+    - Reads from: All /raw/ files + fce.json for FCE correlations
+    - Shows: Top issues guided by FCE (architectural risks, complexity risks, churn risks, etc.)
+    - Truth courier format: Lists FCE findings (ARCHITECTURAL_RISK_ESCALATION, COMPLEXITY_RISK_CORRELATION, etc.) with file:line locations
+
+  - **`Query_Guide.json`** - Database query reference
+    - Static reference document
+    - Shows: Example `aud query` and `aud context` commands for each analysis domain
+    - Guides AIs on how to query database instead of parsing JSON
+
+- **Summaries are truth couriers ONLY** (NO interpretation):
+  - Show counts, file locations, and FCE correlations
+  - Present findings exactly as FCE identified them
+  - **Never use "severity" filtering** - show what FCE found, not what we think is important
+  - **Never recommend fixes** - just present facts: "X found in Y locations, Z correlated by FCE"
+  - Let AI consumer decide what's important using database queries
+
+- **Update pipeline**:
+  - Remove extraction trigger (no more chunking to /readthis/)
+  - Add `aud summarize` call after FCE phase
+  - Rename `extraction.py` to `extraction.py.bak` (preserve but deprecate)
 
 - **Update documentation**:
-  - Make clear: **AIs should query database via `aud query` / `aud context`**, NOT read JSON files
+  - Make clear: **AIs should query database via `aud query`**, NOT read JSON files
   - Summaries are for **quick orientation only** - database queries provide full detail
-  - Raw consolidated files are for **archival/debugging** - database is the primary data source
+  - Raw `/raw/` files are **immutable ground truth** - never modified or consolidated
 
 ## Impact
-- **Eliminates /readthis/ bloat**: No more 24-27 chunked files - entire directory deprecated
-- **Consolidates raw outputs**: 20+ files → 6 consolidated group files (5x cleaner)
-- **Adds guidance layer**: 3-5 summaries provide quick orientation without drowning in data
-- **Enables database-first AI workflow**: AIs query directly with `aud query` (100x faster, zero token waste)
-- **Maintains ground truth fidelity**: All data still preserved in consolidated files + database
-- **Aligns with modern architecture**: Post-`aud query` / `aud context` / `aud planning` world - database is the source of truth
-- **Reduces cognitive load**: 6 consolidated files + 3-5 summaries = 9-11 total files (down from 24-27 chunks + 20+ raw files)
+- **Eliminates /readthis/ bloat**: 24-27 chunked files → 5 summaries (82% reduction)
+- **Preserves raw outputs**: ALL 20+ /raw/ files unchanged (ground truth fidelity maintained)
+- **Adds guidance layer**: 5 summaries provide FCE-guided quick orientation
+- **Enables database-first workflow**: AIs query directly with `aud query` (100x faster)
+- **Maintains backward compatibility**: audit_summary.json still generated, /raw/ structure unchanged
+- **Reduces complexity**: No consolidation logic needed, analyzers unchanged
+- **Follows truth courier model**: Summaries present facts and FCE correlations, never interpret
 
 ## Verification Alignment
 - Hypotheses, evidence, and discrepancies captured in `openspec/changes/add-risk-prioritization/verification.md` per SOP v4.20.
-- Task list focuses on output consolidation, summary generation, and deprecation of extraction.
-- Implementation details in `design.md` with line-by-line changes anchored in actual code.
-
----
-
-## Current Status (2025-11-01)
-
-**Implementation**: ✅ **COMPLETE** (20 files modified, 2 commits)
-**Verification**: ✅ **COMPLETE** (4x aud full runs analyzed)
-**Production**: ⚠️ **75% FUNCTIONAL** (core working, 2 summaries missing)
-
-### What Was Delivered
-
-**✅ Consolidated Group Files** (93% success):
-- All 6 group files implemented and generating correctly
-- 23 of 24 files exist across 4 test projects
-- Data quality: EXCELLENT (2,056 findings, 94MB graphs, 59MB FCE correlations)
-- File sizes: Appropriate (9MB-94MB for graph_analysis, 368KB-2.7MB for security)
-- Missing: 1 correlation_analysis.json in project_anarchy (likely older run)
-
-**✅ Pipeline Integration** (100% success):
-- [SUMMARIZE] phase executes in all successful runs
-- Old [EXTRACTION] system completely removed
-- Consolidation happens automatically during `aud full`
-
-**✅ Extraction Deprecation** (100% success):
-- .pf/readthis/ generates 0 files (deprecated successfully)
-- extraction.py marked deprecated with warnings
-- .gitignore excludes .pf/readthis/
-- Migration guide in README.md
-
-**⚠️ Guidance Summaries** (45% success):
-- ✅ SAST_Summary.json: Working (7KB-11KB, top 20 findings)
-- ✅ SCA_Summary.json: Working (330B, dependency issues)
-- ✅ Query_Guide.json: Working (2.4KB, query examples)
-- ❌ Intelligence_Summary.json: NOT IMPLEMENTED (0 of 4 projects)
-- ❌ Quick_Start.json: NOT IMPLEMENTED (0 of 4 projects)
-
-**✅ Documentation** (100% complete):
-- README.md updated with OUTPUT STRUCTURE + migration guide
-- All CLI help text updated
-- OpenSpec tasks.md synced with verification results
-
-### What's Broken
-
-1. **Intelligence_Summary.json** (P0):
-   - Status: Function exists in source but never creates output
-   - Cause: Likely silent exception in processing large JSON files (59MB-94MB)
-   - Impact: 20% of guidance summaries missing
-   - Evidence: 0 of 4 projects have this file
-
-2. **Quick_Start.json** (P0):
-   - Status: Function exists in source but never creates output
-   - Cause: Cascading failure - depends on Intelligence_Summary.json
-   - Impact: 20% of guidance summaries missing
-   - Evidence: 0 of 4 projects have this file
-
-3. **Silent Failure Masking** (P1):
-   - Status: Pipeline reports "Generated 5 summaries" when only 0-3 created
-   - Cause: try/except blocks suppressing errors without logging
-   - Impact: False success reporting masks production issues
-   - Evidence: Compare log claim (5) vs actual file count (0-3)
-
-### What's Left To Do
-
-**P0 - Critical Gaps**:
-1. Implement Intelligence_Summary.json generation (debug large file processing)
-2. Implement Quick_Start.json generation (fix cascading dependency)
-3. Add error logging to summarize command (remove silent failure suppression)
-4. Fix success message to report actual count vs claimed
-
-**P1 - Quality Improvements**:
-1. Add summary validation to pipeline (fail if critical summaries missing)
-2. Create unit test suite for consolidated_output.py (claimed test file doesn't exist)
-3. Add health check command: `aud verify --summaries`
-
-**P2 - Optimization**:
-1. Optimize large JSON file processing (stream parsing for 59MB+ files)
-2. Add schema validation for summaries
-3. Implement cleanup code to remove .pf/readthis/ directories
-
-### Blockers
-
-**NONE** - All gaps are implementation work, no architectural blockers.
-
-The consolidation infrastructure is solid. Missing summaries need implementation + error handling, not redesign.
-
-### Production Recommendation
-
-**Deploy Status**: ✅ **READY** (with documented limitations)
-
-**Use**:
-- ✅ Rely on 6 consolidated group files (93% success rate, high quality)
-- ✅ Use working summaries: SAST, SCA, Query_Guide
-- ✅ Query database directly via `aud query` / `aud context` (primary workflow)
-
-**Do NOT**:
-- ❌ Claim "5 summaries" until Intelligence and Quick_Start implemented
-- ❌ Expect .pf/readthis/ files (deprecated, will always be empty)
-- ❌ Rely on Quick_Start.json (doesn't exist yet)
-
-### Evidence
-
-4x `aud full --offline` runs analyzed:
-- PlantFlow: COMPLETED (103.7s) - 3 of 5 summaries
-- project_anarchy: COMPLETED (78.0s) - 0 of 5 summaries
-- plant: COMPLETED (268.1s) - 3 of 5 summaries
-- TheAuditor: ABORTED (<1s) - incomplete run
-
-**Confidence**: 95% (all claims backed by pipeline logs, file listings, source code verification)
+- **Critical correction applied**: Previous proposal wanted to consolidate /raw/ files - this was WRONG and broke the pipeline.
+- **Correct architecture verified**: Keep all /raw/ files separate, add summaries to /readthis/, deprecate chunking.
+- Task list focuses on summary generation and extraction deprecation only - NO changes to analyzer outputs.
+- Implementation details in `design.md` with line-by-line changes for summarize command creation.
