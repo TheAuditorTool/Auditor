@@ -294,6 +294,34 @@ function extractFunctions(sourceFile, checker, ts) {
             if (node.parameters && Array.isArray(node.parameters)) {
                 node.parameters.forEach(param => {
                     let paramName = '';
+                    let paramDecorators = [];
+
+                    // Extract parameter decorators (e.g., @Inject, @Param)
+                    if (param.decorators && param.decorators.length > 0) {
+                        paramDecorators = param.decorators.map(decorator => {
+                            const decoratorEntry = {};
+                            if (decorator.expression) {
+                                if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
+                                    decoratorEntry.name = decorator.expression.text || decorator.expression.escapedText;
+                                } else if (decorator.expression.kind === ts.SyntaxKind.CallExpression) {
+                                    const callExpr = decorator.expression;
+                                    if (callExpr.expression && callExpr.expression.kind === ts.SyntaxKind.Identifier) {
+                                        decoratorEntry.name = callExpr.expression.text || callExpr.expression.escapedText;
+                                    }
+                                    if (callExpr.arguments && callExpr.arguments.length > 0) {
+                                        decoratorEntry.arguments = callExpr.arguments.map(arg => {
+                                            if (arg.kind === ts.SyntaxKind.StringLiteral) {
+                                                return arg.text;
+                                            }
+                                            return arg.getText ? arg.getText(sourceFile) : '[complex]';
+                                        });
+                                    }
+                                }
+                            }
+                            return decoratorEntry;
+                        });
+                    }
+
                     if (param.name) {
                         const nameKind = ts.SyntaxKind[param.name.kind];
                         if (nameKind === 'Identifier') {
@@ -307,8 +335,49 @@ function extractFunctions(sourceFile, checker, ts) {
                         }
                     }
                     if (paramName) {
-                        func_entry.parameters.push(paramName);
+                        // ARCHITECTURAL CONTRACT: Python expects { name: "paramName" } dict
+                        // See typescript_impl.py:295-314 for the consuming code
+                        // Python will extract param.get("name") string and store in func_params
+                        func_entry.parameters.push({ name: paramName });
                     }
+                });
+            }
+
+            // Extract method/function decorators (e.g., @Get, @Post, @Query, @Mutation)
+            if (node.decorators && node.decorators.length > 0) {
+                func_entry.decorators = node.decorators.map(decorator => {
+                    const decoratorEntry = {};
+                    if (decorator.expression) {
+                        if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
+                            decoratorEntry.name = decorator.expression.text || decorator.expression.escapedText;
+                        } else if (decorator.expression.kind === ts.SyntaxKind.CallExpression) {
+                            const callExpr = decorator.expression;
+                            if (callExpr.expression && callExpr.expression.kind === ts.SyntaxKind.Identifier) {
+                                decoratorEntry.name = callExpr.expression.text || callExpr.expression.escapedText;
+                            }
+                            if (callExpr.arguments && callExpr.arguments.length > 0) {
+                                decoratorEntry.arguments = callExpr.arguments.map(arg => {
+                                    if (arg.kind === ts.SyntaxKind.StringLiteral) {
+                                        return arg.text;
+                                    } else if (arg.kind === ts.SyntaxKind.ObjectLiteralExpression) {
+                                        // Simplified object literal extraction
+                                        const obj = {};
+                                        arg.properties.forEach(prop => {
+                                            if (prop.kind === ts.SyntaxKind.PropertyAssignment && prop.name) {
+                                                const key = prop.name.text || prop.name.escapedText;
+                                                if (key && prop.initializer && prop.initializer.kind === ts.SyntaxKind.StringLiteral) {
+                                                    obj[key] = prop.initializer.text;
+                                                }
+                                            }
+                                        });
+                                        return obj;
+                                    }
+                                    return arg.getText ? arg.getText(sourceFile) : '[complex]';
+                                });
+                            }
+                        }
+                    }
+                    return decoratorEntry;
                 });
             }
 
@@ -397,6 +466,64 @@ function extractClasses(sourceFile, checker, ts) {
                 type: 'class',
                 kind: kind
             };
+
+            // Extract decorators (for Angular, NestJS, TypeGraphQL, etc.)
+            if (node.decorators && node.decorators.length > 0) {
+                classEntry.decorators = node.decorators.map(decorator => {
+                    const decoratorEntry = {};
+
+                    // Get decorator name
+                    if (decorator.expression) {
+                        if (decorator.expression.kind === ts.SyntaxKind.Identifier) {
+                            // Simple decorator: @Component
+                            decoratorEntry.name = decorator.expression.text || decorator.expression.escapedText;
+                        } else if (decorator.expression.kind === ts.SyntaxKind.CallExpression) {
+                            // Decorator with arguments: @Component({...})
+                            const callExpr = decorator.expression;
+                            if (callExpr.expression && callExpr.expression.kind === ts.SyntaxKind.Identifier) {
+                                decoratorEntry.name = callExpr.expression.text || callExpr.expression.escapedText;
+                            }
+
+                            // Extract arguments
+                            if (callExpr.arguments && callExpr.arguments.length > 0) {
+                                decoratorEntry.arguments = callExpr.arguments.map(arg => {
+                                    // Try to get literal value
+                                    if (arg.kind === ts.SyntaxKind.StringLiteral) {
+                                        return arg.text;
+                                    } else if (arg.kind === ts.SyntaxKind.NumericLiteral) {
+                                        return arg.text;
+                                    } else if (arg.kind === ts.SyntaxKind.TrueKeyword) {
+                                        return true;
+                                    } else if (arg.kind === ts.SyntaxKind.FalseKeyword) {
+                                        return false;
+                                    } else if (arg.kind === ts.SyntaxKind.ObjectLiteralExpression) {
+                                        // For object literals, extract properties if possible
+                                        const obj = {};
+                                        arg.properties.forEach(prop => {
+                                            if (prop.kind === ts.SyntaxKind.PropertyAssignment) {
+                                                const key = prop.name ? (prop.name.text || prop.name.escapedText) : null;
+                                                if (key && prop.initializer) {
+                                                    if (prop.initializer.kind === ts.SyntaxKind.StringLiteral) {
+                                                        obj[key] = prop.initializer.text;
+                                                    } else if (prop.initializer.kind === ts.SyntaxKind.ArrayLiteralExpression) {
+                                                        obj[key] = '[array]'; // Simplified for now
+                                                    }
+                                                }
+                                            }
+                                        });
+                                        return obj;
+                                    } else {
+                                        // Return text representation for complex arguments
+                                        return arg.getText ? arg.getText(sourceFile) : '[complex]';
+                                    }
+                                });
+                            }
+                        }
+                    }
+
+                    return decoratorEntry;
+                });
+            }
 
             // Extract type metadata using TypeScript checker
             try {
@@ -831,6 +958,10 @@ function extractEnvVarUsage(sourceFile, ts, scopeMap) {
 function extractORMRelationships(sourceFile, ts) {
     const relationships = [];
 
+    // Deduplication set to match Python implementation
+    // Key format: sourceModel-targetModel-relationshipType-line
+    const seenRelationships = new Set();
+
     // Sequelize relationship methods
     const relationshipMethods = new Set([
         'hasMany', 'belongsTo', 'hasOne', 'hasAndBelongsToMany',
@@ -934,9 +1065,21 @@ function extractORMRelationships(sourceFile, ts) {
                         // Only record if we have both source and target
                         if (sourceModel && targetModel) {
                             const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+                            const lineNum = line + 1;
+
+                            // Create deduplication key matching Python implementation
+                            const dedupKey = `${sourceModel}-${targetModel}-${methodName}-${lineNum}`;
+
+                            // Skip if we've already seen this relationship
+                            if (seenRelationships.has(dedupKey)) {
+                                return;
+                            }
+
+                            // Add to deduplication set
+                            seenRelationships.add(dedupKey);
 
                             relationships.push({
-                                line: line + 1,
+                                line: lineNum,
                                 source_model: sourceModel,
                                 target_model: targetModel,
                                 relationship_type: methodName,
@@ -1650,7 +1793,9 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
                 } else {
                     // Original logic for calls WITH arguments (1+ args)
                     args.forEach((arg, i) => {
-                        const paramName = i < params.length ? params[i] : 'arg' + i;
+                        // CRITICAL FIX: params array contains {name: "param"} dicts (architectural contract)
+                        // Must extract .name field to get the string value
+                        const paramName = i < params.length ? params[i].name : 'arg' + i;
                         const argExpr = arg.getText(sourceFile).substring(0, 500);
 
                         calls.push({
@@ -1707,7 +1852,9 @@ function extractFunctionCallArgs(sourceFile, checker, ts, scopeMap, functionPara
                 } else {
                     // Constructors with arguments (e.g., new s3.Bucket(this, 'MyBucket', {...}))
                     args.forEach((arg, i) => {
-                        const paramName = i < params.length ? params[i] : 'arg' + i;
+                        // CRITICAL FIX: params array contains {name: "param"} dicts (architectural contract)
+                        // Must extract .name field to get the string value
+                        const paramName = i < params.length ? params[i].name : 'arg' + i;
                         const argExpr = arg.getText(sourceFile).substring(0, 500);
 
                         calls.push({

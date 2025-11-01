@@ -73,7 +73,19 @@ class JavaScriptExtractor(BaseExtractor):
             'class_properties': [],  # Class property declarations (TypeScript/JavaScript ES2022+)
             'env_var_usage': [],  # Environment variable usage (process.env.X)
             'orm_relationships': [],  # ORM relationship declarations (hasMany, belongsTo, etc.)
-            'cdk_constructs': []  # AWS CDK infrastructure-as-code constructs (TypeScript/JavaScript)
+            'cdk_constructs': [],  # AWS CDK infrastructure-as-code constructs (TypeScript/JavaScript)
+            # Sequelize ORM
+            'sequelize_models': [],
+            'sequelize_associations': [],
+            # BullMQ Job Queues
+            'bullmq_queues': [],
+            'bullmq_workers': [],
+            # Angular Framework
+            'angular_components': [],
+            'angular_services': [],
+            'angular_modules': [],
+            'angular_guards': [],
+            'di_injections': []
         }
 
         # No AST = no extraction
@@ -224,6 +236,45 @@ class JavaScriptExtractor(BaseExtractor):
                             if key in cls:
                                 symbol_entry[key] = cls[key]
                         result['symbols'].append(symbol_entry)
+
+                # Extract Sequelize ORM data
+                sequelize_models = extracted_data.get('sequelize_models', [])
+                if sequelize_models:
+                    result['sequelize_models'].extend(sequelize_models)
+
+                sequelize_associations = extracted_data.get('sequelize_associations', [])
+                if sequelize_associations:
+                    result['sequelize_associations'].extend(sequelize_associations)
+
+                # Extract BullMQ Job Queue data
+                bullmq_queues = extracted_data.get('bullmq_queues', [])
+                if bullmq_queues:
+                    result['bullmq_queues'].extend(bullmq_queues)
+
+                bullmq_workers = extracted_data.get('bullmq_workers', [])
+                if bullmq_workers:
+                    result['bullmq_workers'].extend(bullmq_workers)
+
+                # Extract Angular Framework data
+                angular_components = extracted_data.get('angular_components', [])
+                if angular_components:
+                    result['angular_components'].extend(angular_components)
+
+                angular_services = extracted_data.get('angular_services', [])
+                if angular_services:
+                    result['angular_services'].extend(angular_services)
+
+                angular_modules = extracted_data.get('angular_modules', [])
+                if angular_modules:
+                    result['angular_modules'].extend(angular_modules)
+
+                angular_guards = extracted_data.get('angular_guards', [])
+                if angular_guards:
+                    result['angular_guards'].extend(angular_guards)
+
+                di_injections = extracted_data.get('di_injections', [])
+                if di_injections:
+                    result['di_injections'].extend(di_injections)
 
                 # Phase 5 data loaded - Python extractors wrapped in conditional below
 
@@ -1268,7 +1319,14 @@ class JavaScriptExtractor(BaseExtractor):
 
                 # Check if argument_index is within bounds
                 if arg_index is not None and arg_index < len(params):
-                    actual_param_name = params[arg_index]
+                    param_value = params[arg_index]
+                    # CRITICAL FIX: params array may contain {name: "param"} dicts (architectural contract)
+                    # Extract .name field if it's a dict, otherwise use as-is (for legacy string params)
+                    if isinstance(param_value, dict):
+                        actual_param_name = param_value.get('name', f'arg{arg_index}')
+                    else:
+                        actual_param_name = param_value
+
                     updates.append((actual_param_name, rowid))
                     resolved_count += 1
 

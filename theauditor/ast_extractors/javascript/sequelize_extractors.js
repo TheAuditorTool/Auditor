@@ -28,10 +28,11 @@
  * @param {Array} classes - From extractClasses()
  * @param {Array} functionCallArgs - From extractFunctionCallArgs()
  * @param {Array} imports - From extract imports
- * @returns {Array} - Sequelize model records
+ * @returns {Object} - Object with sequelize_models and sequelize_associations arrays
  */
 function extractSequelizeModels(functions, classes, functionCallArgs, imports) {
     const models = [];
+    const associations = [];
 
     // Check if Sequelize is imported
     const hasSequelize = imports && imports.some(imp =>
@@ -39,7 +40,7 @@ function extractSequelizeModels(functions, classes, functionCallArgs, imports) {
     );
 
     if (!hasSequelize) {
-        return models;
+        return { sequelize_models: models, sequelize_associations: associations };
     }
 
     // Detect classes extending Model
@@ -49,8 +50,6 @@ function extractSequelizeModels(functions, classes, functionCallArgs, imports) {
 
         const modelName = cls.name;
         let tableName = null;
-        let fields = [];
-        let associations = [];
 
         // Find Model.init() call to extract table/field info
         for (const call of functionCallArgs) {
@@ -73,27 +72,83 @@ function extractSequelizeModels(functions, classes, functionCallArgs, imports) {
                 if (call.callee_function && call.callee_function.includes(`.${method}`) &&
                     call.callee_function.includes(modelName)) {
 
-                    // Extract target model from first argument
+                    // Extract target model and options from arguments
+                    let targetModel = null;
+                    let foreignKey = null;
+                    let throughTable = null;
+
                     if (call.argument_index === 0 && call.argument_expr) {
-                        const targetModel = call.argument_expr.trim();
+                        // First argument is the target model
+                        targetModel = call.argument_expr.replace(/require\(['"]\.(\/[^'"]+)['"]\)/g, '$1')
+                                                       .replace(/['"]/g, '')
+                                                       .trim();
+                    }
+
+                    // Extract options from second argument
+                    if (call.argument_index === 1 && call.argument_expr) {
+                        const fkMatch = call.argument_expr.match(/foreignKey:\s*['"]([^'"]+)['"]/);
+                        if (fkMatch) {
+                            foreignKey = fkMatch[1];
+                        }
+                        const throughMatch = call.argument_expr.match(/through:\s*['"]([^'"]+)['"]/);
+                        if (throughMatch) {
+                            throughTable = throughMatch[1];
+                        }
+                    }
+
+                    if (targetModel) {
+                        // Add forward relationship
                         associations.push({
-                            type: method,
-                            target: targetModel,
-                            line: call.line
+                            line: call.line,
+                            model_name: modelName,
+                            association_type: method,
+                            target_model: targetModel,
+                            foreign_key: foreignKey,
+                            through_table: throughTable
                         });
+
+                        // Add inverse relationship matching Python SQLAlchemy/Django pattern
+                        // Skip self-referential relationships to avoid duplicates
+                        if (targetModel !== modelName) {
+                            let inverseType = null;
+
+                            // Map relationship types to their inverses
+                            if (method === 'hasMany') {
+                                inverseType = 'belongsTo';
+                            } else if (method === 'hasOne') {
+                                inverseType = 'belongsTo';
+                            } else if (method === 'belongsToMany') {
+                                // belongsToMany is bidirectional - both sides are the same
+                                inverseType = 'belongsToMany';
+                            }
+                            // Note: belongsTo doesn't get an inverse because it's already the inverse of hasMany/hasOne
+
+                            if (inverseType) {
+                                associations.push({
+                                    line: call.line,
+                                    model_name: targetModel,  // Swap source and target
+                                    association_type: inverseType,
+                                    target_model: modelName,
+                                    foreign_key: foreignKey,
+                                    through_table: throughTable
+                                });
+                            }
+                        }
                     }
                 }
             }
         }
 
         models.push({
-            name: modelName,
             line: cls.line,
-            table_name: tableName || modelName.toLowerCase(),
-            extends_model: true,
-            associations: associations
+            model_name: modelName,
+            table_name: tableName,
+            extends_model: true
         });
     }
 
-    return models;
+    return {
+        sequelize_models: models,
+        sequelize_associations: associations
+    };
 }

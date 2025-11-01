@@ -821,6 +821,736 @@ def extract_pydantic_validators(tree: Dict, parser_self) -> List[Dict]:
     return validators
 
 
+def extract_marshmallow_schemas(tree: Dict, parser_self) -> List[Dict]:
+    """[DEPRECATED - NOT USED] Extract Marshmallow schema definitions.
+
+    WARNING: This function is part of the OLD monolithic python_impl.py file.
+    The ACTIVE version is in python/framework_extractors.py:1108
+    This file is kept for rollback only, NOT used in production.
+
+    Detects classes extending Schema from marshmallow.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance for AST traversal
+
+    Returns:
+        List of dicts with keys:
+            - line: int - Line number
+            - schema_name: str - Class name
+            - has_meta: bool - Whether Meta inner class exists
+            - meta_fields: str - Comma-separated field list from Meta.fields (or None)
+    """
+    schemas = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return schemas
+
+    # Find all class definitions
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if class extends Schema
+        extends_schema = False
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id == 'Schema':
+                extends_schema = True
+                break
+            elif isinstance(base, ast.Attribute) and base.attr == 'Schema':
+                extends_schema = True
+                break
+
+        if not extends_schema:
+            continue
+
+        schema_name = node.name
+        line = node.lineno
+
+        # Check for Meta inner class
+        has_meta = False
+        meta_fields = None
+
+        for item in node.body:
+            if isinstance(item, ast.ClassDef) and item.name == 'Meta':
+                has_meta = True
+
+                # Try to extract fields from Meta.fields attribute
+                for meta_item in item.body:
+                    if isinstance(meta_item, ast.Assign):
+                        for target in meta_item.targets:
+                            if isinstance(target, ast.Name) and target.name == 'fields':
+                                # Extract field names from tuple/list
+                                if isinstance(meta_item.value, (ast.Tuple, ast.List)):
+                                    field_names = []
+                                    for elt in meta_item.value.elts:
+                                        if isinstance(elt, ast.Constant):
+                                            field_names.append(elt.value)
+                                    meta_fields = ', '.join(field_names)
+                                break
+                break
+
+        # Count fields in the schema
+        field_count = 0
+        has_nested_schemas = False
+        has_custom_validators = False
+
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                # Check if it's a field assignment
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        # Check if value is a field call
+                        if isinstance(item.value, ast.Call):
+                            if hasattr(item.value.func, 'attr') and 'field' in item.value.func.attr.lower():
+                                field_count += 1
+                                # Check for nested schemas
+                                if item.value.func.attr in ['Nested', 'List']:
+                                    has_nested_schemas = True
+                            elif hasattr(item.value.func, 'id') and 'field' in item.value.func.id.lower():
+                                field_count += 1
+            # Check for validator methods
+            elif isinstance(item, ast.FunctionDef):
+                if item.name.startswith('validate_') or item.name.startswith('validates_'):
+                    has_custom_validators = True
+
+        schemas.append({
+            'line': line,
+            'schema_class_name': schema_name,  # Changed from schema_name
+            'field_count': field_count,
+            'has_nested_schemas': has_nested_schemas,
+            'has_custom_validators': has_custom_validators
+        })
+
+    return schemas
+
+
+def extract_marshmallow_fields(tree: Dict, parser_self) -> List[Dict]:
+    """Extract Marshmallow field definitions from schema classes.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int - Line number
+            - schema_name: str - Parent schema class name
+            - field_name: str - Field name
+            - field_type: str - Field type (String, Integer, etc.)
+            - is_required: bool - Whether field is required
+            - validators: str - Validator names (comma-separated)
+    """
+    fields = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return fields
+
+    # Find all class definitions that extend Schema
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if class extends Schema
+        extends_schema = any(
+            (isinstance(base, ast.Name) and base.id == 'Schema') or
+            (isinstance(base, ast.Attribute) and base.attr == 'Schema')
+            for base in node.bases
+        )
+
+        if not extends_schema:
+            continue
+
+        schema_name = node.name
+
+        # Find field assignments in class body
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                # Get field name from assignment target
+                field_name = None
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        field_name = target.id
+                        break
+
+                if not field_name:
+                    continue
+
+                # Check if assignment is a fields.* call
+                field_type = None
+                required = False
+                allow_none = False
+                has_validate = False
+                has_custom_validator = False
+
+                if isinstance(item.value, ast.Call):
+                    # Get field type (e.g., fields.String())
+                    if isinstance(item.value.func, ast.Attribute):
+                        if isinstance(item.value.func.value, ast.Name) and item.value.func.value.id == 'fields':
+                            field_type = item.value.func.attr
+
+                    # Check for keywords
+                    for keyword in item.value.keywords:
+                        if keyword.arg == 'required':
+                            if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                                required = True
+
+                        elif keyword.arg == 'allow_none':
+                            if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                                allow_none = True
+
+                        # Check for validate keyword
+                        elif keyword.arg == 'validate':
+                            has_validate = True
+                            # Can be a single validator or list of validators
+                            if isinstance(keyword.value, ast.Name):
+                                has_custom_validator = True
+                            elif isinstance(keyword.value, ast.List):
+                                has_custom_validator = True
+
+                if field_type:  # Only add if we detected a fields.* pattern
+                    fields.append({
+                        'line': item.lineno,
+                        'schema_class_name': schema_name,  # Changed from schema_name
+                        'field_name': field_name,
+                        'field_type': field_type,
+                        'required': required,  # Changed from is_required
+                        'allow_none': allow_none,
+                        'has_validate': has_validate,
+                        'has_custom_validator': has_custom_validator
+                    })
+
+    return fields
+
+
+def extract_wtforms_forms(tree: Dict, parser_self) -> List[Dict]:
+    """Extract WTForms form definitions.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - form_name: str
+            - has_csrf: bool - Whether CSRF protection is enabled
+            - submit_method: str - Submit method name if defined
+    """
+    forms = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return forms
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if class extends Form or FlaskForm
+        extends_form = any(
+            (isinstance(base, ast.Name) and base.id in ['Form', 'FlaskForm']) or
+            (isinstance(base, ast.Attribute) and base.attr in ['Form', 'FlaskForm'])
+            for base in node.bases
+        )
+
+        if not extends_form:
+            continue
+
+        form_name = node.name
+        line = node.lineno
+        has_csrf = True  # Default for FlaskForm
+        submit_method = None
+
+        # Look for submit method
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name in ['submit', 'on_submit', 'validate_on_submit']:
+                submit_method = item.name
+                break
+
+        forms.append({
+            'line': line,
+            'form_name': form_name,
+            'has_csrf': has_csrf,
+            'submit_method': submit_method
+        })
+
+    return forms
+
+
+def extract_wtforms_fields(tree: Dict, parser_self) -> List[Dict]:
+    """Extract WTForms field definitions.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - form_name: str
+            - field_name: str
+            - field_type: str - StringField, IntegerField, etc.
+            - validators: str - Comma-separated validator names
+            - default_value: str - Default value if present
+    """
+    fields = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return fields
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        # Check if class extends Form
+        extends_form = any(
+            (isinstance(base, ast.Name) and base.id in ['Form', 'FlaskForm']) or
+            (isinstance(base, ast.Attribute) and base.attr in ['Form', 'FlaskForm'])
+            for base in node.bases
+        )
+
+        if not extends_form:
+            continue
+
+        form_name = node.name
+
+        # Find field assignments
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                field_name = None
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        field_name = target.id
+                        break
+
+                if not field_name:
+                    continue
+
+                field_type = None
+                validators = []
+                default_value = None
+
+                if isinstance(item.value, ast.Call):
+                    # Get field type (e.g., StringField())
+                    if isinstance(item.value.func, ast.Name):
+                        field_type = item.value.func.id
+
+                    # Extract validators from second positional arg or 'validators' keyword
+                    if len(item.value.args) >= 2:
+                        if isinstance(item.value.args[1], ast.List):
+                            for elt in item.value.args[1].elts:
+                                if isinstance(elt, ast.Call) and isinstance(elt.func, ast.Name):
+                                    validators.append(elt.func.id)
+
+                    # Check for default keyword
+                    for keyword in item.value.keywords:
+                        if keyword.arg == 'default':
+                            if isinstance(keyword.value, ast.Constant):
+                                default_value = str(keyword.value.value)
+
+                if field_type and 'Field' in field_type:  # Only WTForms fields
+                    fields.append({
+                        'line': item.lineno,
+                        'form_name': form_name,
+                        'field_name': field_name,
+                        'field_type': field_type,
+                        'validators': ', '.join(validators) if validators else None,
+                        'default_value': default_value
+                    })
+
+    return fields
+
+
+def extract_celery_tasks(tree: Dict, parser_self) -> List[Dict]:
+    """Extract Celery task definitions.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - task_name: str - Function name
+            - bind: bool - Whether bind=True
+            - max_retries: int - Max retries (or None)
+            - rate_limit: str - Rate limit string (or None)
+    """
+    tasks = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return tasks
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+
+        # Check for @task or @app.task decorator
+        has_task_decorator = False
+        bind = False
+        max_retries = None
+        rate_limit = None
+
+        for decorator in node.decorator_list:
+            # Check for @task
+            if isinstance(decorator, ast.Name) and decorator.id == 'task':
+                has_task_decorator = True
+
+            # Check for @app.task or @celery.task
+            elif isinstance(decorator, ast.Attribute) and decorator.attr == 'task':
+                has_task_decorator = True
+
+            # Check for @task(...) with arguments
+            elif isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Name) and decorator.func.id == 'task':
+                    has_task_decorator = True
+                elif isinstance(decorator.func, ast.Attribute) and decorator.func.attr == 'task':
+                    has_task_decorator = True
+
+                # Extract decorator arguments
+                for keyword in decorator.keywords:
+                    if keyword.arg == 'bind':
+                        if isinstance(keyword.value, ast.Constant):
+                            bind = keyword.value.value
+                    elif keyword.arg == 'max_retries':
+                        if isinstance(keyword.value, ast.Constant):
+                            max_retries = keyword.value.value
+                    elif keyword.arg == 'rate_limit':
+                        if isinstance(keyword.value, ast.Constant):
+                            rate_limit = keyword.value.value
+
+        if not has_task_decorator:
+            continue
+
+        tasks.append({
+            'line': node.lineno,
+            'task_name': node.name,
+            'bind': bind,
+            'max_retries': max_retries,
+            'rate_limit': rate_limit
+        })
+
+    return tasks
+
+
+def extract_celery_task_calls(tree: Dict, parser_self) -> List[Dict]:
+    """Extract Celery task invocations (.delay(), .apply_async()).
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - task_name: str - Task being invoked
+            - call_type: str - 'delay' or 'apply_async'
+            - arguments: str - Stringified arguments
+    """
+    task_calls = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return task_calls
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        # Check for task.delay() or task.apply_async()
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr in ['delay', 'apply_async']:
+                # Get task name from the object being called
+                task_name = None
+                if isinstance(node.func.value, ast.Name):
+                    task_name = node.func.value.id
+
+                if task_name:
+                    # Stringify arguments
+                    arguments = []
+                    for arg in node.args:
+                        if isinstance(arg, ast.Constant):
+                            arguments.append(repr(arg.value))
+                        elif isinstance(arg, ast.Name):
+                            arguments.append(arg.id)
+
+                    for keyword in node.keywords:
+                        if isinstance(keyword.value, ast.Constant):
+                            arguments.append(f"{keyword.arg}={repr(keyword.value.value)}")
+
+                    task_calls.append({
+                        'line': node.lineno,
+                        'task_name': task_name,
+                        'call_type': node.func.attr,
+                        'arguments': ', '.join(arguments)
+                    })
+
+    return task_calls
+
+
+def extract_celery_beat_schedules(tree: Dict, parser_self) -> List[Dict]:
+    """Extract Celery Beat periodic task schedules.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - schedule_name: str - Schedule entry name
+            - task_name: str - Task to execute
+            - crontab: str - Crontab schedule (if present)
+            - interval: str - Interval schedule (if present)
+    """
+    schedules = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return schedules
+
+    # Look for beat_schedule dict or CELERYBEAT_SCHEDULE dict
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.Assign):
+            continue
+
+        schedule_dict_name = None
+
+        for target in node.targets:
+            if isinstance(target, ast.Attribute) and target.attr == 'beat_schedule':
+                schedule_dict_name = 'beat_schedule'
+                break
+            elif isinstance(target, ast.Name) and target.id == 'CELERYBEAT_SCHEDULE':
+                schedule_dict_name = 'CELERYBEAT_SCHEDULE'
+                break
+
+        if not schedule_dict_name:
+            continue
+
+        # Parse the dict
+        if isinstance(node.value, ast.Dict):
+            for key, value in zip(node.value.keys, node.value.values):
+                if isinstance(key, ast.Constant):
+                    schedule_name = key.value
+
+                    # Parse schedule entry dict
+                    task_name = None
+                    crontab = None
+                    interval = None
+
+                    if isinstance(value, ast.Dict):
+                        for k, v in zip(value.keys, value.values):
+                            if isinstance(k, ast.Constant):
+                                if k.value == 'task':
+                                    if isinstance(v, ast.Constant):
+                                        task_name = v.value
+                                elif k.value == 'schedule':
+                                    # Could be crontab(...) or interval seconds
+                                    if isinstance(v, ast.Call):
+                                        if isinstance(v.func, ast.Name) and v.func.id == 'crontab':
+                                            # Extract crontab args
+                                            crontab_parts = []
+                                            for keyword in v.keywords:
+                                                if isinstance(keyword.value, ast.Constant):
+                                                    crontab_parts.append(f"{keyword.arg}={keyword.value.value}")
+                                            crontab = ', '.join(crontab_parts)
+                                    elif isinstance(v, ast.Constant):
+                                        interval = str(v.value)
+
+                    if task_name:
+                        schedules.append({
+                            'line': node.lineno,
+                            'schedule_name': schedule_name,
+                            'task_name': task_name,
+                            'crontab': crontab,
+                            'interval': interval
+                        })
+
+    return schedules
+
+
+def extract_pytest_fixtures(tree: Dict, parser_self) -> List[Dict]:
+    """Extract pytest fixture definitions.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - fixture_name: str - Function name
+            - scope: str - 'function', 'class', 'module', 'session'
+            - autouse: bool - Whether autouse=True
+    """
+    fixtures = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return fixtures
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+
+        # Check for @pytest.fixture decorator
+        has_fixture_decorator = False
+        scope = 'function'  # Default
+        autouse = False
+
+        for decorator in node.decorator_list:
+            # Check for @pytest.fixture
+            if isinstance(decorator, ast.Attribute):
+                if isinstance(decorator.value, ast.Name) and decorator.value.id == 'pytest':
+                    if decorator.attr == 'fixture':
+                        has_fixture_decorator = True
+
+            # Check for @pytest.fixture(...) with arguments
+            elif isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Attribute):
+                    if isinstance(decorator.func.value, ast.Name) and decorator.func.value.id == 'pytest':
+                        if decorator.func.attr == 'fixture':
+                            has_fixture_decorator = True
+
+                            # Extract decorator arguments
+                            for keyword in decorator.keywords:
+                                if keyword.arg == 'scope':
+                                    if isinstance(keyword.value, ast.Constant):
+                                        scope = keyword.value.value
+                                elif keyword.arg == 'autouse':
+                                    if isinstance(keyword.value, ast.Constant):
+                                        autouse = keyword.value.value
+
+        if not has_fixture_decorator:
+            continue
+
+        fixtures.append({
+            'line': node.lineno,
+            'fixture_name': node.name,
+            'scope': scope,
+            'autouse': autouse
+        })
+
+    return fixtures
+
+
+def extract_pytest_parametrize(tree: Dict, parser_self) -> List[Dict]:
+    """Extract pytest.mark.parametrize decorators.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - test_function: str - Test function name
+            - parameter_names: str - Comma-separated parameter names
+            - parameter_values: str - Stringified parameter values
+    """
+    parametrize_decorators = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return parametrize_decorators
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+
+        for decorator in node.decorator_list:
+            # Check for @pytest.mark.parametrize(...)
+            if isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Attribute):
+                    # Check for pytest.mark.parametrize
+                    if (isinstance(decorator.func.value, ast.Attribute) and
+                        isinstance(decorator.func.value.value, ast.Name) and
+                        decorator.func.value.value.id == 'pytest' and
+                        decorator.func.value.attr == 'mark' and
+                        decorator.func.attr == 'parametrize'):
+
+                        # Extract parameter names (first arg)
+                        parameter_names = None
+                        if len(decorator.args) >= 1:
+                            if isinstance(decorator.args[0], ast.Constant):
+                                parameter_names = decorator.args[0].value
+
+                        # Extract parameter values (second arg)
+                        parameter_values = None
+                        if len(decorator.args) >= 2:
+                            # This is typically a list of tuples
+                            parameter_values = ast.unparse(decorator.args[1])
+
+                        if parameter_names:
+                            parametrize_decorators.append({
+                                'line': node.lineno,
+                                'test_function': node.name,
+                                'parameter_names': parameter_names,
+                                'parameter_values': parameter_values
+                            })
+
+    return parametrize_decorators
+
+
+def extract_pytest_markers(tree: Dict, parser_self) -> List[Dict]:
+    """Extract custom pytest markers.
+
+    Args:
+        tree: AST tree dict
+        parser_self: Parser instance
+
+    Returns:
+        List of dicts with keys:
+            - line: int
+            - test_function: str - Test function name
+            - marker_name: str - Marker name (e.g., 'slow', 'skipif')
+            - marker_args: str - Stringified marker arguments (or None)
+    """
+    markers = []
+    actual_tree = tree.get("tree")
+    if not isinstance(actual_tree, ast.AST):
+        return markers
+
+    for node in ast.walk(actual_tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+
+        for decorator in node.decorator_list:
+            # Check for @pytest.mark.* (excluding parametrize which is handled separately)
+            if isinstance(decorator, ast.Attribute):
+                if (isinstance(decorator.value, ast.Attribute) and
+                    isinstance(decorator.value.value, ast.Name) and
+                    decorator.value.value.id == 'pytest' and
+                    decorator.value.attr == 'mark'):
+
+                    marker_name = decorator.attr
+                    if marker_name != 'parametrize':  # Skip parametrize
+                        markers.append({
+                            'line': node.lineno,
+                            'test_function': node.name,
+                            'marker_name': marker_name,
+                            'marker_args': None
+                        })
+
+            # Check for @pytest.mark.*(...) with arguments
+            elif isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Attribute):
+                    if (isinstance(decorator.func.value, ast.Attribute) and
+                        isinstance(decorator.func.value.value, ast.Name) and
+                        decorator.func.value.value.id == 'pytest' and
+                        decorator.func.value.attr == 'mark'):
+
+                        marker_name = decorator.func.attr
+                        if marker_name != 'parametrize':  # Skip parametrize
+                            # Stringify arguments
+                            marker_args = ast.unparse(decorator)
+                            markers.append({
+                                'line': node.lineno,
+                                'test_function': node.name,
+                                'marker_name': marker_name,
+                                'marker_args': marker_args
+                            })
+
+    return markers
+
+
+
 def extract_flask_blueprints(tree: Dict, parser_self) -> List[Dict]:
     """Detect Flask blueprint declarations."""
     blueprints: List[Dict[str, Any]] = []
