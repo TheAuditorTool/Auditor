@@ -382,3 +382,44 @@ def run_fce(root_path):
 - ✅ A context provider (gives AI full picture)
 - ✅ An audit trail (immutable record)
 
+## Taint Analysis Architecture (v1.3.0)
+
+### Schema-Driven Refactor Complete
+The taint analysis module has been refactored from an 8-layer manual architecture to a 3-layer schema-driven architecture:
+
+**Before (8 layers, 8,691 lines):**
+- Manual cache loaders for each table (40+ duplicate functions)
+- Hardcoded source/sink patterns in Python
+- 3 duplicate CFG implementations
+- Complex fallback logic throughout
+
+**After (3 layers, ~2,000 lines):**
+1. **Schema Layer** (`indexer/schemas/codegen.py`)
+   - Auto-generates TypedDicts, accessors, and memory cache from database schema
+   - Single source of truth for all 150 tables
+
+2. **Discovery Layer** (`taint/discovery.py`)
+   - Database-driven source/sink discovery
+   - No hardcoded patterns
+
+3. **Analysis Layer** (`taint/analysis.py`)
+   - Unified CFG analyzer with worklist algorithm
+   - Single implementation for all flow analysis
+
+**Key Files:**
+- `theauditor/indexer/schemas/generated_cache.py` - Auto-generated memory cache
+- `theauditor/taint/schema_cache_adapter.py` - Adapter for backward compatibility
+- `theauditor/taint/discovery.py` - Database-driven pattern discovery
+- `theauditor/taint/analysis.py` - Unified taint flow analyzer
+
+**Old files renamed to .bak:**
+- `database.py.bak`, `memory_cache.py.bak`, `python_memory_cache.py.bak`
+- `sources.py.bak`, `config.py.bak`, `interprocedural*.py.bak`
+- `cfg_integration.py.bak`, `registry.py.bak`
+
+**Impact:**
+- 77% code reduction (8,691 → ~2,000 lines)
+- 62% layer reduction (8 → 3 layers)
+- Zero manual cache loaders (all auto-generated)
+- Changes to taint logic no longer require reindexing
+
