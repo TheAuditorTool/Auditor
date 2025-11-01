@@ -9,7 +9,6 @@ import sqlite3
 import click
 from pathlib import Path
 from typing import List, Dict
-from theauditor.utils.consolidated_output import write_to_group
 
 
 @click.command("detect-frameworks")
@@ -214,17 +213,12 @@ def _write_output(frameworks: List[Dict], project_path: Path, output_json: str):
         project_path: Project root path
         output_json: Optional custom output path (for backward compatibility)
     """
-    # Write to consolidated group
-    write_to_group("dependency_analysis", "frameworks", frameworks, root=str(project_path))
-    click.echo(f"[OK] Frameworks analysis saved to dependency_analysis.json")
-
-    # Also save to custom location if specified (backward compatibility)
-    if output_json:
-        save_path = Path(output_json)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(save_path, 'w', encoding='utf-8') as f:
-            json.dump(frameworks, f, indent=2)
-        click.echo(f"[OK] Also saved to {save_path}")
+    # Write frameworks results to JSON
+    output_path = Path(output_json) if output_json else (project_path / ".pf" / "raw" / "frameworks.json")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(frameworks, f, indent=2)
+    click.echo(f"[OK] Frameworks analysis saved to {output_path}")
 
 
 def _format_table(frameworks: List[Dict]) -> str:

@@ -3,7 +3,6 @@
 import click
 from pathlib import Path
 from theauditor.utils.helpers import get_self_exclusion_patterns
-from theauditor.utils.consolidated_output import write_to_group
 
 
 @click.command("detect-patterns")
@@ -150,21 +149,10 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
             click.echo(f"[DB] Database not found - run 'aud index' first for optimal FCE performance")
         # ===== END DUAL-WRITE =====
 
-        # Get results as dict (detector.to_json() writes file, we need dict)
-        results_dict = {
-            "total_findings": len(detector.findings),
-            "stats": detector.get_summary_stats(),
-            "findings": [f.to_dict() for f in detector.findings]
-        }
-
-        # Write to consolidated group
-        write_to_group("security_analysis", "patterns", results_dict, root=str(project_path))
-        click.echo(f"[OK] Patterns analysis saved to security_analysis.json")
-
-        # Also save to user-specified location if provided (backward compatibility)
-        if output_json:
-            detector.to_json(Path(output_json))
-            click.echo(f"[OK] Full results also saved to: {output_json}")
+        # Write results to JSON
+        output_path = Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")
+        detector.to_json(output_path)
+        click.echo(f"[OK] Patterns analysis saved to {output_path}")
         
         # Display table
         table = detector.format_table(max_rows=max_rows)

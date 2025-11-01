@@ -19,7 +19,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from theauditor.test_frameworks import detect_test_framework
 from theauditor.utils.temp_manager import TempManager
-from theauditor.utils.consolidated_output import write_to_group
 
 
 
@@ -1803,16 +1802,16 @@ def run_fce(
             results["summary"]["top_duplicate_clusters"] = dedupe_stats["top_duplicates"]
         results["summary"]["meta_dedupe"] = meta_stats
 
-        # Write results to consolidated correlation_analysis.json
+        # Write results to individual JSON files
         raw_dir.mkdir(parents=True, exist_ok=True)
 
-        # Extract root path from raw_dir (.pf/raw -> .)
-        root_path = str(raw_dir.parent.parent)
-
         # Write main FCE results
-        write_to_group("correlation_analysis", "fce", results, root=root_path)
+        fce_path = raw_dir / "fce.json"
+        with open(fce_path, 'w', encoding='utf-8') as f:
+            json.dump(results, f, indent=2)
 
-        # Write failures as separate analysis
+        # Write failures as separate file
+        failures_path = raw_dir / "fce_failures.json"
         failures_payload = {
             "generated_at": datetime.now(UTC).isoformat(),
             "meta_findings": meta_findings,
@@ -1820,11 +1819,8 @@ def run_fce(
             "path_clusters": path_clusters,
             "test_failures": all_failures,
         }
-        write_to_group("correlation_analysis", "fce_failures", failures_payload, root=root_path)
-
-        # Keep legacy paths for return value (for backward compatibility)
-        fce_path = raw_dir / "correlation_analysis.json"
-        failures_path = fce_path  # Same file now
+        with open(failures_path, 'w', encoding='utf-8') as f:
+            json.dump(failures_payload, f, indent=2)
 
         # Count total correlated failures
         failures_found = correlated_failures
