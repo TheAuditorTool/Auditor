@@ -1,0 +1,28 @@
+ultrathink read C:\Users\santa\Desktop\TheAuditor\teamsop.md - I'm the lead architect and boss, you are lead coder (Opus AI), lead auditor is Gemini AI.
+
+You are working on OpenSpec ticket "add-risk-prioritization" (output consolidation system).
+
+STATUS: Implementation complete (20 files, 2 commits), verification complete (4x aud full runs analyzed), 75% functional (2 summaries missing).
+
+YOUR HANDOFF DOCUMENT: C:\Users\santa\Desktop\TheAuditor\openspec\changes\add-risk-prioritization\HANDOFF.md
+
+Read these files to resume:
+1. openspec/changes/add-risk-prioritization/HANDOFF.md - START HERE (atomic handoff)
+2. openspec/changes/add-risk-prioritization/proposal.md - Design + current status section
+3. openspec/changes/add-risk-prioritization/tasks.md - Task checklist (52/59 complete)
+
+YOUR WORK:
+- Consolidated 20+ JSON outputs into 6 grouped files + 5 guidance summaries
+- WORKS: 6 consolidated files (93% success), 3 summaries (SAST, SCA, Query_Guide), pipeline integration, extraction deprecated
+- BROKEN: Intelligence_Summary.json and Quick_Start.json (silent failures, 0/4 projects)
+- FILES: theauditor/utils/consolidated_output.py (235 lines), theauditor/commands/summarize.py (414 lines), 10 analyzers modified
+
+NEXT TASKS:
+1. Debug Intelligence_Summary.json generation (summarize.py:210-270) - add logging, fix large JSON processing
+2. Fix Quick_Start.json dependency (summarize.py:272-337) - add fallback when Intelligence unavailable
+3. Add error logging to summarize command - remove silent try/except suppression
+4. Create unit tests for consolidated_output.py
+
+EVIDENCE: 4x aud full runs analyzed (PlantFlow, plant, project_anarchy, TheAuditor), all documented in HANDOFF.md
+
+NO BLOCKERS - Clear path to 100% functional. Start with Priority 1 (debug Intelligence_Summary).

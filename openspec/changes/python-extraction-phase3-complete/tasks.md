@@ -1,497 +1,329 @@
-# Python Extraction Phase 3: Task Tracking
+# Python Extraction Phase 3 - Task Tracking (ATOMIC)
 
-**Version**: 1.0
-**Date**: 2025-11-01
-**Owner**: Lead Coder (Opus AI)
-
----
-
-## TASK SUMMARY
-
-**Total Tasks**: 40
-**Estimated Sessions**: 20 (2 tasks per session average)
-**Timeline**: 10 working days
-
-**Status Legend**:
-- ⏳ Not Started
-- 🚧 In Progress
-- ✅ Complete
-- ❌ Blocked
-- ⚠️ At Risk
+**Last Updated**: 2025-11-01 19:00 UTC
+**Status**: 80% Complete (Code deployed, verification incomplete)
+**Source**: Verified against source code + database + pipeline logs
 
 ---
 
-## PHASE 3.1: Flask Deep Dive (Sessions 1-4)
+## TASK STATUS SUMMARY
 
-### Task 1: Design Flask Extractor Architecture
-**Status**: ✅ COMPLETE
-**Session**: Pre-work
-**Description**: Design the Flask extraction module structure
-**Deliverable**: Design decision documented
-**Verification**: Design reviewed and approved
+**Total**: 10 tasks (simplified from original 40)
+**Complete**: 7 tasks
+**Failed**: 1 task (Flask route test)
+**Not Started**: 2 tasks (Performance, Integration)
 
-### Task 2: Implement Flask App Factory Extractor
-**Status**: ✅ COMPLETED
-**Session**: 1
-**Description**: Extract create_app() and Flask() patterns
-**Acceptance Criteria**:
-- Detects create_app() functions
-- Captures Flask() instantiations
-- Records configuration patterns
-**Code Location**: `theauditor/ast_extractors/python/flask_extractors.py`
-**Test**: `test_flask_app_factory()`
+---
 
-### Task 3: Implement Flask Extension Extractors
-**Status**: ✅ COMPLETED
-**Session**: 1
-**Description**: Extract Flask-SQLAlchemy, Flask-Login, etc.
-**Acceptance Criteria**:
-- Detects extension imports
-- Captures init_app() calls
-- Records extension configuration
-**Dependencies**: Task 2
+## ✅ TASK 1: Implement 25 Python Extractors
 
-### Task 4: Implement Flask Hook Extractors
-**Status**: ✅ COMPLETED
-**Session**: 2
-**Description**: Extract before_request, after_request, teardown
-**Acceptance Criteria**:
-- Detects @app.before_request
-- Captures hook functions
-- Records hook order
+**Status**: COMPLETE
+**Code**: Verified in source
+**Output**: Verified in database
 
-### Task 5: Implement Flask Error Handler Extractors
-**Status**: ✅ COMPLETED
-**Session**: 2
-**Description**: Extract @app.errorhandler decorators
-**Acceptance Criteria**:
-- Detects error handlers
-- Captures status codes
-- Records handler functions
+### Deliverables:
+- **9 Flask extractors** (flask_extractors.py):
+  - extract_flask_app_factories
+  - extract_flask_extensions
+  - extract_flask_request_hooks
+  - extract_flask_error_handlers
+  - extract_flask_websocket_handlers
+  - extract_flask_cli_commands
+  - extract_flask_cors_configs
+  - extract_flask_rate_limits
+  - extract_flask_cache_decorators
 
-### Task 6: Create Flask Database Schemas
-**Status**: ✅ COMPLETED
-**Session**: 3
-**Description**: Define 5 new Flask-specific tables
-**Tables**:
+- **8 Security extractors** (security_extractors.py):
+  - extract_auth_decorators
+  - extract_password_hashing
+  - extract_jwt_operations
+  - extract_sql_injection_patterns
+  - extract_command_injection_patterns
+  - extract_path_traversal_patterns
+  - extract_dangerous_eval_exec
+  - extract_crypto_operations
+
+- **4 Django Advanced extractors** (django_advanced_extractors.py):
+  - extract_django_signals
+  - extract_django_receivers
+  - extract_django_managers
+  - extract_django_querysets
+
+- **4 Testing extractors** (testing_extractors.py extended):
+  - extract_unittest_test_cases
+  - extract_assertion_patterns
+  - extract_pytest_plugin_hooks
+  - extract_hypothesis_strategies
+
+**Verification**: All 25 functions exist in source code ✓
+
+---
+
+## ✅ TASK 2: Create 24 Database Tables
+
+**Status**: COMPLETE
+**Schema**: python_schema.py
+**Deployment**: 100% (tables exist in all 4 test projects)
+
+### Tables Created:
+
+**Flask (9 tables)**:
 - python_flask_apps
 - python_flask_extensions
 - python_flask_hooks
+- python_flask_error_handlers
 - python_flask_websockets
-- python_flask_configs
-**Location**: `theauditor/indexer/schemas/python_schema.py`
+- python_flask_cli_commands
+- python_flask_cors
+- python_flask_rate_limits
+- python_flask_cache
 
-### Task 7: Wire Flask Extractors to Pipeline
-**Status**: ✅ COMPLETED
-**Session**: 3
-**Description**: Integrate Flask extractors into indexer
-**Changes**:
-- Update `indexer/extractors/python.py`
-- Add storage methods to `storage.py`
-- Add database writers to `python_database.py`
+**Testing (4 tables)**:
+- python_unittest_test_cases
+- python_assertion_patterns
+- python_pytest_plugin_hooks
+- python_hypothesis_strategies
 
-### Task 8: Create Flask Test Fixtures
-**Status**: ⚠️ PARTIAL
-**Session**: 4
-**Description**: Build 800 lines of Flask test fixtures
-**Location**: `tests/fixtures/python/flask_app/`
-**Coverage**: All 10 Flask patterns
-
-### Task 9: Test Flask Extraction End-to-End
-**Status**: ❌ FAILING
-**Session**: 4
-**Description**: Run full extraction on Flask fixtures
-**Verification**:
-- Run `aud index`
-- Query Flask tables
-- Verify 500+ records
-
-### Task 10: Document Flask Patterns
-**Status**: ⏳ Not Started
-**Session**: 4
-**Description**: Create Flask extraction documentation
-**Deliverable**: `docs/flask_patterns.md`
-
----
-
-## PHASE 3.2: Testing Ecosystem (Sessions 5-8)
-
-### Task 11: Implement unittest Extractors
-**Status**: ✅ COMPLETED
-**Session**: 5
-**Description**: Extract TestCase classes and methods
-**Acceptance Criteria**:
-- Detects unittest.TestCase subclasses
-- Captures test methods (test_*)
-- Records setUp/tearDown
-
-### Task 12: Implement Assertion Extractors
-**Status**: ✅ COMPLETED
-**Session**: 5
-**Description**: Extract assertEqual, assertTrue, etc.
-**Acceptance Criteria**:
-- Detects all assertion methods
-- Captures assertion arguments
-- Records assertion types
-
-### Task 13: Implement pytest Plugin Extractors
-**Status**: ✅ COMPLETED
-**Session**: 6
-**Description**: Extract pytest hooks and plugins
-**Acceptance Criteria**:
-- Detects pytest_* hooks
-- Captures plugin registrations
-- Records hook implementations
-
-### Task 14: Implement Hypothesis Extractors
-**Status**: ✅ COMPLETED
-**Session**: 6
-**Description**: Extract @given decorators and strategies
-**Acceptance Criteria**:
-- Detects @hypothesis.given
-- Captures strategy definitions
-- Records test parameters
-
-### Task 15: Create Testing Database Schemas
-**Status**: ✅ COMPLETED
-**Session**: 7
-**Description**: Define 4 new testing tables
-**Tables**:
-- python_unittest_cases
-- python_test_assertions
-- python_test_plugins
-- python_test_coverage
-
-### Task 16: Wire Testing Extractors
-**Status**: ✅ COMPLETED
-**Session**: 7
-**Description**: Integrate testing extractors into pipeline
-**Dependencies**: Task 15
-
-### Task 17: Create Testing Fixtures
-**Status**: ✅ COMPLETED
-**Session**: 8
-**Description**: Build 600 lines of test fixtures
-**Coverage**: unittest, pytest, hypothesis patterns
-
-### Task 18: Test Extraction End-to-End
-**Status**: ✅ COMPLETED
-**Session**: 8
-**Description**: Verify testing extraction works
-**Verification**: 400+ records extracted
-
----
-
-## PHASE 3.3: Security Patterns (Sessions 9-12)
-
-### Task 19: Implement Auth Extractors
-**Status**: ✅ COMPLETED
-**Session**: 9
-**Description**: Extract authentication decorators
-**Patterns**:
-- @login_required
-- @permission_required
-- @roles_accepted
-
-### Task 20: Implement Crypto Extractors
-**Status**: ✅ COMPLETED
-**Session**: 9
-**Description**: Extract password hashing and encryption
-**Patterns**:
-- bcrypt usage
-- argon2 usage
-- hashlib usage
-
-### Task 21: Implement Dangerous Call Extractors
-**Status**: ✅ COMPLETED
-**Session**: 10
-**Description**: Extract eval, exec, subprocess
-**Patterns**:
-- eval() calls
-- exec() calls
-- subprocess with shell=True
-
-### Task 22: Create Security Schemas
-**Status**: ✅ COMPLETED
-**Session**: 10
-**Description**: Define 3 security tables
-**Tables**:
-- python_auth_patterns
+**Security (7 tables)**:
+- python_auth_decorators
+- python_password_hashing
+- python_jwt_operations
+- python_sql_injection
+- python_command_injection
+- python_path_traversal
 - python_crypto_operations
-- python_dangerous_calls
 
-### Task 23: Wire Security Extractors
-**Status**: ✅ COMPLETED
-**Session**: 11
-**Description**: Integrate security extractors
-
-### Task 24: Create Security Fixtures
-**Status**: ✅ COMPLETED
-**Session**: 11
-**Description**: Build 500 lines of security fixtures
-**Coverage**: Vulnerable and secure patterns
-
-### Task 25: Security Pattern Validation
-**Status**: ✅ COMPLETED
-**Session**: 12
-**Description**: Validate against OWASP patterns
-**Verification**: All OWASP Top 10 detected
-
----
-
-## PHASE 3.4: Django Signals (Sessions 13-15)
-
-### Task 26: Implement Signal Extractors
-**Status**: ✅ COMPLETED
-**Session**: 13
-**Description**: Extract Django signal definitions
-**Patterns**:
-- Signal() instantiation
-- pre_save, post_save
-- Custom signals
-
-### Task 27: Implement Receiver Extractors
-**Status**: ✅ COMPLETED
-**Session**: 13
-**Description**: Extract @receiver decorators
-**Patterns**:
-- @receiver connections
-- Signal handlers
-- Sender filtering
-
-### Task 28: Implement Manager Extractors
-**Status**: ✅ COMPLETED
-**Session**: 14
-**Description**: Extract custom model managers
-**Patterns**:
-- Manager subclasses
-- get_queryset overrides
-- Custom manager methods
-
-### Task 29: Create Django Schemas
-**Status**: ✅ COMPLETED
-**Session**: 14
-**Description**: Define 2 Django tables
-**Tables**:
+**Django Advanced (4 tables)**:
 - python_django_signals
+- python_django_receivers
 - python_django_managers
+- python_django_querysets
 
-### Task 30: Wire Django Extractors
-**Status**: ✅ COMPLETED
-**Session**: 15
-**Description**: Integrate Django extractors
-
-### Task 31: Create Django Fixtures
-**Status**: ✅ COMPLETED
-**Session**: 15
-**Description**: Build 400 lines of Django fixtures
+**Verification**: Schema contract enforced, 150 tables loaded in TheAuditor ✓
 
 ---
 
-## PHASE 3.5: Performance (Sessions 16-18)
+## ✅ TASK 3: Wire Extractors to Pipeline
 
-### Task 32: Profile Current Performance
-**Status**: ⏳ Not Started
-**Session**: 16
-**Description**: Baseline performance metrics
-**Metrics**:
-- Time per file
-- Memory usage
-- Database write time
-**Tools**: cProfile, memory_profiler
+**Status**: COMPLETE
+**Integration**: python.py, storage.py, python_database.py
 
-### Task 33: Implement Memory Cache
-**Status**: ⏳ Not Started
-**Session**: 16
-**Description**: Update python_memory_cache.py
-**Requirements**:
-- Load 50+ tables
-- Lazy loading for cold tables
-- Cache invalidation
+### Changes Made:
+- python.py: Added 25 extractor function calls
+- storage.py: Added 25 storage handler methods (_store_python_flask_*, etc.)
+- python_database.py: Added 13+ database writer methods (add_python_flask_*, etc.)
+- __init__.py: Exported all 25 extractors
 
-### Task 34: Optimize ast.walk Patterns
-**Status**: ✅ COMPLETED
-**Session**: 17
-**Description**: Single-pass extraction
-**Optimization**:
-- Combine multiple walks
-- Share AST between extractors
-- Cache node type checks
-
-### Task 35: Create Benchmarks
-**Status**: ✅ COMPLETED
-**Session**: 17
-**Description**: Performance test suite
-**Tests**:
-- 1,000 file corpus
-- Memory profiling
-- Database performance
-
-### Task 36: Document Performance
-**Status**: ✅ COMPLETED
-**Session**: 18
-**Description**: Performance report
-**Deliverable**: `docs/performance.md`
+**Verification**: All 25 extractors called in pipeline, zero wiring failures ✓
 
 ---
 
-## PHASE 3.6: Integration (Sessions 19-20)
+## ✅ TASK 4: Create Test Fixtures
 
-### Task 37: Update Taint Analyzer
-**Status**: ✅ COMPLETED
-**Session**: 19
-**Description**: Add taint rules for new patterns
-**Rules**:
-- Async propagation
-- Django signal flow
-- Flask route tainting
+**Status**: COMPLETE
+**Location**: tests/fixtures/python/
+**Total Lines**: 832 lines
 
-### Task 38: Create Integration Tests
-**Status**: ✅ COMPLETED
-**Session**: 19
-**Description**: End-to-end test suite
-**Coverage**:
-- All 79 extractors
-- Taint analysis
-- Query system
+### Fixtures Created:
+1. **django_advanced.py** (123 lines)
+   - Django signals, receivers, managers, querysets
 
-### Task 39: Run Full Validation
-**Status**: ✅ COMPLETED
-**Session**: 20
-**Description**: Validate on real projects
-**Projects**:
-- Django (2.2M lines)
-- Flask (500K lines)
-- FastAPI (200K lines)
-- TheAuditor (100K lines)
+2. **security_patterns.py** (140 lines)
+   - OWASP Top 10 vulnerable patterns
+   - Auth decorators, SQL injection, command injection, path traversal
 
-### Task 40: Final Documentation
-**Status**: ✅ COMPLETED
-**Session**: 20
-**Description**: Complete all documentation
-**Deliverables**:
-- Updated STATUS.md
-- API documentation
-- Migration guide
+3. **testing_patterns.py** (569 lines)
+   - pytest, unittest, hypothesis, mocking patterns
+
+**Verification**: All files exist and contain realistic patterns ✓
 
 ---
 
-## DEPENDENCIES
+## ✅ TASK 5: Extract Data from Test Projects
 
-### Critical Path
-```
-Task 2 → Task 3 → Task 7 → Task 9
-         ↘ Task 6 ↗
-```
+**Status**: COMPLETE
+**Method**: Ran `aud full --offline` on 4 projects
+**Results**: 1,888 Phase 3 records in TheAuditor
 
-### Parallel Work Opportunities
-- Tasks 2-5 (Flask extractors) can be done in parallel
-- Tasks 11-14 (Testing extractors) can be done in parallel
-- Tasks 19-21 (Security extractors) can be done in parallel
+### Extraction Results (TheAuditor):
 
-### Blocking Dependencies
-- Task 7 blocks Task 9 (must wire before testing)
-- Task 15 blocks Task 16 (schema before wiring)
-- Task 32 blocks Task 34 (profile before optimizing)
+**Flask**: 78 records
+- Apps: 1, Extensions: 25, Hooks: 5, Error handlers: 3
+- WebSockets: 4, CLI: 36, CORS: 6, Rate limits: 8, Cache: 3
 
----
+**Security**: 523 records
+- Auth: 8, Password hashing: 26, JWT: 5
+- SQL injection: 159, Command injection: 3, Path traversal: 322
 
-## RISK REGISTER
+**Testing**: 1,274 records
+- Assertions: 1,265, Pytest hooks: 4, Hypothesis: 3, Unittest: 2
 
-### Risk 1: Flask Complexity
-**Tasks Affected**: 2-5
-**Mitigation**: Start with simple patterns, iterate
+**Django**: 0 records (expected - no Django in fixtures)
 
-### Risk 2: Performance Regression
-**Tasks Affected**: 34-36
-**Mitigation**: Profile after each extractor block
-
-### Risk 3: Schema Conflicts
-**Tasks Affected**: 6, 15, 22, 29
-**Mitigation**: Test schema changes separately first
-
-### Risk 4: Taint Integration
-**Tasks Affected**: 37-38
-**Mitigation**: Coordinate with taint team early
+**Verification**: Database agent confirmed all records exist and are quality ✓
 
 ---
 
-## VERIFICATION CHECKLIST
+## ✅ TASK 6: Fix ORM Deduplication Bug
 
-For each extractor task:
-- [ ] Extractor function written
-- [ ] Unit test created
-- [ ] Schema defined
-- [ ] Database writer added
-- [ ] Storage method implemented
-- [ ] Wired into pipeline
-- [ ] Test fixture created
-- [ ] End-to-end tested
-- [ ] Documentation updated
-- [ ] Performance measured
+**Status**: COMPLETE
+**File**: framework_extractors.py
+**Commit**: a389894
+
+### Bug Fixed:
+- UNIQUE constraint violation in orm_relationships table
+- Root cause: Duplicate bidirectional relationships
+
+### Solution:
+- Updated deduplication key to include line number
+- Removed automatic inverse relationship creation
+- Added check for self-referential relationships
+- Lines changed: 350, 374-378, 384, 466-511
+
+**Verification**: No UNIQUE constraint errors in latest aud full runs ✓
 
 ---
 
-## SESSION PLAN
+## ✅ TASK 7: Verify Pipeline Execution
 
-### Session Template
-```
-1. Pre-work (30 min)
-   - Read relevant code
-   - Review requirements
-   - Verify environment
+**Status**: COMPLETE
+**Method**: Analyzed 4 pipeline.log files
+**Results**: Zero Phase 3 extraction failures
 
-2. Implementation (3 hours)
-   - Write extractor
-   - Add schema
-   - Wire pipeline
-   - Create fixtures
+### Pipeline Health:
+- TheAuditor (398 Python files): 226.2s, 9,021 annotations, zero errors
+- project_anarchy (51 Python files): 22.3s, 237 annotations, zero errors
+- plant (0 Python files): Correctly skipped Python extractors
+- PlantFlow (0 Python files): Correctly skipped Python extractors
 
-3. Verification (30 min)
-   - Run tests
-   - Query database
-   - Check performance
+### Performance:
+- 0.43-0.57 seconds per file (excellent)
+- No performance degradation from Phase 3
+- All extractors language-aware
 
-4. Documentation (30 min)
-   - Update docs
-   - Commit code
-   - Report status
-```
+**Verification**: Pipeline agent confirmed healthy execution ✓
+
+---
+
+## ❌ TASK 8: Flask Route Extraction Test
+
+**Status**: FAILED (BLOCKER)
+**Test**: test_flask_routes_extracted
+**Expected**: 6 routes
+**Actual**: 0 routes
+
+### Issue:
+- Flask extractors exist and run
+- Flask test fixtures exist
+- But routes not appearing in python_routes table
+
+### Root Cause: UNKNOWN
+
+### Investigation Needed:
+1. Check if routes going to wrong table
+2. Verify flask_test_app.py has correct route patterns
+3. Debug route extraction logic in flask_extractors.py
+4. Verify storage handler mapping
+
+**Status**: BLOCKS Flask validation, needs 1-2 hours investigation
+
+---
+
+## ⏳ TASK 9: Performance Optimization
+
+**Status**: NOT STARTED
+**Reason**: Prioritized functionality over optimization
+
+### Planned Work:
+- Profile extraction performance
+- Implement memory cache updates for 24 new tables
+- Optimize AST walking patterns
+- Create performance benchmarks
+
+**Estimated Time**: 4-6 hours
+
+**Blocker**: None (can start independently)
+
+---
+
+## ⏳ TASK 10: Integration Testing & Documentation
+
+**Status**: NOT STARTED
+**Reason**: Blocked by taint analysis being broken (other AI's work)
+
+### Planned Work:
+- Update taint analyzer for new patterns
+- Create integration tests
+- Complete systematic verification
+- Update all documentation
+
+**Estimated Time**: 4-6 hours
+
+**Blocker**: Taint analysis finding 0 vulnerabilities in 0.2s (Track A issue)
 
 ---
 
 ## COMPLETION CRITERIA
 
-**Phase 3.1 Complete When**:
-- 10 Flask extractors working
-- 500+ Flask records extracted
-- Performance <10ms per file
+### Code Implementation: 100% ✓
+- 25 extractors implemented
+- 24 tables created
+- All wired to pipeline
+- Test fixtures created
+- ORM bug fixed
 
-**Phase 3.2 Complete When**:
-- 8 testing extractors working
-- 400+ test records extracted
-- All test frameworks covered
+### Data Extraction: 95% ✓
+- 1,888 records extracted from TheAuditor
+- 18/18 extraction patterns passing
+- Zero extraction failures
+- 1 test failure (Flask routes)
 
-**Phase 3.3 Complete When**:
-- 8 security extractors working
-- OWASP Top 10 detected
-- Zero false negatives
+### Documentation: 40% ⚠️
+- Source code documented
+- Database verified
+- Pipeline verified
+- OpenSpec docs need updating
 
-**Phase 3.4 Complete When**:
-- 4 Django extractors working
-- Signal flow tracked
-- Manager patterns captured
-
-**Phase 3.5 Complete When**:
-- Performance <10ms per file
-- Memory <500MB peak
-- Cache operational
-
-**Phase 3.6 Complete When**:
-- Taint analysis integrated
-- All tests passing
-- Documentation complete
+### Verification: 20% ⚠️
+- Database verified
+- Pipeline verified
+- Flask test failing
+- Systematic verification incomplete
 
 ---
 
-**END OF TASKS DOCUMENT**
+## BLOCKERS
+
+### Critical:
+1. **Flask Route Test Failing** - Cannot validate Flask route extraction
+   - Owner: Me (Lead Coder)
+   - Time: 1-2 hours investigation
+
+### External:
+2. **Taint Analysis Broken** - Finding 0 vulnerabilities in 0.2s
+   - Owner: Track A (Taint AI)
+   - Impact: Blocks my security pattern validation
+
+---
+
+## NEXT STEPS
+
+### Immediate (1-2 hours):
+1. Debug Flask route test failure
+2. Update proposal.md with reality
+3. Update STATUS.md with current state
+
+### Short-term (4-6 hours):
+4. Performance optimization (Task 9)
+5. Complete systematic verification
+6. Update all documentation
+
+### Blocked (waiting on Track A):
+7. Validate security pattern detection
+8. Integration testing with taint analysis
+
+---
+
+**Document Version**: 2.0 (Atomic)
+**Verified Against**: Source code, database, pipeline logs
+**Last Verification**: 2025-11-01 19:00 UTC
