@@ -159,8 +159,12 @@ Query indexed AST data instead of grepping files:
 ### Machine Learning Risk Prediction
 
 ```bash
+# Basic ML training
 aud learn --enable-git
 aud suggest --topk 10
+
+# Advanced: Include AI agent behavior analysis (Tier 5)
+aud learn --session-dir ~/.claude/projects/YourProject --session-analysis --print-stats
 ```
 
 Learns from execution history to predict:
@@ -168,7 +172,15 @@ Learns from execution history to predict:
 - Which files will need editing next
 - Risk scores for prioritization
 
-**Features**: 50+ dimensions including git temporal analysis, complexity, security patterns, taint flows.
+**Features**: 97 dimensions across 5 tiers:
+- **Tier 1-4**: Pipeline logs, journal events, security patterns, git history
+- **Tier 5 (NEW)**: Agent behavior intelligence from session logs
+  - Workflow compliance (blueprint_first, query_before_edit)
+  - Risk scores from SAST-scored diffs
+  - Blind edit rates (edits without prior reads)
+  - User engagement (INVERSE: lower = agent self-sufficient)
+
+**Session Analysis**: Analyzes Claude Code session logs to correlate agent execution patterns with code quality. Shows which workflow violations lead to failures.
 
 ### Planning & Verification System
 

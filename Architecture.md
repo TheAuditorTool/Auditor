@@ -1044,14 +1044,15 @@ graph TB
         D2[Commits, authors<br/>Recency, active span]
     end
 
-    subgraph "Tier 5: Agent Behavior"
-        G1[Claude session logs<br/>.claude/projects/*.jsonl]
-        G2[Blind edits<br/>Duplicate impls<br/>Missed searches]
+    subgraph "Tier 5: Agent Behavior Intelligence"
+        G1[Session Logs<br/>.claude/projects/*.jsonl]
+        G2[3-Layer System:<br/>Execution Capture →<br/>Deterministic Scoring →<br/>Workflow Correlation]
+        G3[Session Features:<br/>workflow_compliance<br/>avg_risk_score<br/>blind_edit_rate<br/>user_engagement]
     end
 
     subgraph "Feature Engineering"
-        E1[54+ dimensions]
-        E2[Graph topology<br/>Security patterns<br/>Complexity<br/>Git metrics<br/>Agent behavior]
+        E1[97 dimensions]
+        E2[Graph topology<br/>Security patterns<br/>Complexity<br/>Git metrics<br/>Agent behavior (8 features)]
     end
 
     subgraph "Three Models"
@@ -1064,7 +1065,7 @@ graph TB
     B1 --> B2 --> E1
     C1 --> C2 --> E1
     D1 --> D2 --> E1
-    G1 --> G2 --> E1
+    G1 --> G2 --> G3 --> E1
 
     E1 --> E2
     E2 --> F1
@@ -1075,6 +1076,40 @@ graph TB
     style F1 fill:#ff9,stroke:#333,stroke-width:2px
     style G2 fill:#f99,stroke:#333,stroke-width:2px
 ```
+
+**Tier 5 Details (Agent Behavior Intelligence)**:
+
+The 3-layer architecture captures, scores, and correlates agent execution patterns:
+
+1. **Layer 1: Execution Capture**
+   - Parses Claude Code session logs (`.jsonl` format)
+   - Extracts tool calls (Read, Edit, Write), diffs, timestamps
+   - Components: `SessionParser` (theauditor/session/parser.py)
+
+2. **Layer 2: Deterministic Scoring**
+   - Runs each diff through complete SAST pipeline
+   - Taint analysis, pattern matching, FCE, RCA
+   - Returns aggregate risk_score (0.0-1.0)
+   - Components: `DiffScorer` (theauditor/session/diff_scorer.py)
+
+3. **Layer 3: Workflow Correlation**
+   - Validates execution against planning.md workflows
+   - Checks: blueprint_first, query_before_edit, no_blind_reads
+   - Calculates user_engagement_rate (INVERSE: lower = better)
+   - Components: `WorkflowChecker` (theauditor/session/workflow_checker.py)
+
+**Storage**: `session_executions` table in `repo_index.db`
+- Dual-write principle (DB + JSON for consistency)
+- Indexed by: session_id, timestamp, workflow_compliant, user_engagement_rate
+
+**8 ML Features**:
+- **NEW** (3-layer system): session_workflow_compliance, session_avg_risk_score, session_blind_edit_rate, session_user_engagement
+- **LEGACY**: agent_blind_edit_count, agent_duplicate_impl_rate, agent_missed_search_count, agent_read_efficiency
+
+**Owen's User Engagement Rate**: `user_messages / tool_calls`
+- INVERSE METRIC: Lower values = agent self-sufficient (good)
+- Higher values = agent needs constant user guidance (bad)
+- Files with high engagement often have quality issues
 
 ### Planning & Verification System
 
