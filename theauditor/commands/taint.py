@@ -559,40 +559,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
                 
                 if len(paths) > 20:
                     click.echo(f"\n... and {len(paths) - 20} additional vulnerabilities not shown")
-    
-    # Provide actionable recommendations based on findings
-    if not json and result.get("success"):
-        summary = result.get("summary", {})
-        risk_level = summary.get("risk_level", "UNKNOWN")
-        
-        click.echo("\n" + "=" * 60)
-        click.echo("RECOMMENDED ACTIONS")
-        click.echo("=" * 60)
-        
-        if risk_level == "CRITICAL":
-            click.echo("[CRITICAL] CRITICAL SECURITY ISSUES DETECTED")
-            click.echo("1. Review and fix all CRITICAL vulnerabilities immediately")
-            click.echo("2. Add input validation and sanitization at all entry points")
-            click.echo("3. Use parameterized queries for all database operations")
-            click.echo("4. Implement output encoding for all user-controlled data")
-            click.echo("5. Consider a security audit before deployment")
-        elif risk_level == "HIGH":
-            click.echo("[HIGH] HIGH RISK VULNERABILITIES FOUND")
-            click.echo("1. Prioritize fixing HIGH severity issues this sprint")
-            click.echo("2. Review all user input handling code")
-            click.echo("3. Implement security middleware/filters")
-            click.echo("4. Add security tests for vulnerable paths")
-        elif risk_level == "MEDIUM":
-            click.echo("[MEDIUM] MODERATE SECURITY CONCERNS")
-            click.echo("1. Schedule vulnerability fixes for next sprint")
-            click.echo("2. Review and update security best practices")
-            click.echo("3. Add input validation where missing")
-        else:
-            click.echo("[LOW] LOW RISK PROFILE")
-            click.echo("1. Continue following secure coding practices")
-            click.echo("2. Regular security scanning recommended")
-            click.echo("3. Keep dependencies updated")
-    
+
     # Exit with appropriate code
     if result.get("success"):
         summary = result.get("summary", {})
