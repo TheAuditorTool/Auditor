@@ -259,6 +259,69 @@ def show(plan_id, tasks, verbose, format):
                     click.echo(f"    Description: {task['description']}")
 
 
+@planning.command("list")
+@click.option("--status", help="Filter by status (active/completed/archived)")
+@click.option("--format", type=click.Choice(['table', 'json']), default='table', help="Output format")
+@handle_exceptions
+def list_plans(status, format):
+    """List all plans in the database.
+
+    Example:
+        aud planning list
+        aud planning list --status active
+        aud planning list --format json
+    """
+    db_path = Path.cwd() / ".pf" / "planning.db"
+
+    if not db_path.exists():
+        click.echo("No planning database found (.pf/planning.db)")
+        click.echo("Run 'aud planning init --name \"Plan Name\"' to create your first plan")
+        return
+
+    manager = PlanningManager(db_path)
+    cursor = manager.conn.cursor()
+
+    # Build query with optional status filter
+    query = "SELECT id, name, status, created_at FROM plans"
+    params = []
+    if status:
+        query += " WHERE status = ?"
+        params.append(status)
+    query += " ORDER BY created_at DESC"
+
+    cursor.execute(query, params)
+    plans = cursor.fetchall()
+
+    if not plans:
+        if status:
+            click.echo(f"No {status} plans found")
+        else:
+            click.echo("No plans found")
+        return
+
+    if format == 'json':
+        result = [
+            {
+                'id': p[0],
+                'name': p[1],
+                'status': p[2],
+                'created_at': p[3]
+            }
+            for p in plans
+        ]
+        click.echo(json.dumps(result, indent=2))
+    else:
+        # Table format
+        click.echo("=" * 80)
+        click.echo(f"{'ID':<5} {'Name':<40} {'Status':<15} {'Created':<20}")
+        click.echo("=" * 80)
+        for plan in plans:
+            pid, name, pstatus, created = plan
+            click.echo(f"{pid:<5} {name[:40]:<40} {pstatus:<15} {created:<20}")
+        click.echo("=" * 80)
+        click.echo(f"Total: {len(plans)} plans")
+
+
 @planning.command()
 @click.argument('plan_id', type=int)
 @click.option('--phase-number', type=int, required=True, help='Phase number')

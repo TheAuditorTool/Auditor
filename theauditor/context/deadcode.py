@@ -124,7 +124,9 @@ def _detect_isolated_modules(
         # Extract file paths from expressions like "path = 'ast_extractors/core.js'"
         expr_str = expr[0]
         for file in files_with_code:
-            if file in expr_str:
+            # Match full path OR basename (for expressions like js_dir / 'file.js')
+            file_basename = file.split('/')[-1]
+            if file in expr_str or file_basename in expr_str:
                 imported_files.add(file)
 
     # Step 4: Get files referenced in function arguments
@@ -138,7 +140,9 @@ def _detect_isolated_modules(
     for arg in cursor.fetchall():
         arg_str = arg[0]
         for file in files_with_code:
-            if file in arg_str:
+            # Match full path OR basename (for expressions like open('file.js'))
+            file_basename = file.split('/')[-1]
+            if file in arg_str or file_basename in arg_str:
                 imported_files.add(file)
 
     # Step 5: Set difference = truly isolated files

@@ -380,10 +380,89 @@ Use the RIGHT tool for the job:
 **Jobs:**
 - [ ] Verify plan presented to user
 - [ ] Confirm user response received
-- [ ] If approved, proceed to execution
+- [ ] If approved, proceed to Phase 5 (persist plan)
 - [ ] If not approved, confirm plan regenerated with user input
 - [ ] If any issues found, return to relevant task, fix issues, and re-audit
 - [ ] **Final verification:** User approval obtained or plan updated
+
+---
+
+## PHASE 5: Persist Plan to Database
+
+**Description:** Save the approved plan to `.pf/planning.db` using `aud planning` commands so it can be tracked, verified, and resumed later.
+
+**Problem Solved:** Plans only exist as markdown output until persisted. Database storage enables: task tracking, verification specs, git snapshots, and `aud planning list/show` queries. Without this phase, the plan is just chat output with no persistence.
+
+### Task 5.1: Initialize Plan
+
+**Jobs:**
+- [ ] Execute: `aud planning init --name "<Plan Name>"`
+- [ ] Use descriptive name from Phase 3 context (e.g., "Refactor core_ast_extractors.js")
+- [ ] Capture plan ID from output (e.g., "Created plan 1")
+- [ ] **Audit:** Verify plan created. If audit reveals failures, amend and re-audit.
+
+### Task 5.2: Add Phases
+
+**Jobs:**
+- [ ] For each phase in markdown plan, execute:
+  ```bash
+  aud planning add-phase <PLAN_ID> --phase-number <N> \
+    --title "<Phase Title>" \
+    --description "<What this phase accomplishes>" \
+    --problem-solved "<Why this phase exists>"
+  ```
+- [ ] Use exact phase numbers from markdown plan (1, 2, 3, etc.)
+- [ ] Copy description and problem-solved verbatim from Phase → Task → Job structure
+- [ ] **Audit:** Verify all phases added. If audit reveals failures, amend and re-audit.
+
+### Task 5.3: Add Tasks
+
+**Jobs:**
+- [ ] For each task in markdown plan, execute:
+  ```bash
+  aud planning add-task <PLAN_ID> \
+    --title "<Task Title>" \
+    --description "<Task Description>" \
+    --phase <PHASE_NUMBER>
+  ```
+- [ ] Tasks auto-number within each phase (1, 2, 3, etc.)
+- [ ] Copy task titles verbatim from markdown plan
+- [ ] **Audit:** Verify all tasks added. If audit reveals failures, amend and re-audit.
+
+### Task 5.4: Add Jobs (Checkboxes)
+
+**Jobs:**
+- [ ] For each job (checkbox) under each task, execute:
+  ```bash
+  aud planning add-job <PLAN_ID> <TASK_NUMBER> \
+    --description "<Job Description>" \
+    [--is-audit]  # Add this flag if job is audit job
+  ```
+- [ ] Copy job descriptions verbatim from markdown plan
+- [ ] Mark audit jobs with `--is-audit` flag
+- [ ] Jobs auto-number within each task (1, 2, 3, etc.)
+- [ ] **Audit:** Verify all jobs added. If audit reveals failures, amend and re-audit.
+
+### Task 5.5: Verify Plan Persistence
+
+**Jobs:**
+- [ ] Execute: `aud planning list`
+- [ ] Confirm plan appears in list with correct name
+- [ ] Execute: `aud planning show <PLAN_ID> --tasks --format phases`
+- [ ] Verify Phase → Task → Job hierarchy matches markdown plan
+- [ ] Verify all phases, tasks, and jobs present
+- [ ] **Audit:** Verify plan persisted correctly. If audit reveals failures, amend and re-audit.
+
+### Task 5.6: Phase 5 Audit
+
+**Jobs:**
+- [ ] Verify plan initialized (plan ID obtained)
+- [ ] Confirm all phases added to database
+- [ ] Confirm all tasks added to database
+- [ ] Confirm all jobs added to database
+- [ ] Confirm `aud planning show` displays full hierarchy
+- [ ] If any issues found, return to relevant task, fix issues, and re-audit
+- [ ] **Final verification:** Plan persisted to database and queryable
 
 ---
 
