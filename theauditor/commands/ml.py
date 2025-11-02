@@ -13,8 +13,9 @@ from pathlib import Path
 @click.option("--seed", default=13, type=int, help="Random seed")
 @click.option("--feedback", help="Path to human feedback JSON file")
 @click.option("--train-on", type=click.Choice(["full", "diff", "all"]), default="full", help="Type of historical runs to train on")
+@click.option("--session-dir", help="Path to Claude Code session logs (Tier 5 agent behavior features)")
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
-def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, train_on, print_stats):
+def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, train_on, session_dir, print_stats):
     """Train machine learning models from historical audit data to predict file risk and root causes.
 
     Learns patterns from past audit runs stored in .pf/history/ to build predictive models
@@ -211,6 +212,7 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
         print_stats=print_stats,
         feedback_path=feedback,
         train_on=train_on,
+        session_dir=session_dir,
     )
     
     if result.get("success"):
