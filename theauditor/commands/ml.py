@@ -14,8 +14,9 @@ from pathlib import Path
 @click.option("--feedback", help="Path to human feedback JSON file")
 @click.option("--train-on", type=click.Choice(["full", "diff", "all"]), default="full", help="Type of historical runs to train on")
 @click.option("--session-dir", help="Path to Claude Code session logs (Tier 5 agent behavior features)")
+@click.option("--session-analysis", is_flag=True, help="Show agent behavior analysis from session logs")
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
-def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, train_on, session_dir, print_stats):
+def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, train_on, session_dir, session_analysis, print_stats):
     """Train machine learning models from historical audit data to predict file risk and root causes.
 
     Learns patterns from past audit runs stored in .pf/history/ to build predictive models
@@ -42,11 +43,12 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
         - Based on: function call patterns, data flow, import graph position
         - Output: Root cause probability per file
 
-      Features Extracted (~100 dimensions):
-        - Code metrics: cyclomatic complexity, function count, LOC
-        - Git metrics: commit frequency, author count, last modified
-        - Dependency metrics: import count, imported_by count, centrality
-        - Historical metrics: past finding density, fix frequency
+      Features Extracted (97 dimensions across 5 tiers):
+        Tier 1 (Pipeline): phase timing, success/failure patterns
+        Tier 2 (Journal): file touch frequency, audit trail events
+        Tier 3 (Artifacts): code complexity, security patterns, CFG metrics
+        Tier 4 (Git): commit frequency, author count, churn rate
+        Tier 5 (Agent Behavior - optional): blind edits, duplicate impls, read efficiency
 
     HOW IT WORKS (Training Pipeline):
       1. Historical Data Collection:
@@ -96,6 +98,14 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
 
       Human-in-the-Loop Refinement:
         aud learn --feedback ./corrections.json && aud suggest --print-plan
+
+      Tier 5 Agent Behavior Analysis (Advanced):
+        aud learn --session-dir ~/.claude/projects/YourProject --session-analysis --print-stats
+        # Adds 8 features:
+        #   NEW (3-layer system): workflow_compliance, avg_risk_score, blind_edit_rate, user_engagement
+        #   LEGACY: blind_edit_count, duplicate_impl_rate, missed_search_count, read_efficiency
+        # Shows statistics: compliance rate, risk scores, user engagement (INVERSE metric)
+        # Models learn files where agent needed user guidance (high engagement) are riskier
 
     OUTPUT FILES:
       .pf/ml/risk_model.pkl           # Risk prediction model
@@ -149,6 +159,8 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
         --train-on: Filters training data (full=highest quality)
         --feedback: Incorporates human labels (supervised correction)
         --window: Journal window for temporal features (default 50 commits)
+        --session-dir: Enable Tier 5 agent behavior features (path to Claude Code session logs)
+        --session-analysis: Show agent behavior findings before training
 
     PREREQUISITES:
       Required:
@@ -202,6 +214,106 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
     
     click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")
     
+    # Show session analysis if requested
+    if session_analysis and session_dir:
+        import sqlite3
+        import json
+
+        click.echo("[SESSION] Analyzing AI agent behavior from session logs...")
+
+        # Show Tier 5 statistics from session_executions table
+        try:
+            # Session data stored in persistent .pf/ml/ directory
+            session_db = Path('.pf/ml/session_history.db')
+            if not session_db.exists():
+                click.echo("[WARN] session_history.db not found - run session analysis first", err=True)
+            else:
+                # Connect to session database
+                conn = sqlite3.connect(session_db)
+                cursor = conn.cursor()
+
+                # Check if session_executions table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'")
+                if not cursor.fetchone():
+                    click.echo("[WARN] session_executions table not found - run session analysis first", err=True)
+                    conn.close()
+                else:
+                    # Get overall statistics
+                    cursor.execute("""
+                        SELECT COUNT(*) as total_sessions,
+                               SUM(workflow_compliant) as compliant_sessions,
+                               AVG(compliance_score) as avg_compliance,
+                               AVG(risk_score) as avg_risk,
+                               AVG(user_engagement_rate) as avg_engagement,
+                               SUM(files_modified) as total_files_modified
+                        FROM session_executions
+                    """)
+                    stats = cursor.fetchone()
+
+                    if stats and stats[0] > 0:
+                        total, compliant, avg_comp, avg_risk, avg_eng, total_edits = stats
+
+                        # Calculate unique files
+                        cursor.execute("SELECT diffs_scored FROM session_executions")
+                        all_files = set()
+                        for row in cursor.fetchall():
+                            diffs = json.loads(row[0])
+                            all_files.update(d['file'] for d in diffs)
+                        unique_files = len(all_files)
+
+                        click.echo("\nTIER 5 (AGENT BEHAVIOR INTELLIGENCE) STATISTICS")
+                        click.echo("=" * 60)
+                        click.echo(f"Sessions analyzed: {total}")
+                        click.echo(f"Total edits: {total_edits}")
+                        click.echo(f"Unique files: {unique_files}")
+                        click.echo(f"Workflow compliance rate: {(compliant/total)*100:.1f}% ({compliant}/{total} compliant)")
+                        click.echo(f"Average compliance score: {avg_comp:.3f} (0.0-1.0 scale)")
+                        click.echo(f"Average risk score: {avg_risk:.3f} (0.0-1.0 scale)")
+                        click.echo(f"Average user engagement: {avg_eng:.3f} (INVERSE: lower = better)")
+
+                        # Show top risky sessions
+                        cursor.execute("""
+                            SELECT session_id, risk_score, files_modified, user_engagement_rate
+                            FROM session_executions
+                            ORDER BY risk_score DESC
+                            LIMIT 3
+                        """)
+                        risky_sessions = cursor.fetchall()
+
+                        if risky_sessions:
+                            click.echo("\nTop 3 riskiest sessions:")
+                            for i, (sid, risk, files, eng) in enumerate(risky_sessions, 1):
+                                click.echo(f"  {i}. Session {sid[:40]}... (risk={risk:.3f}, files={files}, engagement={eng:.2f})")
+
+                        # Show compliance correlation
+                        cursor.execute("""
+                            SELECT AVG(risk_score) as avg_risk, AVG(user_engagement_rate) as avg_eng
+                            FROM session_executions
+                            WHERE workflow_compliant = 1
+                        """)
+                        compliant_stats = cursor.fetchone()
+
+                        cursor.execute("""
+                            SELECT AVG(risk_score) as avg_risk, AVG(user_engagement_rate) as avg_eng
+                            FROM session_executions
+                            WHERE workflow_compliant = 0
+                        """)
+                        non_compliant_stats = cursor.fetchone()
+
+                        if compliant_stats and non_compliant_stats and compliant_stats[0] is not None:
+                            click.echo("\nWorkflow Compliance Correlation:")
+                            click.echo(f"  Compliant sessions:     risk={compliant_stats[0]:.3f}, engagement={compliant_stats[1]:.2f}")
+                            click.echo(f"  Non-compliant sessions: risk={non_compliant_stats[0]:.3f}, engagement={non_compliant_stats[1]:.2f}")
+
+                        click.echo()
+                    else:
+                        click.echo("[WARN] No session data found in session_executions table", err=True)
+
+                    conn.close()
+
+        except Exception as e:
+            click.echo(f"[WARN] Could not load Tier 5 statistics: {e}", err=True)
+
     result = ml_learn(
         db_path=db_path,
         manifest_path=manifest,
@@ -214,7 +326,7 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
         train_on=train_on,
         session_dir=session_dir,
     )
-    
+
     if result.get("success"):
         stats = result.get("stats", {})
         click.echo(f"[OK] Models trained successfully")

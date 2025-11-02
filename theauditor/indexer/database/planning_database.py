@@ -1,11 +1,14 @@
 """Planning and meta-system database operations.
 
 This module contains add_* methods for PLANNING_TABLES defined in schemas/planning_schema.py.
-Handles 5 planning tables including plans, tasks, specs, code snapshots, and diffs.
+Handles 9 planning tables including plans, phases, tasks, jobs, specs, snapshots, diffs, and refactor tracking.
 
-NOTE: This module is currently a stub. Planning methods will be added as the
-      planning system (aud planning commands) evolves. This is kept separate
-      because the planning subsystem will iterate rapidly and needs clean isolation.
+ERIC'S FRAMEWORK INTEGRATION:
+    Phase → Task → Job hierarchy enables problem decomposition thinking:
+    - Phases solve specific sub-problems (with "Problem Solved" field)
+    - Tasks break down phase goals into actionable steps
+    - Jobs are atomic checkbox items within tasks
+    - Audit loops at task and phase level enforce loop-until-correct semantics
 """
 
 from typing import Optional, List, Dict
@@ -17,20 +20,20 @@ class PlanningDatabaseMixin:
     CRITICAL: This mixin assumes self.generic_batches exists (from BaseDatabaseManager).
     DO NOT instantiate directly - only use as mixin for DatabaseManager.
 
-    PLANNING TABLES (6 tables):
+    PLANNING TABLES (9 tables - Eric's Framework Integration):
     - plans: Main planning table (id, name, description, status, metadata)
-    - plan_tasks: Tasks within plans (plan_id FK, task_number, status, spec_id FK)
+    - plan_phases: Phase hierarchy (plan_id FK, phase_number, problem_solved) [NEW]
+    - plan_tasks: Tasks within phases (plan_id FK, phase_id FK, task_number, audit_status)
+    - plan_jobs: Checkbox items (task_id FK, job_number, completed, is_audit_job) [NEW]
     - plan_specs: Specs for plans (plan_id FK, spec_yaml, spec_type)
     - code_snapshots: Code snapshots/checkpoints (plan_id FK, task_id FK, checkpoint_name, git_ref)
     - code_diffs: Diffs between snapshots (snapshot_id FK, file_path, diff_text, line counts)
     - refactor_candidates: Files flagged for refactoring (file_path, reason, severity, metrics)
+    - refactor_history: Refactor execution history (timestamp, target_file, migrations)
 
-    FUTURE: Add methods as planning system evolves:
-    - add_plan()
-    - add_plan_task()
-    - add_plan_spec()
-    - add_code_snapshot()
-    - add_code_diff()
+    ERIC'S FRAMEWORK METHODS:
+    - add_plan_phase() - Create phase with "Problem Solved" field
+    - add_plan_job() - Add checkbox item to task with audit flag
     """
 
     # ========================================================
@@ -115,8 +118,62 @@ class PlanningDatabaseMixin:
     # ========================================================
     # PLANNING BATCH METHODS
     # ========================================================
-    # TODO: Add planning methods as aud planning commands evolve
-    # Pattern: Follow same normalized many-to-many approach as other mixins
-    # Example:
-    #   def add_plan(self, name: str, description: Optional[str], ...):
-    #       self.generic_batches['plans'].append((name, description, ...))
+
+    def add_plan_phase(
+        self,
+        plan_id: int,
+        phase_number: int,
+        title: str,
+        description: Optional[str] = None,
+        problem_solved: Optional[str] = None,
+        status: str = 'pending',
+        created_at: str = ''
+    ):
+        """Add a phase to a plan (hierarchical planning structure).
+
+        Args:
+            plan_id: Foreign key to plans table
+            phase_number: Sequential phase number (1, 2, 3...)
+            title: Phase title (e.g., "Verify File is Active")
+            description: What this phase accomplishes
+            problem_solved: Which sub-problem this phase solves (justification)
+            status: Phase status (pending, in_progress, completed)
+            created_at: ISO timestamp
+        """
+        self.generic_batches['plan_phases'].append((
+            plan_id,
+            phase_number,
+            title,
+            description,
+            problem_solved,
+            status,
+            created_at
+        ))
+
+    def add_plan_job(
+        self,
+        task_id: int,
+        job_number: int,
+        description: str,
+        completed: int = 0,
+        is_audit_job: int = 0,
+        created_at: str = ''
+    ):
+        """Add a job (checkbox item) to a task (hierarchical task breakdown).
+
+        Args:
+            task_id: Foreign key to plan_tasks table
+            job_number: Sequential job number within task (1, 2, 3...)
+            description: Job description (e.g., "Execute: aud deadcode | grep storage.py")
+            completed: Boolean as INTEGER (0 = not completed, 1 = completed)
+            is_audit_job: Boolean as INTEGER (0 = regular job, 1 = audit job)
+            created_at: ISO timestamp
+        """
+        self.generic_batches['plan_jobs'].append((
+            task_id,
+            job_number,
+            description,
+            completed,
+            is_audit_job,
+            created_at
+        ))

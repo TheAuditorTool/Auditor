@@ -225,10 +225,30 @@ def refactor(
     click.echo("\nPhase 2: Analyzing database migrations...")
     schema_changes = _analyze_migrations(repo_root, migration_dir, migration_limit)
 
-    if not schema_changes['removed_tables'] and not schema_changes['removed_columns'] and not schema_changes['renamed_items']:
+    # Check if we should continue analysis
+    has_schema_changes = bool(schema_changes['removed_tables'] or schema_changes['removed_columns'] or schema_changes['renamed_items'])
+
+    if not has_schema_changes:
         click.echo("\nNo schema changes detected in migrations.")
         click.echo("Tip: This command looks for removeColumn, dropTable, renameColumn, etc.")
         if not profile_report:
+            # Still store the "no changes" result before exiting
+            from theauditor.indexer.database import DatabaseManager
+            from datetime import datetime
+
+            db = DatabaseManager(str(db_path))
+            db.add_refactor_history(
+                timestamp=datetime.now().isoformat(),
+                target_file=migration_dir,
+                refactor_type='migration_check',
+                migrations_found=0,
+                migrations_complete=1,  # No changes = complete
+                schema_consistent=1,    # No changes = consistent
+                validation_status='NONE',
+                details_json=json.dumps({'summary': {'migrations_found': 0, 'risk_level': 'NONE'}})
+            )
+            db.flush_batch()
+            db.commit()
             return
 
     # Step 3: Query database for code references
@@ -289,6 +309,24 @@ def refactor(
         with open(output, 'w') as f:
             json.dump(report, f, indent=2, default=str)
         click.echo(f"\nDetailed report saved: {output}")
+
+    # Store results in refactor_history table (Prerequisite #3 Part A)
+    from theauditor.indexer.database import DatabaseManager
+    from datetime import datetime
+
+    db = DatabaseManager(str(db_path))
+    db.add_refactor_history(
+        timestamp=datetime.now().isoformat(),
+        target_file=migration_dir,
+        refactor_type='migration_check',
+        migrations_found=len(schema_changes['removed_tables']) + len(schema_changes['removed_columns']),
+        migrations_complete=0 if sum(len(v) for v in mismatches.values()) > 0 else 1,
+        schema_consistent=1 if risk in ['NONE', 'LOW'] else 0,
+        validation_status=risk,
+        details_json=json.dumps(_generate_report(schema_changes, mismatches, risk, profile_report), default=str)
+    )
+    db.flush_batch()
+    db.commit()
 
     click.echo("")
 

@@ -283,6 +283,8 @@ class BaseDatabaseManager:
                 ('plan_tasks', 'INSERT'),  # Depends on plans and plan_specs FK
                 ('code_snapshots', 'INSERT'),  # Depends on plans and plan_tasks FK
                 ('code_diffs', 'INSERT'),  # Depends on code_snapshots FK
+                ('refactor_candidates', 'INSERT'),  # Independent planning table
+                ('refactor_history', 'INSERT'),  # Independent planning table (aud refactor execution log)
 
                 # Code structure tables (depend on files)
                 ('refs', 'INSERT'),

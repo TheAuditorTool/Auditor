@@ -72,8 +72,8 @@ class VerboseGroup(click.Group):
         'INSIGHTS_ML': {
             'title': 'INSIGHTS & ML',
             'description': 'Machine learning and risk predictions',
-            'commands': ['insights', 'learn', 'suggest', 'learn-feedback'],
-            'ai_context': 'Optional ML layer. learn trains models, suggest predicts risky files.',
+            'commands': ['insights', 'learn', 'suggest', 'learn-feedback', 'session'],
+            'ai_context': 'Optional ML layer. learn trains models, suggest predicts risky files, session analyzes AI agent behavior.',
         },
         'UTILITIES': {
             'title': 'UTILITIES',
@@ -271,6 +271,7 @@ from theauditor.commands.terraform import terraform
 from theauditor.commands.cdk import cdk
 from theauditor.commands.workflows import workflows
 from theauditor.commands.deadcode import deadcode
+from theauditor.commands.session import session
 
 # Register simple commands
 cli.add_command(init)
@@ -328,6 +329,7 @@ cli.add_command(cdk)
 cli.add_command(workflows)
 cli.add_command(planning)
 cli.add_command(deadcode)
+cli.add_command(session)
 
 # All commands have been migrated to separate modules
 

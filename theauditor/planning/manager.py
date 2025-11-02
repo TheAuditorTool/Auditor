@@ -70,11 +70,11 @@ class PlanningManager:
     def create_schema(self):
         """Create planning tables using schema.py definitions.
 
-        Creates: plans, plan_tasks, plan_specs, code_snapshots, code_diffs
+        Creates: plans, plan_tasks, plan_specs, code_snapshots, code_diffs, plan_phases, plan_jobs
         """
         cursor = self.conn.cursor()
 
-        planning_tables = ["plans", "plan_tasks", "plan_specs", "code_snapshots", "code_diffs"]
+        planning_tables = ["plans", "plan_tasks", "plan_specs", "code_snapshots", "code_diffs", "plan_phases", "plan_jobs"]
 
         for table_name in planning_tables:
             if table_name not in TABLES:
@@ -409,6 +409,60 @@ class PlanningManager:
             (plan_id, spec_yaml, spec_type, datetime.now(UTC).isoformat())
         )
         return cursor.lastrowid
+
+    def add_plan_phase(self, plan_id: int, phase_number: int, title: str,
+                      description: str = None, problem_solved: str = None,
+                      status: str = 'pending', created_at: str = ''):
+        """Add a phase to a plan (hierarchical planning structure).
+
+        Args:
+            plan_id: ID of plan
+            phase_number: Phase number within plan
+            title: Phase title (required)
+            description: Phase description
+            problem_solved: What sub-problem this phase solves (justification)
+            status: Phase status (pending|in_progress|completed)
+            created_at: Creation timestamp (auto-generated if empty)
+
+        NO FALLBACKS. Raises sqlite3.IntegrityError if duplicate phase_number.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """INSERT INTO plan_phases
+               (plan_id, phase_number, title, description, problem_solved, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (plan_id, phase_number, title, description, problem_solved, status,
+             created_at if created_at else datetime.now(UTC).isoformat())
+        )
+        # Note: commit() must be called separately by caller
+
+    def add_plan_job(self, task_id: int, job_number: int, description: str,
+                    completed: int = 0, is_audit_job: int = 0, created_at: str = ''):
+        """Add a job (checkbox item) to a task (hierarchical task breakdown).
+
+        Args:
+            task_id: ID of task
+            job_number: Job number within task
+            description: Job description (checkbox text)
+            completed: Job completion status (0 or 1, SQLite BOOLEAN)
+            is_audit_job: Flag for audit jobs (0 or 1, SQLite BOOLEAN)
+            created_at: Creation timestamp (auto-generated if empty)
+
+        NO FALLBACKS. Raises sqlite3.IntegrityError if duplicate job_number.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """INSERT INTO plan_jobs
+               (task_id, job_number, description, completed, is_audit_job, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (task_id, job_number, description, completed, is_audit_job,
+             created_at if created_at else datetime.now(UTC).isoformat())
+        )
+        # Note: commit() must be called separately by caller
+
+    def commit(self):
+        """Commit pending transactions."""
+        self.conn.commit()
 
     def close(self):
         """Close database connection."""

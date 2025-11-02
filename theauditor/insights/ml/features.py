@@ -713,6 +713,147 @@ def load_agent_behavior_features(
     return dict(stats)
 
 
+def load_session_execution_features(
+    db_path: str = None, file_paths: list[str] = None
+) -> dict[str, dict]:
+    """
+    Extract Tier 5 features from session_executions table (new 3-layer system).
+
+    Reads pre-computed session analysis data instead of parsing logs on-the-fly.
+    Features:
+    - session_workflow_compliance: Avg compliance_score for file
+    - session_avg_risk_score: Avg risk_score for file
+    - session_blind_edit_rate: Percentage of blind edits
+    - session_user_engagement: Avg user_engagement_rate (INVERSE METRIC: lower = better)
+
+    Args:
+        db_path: Path to session database (default: .pf/ml/session_history.db)
+        file_paths: List of files to analyze
+
+    Returns:
+        dict with 4 new Tier 5 features per file
+    """
+    import json
+    import sqlite3
+
+    stats = defaultdict(
+        lambda: {
+            "session_workflow_compliance": 0.0,
+            "session_avg_risk_score": 0.0,
+            "session_blind_edit_rate": 0.0,
+            "session_user_engagement": 0.0,
+        }
+    )
+
+    # Default to persistent session database in .pf/ml/ (never archived)
+    if db_path is None:
+        db_path = str(Path('.pf/ml/session_history.db'))
+
+    if not file_paths:
+        return dict(stats)
+
+    if not Path(db_path).exists():
+        return dict(stats)
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check if session_executions table exists
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'"
+        )
+        if not cursor.fetchone():
+            conn.close()
+            return dict(stats)
+
+        # Get project root for path normalization
+        project_root = Path.cwd()
+
+        for file_path in file_paths:
+            # Normalize path for querying
+            normalized_path = str(Path(file_path).as_posix())
+
+            # Query session_executions for this file (check diffs_scored JSON)
+            cursor.execute(
+                """
+                SELECT workflow_compliant, compliance_score, risk_score,
+                       user_engagement_rate, diffs_scored
+                FROM session_executions
+                WHERE diffs_scored LIKE ?
+            """,
+                (f"%{normalized_path}%",),
+            )
+
+            rows = cursor.fetchall()
+
+            if not rows:
+                # No session data for this file - return zeros
+                continue
+
+            # Calculate features from rows
+            compliance_scores = [row[1] for row in rows]
+            risk_scores = [row[2] for row in rows]
+            engagement_rates = [row[3] for row in rows]
+
+            # Extract blind edit rate from diffs_scored JSON
+            blind_edits = 0
+            total_edits = 0
+
+            for row in rows:
+                diffs_json = row[4]
+                if not diffs_json:
+                    continue
+
+                try:
+                    diffs = json.loads(diffs_json)
+                    for diff in diffs:
+                        # Match file path (handle different path formats)
+                        diff_file = diff.get("file", "")
+                        if not diff_file:
+                            continue
+
+                        # Normalize diff file path
+                        try:
+                            diff_path_obj = Path(diff_file)
+                            if diff_path_obj.is_absolute():
+                                diff_path_obj = diff_path_obj.relative_to(project_root)
+                            normalized_diff = str(diff_path_obj.as_posix())
+                        except (ValueError, Exception):
+                            normalized_diff = str(Path(diff_file).as_posix())
+
+                        if normalized_diff == normalized_path:
+                            total_edits += 1
+                            if diff.get("blind_edit", False):
+                                blind_edits += 1
+                except json.JSONDecodeError:
+                    continue
+
+            # Aggregate features
+            stats[file_path]["session_workflow_compliance"] = (
+                sum(compliance_scores) / len(compliance_scores) if compliance_scores else 0.0
+            )
+            stats[file_path]["session_avg_risk_score"] = (
+                sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
+            )
+            stats[file_path]["session_blind_edit_rate"] = (
+                blind_edits / total_edits if total_edits > 0 else 0.0
+            )
+            stats[file_path]["session_user_engagement"] = (
+                sum(engagement_rates) / len(engagement_rates) if engagement_rates else 0.0
+            )
+
+        conn.close()
+    except sqlite3.Error:
+        # Table doesn't exist or query failed - gracefully skip
+        pass
+    except Exception:
+        # Gracefully skip on error
+        pass
+
+    return dict(stats)
+
+
 def load_all_db_features(
     db_path: str, file_paths: list[str], session_dir: Optional[Path] = None
 ) -> dict[str, dict]:
@@ -737,7 +878,12 @@ def load_all_db_features(
     semantic = load_semantic_import_features(db_path, file_paths)
     complexity = load_ast_complexity_metrics(db_path, file_paths)
 
-    # Load Tier 5: Agent behavior (if session_dir provided)
+    # Load Tier 5: Agent behavior
+    # NEW: Load from session_executions table (3-layer system)
+    # NOTE: Pass None for db_path to use default .pf/ml/session_history.db
+    session_execution_features = load_session_execution_features(None, file_paths)
+
+    # OLD: Load legacy features from session logs (if session_dir provided)
     agent_behavior = {}
     if session_dir:
         agent_behavior = load_agent_behavior_features(session_dir, db_path, file_paths)
@@ -751,6 +897,11 @@ def load_all_db_features(
         combined_features[file_path].update(graph.get(file_path, {}))
         combined_features[file_path].update(semantic.get(file_path, {}))
         combined_features[file_path].update(complexity.get(file_path, {}))
+
+        # Tier 5: Session execution features (NEW 3-layer system)
+        combined_features[file_path].update(session_execution_features.get(file_path, {}))
+
+        # Tier 5: Legacy agent behavior (OLD ephemeral analysis)
         if agent_behavior:
             combined_features[file_path].update(agent_behavior.get(file_path, {}))
 

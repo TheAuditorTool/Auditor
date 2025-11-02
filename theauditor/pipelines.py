@@ -451,6 +451,7 @@ def run_full_pipeline(
         ("metadata", ["churn"]),  # Collect git history (temporal dimension)
         ("taint-analyze", []),
         ("fce", []),
+        ("session", ["analyze"]),  # Tier 5: AI agent behavior analysis
         ("report", []),
     ]
     
@@ -460,7 +461,7 @@ def run_full_pipeline(
     
     for cmd_name, extra_args in command_order:
         # Check if command exists (dynamic discovery)
-        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands) or (cmd_name == "workflows" and "workflows" in available_commands):
+        if cmd_name in available_commands or (cmd_name == "docs" and "docs" in available_commands) or (cmd_name == "graph" and "graph" in available_commands) or (cmd_name == "cfg" and "cfg" in available_commands) or (cmd_name == "terraform" and "terraform" in available_commands) or (cmd_name == "workflows" and "workflows" in available_commands) or (cmd_name == "session" and "session" in available_commands):
             phase_num += 1
             # Generate human-readable description from command name
             if cmd_name == "index":
@@ -526,6 +527,8 @@ def run_full_pipeline(
                 description = f"{phase_num}. Taint analysis"
             elif cmd_name == "fce":
                 description = f"{phase_num}. Factual correlation engine"
+            elif cmd_name == "session":
+                description = f"{phase_num}. Analyze AI agent sessions (Tier 5)"
             elif cmd_name == "report":
                 description = f"{phase_num}. Generate report"
             else:
@@ -658,6 +661,8 @@ def run_full_pipeline(
         
         # Stage 4: Final aggregation (must run last)
         elif "fce" in cmd_str:
+            final_commands.append((phase_name, cmd))
+        elif "session" in cmd_str:
             final_commands.append((phase_name, cmd))
         elif "report" in cmd_str:
             final_commands.append((phase_name, cmd))
