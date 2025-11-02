@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.session.parser import SessionParser, load_session
 from theauditor.session.analyzer import SessionAnalyzer
+from theauditor.session.analysis import SessionAnalysis
+from theauditor.session.detector import detect_session_directory, detect_agent_type
 
 
 @click.group()
@@ -16,14 +18,80 @@ def session():
     pass
 
 
-@session.command()
+@session.command(name='analyze')
+@click.option('--session-dir', help='Path to session directory (auto-detects if omitted)')
+@handle_exceptions
+def analyze(session_dir):
+    """Analyze AI agent sessions and store to .pf/ml/session_history.db.
+
+    Auto-detects session directories for:
+    - Claude Code: ~/.claude/projects/<project-name>/
+    - Codex: ~/.codex/sessions/ (filtered by cwd)
+
+    Runs 3-layer analysis pipeline:
+    1. Parse session logs (.jsonl files)
+    2. Score diffs through SAST pipeline
+    3. Check workflow compliance (planning.md)
+
+    Stores results to persistent .pf/ml/session_history.db for ML training.
+    """
+    from pathlib import Path
+
+    root_path = Path.cwd()
+
+    # Auto-detect session directory if not provided
+    if not session_dir:
+        session_dir = detect_session_directory(root_path)
+        if not session_dir:
+            click.echo("[INFO] No AI agent sessions found - skipping Tier 5 analysis")
+            return
+        click.echo(f"[INFO] Auto-detected sessions: {session_dir}")
+    else:
+        session_dir = Path(session_dir)
+
+    # Detect agent type
+    agent_type = detect_agent_type(session_dir)
+    click.echo(f"[INFO] Detected agent: {agent_type}")
+
+    # Parse and analyze sessions
+    click.echo(f"[TIER 5] Analyzing AI agent sessions...")
+
+    parser = SessionParser()
+    analyzer = SessionAnalysis()
+
+    try:
+        sessions = parser.parse_all_sessions(session_dir)
+
+        if not sessions:
+            click.echo("[INFO] No sessions found in directory")
+            return
+
+        click.echo(f"[TIER 5] Found {len(sessions)} sessions")
+
+        for i, session in enumerate(sessions, 1):
+            try:
+                analyzer.analyze_session(session)
+                if i % 50 == 0:
+                    click.echo(f"[TIER 5] Progress: {i}/{len(sessions)} sessions analyzed")
+            except Exception as e:
+                click.echo(f"[WARN] Failed to analyze session {session.session_id}: {e}", err=True)
+                continue
+
+        click.echo(f"[OK] Tier 5 analysis complete: {len(sessions)} sessions stored")
+
+    except Exception as e:
+        click.echo(f"[ERROR] Session analysis failed: {e}", err=True)
+        raise
+
+
+@session.command(name='report')
 @click.option('--project-path', default=None, help='Project path (defaults to current directory)')
 @click.option('--db-path', default='.pf/repo_index.db', help='Path to repo_index.db')
 @click.option('--limit', type=int, default=10, help='Limit number of sessions to analyze')
 @click.option('--show-findings/--no-findings', default=True, help='Show individual findings')
 @handle_exceptions
-def analyze(project_path, db_path, limit, show_findings):
-    """Analyze all Claude Code sessions for this project."""
+def report(project_path, db_path, limit, show_findings):
+    """Generate detailed report of Claude Code sessions (legacy analyzer)."""
     if project_path is None:
         project_path = str(Path.cwd())
 

@@ -784,6 +784,46 @@ def _show_structure_drilldown(data: Dict):
     else:
         click.echo("\nArchitectural Precedents: None detected")
 
+    # Framework Detection
+    cursor.execute("""
+        SELECT language, name, version, COUNT(*) as file_count
+        FROM frameworks
+        GROUP BY name, language, version
+        ORDER BY file_count DESC
+    """)
+    frameworks = cursor.fetchall()
+
+    if frameworks:
+        click.echo("\nFramework Detection:")
+        for lang, fw, ver, count in frameworks:
+            version_str = f"v{ver}" if ver else "(version unknown)"
+            click.echo(f"  {fw} {version_str} ({lang}) - {count} file(s)")
+    else:
+        click.echo("\nFramework Detection: None detected")
+
+    # Refactor History
+    cursor.execute("""
+        SELECT timestamp, target_file, refactor_type, migrations_found,
+               migrations_complete, schema_consistent, validation_status
+        FROM refactor_history
+        ORDER BY timestamp DESC
+        LIMIT 5
+    """)
+    refactor_history = cursor.fetchall()
+
+    if refactor_history:
+        click.echo("\nRefactor History (Recent Checks):")
+        for ts, target, rtype, mig_found, mig_complete, schema_ok, status in refactor_history:
+            # Format timestamp to date only
+            date = ts.split('T')[0] if 'T' in ts else ts
+            consistent = "consistent" if schema_ok == 1 else "inconsistent"
+            complete = "complete" if mig_complete == 1 else "incomplete"
+            click.echo(f"  {date}: {target}")
+            click.echo(f"    Type: {rtype} | Risk: {status} | Migrations: {mig_found} found ({complete})")
+            click.echo(f"    Schema: {consistent}")
+    else:
+        click.echo("\nRefactor History: No checks recorded (run 'aud refactor' to populate)")
+
     # Token Estimates (for AI context planning)
     click.echo("\nToken Estimates (for context planning):")
     total_files = struct['total_files']

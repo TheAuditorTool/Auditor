@@ -68,14 +68,14 @@ TABLES: Dict[str, TableSchema] = {
     **PYTHON_TABLES,         # 59 tables (5 basic + 54 advanced Python patterns)
     **NODE_TABLES,           # 26 tables (React/Vue/TypeScript + build tools)
     **INFRASTRUCTURE_TABLES, # 18 tables (Docker/Terraform/CDK + GitHub Actions)
-    **PLANNING_TABLES,       # 7 tables (Planning/meta-system + refactor candidates)
+    **PLANNING_TABLES,       # 9 tables (Planning/meta-system + refactor candidates + Eric's Framework)
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 152 tables (schema continues to grow with framework extraction)
+# Total: 154 tables (schema continues to grow with framework extraction)
 
 # Verify table count at module load time
-assert len(TABLES) == 152, f"Schema contract violation: Expected 152 tables, got {len(TABLES)}"
+assert len(TABLES) == 154, f"Schema contract violation: Expected 154 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 

@@ -1051,6 +1051,29 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
         else:
             print(f"    ⚠ Python config not found at {python_config_source}")
 
+        # Copy planning agents from TheAuditor source
+        agents_source = theauditor_root / "agents"
+        agents_dest = sandbox_dir / "agents"
+
+        if agents_source.exists() and agents_source.is_dir():
+            # Create agents directory in sandbox
+            agents_dest.mkdir(exist_ok=True)
+
+            # Copy all agent .md files
+            agent_files = list(agents_source.glob("*.md"))
+            if agent_files:
+                for agent_file in agent_files:
+                    dest_file = agents_dest / agent_file.name
+                    shutil.copy2(str(agent_file), str(dest_file))
+
+                check_mark = "[OK]"
+                print(f"    {check_mark} Planning agents copied to sandbox ({len(agent_files)} agents)")
+                print(f"        → {agents_dest}")
+            else:
+                print(f"    ⚠ No agent files found in {agents_source}")
+        else:
+            print(f"    ⚠ Agents directory not found at {agents_source}")
+
         # Create strict TypeScript configuration for sandboxed tools
         tsconfig = sandbox_dir / "tsconfig.json"
         tsconfig_data = {

@@ -138,13 +138,15 @@ def init(name, description):
 @click.argument('plan_id', type=int)
 @click.option('--tasks', is_flag=True, help='Show task list')
 @click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
+@click.option('--format', type=click.Choice(['flat', 'phases']), default='flat', help='Display format (flat or phase hierarchy)')
 @handle_exceptions
-def show(plan_id, tasks, verbose):
+def show(plan_id, tasks, verbose, format):
     """Display plan details and task status.
 
     Example:
         aud planning show 1 --tasks
         aud planning show 1 --verbose
+        aud planning show 1 --tasks --format phases  # Show Phase → Task → Job hierarchy
     """
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
@@ -167,16 +169,131 @@ def show(plan_id, tasks, verbose):
             click.echo(f"  {key}: {value}")
 
     if tasks:
-        task_list = manager.list_tasks(plan_id)
-        click.echo(f"\nTasks ({len(task_list)}):")
-        for task in task_list:
-            status_icon = "[X]" if task['status'] == 'completed' else "[ ]"
-            click.echo(f"  {status_icon} Task {task['task_number']}: {task['title']}")
-            click.echo(f"    Status: {task['status']}")
-            if task['assigned_to']:
-                click.echo(f"    Assigned: {task['assigned_to']}")
-            if verbose and task['description']:
-                click.echo(f"    Description: {task['description']}")
+        if format == 'phases':
+            # Hierarchical planning: Phase → Task → Job display
+            cursor = manager.conn.cursor()
+
+            # Get all phases
+            cursor.execute("""
+                SELECT id, phase_number, title, description, problem_solved, status
+                FROM plan_phases
+                WHERE plan_id = ?
+                ORDER BY phase_number
+            """, (plan_id,))
+            phases = cursor.fetchall()
+
+            if phases:
+                click.echo(f"\nPhase → Task → Job Hierarchy:")
+                for phase in phases:
+                    phase_id, phase_num, phase_title, phase_desc, problem_solved, phase_status = phase
+                    status_icon = "[X]" if phase_status == 'completed' else "[ ]"
+                    click.echo(f"\n{status_icon} PHASE {phase_num}: {phase_title}")
+                    if problem_solved:
+                        click.echo(f"    Problem Solved: {problem_solved}")
+                    if verbose and phase_desc:
+                        click.echo(f"    Description: {phase_desc}")
+
+                    # Get tasks for this phase
+                    cursor.execute("""
+                        SELECT id, task_number, title, description, status, audit_status
+                        FROM plan_tasks
+                        WHERE plan_id = ? AND phase_id = ?
+                        ORDER BY task_number
+                    """, (plan_id, phase_id))
+                    tasks_in_phase = cursor.fetchall()
+
+                    for task in tasks_in_phase:
+                        task_id, task_num, task_title, task_desc, task_status, audit_status = task
+                        task_icon = "[X]" if task_status == 'completed' else "[ ]"
+                        audit_label = f" (audit: {audit_status})" if audit_status != 'pending' else ""
+                        click.echo(f"  {task_icon} Task {task_num}: {task_title}{audit_label}")
+                        if verbose and task_desc:
+                            click.echo(f"      Description: {task_desc}")
+
+                        # Get jobs for this task
+                        cursor.execute("""
+                            SELECT job_number, description, completed, is_audit_job
+                            FROM plan_jobs
+                            WHERE task_id = ?
+                            ORDER BY job_number
+                        """, (task_id,))
+                        jobs = cursor.fetchall()
+
+                        for job in jobs:
+                            job_num, job_desc, completed, is_audit = job
+                            job_icon = "[X]" if completed else "[ ]"
+                            audit_marker = " [AUDIT]" if is_audit else ""
+                            click.echo(f"    {job_icon} Job {job_num}: {job_desc}{audit_marker}")
+
+                # Show orphaned tasks (not associated with any phase)
+                cursor.execute("""
+                    SELECT id, task_number, title, status, audit_status
+                    FROM plan_tasks
+                    WHERE plan_id = ? AND (phase_id IS NULL OR phase_id NOT IN (SELECT id FROM plan_phases WHERE plan_id = ?))
+                    ORDER BY task_number
+                """, (plan_id, plan_id))
+                orphaned_tasks = cursor.fetchall()
+
+                if orphaned_tasks:
+                    click.echo(f"\nOrphaned Tasks (not in any phase):")
+                    for task in orphaned_tasks:
+                        task_id, task_num, task_title, task_status, audit_status = task
+                        task_icon = "[X]" if task_status == 'completed' else "[ ]"
+                        audit_label = f" (audit: {audit_status})" if audit_status != 'pending' else ""
+                        click.echo(f"  {task_icon} Task {task_num}: {task_title}{audit_label}")
+            else:
+                # No phases defined, fall back to flat display
+                click.echo(f"\nNo phases defined. Use --format flat or add phases with 'aud planning add-phase'")
+
+        else:
+            # Flat display (original behavior)
+            task_list = manager.list_tasks(plan_id)
+            click.echo(f"\nTasks ({len(task_list)}):")
+            for task in task_list:
+                status_icon = "[X]" if task['status'] == 'completed' else "[ ]"
+                click.echo(f"  {status_icon} Task {task['task_number']}: {task['title']}")
+                click.echo(f"    Status: {task['status']}")
+                if task['assigned_to']:
+                    click.echo(f"    Assigned: {task['assigned_to']}")
+                if verbose and task['description']:
+                    click.echo(f"    Description: {task['description']}")
+
+
+@planning.command()
+@click.argument('plan_id', type=int)
+@click.option('--phase-number', type=int, required=True, help='Phase number')
+@click.option('--title', required=True, help='Phase title')
+@click.option('--description', default='', help='Phase description')
+@click.option('--problem-solved', help='What sub-problem this phase solves (justification)')
+@handle_exceptions
+def add_phase(plan_id, phase_number, title, description, problem_solved):
+    """Add a phase to a plan (hierarchical planning structure).
+
+    Phases group related tasks and explicitly state what sub-problem they solve.
+
+    Example:
+        aud planning add-phase 1 --phase-number 1 --title "Load Context" \\
+            --problem-solved "Prevents inventing patterns when precedents exist"
+    """
+    db_path = Path.cwd() / ".pf" / "planning.db"
+    manager = PlanningManager(db_path)
+
+    # Use the mixin method from planning_database.py
+    from datetime import UTC
+    manager.add_plan_phase(
+        plan_id=plan_id,
+        phase_number=phase_number,
+        title=title,
+        description=description,
+        problem_solved=problem_solved,
+        status='pending',
+        created_at=datetime.now(UTC).isoformat()
+    )
+    manager.commit()
+
+    click.echo(f"Added phase {phase_number} to plan {plan_id}: {title}")
+    if problem_solved:
+        click.echo(f"Problem Solved: {problem_solved}")
 
 
 @planning.command()
@@ -185,12 +302,16 @@ def show(plan_id, tasks, verbose):
 @click.option('--description', default='', help='Task description')
 @click.option('--spec', type=click.Path(exists=True), help='YAML verification spec file')
 @click.option('--assigned-to', help='Assignee name')
+@click.option('--phase', type=int, help='Phase number to associate this task with (optional)')
 @handle_exceptions
-def add_task(plan_id, title, description, spec, assigned_to):
+def add_task(plan_id, title, description, spec, assigned_to, phase):
     """Add a task to a plan with optional verification spec.
+
+    Can optionally associate task with a phase (hierarchical planning).
 
     Example:
         aud planning add-task 1 --title "Migrate auth" --spec auth_spec.yaml
+        aud planning add-task 1 --title "Query patterns" --phase 2
     """
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
@@ -201,6 +322,21 @@ def add_task(plan_id, title, description, spec, assigned_to):
         spec_path = Path(spec)
         spec_yaml = spec_path.read_text()
 
+    # Get phase_id if phase number provided
+    phase_id = None
+    if phase is not None:
+        cursor = manager.conn.cursor()
+        cursor.execute(
+            "SELECT id FROM plan_phases WHERE plan_id = ? AND phase_number = ?",
+            (plan_id, phase)
+        )
+        phase_row = cursor.fetchone()
+        if phase_row:
+            phase_id = phase_row[0]
+        else:
+            click.echo(f"Warning: Phase {phase} not found in plan {plan_id}", err=True)
+            return
+
     task_id = manager.add_task(
         plan_id=plan_id,
         title=title,
@@ -209,10 +345,64 @@ def add_task(plan_id, title, description, spec, assigned_to):
         assigned_to=assigned_to
     )
 
+    # Update phase_id if provided
+    if phase_id is not None:
+        cursor = manager.conn.cursor()
+        cursor.execute("UPDATE plan_tasks SET phase_id = ? WHERE id = ?", (phase_id, task_id))
+        manager.conn.commit()
+
     task_number = manager.get_task_number(task_id)
     click.echo(f"Added task {task_number} to plan {plan_id}: {title}")
+    if phase is not None:
+        click.echo(f"Associated with phase {phase}")
     if spec:
         click.echo(f"Verification spec: {spec}")
+
+
+@planning.command()
+@click.argument('plan_id', type=int)
+@click.argument('task_number', type=int)
+@click.option('--description', required=True, help='Job description (checkbox item)')
+@click.option('--is-audit', is_flag=True, help='Mark this job as an audit job')
+@handle_exceptions
+def add_job(plan_id, task_number, description, is_audit):
+    """Add a job (checkbox item) to a task (hierarchical task breakdown).
+
+    Jobs are atomic checkbox actions within a task. Audit jobs verify work completion.
+
+    Example:
+        aud planning add-job 1 1 --description "Execute aud blueprint --structure"
+        aud planning add-job 1 1 --description "Verify blueprint ran successfully" --is-audit
+    """
+    db_path = Path.cwd() / ".pf" / "planning.db"
+    manager = PlanningManager(db_path)
+
+    # Get task_id
+    task_id = manager.get_task_id(plan_id, task_number)
+    if not task_id:
+        click.echo(f"Error: Task {task_number} not found in plan {plan_id}", err=True)
+        return
+
+    # Get next job number for this task
+    cursor = manager.conn.cursor()
+    cursor.execute("SELECT MAX(job_number) FROM plan_jobs WHERE task_id = ?", (task_id,))
+    max_job = cursor.fetchone()[0]
+    job_number = (max_job or 0) + 1
+
+    # Use the mixin method from planning_database.py
+    from datetime import UTC
+    manager.add_plan_job(
+        task_id=task_id,
+        job_number=job_number,
+        description=description,
+        completed=0,
+        is_audit_job=1 if is_audit else 0,
+        created_at=datetime.now(UTC).isoformat()
+    )
+    manager.commit()
+
+    job_type = "audit job" if is_audit else "job"
+    click.echo(f"Added {job_type} {job_number} to task {task_number}: {description}")
 
 
 @planning.command()
@@ -316,6 +506,18 @@ def verify_task(plan_id, task_number, verbose, auto_update):
                     if len(rule_result.violations) > 5:
                         click.echo(f"    ... and {len(rule_result.violations) - 5} more")
 
+        # Update audit_status (audit loop semantics)
+        cursor = manager.conn.cursor()
+        if total_violations == 0:
+            audit_status = 'pass'
+        else:
+            audit_status = 'fail'
+
+        cursor.execute("UPDATE plan_tasks SET audit_status = ? WHERE id = ?", (audit_status, task_id))
+        manager.conn.commit()
+
+        click.echo(f"\nAudit status: {audit_status}")
+
         # Auto-update task status
         if auto_update:
             if total_violations == 0:
@@ -327,7 +529,7 @@ def verify_task(plan_id, task_number, verbose, auto_update):
             else:
                 new_status = 'in_progress'
                 manager.update_task_status(task_id, new_status, None)
-            click.echo(f"\nTask status updated: {new_status}")
+            click.echo(f"Task status updated: {new_status}")
 
         # Create snapshot if violations found
         if total_violations > 0:
@@ -717,3 +919,88 @@ def show_diff(plan_id, task_number, sequence, file):
 
         click.echo("To view a specific checkpoint's diff:")
         click.echo(f"  aud planning show-diff {plan_id} {task_number} --sequence N")
+
+
+@planning.command()
+@click.option('--target', type=click.Choice(['AGENTS.md', 'CLAUDE.md', 'both']), default='AGENTS.md', help='Target file for injection')
+@handle_exceptions
+def setup_agents(target):
+    """Inject TheAuditor agent trigger block into project documentation.
+
+    Adds agent trigger instructions to AGENTS.md or CLAUDE.md that tell
+    AI assistants when to load specialized agent workflows for planning,
+    refactoring, security analysis, and dataflow tracing.
+
+    The trigger block references agent files in .auditor_venv/.theauditor_tools/agents/
+    which are copied during venv setup (via venv_install.py).
+
+    Example:
+        aud planning setup-agents                      # Inject into AGENTS.md
+        aud planning setup-agents --target CLAUDE.md   # Inject into CLAUDE.md
+        aud planning setup-agents --target both        # Inject into both files
+    """
+    TRIGGER_START = "<!-- THEAUDITOR:START -->"
+    TRIGGER_END = "<!-- THEAUDITOR:END -->"
+
+    TRIGGER_BLOCK = f"""{TRIGGER_START}
+# TheAuditor Planning Agent System
+
+When user mentions planning, refactoring, security, or dataflow keywords, load specialized agents:
+
+**Agent Triggers:**
+- "refactor", "split", "extract", "merge", "modularize" => @/.theauditor_tools/agents/refactor.md
+- "security", "vulnerability", "XSS", "SQL injection", "CSRF", "taint", "sanitize" => @/.theauditor_tools/agents/security.md
+- "plan", "architecture", "design", "organize", "structure", "approach" => @/.theauditor_tools/agents/planning.md
+- "dataflow", "trace", "track", "flow", "source", "sink", "propagate" => @/.theauditor_tools/agents/dataflow.md
+
+**Agent Purpose:**
+These agents enforce query-driven workflows using TheAuditor's database:
+- NO file reading - use `aud query`, `aud blueprint`, `aud context`
+- NO guessing patterns - follow detected precedents from blueprint
+- NO assuming conventions - match detected naming/frameworks
+- MANDATORY sequence: blueprint => query => synthesis
+- ALL recommendations cite database query results
+
+**Agent Files Location:**
+Agents are copied to .auditor_venv/.theauditor_tools/agents/ during venv setup.
+Run `aud init` to install the venv if agents are missing.
+
+{TRIGGER_END}
+"""
+
+    def inject_into_file(file_path: Path) -> bool:
+        """Inject trigger block into file if not already present."""
+        if not file_path.exists():
+            # Create new file with trigger block
+            file_path.write_text(TRIGGER_BLOCK + "\n")
+            click.echo(f"Created {file_path.name} with agent trigger block")
+            return True
+
+        content = file_path.read_text()
+
+        # Check if trigger already exists
+        if TRIGGER_START in content:
+            click.echo(f"Trigger block already exists in {file_path.name}")
+            return False
+
+        # Inject at beginning of file
+        new_content = TRIGGER_BLOCK + "\n" + content
+        file_path.write_text(new_content)
+        click.echo(f"Injected agent trigger block into {file_path.name}")
+        return True
+
+    root = Path.cwd()
+
+    if target == 'AGENTS.md' or target == 'both':
+        agents_md = root / "AGENTS.md"
+        inject_into_file(agents_md)
+
+    if target == 'CLAUDE.md' or target == 'both':
+        claude_md = root / "CLAUDE.md"
+        inject_into_file(claude_md)
+
+    click.echo("\nAgent trigger setup complete!")
+    click.echo("AI assistants will now automatically load specialized agent workflows.")
+    click.echo("\nNext steps:")
+    click.echo("  1. Run 'aud init' if .auditor_venv/ doesn't exist (copies agent files)")
+    click.echo("  2. Try triggering agents with keywords like 'refactor storage.py' or 'check for XSS'")
