@@ -62,20 +62,20 @@ from .schemas.graphql_schema import GRAPHQL_TABLES
 # ============================================================================
 
 TABLES: Dict[str, TableSchema] = {
-    **CORE_TABLES,           # 21 tables (language-agnostic core patterns)
+    **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
     **SECURITY_TABLES,       # 5 tables (SQL, JWT, env vars - cross-language security)
     **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
-    **PYTHON_TABLES,         # 34 tables (5 basic + 29 advanced Python patterns)
-    **NODE_TABLES,           # 17 tables (React/Vue/TypeScript + build tools)
+    **PYTHON_TABLES,         # 59 tables (5 basic + 54 advanced Python patterns)
+    **NODE_TABLES,           # 26 tables (React/Vue/TypeScript + build tools)
     **INFRASTRUCTURE_TABLES, # 18 tables (Docker/Terraform/CDK + GitHub Actions)
-    **PLANNING_TABLES,       # 6 tables (Planning/meta-system + refactor candidates)
+    **PLANNING_TABLES,       # 7 tables (Planning/meta-system + refactor candidates)
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 151 tables (schema continues to grow with framework extraction)
+# Total: 152 tables (schema continues to grow with framework extraction)
 
 # Verify table count at module load time
-assert len(TABLES) == 151, f"Schema contract violation: Expected 151 tables, got {len(TABLES)}"
+assert len(TABLES) == 152, f"Schema contract violation: Expected 152 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
