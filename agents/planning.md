@@ -466,6 +466,107 @@ Use the RIGHT tool for the job:
 
 ---
 
+## PHASE 6: Validate Execution (Post-Implementation)
+
+**Description:** After plan execution completes, validate that actual behavior matched the plan using session logs. This phase runs AFTER code changes are made.
+
+**Problem Solved:** Plans without validation are hypotheses without proof. Session logs provide ground truth about what actually happened during execution. Without validation, you can't know if the plan was followed, if workflow compliance occurred, or if blind edits were made. This phase closes the planning loop.
+
+**IMPORTANT:** This phase runs in a FUTURE session, after the plan has been executed. It validates the PREVIOUS execution against the plan.
+
+### Task 6.1: Check Session Logs Available
+
+**Jobs:**
+- [ ] Execute: `ls .pf/ml/session_history.db`
+- [ ] If missing: FAIL and instruct user to run `aud session init` to enable logging
+- [ ] If exists: Proceed to validation
+- [ ] Planning without session validation is incomplete (do NOT skip this phase)
+- [ ] **Audit:** Verify session logs available. If audit reveals failures, amend and re-audit.
+
+### Task 6.2: Parse Latest Session
+
+**Jobs:**
+- [ ] Execute: `aud session analyze`
+- [ ] Parses `.jsonl` conversation logs from latest session
+- [ ] Extracts: files touched, tool calls, blind edits, workflow compliance
+- [ ] Stores results in `session_history.db`
+- [ ] **Audit:** Verify session parsed successfully. If audit reveals failures, amend and re-audit.
+
+### Task 6.3: Validate File Changes
+
+**Jobs:**
+- [ ] Execute: `aud planning validate <PLAN_ID>` (NEW COMMAND - to be implemented)
+- [ ] Compare: Files planned vs files actually touched
+- [ ] Identify deviations:
+  - Extra files touched (not in plan)
+  - Missing files (planned but not touched)
+  - Files modified multiple times (rework)
+- [ ] Calculate deviation score: `(extra_files + missing_files) / planned_files`
+- [ ] **Audit:** Verify file changes validated. If audit reveals failures, amend and re-audit.
+
+### Task 6.4: Check Workflow Compliance
+
+**Jobs:**
+- [ ] Query session for workflow compliance:
+  ```sql
+  SELECT workflow_compliant, compliance_score, blind_edit_count
+  FROM session_executions
+  WHERE task_description LIKE '%<plan name>%'
+  ORDER BY session_start DESC
+  LIMIT 1
+  ```
+- [ ] Verify: `workflow_compliant = true` (blueprint ran first, no blind edits)
+- [ ] Check: `blind_edit_count = 0` (all files read before editing)
+- [ ] Check: `compliance_score >= 0.8` (80% workflow adherence)
+- [ ] **Audit:** Verify workflow compliance checked. If audit reveals failures, amend and re-audit.
+
+### Task 6.5: Update Plan Status
+
+**Jobs:**
+- [ ] If validation passed (no deviations, workflow compliant):
+  - Execute: `aud planning update-task <PLAN_ID> --status completed`
+- [ ] If validation failed (deviations OR workflow violations):
+  - Execute: `aud planning update-task <PLAN_ID> --status needs-revision`
+  - Document failures in plan notes
+- [ ] Store validation results in plan metadata
+- [ ] **Audit:** Verify plan status updated. If audit reveals failures, amend and re-audit.
+
+### Task 6.6: Generate Validation Report
+
+**Jobs:**
+- [ ] Output validation summary:
+  ```
+  Plan Validation Report: <Plan Name>
+  =====================================
+  Planned files:        8
+  Actually touched:     10 (+2 extra)
+  Blind edits:          2
+  Workflow compliant:   NO
+  Compliance score:     0.65 (below 0.8 threshold)
+
+  Deviations:
+  - Extra files: framework_extractors.js, batch_templates.js
+  - Blind edits: core_ast_extractors.js (line 450), security_extractors.js
+
+  Status: NEEDS REVISION
+  ```
+- [ ] Present report to user
+- [ ] Recommendations for next iteration
+- [ ] **Audit:** Verify validation report generated. If audit reveals failures, amend and re-audit.
+
+### Task 6.7: Phase 6 Audit
+
+**Jobs:**
+- [ ] Verify session logs analyzed
+- [ ] Confirm file changes validated
+- [ ] Confirm workflow compliance checked
+- [ ] Confirm plan status updated (completed OR needs-revision)
+- [ ] Confirm validation report generated
+- [ ] If any issues found, return to relevant task, fix issues, and re-audit
+- [ ] **Final verification:** Execution validated against plan with ground truth from session logs
+
+---
+
 ## KEY PRINCIPLES
 
 1. **Database queries are ground truth** - Never guess what you can query
