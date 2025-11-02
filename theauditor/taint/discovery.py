@@ -68,40 +68,65 @@ class TaintDiscovery:
         sources = []
 
         # HTTP Request Sources: Query api_endpoints table for actual endpoints
-        if hasattr(self.cache, 'api_endpoints'):
-            for endpoint in self.cache.api_endpoints:
-                # Public endpoints without auth are higher risk
-                risk = 'high' if not endpoint.get('has_auth', True) else 'medium'
+        for endpoint in self.cache.api_endpoints:
+            # Public endpoints without auth are higher risk
+            risk = 'high' if not endpoint.get('has_auth', True) else 'medium'
 
-                sources.append({
-                    'type': 'http_request',
-                    'name': endpoint.get('handler_function', 'unknown'),
-                    'file': endpoint.get('file', ''),
-                    'line': endpoint.get('line', 0),
-                    'pattern': f"{endpoint.get('method', 'GET')} {endpoint.get('path', '/')}",
-                    'category': 'http_request',
-                    'risk': risk,
-                    'has_auth': endpoint.get('has_auth', True),
-                    'metadata': endpoint
-                })
+            sources.append({
+                'type': 'http_request',
+                'name': endpoint.get('handler_function', 'unknown'),
+                'file': endpoint.get('file', ''),
+                'line': endpoint.get('line', 0),
+                'pattern': f"{endpoint.get('method', 'GET')} {endpoint.get('path', '/')}",
+                'category': 'http_request',
+                'risk': risk,
+                'has_auth': endpoint.get('has_auth', True),
+                'metadata': endpoint
+            })
 
         # User Input Sources: Property access patterns that indicate user input
-        if hasattr(self.cache, 'symbols'):
-            input_patterns = ['req.', 'request.', 'body.', 'query.', 'params.', 'args.', 'form.', 'cookies.']
-            for symbol in self.cache.symbols:
-                if symbol.get('type') == 'property':
-                    name = symbol.get('name', '')
-                    if any(pattern in name.lower() for pattern in input_patterns):
-                        sources.append({
-                            'type': 'user_input',
-                            'name': name,
-                            'file': symbol.get('path', ''),
-                            'line': symbol.get('line', 0),
-                            'pattern': name,
-                            'category': 'user_input',
-                            'risk': 'high',
-                            'metadata': symbol
-                        })
+        input_patterns = ['req.', 'request.', 'body.', 'query.', 'params.', 'args.', 'form.', 'cookies.']
+        for symbol in self.cache.symbols:
+            if symbol.get('type') == 'property':
+                name = symbol.get('name', '')
+                if any(pattern in name.lower() for pattern in input_patterns):
+                    sources.append({
+                        'type': 'user_input',
+                        'name': name,
+                        'file': symbol.get('path', ''),
+                        'line': symbol.get('line', 0),
+                        'pattern': name,
+                        'category': 'user_input',
+                        'risk': 'high',
+                        'metadata': symbol
+                    })
+
+        # Function Parameter Sources: Parse parameters from function symbols
+        # These are often derived from user input (req.body, req.params, etc.)
+        import json
+        for symbol in self.cache.symbols:
+            if symbol.get('type') == 'function':
+                params_json = symbol.get('parameters', '[]')
+                if params_json:
+                    try:
+                        params = json.loads(params_json) if isinstance(params_json, str) else params_json
+                        for param in params:
+                            param_name = param.get('name', '')
+                            # Skip internal/framework parameters
+                            if param_name not in ['req', 'res', 'next', 'transaction', 'options', 'callback', 'this']:
+                                sources.append({
+                                    'type': 'parameter',
+                                    'name': param_name,
+                                    'file': symbol.get('path', ''),
+                                    'line': symbol.get('line', 0),
+                                    'pattern': param_name,
+                                    'category': 'user_input',
+                                    'risk': 'medium',
+                                    'function': symbol.get('name', ''),
+                                    'metadata': symbol
+                                })
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
 
         # REMOVED: File Read Sources
         # Reason: File operations (open, readFile) are SINKS (path traversal), not SOURCES
@@ -110,33 +135,31 @@ class TaintDiscovery:
         # If file contents need to be tracked as tainted, that's a different analysis (second-order)
 
         # Environment Variable Sources
-        if hasattr(self.cache, 'env_accesses'):
-            for env in self.cache.env_accesses:
-                sources.append({
-                    'type': 'environment',
-                    'name': env.get('key', 'unknown'),
-                    'file': env.get('file', ''),
-                    'line': env.get('line', 0),
-                    'pattern': f"process.env.{env.get('key', '')}",
-                    'category': 'environment',
-                    'risk': 'low',
-                    'metadata': env
-                })
+        for env in self.cache.env_var_usage:
+            sources.append({
+                'type': 'environment',
+                'name': env.get('key', 'unknown'),
+                'file': env.get('file', ''),
+                'line': env.get('line', 0),
+                'pattern': f"process.env.{env.get('key', '')}",
+                'category': 'environment',
+                'risk': 'low',
+                'metadata': env
+            })
 
         # Database Query Results as Sources (for second-order injection)
-        if hasattr(self.cache, 'sql_queries'):
-            for query in self.cache.sql_queries:
-                if 'SELECT' in query.get('query_text', '').upper():
-                    sources.append({
-                        'type': 'database_read',
-                        'name': 'sql_query_result',
-                        'file': query.get('file_path', ''),
-                        'line': query.get('line_number', 0),
-                        'pattern': query.get('query_text', '')[:50],
-                        'category': 'database',
-                        'risk': 'low',
-                        'metadata': query
-                    })
+        for query in self.cache.sql_queries:
+            if 'SELECT' in query.get('query_text', '').upper():
+                sources.append({
+                    'type': 'database_read',
+                    'name': 'sql_query_result',
+                    'file': query.get('file_path', ''),
+                    'line': query.get('line_number', 0),
+                    'pattern': query.get('query_text', '')[:50],
+                    'category': 'database',
+                    'risk': 'low',
+                    'metadata': query
+                })
 
         return sources
 
@@ -153,124 +176,152 @@ class TaintDiscovery:
         sinks = []
 
         # SQL Injection Sinks: Direct from sql_queries table
-        if hasattr(self.cache, 'sql_queries'):
-            for query in self.cache.sql_queries:
-                # Assess risk based on query construction
-                query_text = query.get('query_text', '')
-                risk = self._assess_sql_risk(query_text)
+        for query in self.cache.sql_queries:
+            # Assess risk based on query construction
+            query_text = query.get('query_text', '')
+            risk = self._assess_sql_risk(query_text)
+
+            sinks.append({
+                'type': 'sql',
+                'name': 'sql_query',
+                'file': query.get('file_path', ''),
+                'line': query.get('line_number', 0),
+                'pattern': query_text[:100],
+                'category': 'sql',
+                'risk': risk,
+                'is_parameterized': query.get('is_parameterized', False),
+                'metadata': query
+            })
+
+        # SQL Injection Sinks: Raw SQL functions (Sequelize.literal, etc.)
+        raw_sql_funcs = ['Sequelize.literal', 'sequelize.query', 'Sequelize.query',
+                         'db.raw', 'knex.raw', 'sql.raw', 'prisma.$queryRaw']
+        literal_count = 0
+        for call in self.cache.function_call_args:
+            func_name = call.get('callee_function', '')
+            if any(raw_func in func_name for raw_func in raw_sql_funcs):
+                arg_expr = call.get('argument_expr', '')
+                file_path = call.get('file', '')
+
+                # Check if argument contains template literal interpolation
+                has_interpolation = '${' in arg_expr
+                risk = 'critical' if has_interpolation else 'high'
+
+                literal_count += 1
+                if 'area.service' in file_path and literal_count <= 3:
+                    import os
+                    print(f'[DEBUG] Found Sequelize.literal sink: {os.path.basename(file_path)}:{call.get("line")}', flush=True)
+                    print(f'[DEBUG]   func_name: {func_name}', flush=True)
+                    print(f'[DEBUG]   has_interpolation: {has_interpolation}', flush=True)
+                    print(f'[DEBUG]   arg_expr: {arg_expr[:100]}', flush=True)
 
                 sinks.append({
                     'type': 'sql',
-                    'name': 'sql_query',
-                    'file': query.get('file_path', ''),
-                    'line': query.get('line_number', 0),
-                    'pattern': query_text[:100],
+                    'name': func_name,
+                    'file': file_path,
+                    'line': call.get('line', 0),
+                    'pattern': arg_expr[:100],
                     'category': 'sql',
                     'risk': risk,
-                    'is_parameterized': query.get('is_parameterized', False),
-                    'metadata': query
+                    'is_parameterized': False,
+                    'has_interpolation': has_interpolation,
+                    'metadata': call
                 })
 
-        # NoSQL Injection Sinks
-        if hasattr(self.cache, 'nosql_queries'):
-            for query in self.cache.nosql_queries:
-                sinks.append({
-                    'type': 'nosql',
-                    'name': query.get('collection', 'unknown'),
-                    'file': query.get('file', ''),
-                    'line': query.get('line', 0),
-                    'pattern': query.get('operation', ''),
-                    'category': 'nosql',
-                    'risk': 'medium',
-                    'metadata': query
-                })
+        # NoSQL Injection Sinks (optional - language-specific)
+        for query in getattr(self.cache, 'nosql_queries', []):
+            sinks.append({
+                'type': 'nosql',
+                'name': query.get('collection', 'unknown'),
+                'file': query.get('file', ''),
+                'line': query.get('line', 0),
+                'pattern': query.get('operation', ''),
+                'category': 'nosql',
+                'risk': 'medium',
+                'metadata': query
+            })
 
         # Command Injection Sinks: exec, eval, spawn, etc.
-        if hasattr(self.cache, 'function_call_args'):
-            cmd_funcs = ['exec', 'execSync', 'spawn', 'spawnSync', 'eval', 'system', 'execFile', 'shell']
-            for call in self.cache.function_call_args:
-                func_name = call.get('callee_function', '')
-                if any(cmd in func_name for cmd in cmd_funcs):
-                    sinks.append({
-                        'type': 'command',
-                        'name': func_name,
-                        'file': call.get('file', ''),
-                        'line': call.get('line', 0),
-                        'pattern': func_name,
-                        'category': 'command',
-                        'risk': 'critical',
-                        'metadata': call
-                    })
+        cmd_funcs = ['exec', 'execSync', 'spawn', 'spawnSync', 'eval', 'system', 'execFile', 'shell']
+        for call in self.cache.function_call_args:
+            func_name = call.get('callee_function', '')
+            if any(cmd in func_name for cmd in cmd_funcs):
+                sinks.append({
+                    'type': 'command',
+                    'name': func_name,
+                    'file': call.get('file', ''),
+                    'line': call.get('line', 0),
+                    'pattern': func_name,
+                    'category': 'command',
+                    'risk': 'critical',
+                    'metadata': call
+                })
 
         # XSS Sinks: React dangerouslySetInnerHTML
-        if hasattr(self.cache, 'react_hooks'):
-            for hook in self.cache.react_hooks:
-                # Check if hook uses dangerous HTML setting
-                if 'dangerouslySetInnerHTML' in str(hook):
-                    sinks.append({
-                        'type': 'xss',
-                        'name': 'dangerouslySetInnerHTML',
-                        'file': hook.get('file', ''),
-                        'line': hook.get('line', 0),
-                        'pattern': 'dangerouslySetInnerHTML',
-                        'category': 'xss',
-                        'risk': 'high',
-                        'metadata': hook
-                    })
+        for hook in self.cache.react_hooks:
+            # Check if hook uses dangerous HTML setting
+            if 'dangerouslySetInnerHTML' in str(hook):
+                sinks.append({
+                    'type': 'xss',
+                    'name': 'dangerouslySetInnerHTML',
+                    'file': hook.get('file', ''),
+                    'line': hook.get('line', 0),
+                    'pattern': 'dangerouslySetInnerHTML',
+                    'category': 'xss',
+                    'risk': 'high',
+                    'metadata': hook
+                })
 
         # XSS Sinks: Direct innerHTML assignments
-        if hasattr(self.cache, 'assignments'):
-            for assignment in self.cache.assignments:
-                target = assignment.get('target_var', '')
-                if 'innerHTML' in target or 'outerHTML' in target:
-                    sinks.append({
-                        'type': 'xss',
-                        'name': target,
-                        'file': assignment.get('file', ''),
-                        'line': assignment.get('line', 0),
-                        'pattern': target,
-                        'category': 'xss',
-                        'risk': 'high',
-                        'metadata': assignment
-                    })
+        for assignment in self.cache.assignments:
+            target = assignment.get('target_var', '')
+            if 'innerHTML' in target or 'outerHTML' in target:
+                sinks.append({
+                    'type': 'xss',
+                    'name': target,
+                    'file': assignment.get('file', ''),
+                    'line': assignment.get('line', 0),
+                    'pattern': target,
+                    'category': 'xss',
+                    'risk': 'high',
+                    'metadata': assignment
+                })
 
         # Path Traversal Sinks: File operations
         # CRITICAL: Use strict matching to avoid false positives like 'open' in 'openSgIpv4'
-        if hasattr(self.cache, 'function_call_args'):
-            file_funcs = ['readFile', 'writeFile', 'open', 'unlink', 'mkdir', 'rmdir', 'access']
-            for call in self.cache.function_call_args:
-                func_name = call.get('callee_function', '')
-                if _matches_file_io_pattern(func_name, file_funcs):
-                    # Check if first argument could be user-controlled
-                    arg = call.get('argument_expr', '')
-                    if arg and not arg.startswith('"') and not arg.startswith("'"):
-                        sinks.append({
-                            'type': 'path',
-                            'name': func_name,
-                            'file': call.get('file', ''),
-                            'line': call.get('line', 0),
-                            'pattern': func_name,
-                            'category': 'path',
-                            'risk': 'medium',
-                            'metadata': call
-                        })
-
-        # LDAP Injection Sinks
-        if hasattr(self.cache, 'function_call_args'):
-            ldap_funcs = ['search', 'bind', 'add', 'modify', 'delete']
-            for call in self.cache.function_call_args:
-                func_name = call.get('callee_function', '')
-                if any(f in func_name.lower() and 'ldap' in func_name.lower() for f in ldap_funcs):
+        file_funcs = ['readFile', 'writeFile', 'open', 'unlink', 'mkdir', 'rmdir', 'access']
+        for call in self.cache.function_call_args:
+            func_name = call.get('callee_function', '')
+            if _matches_file_io_pattern(func_name, file_funcs):
+                # Check if first argument could be user-controlled
+                arg = call.get('argument_expr', '')
+                if arg and not arg.startswith('"') and not arg.startswith("'"):
                     sinks.append({
-                        'type': 'ldap',
+                        'type': 'path',
                         'name': func_name,
                         'file': call.get('file', ''),
                         'line': call.get('line', 0),
                         'pattern': func_name,
-                        'category': 'ldap',
+                        'category': 'path',
                         'risk': 'medium',
                         'metadata': call
                     })
+
+        # LDAP Injection Sinks
+        ldap_funcs = ['search', 'bind', 'add', 'modify', 'delete']
+        for call in self.cache.function_call_args:
+            func_name = call.get('callee_function', '')
+            if any(f in func_name.lower() and 'ldap' in func_name.lower() for f in ldap_funcs):
+                sinks.append({
+                    'type': 'ldap',
+                    'name': func_name,
+                    'file': call.get('file', ''),
+                    'line': call.get('line', 0),
+                    'pattern': func_name,
+                    'category': 'ldap',
+                    'risk': 'medium',
+                    'metadata': call
+                })
 
         return sinks
 
