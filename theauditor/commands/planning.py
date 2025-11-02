@@ -2,6 +2,7 @@
 
 import click
 import json
+import sqlite3
 from pathlib import Path
 from datetime import datetime, UTC
 from theauditor.utils.error_handler import handle_exceptions
@@ -982,6 +983,177 @@ def show_diff(plan_id, task_number, sequence, file):
 
         click.echo("To view a specific checkpoint's diff:")
         click.echo(f"  aud planning show-diff {plan_id} {task_number} --sequence N")
+
+
+@planning.command("validate")
+@click.argument('plan_id', type=int)
+@click.option('--session-id', help='Specific session ID to validate against (defaults to latest)')
+@click.option('--format', type=click.Choice(['text', 'json']), default='text', help='Output format')
+@handle_exceptions
+def validate_plan(plan_id, session_id, format):
+    """Validate plan execution against session logs.
+
+    Compares planned files vs actually modified files from session history.
+    Checks workflow compliance and blind edit rate.
+
+    Example:
+        aud planning validate 1                    # Validate latest session
+        aud planning validate 1 --session-id abc123  # Validate specific session
+        aud planning validate 1 --format json     # JSON output
+    """
+    db_path = Path.cwd() / ".pf" / "planning.db"
+    session_db_path = Path.cwd() / ".pf" / "ml" / "session_history.db"
+
+    # Check session database exists
+    if not session_db_path.exists():
+        click.echo("Error: Session database not found (.pf/ml/session_history.db)", err=True)
+        click.echo("Run 'aud session init' to enable session logging", err=True)
+        click.echo("Planning validation requires session logs", err=True)
+        raise click.ClickException("Session logging not enabled")
+
+    # Get plan
+    manager = PlanningManager(db_path)
+    plan = manager.get_plan(plan_id)
+    if not plan:
+        click.echo(f"Error: Plan {plan_id} not found", err=True)
+        raise click.ClickException(f"Plan {plan_id} not found")
+
+    # Connect to session database
+    session_conn = sqlite3.connect(session_db_path)
+    session_cursor = session_conn.cursor()
+
+    # Get session data (latest or specific)
+    if session_id:
+        session_cursor.execute("""
+            SELECT session_id, task_description, workflow_compliant, compliance_score,
+                   files_modified, diffs_scored
+            FROM session_executions
+            WHERE session_id = ?
+        """, (session_id,))
+    else:
+        # Get latest session matching plan name
+        session_cursor.execute("""
+            SELECT session_id, task_description, workflow_compliant, compliance_score,
+                   files_modified, diffs_scored
+            FROM session_executions
+            WHERE task_description LIKE ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        """, (f"%{plan['name']}%",))
+
+    session_row = session_cursor.fetchone()
+    if not session_row:
+        click.echo(f"Error: No session found for plan '{plan['name']}'", err=True)
+        if session_id:
+            click.echo(f"Session ID '{session_id}' not found in database", err=True)
+        raise click.ClickException("No matching session found")
+
+    session_id_val, task_desc, workflow_compliant, compliance_score, files_modified_count, diffs_json = session_row
+
+    # Parse diffs JSON
+    import json as json_module
+    diffs = json_module.loads(diffs_json) if diffs_json else []
+
+    # Extract file paths from diffs
+    actual_files = [diff['file'] for diff in diffs]
+    blind_edits = [diff['file'] for diff in diffs if diff.get('blind_edit', False)]
+
+    # Get planned files from plan tasks
+    plan_cursor = manager.conn.cursor()
+    plan_cursor.execute("""
+        SELECT description
+        FROM plan_tasks
+        WHERE plan_id = ?
+    """, (plan_id,))
+
+    # Extract file paths from task descriptions (basic heuristic)
+    import re
+    planned_files = set()
+    for row in plan_cursor.fetchall():
+        desc = row[0]
+        # Look for file patterns in descriptions
+        file_matches = re.findall(r'[\w/]+\.(?:py|js|ts|tsx|jsx|md)', desc)
+        planned_files.update(file_matches)
+
+    # Calculate deviations
+    actual_files_set = set(actual_files)
+    extra_files = actual_files_set - planned_files
+    missing_files = planned_files - actual_files_set
+
+    deviation_score = (len(extra_files) + len(missing_files)) / max(len(planned_files), 1)
+    validation_passed = (
+        workflow_compliant and
+        len(blind_edits) == 0 and
+        deviation_score < 0.2  # Allow 20% deviation
+    )
+
+    # Generate report
+    if format == 'json':
+        result = {
+            'plan_id': plan_id,
+            'plan_name': plan['name'],
+            'session_id': session_id_val,
+            'validation_passed': validation_passed,
+            'workflow_compliant': bool(workflow_compliant),
+            'compliance_score': compliance_score,
+            'files': {
+                'planned': list(planned_files),
+                'actual': actual_files,
+                'extra': list(extra_files),
+                'missing': list(missing_files)
+            },
+            'blind_edits': blind_edits,
+            'deviation_score': deviation_score,
+            'status': 'completed' if validation_passed else 'needs-revision'
+        }
+        click.echo(json_module.dumps(result, indent=2))
+    else:
+        # Text format
+        click.echo("=" * 80)
+        click.echo(f"Plan Validation Report: {plan['name']}")
+        click.echo("=" * 80)
+        click.echo(f"Plan ID:              {plan_id}")
+        click.echo(f"Session ID:           {session_id_val[:16]}...")
+        click.echo(f"Validation Status:    {'PASSED' if validation_passed else 'NEEDS REVISION'}")
+        click.echo()
+        click.echo(f"Planned files:        {len(planned_files)}")
+        click.echo(f"Actually touched:     {len(actual_files)} (+{len(extra_files)} extra, -{len(missing_files)} missing)")
+        click.echo(f"Blind edits:          {len(blind_edits)}")
+        click.echo(f"Workflow compliant:   {'YES' if workflow_compliant else 'NO'}")
+        click.echo(f"Compliance score:     {compliance_score:.2f} ({'above' if compliance_score >= 0.8 else 'below'} 0.8 threshold)")
+        click.echo(f"Deviation score:      {deviation_score:.2f}")
+        click.echo()
+
+        if extra_files:
+            click.echo("Deviations - Extra files touched:")
+            for f in extra_files:
+                click.echo(f"  + {f}")
+            click.echo()
+
+        if missing_files:
+            click.echo("Deviations - Planned files not touched:")
+            for f in missing_files:
+                click.echo(f"  - {f}")
+            click.echo()
+
+        if blind_edits:
+            click.echo("Blind edits (edited without reading first):")
+            for f in blind_edits:
+                click.echo(f"  ! {f}")
+            click.echo()
+
+        click.echo(f"Status: {'COMPLETED' if validation_passed else 'NEEDS REVISION'}")
+        click.echo("=" * 80)
+
+    # Update plan status
+    if validation_passed:
+        manager.update_task(plan_id, 1, status='completed')
+        click.echo("\nPlan status updated to: completed", err=True)
+    else:
+        manager.update_task(plan_id, 1, status='needs-revision')
+        click.echo("\nPlan status updated to: needs-revision", err=True)
+
+    session_conn.close()
 
 
 @planning.command()

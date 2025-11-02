@@ -125,6 +125,11 @@ class TaintDiscovery:
                                     'function': symbol.get('name', ''),
                                     'metadata': symbol
                                 })
+
+                                # Debug for qr.registry issue
+                                if param_name == 'filters' and 'qr.registry' in symbol.get('path', ''):
+                                    print(f'[DEBUG FILTERS] Found filters parameter at line {symbol.get("line")}', flush=True, file=sys.stderr)
+                                    print(f'[DEBUG FILTERS]   function: {symbol.get("name")}', flush=True, file=sys.stderr)
                     except (json.JSONDecodeError, AttributeError):
                         pass
 
@@ -196,29 +201,19 @@ class TaintDiscovery:
         # SQL Injection Sinks: Raw SQL functions (Sequelize.literal, etc.)
         raw_sql_funcs = ['Sequelize.literal', 'sequelize.query', 'Sequelize.query',
                          'db.raw', 'knex.raw', 'sql.raw', 'prisma.$queryRaw']
-        literal_count = 0
+        sql_query_count = 0
         for call in self.cache.function_call_args:
             func_name = call.get('callee_function', '')
             if any(raw_func in func_name for raw_func in raw_sql_funcs):
                 arg_expr = call.get('argument_expr', '')
-                file_path = call.get('file', '')
-
                 # Check if argument contains template literal interpolation
                 has_interpolation = '${' in arg_expr
                 risk = 'critical' if has_interpolation else 'high'
 
-                literal_count += 1
-                if 'area.service' in file_path and literal_count <= 3:
-                    import os
-                    print(f'[DEBUG] Found Sequelize.literal sink: {os.path.basename(file_path)}:{call.get("line")}', flush=True)
-                    print(f'[DEBUG]   func_name: {func_name}', flush=True)
-                    print(f'[DEBUG]   has_interpolation: {has_interpolation}', flush=True)
-                    print(f'[DEBUG]   arg_expr: {arg_expr[:100]}', flush=True)
-
                 sinks.append({
                     'type': 'sql',
                     'name': func_name,
-                    'file': file_path,
+                    'file': call.get('file', ''),
                     'line': call.get('line', 0),
                     'pattern': arg_expr[:100],
                     'category': 'sql',
@@ -227,6 +222,16 @@ class TaintDiscovery:
                     'has_interpolation': has_interpolation,
                     'metadata': call
                 })
+                sql_query_count += 1
+
+                # Debug for qr.registry issue
+                if 'qr.registry' in call.get('file', ''):
+                    print(f'[DEBUG SQL] Found sequelize.query in qr.registry at line {call.get("line")}', flush=True, file=sys.stderr)
+                    print(f'[DEBUG SQL]   has_interpolation: {has_interpolation}', flush=True, file=sys.stderr)
+                    print(f'[DEBUG SQL]   arg: {arg_expr[:150]}', flush=True, file=sys.stderr)
+
+        if sql_query_count > 0:
+            print(f'[DEBUG SQL] Found {sql_query_count} raw SQL sinks total', flush=True, file=sys.stderr)
 
         # NoSQL Injection Sinks (optional - language-specific)
         for query in getattr(self.cache, 'nosql_queries', []):
@@ -287,6 +292,28 @@ class TaintDiscovery:
                     'metadata': assignment
                 })
 
+        # XSS Sinks: document.write and document.writeln
+        xss_funcs = ['document.write', 'document.writeln']
+        for call in self.cache.function_call_args:
+            func_name = call.get('callee_function', '')
+            if any(xss_func in func_name for xss_func in xss_funcs):
+                arg_expr = call.get('argument_expr', '')
+                # Check if argument contains template literal interpolation or concatenation
+                has_interpolation = '${' in arg_expr or '+' in arg_expr
+                risk = 'critical' if has_interpolation else 'high'
+
+                sinks.append({
+                    'type': 'xss',
+                    'name': func_name,
+                    'file': call.get('file', ''),
+                    'line': call.get('line', 0),
+                    'pattern': arg_expr[:100],
+                    'category': 'xss',
+                    'risk': risk,
+                    'has_interpolation': has_interpolation,
+                    'metadata': call
+                })
+
         # Path Traversal Sinks: File operations
         # CRITICAL: Use strict matching to avoid false positives like 'open' in 'openSgIpv4'
         file_funcs = ['readFile', 'writeFile', 'open', 'unlink', 'mkdir', 'rmdir', 'access']
@@ -295,13 +322,15 @@ class TaintDiscovery:
             if _matches_file_io_pattern(func_name, file_funcs):
                 # Check if first argument could be user-controlled
                 arg = call.get('argument_expr', '')
+                file_path = call.get('file', '')
+
                 if arg and not arg.startswith('"') and not arg.startswith("'"):
                     sinks.append({
                         'type': 'path',
                         'name': func_name,
-                        'file': call.get('file', ''),
+                        'file': file_path,
                         'line': call.get('line', 0),
-                        'pattern': func_name,
+                        'pattern': arg,  # Use actual argument as pattern for matching
                         'category': 'path',
                         'risk': 'medium',
                         'metadata': call
