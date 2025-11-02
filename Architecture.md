@@ -1020,7 +1020,7 @@ sequenceDiagram
 
 ### Machine Learning Risk Prediction
 
-**4-Tier Intelligence System**:
+**5-Tier Intelligence System**:
 
 ```mermaid
 graph TB
@@ -1044,9 +1044,14 @@ graph TB
         D2[Commits, authors<br/>Recency, active span]
     end
 
+    subgraph "Tier 5: Agent Behavior"
+        G1[Claude session logs<br/>.claude/projects/*.jsonl]
+        G2[Blind edits<br/>Duplicate impls<br/>Missed searches]
+    end
+
     subgraph "Feature Engineering"
-        E1[50+ dimensions]
-        E2[Graph topology<br/>Security patterns<br/>Complexity<br/>Git metrics]
+        E1[54+ dimensions]
+        E2[Graph topology<br/>Security patterns<br/>Complexity<br/>Git metrics<br/>Agent behavior]
     end
 
     subgraph "Three Models"
@@ -1059,6 +1064,7 @@ graph TB
     B1 --> B2 --> E1
     C1 --> C2 --> E1
     D1 --> D2 --> E1
+    G1 --> G2 --> E1
 
     E1 --> E2
     E2 --> F1
@@ -1067,6 +1073,7 @@ graph TB
 
     style E1 fill:#9f9,stroke:#333,stroke-width:2px
     style F1 fill:#ff9,stroke:#333,stroke-width:2px
+    style G2 fill:#f99,stroke:#333,stroke-width:2px
 ```
 
 ### Planning & Verification System

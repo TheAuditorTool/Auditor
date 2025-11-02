@@ -598,15 +598,137 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
     return dict(stats)
 
 
-def load_all_db_features(db_path: str, file_paths: list[str]) -> dict[str, dict]:
+def load_agent_behavior_features(
+    session_dir: Path, db_path: str, file_paths: list[str]
+) -> dict[str, dict]:
+    """
+    Extract AI agent behavior features from Claude Code session logs (Tier 5).
+
+    Cross-references agent actions with repo_index.db ground truth to detect:
+    - Blind edits (editing without reading)
+    - Duplicate implementations (creating symbols that already exist)
+    - Missed context (relevant files not examined)
+    - Tool inefficiency (excessive reads/writes)
+
+    Args:
+        session_dir: Path to Claude session logs directory
+        db_path: Path to repo_index.db for cross-referencing
+        file_paths: List of files to analyze
+
+    Returns:
+        dict with keys:
+        - agent_blind_edit_count: Files edited without prior read
+        - agent_duplicate_impl_rate: Rate of duplicate symbol creation
+        - agent_missed_search_count: Relevant files not examined
+        - agent_read_efficiency: Reads per successful edit (lower = better)
+    """
+    if not session_dir or not Path(session_dir).exists() or not file_paths:
+        return {}
+
+    stats = defaultdict(
+        lambda: {
+            "agent_blind_edit_count": 0,
+            "agent_duplicate_impl_rate": 0.0,
+            "agent_missed_search_count": 0,
+            "agent_read_efficiency": 0.0,
+        }
+    )
+
+    try:
+        from theauditor.session.analyzer import SessionAnalyzer
+        from theauditor.session.parser import SessionParser
+
+        parser = SessionParser()
+        analyzer = SessionAnalyzer(db_path=db_path if Path(db_path).exists() else None)
+
+        # Parse all sessions
+        sessions = parser.parse_all_sessions(Path(session_dir))
+
+        # Track reads and edits per file for efficiency calculation
+        file_reads = defaultdict(int)
+        file_edits = defaultdict(int)
+
+        # Get project root for path normalization
+        project_root = Path.cwd()
+
+        # Aggregate findings by file
+        for session in sessions:
+            _, findings = analyzer.analyze_session(session)
+
+            for finding in findings:
+                file = finding.evidence.get("file", "")
+                if not file:
+                    continue
+
+                # Convert to Path object
+                file_path_obj = Path(file)
+
+                # If absolute, make it relative to project root
+                try:
+                    if file_path_obj.is_absolute():
+                        file_path_obj = file_path_obj.relative_to(project_root)
+                except ValueError:
+                    # Path is not under project_root, skip it
+                    continue
+
+                # Normalize to forward slashes for comparison
+                normalized_file = str(file_path_obj).replace("\\", "/")
+
+                # Only track files in target list
+                if normalized_file not in file_paths:
+                    continue
+
+                if finding.category == "blind_edit":
+                    stats[normalized_file]["agent_blind_edit_count"] += 1
+                    file_edits[normalized_file] += 1
+
+                elif finding.category == "duplicate_implementation":
+                    # Rate increments by 0.1 per duplicate
+                    stats[normalized_file]["agent_duplicate_impl_rate"] += 0.1
+
+                elif finding.category == "missed_existing_code":
+                    stats[normalized_file]["agent_missed_search_count"] += 1
+
+                elif finding.category == "duplicate_read":
+                    read_count = finding.evidence.get("read_count", 0)
+                    file_reads[normalized_file] += read_count
+
+        # Calculate read efficiency (reads per edit)
+        for file_path in file_paths:
+            reads = file_reads.get(file_path, 0)
+            edits = file_edits.get(file_path, 0)
+            if edits > 0:
+                stats[file_path]["agent_read_efficiency"] = reads / edits
+            else:
+                stats[file_path]["agent_read_efficiency"] = 0.0
+
+        analyzer.close()
+    except ImportError:
+        # Session module not available - gracefully skip
+        pass
+    except Exception:
+        # Gracefully skip on error
+        pass
+
+    return dict(stats)
+
+
+def load_all_db_features(
+    db_path: str, file_paths: list[str], session_dir: Optional[Path] = None
+) -> dict[str, dict]:
     """
     Convenience function to load all database features at once.
+
+    Args:
+        db_path: Path to repo_index.db
+        file_paths: List of files to analyze
+        session_dir: Optional path to Claude session logs (enables Tier 5 features)
 
     Returns combined dict with all feature categories.
     """
     combined_features = defaultdict(dict)
 
-    # Load all feature categories
+    # Load all feature categories (Tiers 1-4)
     security = load_security_pattern_features(db_path, file_paths)
     vulnerabilities = load_vulnerability_flow_features(db_path, file_paths)
     types = load_type_coverage_features(db_path, file_paths)
@@ -614,6 +736,11 @@ def load_all_db_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
     graph = load_graph_stats(db_path, file_paths)
     semantic = load_semantic_import_features(db_path, file_paths)
     complexity = load_ast_complexity_metrics(db_path, file_paths)
+
+    # Load Tier 5: Agent behavior (if session_dir provided)
+    agent_behavior = {}
+    if session_dir:
+        agent_behavior = load_agent_behavior_features(session_dir, db_path, file_paths)
 
     # Merge all features per file
     for file_path in file_paths:
@@ -624,5 +751,7 @@ def load_all_db_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
         combined_features[file_path].update(graph.get(file_path, {}))
         combined_features[file_path].update(semantic.get(file_path, {}))
         combined_features[file_path].update(complexity.get(file_path, {}))
+        if agent_behavior:
+            combined_features[file_path].update(agent_behavior.get(file_path, {}))
 
     return dict(combined_features)

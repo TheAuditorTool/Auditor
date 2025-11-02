@@ -296,6 +296,12 @@ def build_feature_matrix(
         feat.append(db_feat.get("cfg_edge_count", 0) / 30.0)
         feat.append(db_feat.get("cyclomatic_complexity", 0) / 10.0)
 
+        # Tier 5: Agent behavior features (if available)
+        feat.append(db_feat.get("agent_blind_edit_count", 0) / 5.0)
+        feat.append(db_feat.get("agent_duplicate_impl_rate", 0.0))
+        feat.append(db_feat.get("agent_missed_search_count", 0) / 10.0)
+        feat.append(db_feat.get("agent_read_efficiency", 0.0) / 5.0)
+
         # Text features (simplified - just path hash)
         text_feats = extract_text_features(
             file_path,
@@ -355,6 +361,10 @@ def build_feature_matrix(
         "cfg_block_count",
         "cfg_edge_count",
         "cyclomatic_complexity",
+        "agent_blind_edit_count",
+        "agent_duplicate_impl_rate",
+        "agent_missed_search_count",
+        "agent_read_efficiency",
     ] + [f"text_{i}" for i in range(50)]
 
     feature_name_map = {name: i for i, name in enumerate(feature_names)}

@@ -25,8 +25,13 @@ def learn(
     print_stats: bool = False,
     feedback_path: str = None,
     train_on: str = "full",
+    session_dir: str = None,
 ) -> dict[str, Any]:
-    """Train ML models from artifacts."""
+    """Train ML models from artifacts.
+
+    Args:
+        session_dir: Optional path to Claude Code session logs (enables Tier 5 agent behavior features)
+    """
     if not models.check_ml_available():
         return {"success": False, "error": "ML not available"}
 
@@ -60,8 +65,10 @@ def learn(
             root_path=Path(".")
         )
 
-    # TIER 2: Load database features from repo_index.db
-    db_features = features.load_all_db_features(db_path, file_paths)
+    # TIER 2-5: Load database features from repo_index.db
+    # Tier 5 (agent behavior) is enabled if session_dir is provided
+    session_path = Path(session_dir) if session_dir else None
+    db_features = features.load_all_db_features(db_path, file_paths, session_dir=session_path)
 
     # TIER 3: Load intelligent features (NEW - THE MISSING 90%)
     # Currently not used in feature matrix but available for future enhancement
