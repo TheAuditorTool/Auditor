@@ -70,13 +70,19 @@ class TaintFlowAnalyzer:
         return taint_paths
 
     def _analyze_function_cfg(self, source: Dict, function: str, sinks: List[Dict],
-                            call_graph: Dict, max_depth: int) -> List['TaintPath']:
+                            call_graph: Dict, max_depth: int, call_chain: List[Dict] = None) -> List['TaintPath']:
         """
         Analyze taint flow through a function using CFG.
 
         This is the core CFG-based analysis that tracks taint through
         control flow blocks and edges.
+
+        Args:
+            call_chain: List of intermediate function calls leading to this function.
+                        Used to build complete multi-hop paths.
         """
+        if call_chain is None:
+            call_chain = []
         paths = []
 
         # Get CFG blocks for this function
@@ -92,7 +98,14 @@ class TaintFlowAnalyzer:
         )
 
         if not source_block:
-            return []
+            # For synthetic parameter sources in recursive calls, use first block
+            # Parameters don't have a specific line - they exist at function entry
+            if cfg_blocks:
+                source_block = cfg_blocks[0]
+                print(f"[CFG] No block for source line {source.get('line')}, using first block for parameter {source.get('name')}", file=sys.stderr)
+            else:
+                print(f"[CFG] No CFG blocks and no source block for {function}", file=sys.stderr)
+                return []
 
         # Initialize taint state
         tainted_vars = {source.get('name', 'unknown')}
@@ -139,9 +152,20 @@ class TaintFlowAnalyzer:
                         callee_func_raw = call.get('callee_function', '')
                         callee_file = call.get('callee_file_path', '') or source.get('file', '')
 
+                        # SKIP library/framework code (node_modules, .d.ts files)
+                        if 'node_modules' in callee_file or callee_file.endswith('.d.ts'):
+                            continue
+
+                        print(f"[CROSS-FUNC] Found tainted call: {callee_func_raw}", file=sys.stderr)
+                        print(f"[CROSS-FUNC]   Tainted params: {list(tainted_params.keys())}", file=sys.stderr)
+                        print(f"[CROSS-FUNC]   Callee file: {callee_file.split('/')[-1] if callee_file else 'same'}", file=sys.stderr)
+                        print(f"[CROSS-FUNC]   Max depth: {max_depth}", file=sys.stderr)
+
                         # Normalize function name: "controller.dashboardService.getDashboardStats" → "DashboardService.getDashboardStats"
                         # CFG uses Class.method, not variable.method
                         callee_func = self._normalize_function_name(callee_func_raw, callee_file)
+
+                        print(f"[CROSS-FUNC]   Normalized: {callee_func}", file=sys.stderr)
 
                         if callee_func:
                             # Propagate taint into callee with tainted parameters
@@ -149,16 +173,76 @@ class TaintFlowAnalyzer:
                                 # Find function start line from CFG or symbols
                                 callee_line = self._get_function_start_line(callee_func, callee_file)
 
+                                print(f"[CROSS-FUNC]   Recursing into {callee_func} with param {param_name}", file=sys.stderr)
+
                                 # Create synthetic source for the tainted parameter in callee
                                 callee_source = {
                                     'name': param_name,
                                     'file': callee_file,
                                     'line': callee_line or 1
                                 }
+                                # CRITICAL: Pass ALL sinks to enable true multi-hop propagation
+                                # Previous bug: filtering sinks by file stopped recursion after 1 hop
+                                # Now: callee can continue propagating taint through multiple function calls
+                                print(f"[CROSS-FUNC]   Recursing with all {len(sinks)} sinks (multi-hop enabled)", file=sys.stderr)
+
+                                # Build call_hop for this call to pass to recursive analysis
+                                call_hop = {
+                                    'type': 'cfg_call',
+                                    'name': callee_func_raw,
+                                    'from_file': call.get('file', ''),
+                                    'to_file': callee_file,
+                                    'line': call.get('line', 0),
+                                    'param': param_name
+                                }
+
+                                # Pass accumulated call chain + this new call
+                                new_call_chain = call_chain + [call_hop]
+                                print(f"[CROSS-FUNC]   Call chain depth: {len(new_call_chain)}", file=sys.stderr)
+
                                 callee_paths = self._analyze_function_cfg(
-                                    callee_source, callee_func, sinks, call_graph, max_depth - 1
+                                    callee_source, callee_func, sinks, call_graph, max_depth - 1, new_call_chain
                                 )
+                                print(f"[CROSS-FUNC]   Found {len(callee_paths)} paths in callee", file=sys.stderr)
+
+                                # CRITICAL: Even if callee found 0 paths, mark the call site as returning tainted data
+                                # This enables multi-hop propagation through intermediate functions
+                                if len(callee_paths) == 0:
+                                    # Mark the function call itself as tainted (conservative assumption)
+                                    # This allows: tainted → func1() → func2() → sink
+                                    call_name = call.get('callee_function', '')
+                                    print(f"[CROSS-FUNC]   Callee returned 0 paths, but marking call as tainted: {call_name}", file=sys.stderr)
+                                    # Add the call expression to tainted vars so assignments pick it up
+                                    new_tainted.add(call_name)
+                                    # Also add simplified version (last segment) for matching
+                                    if '.' in call_name:
+                                        new_tainted.add(call_name.split('.')[-1])
+                                    print(f"[CROSS-FUNC]   Updated tainted vars: {new_tainted}", file=sys.stderr)
+
+                                # STITCH: Replace callee's synthetic source with original caller source
+                                # This creates the full cross-function path INCLUDING all intermediate hops
+                                for callee_path in callee_paths:
+                                    # Replace source: synthetic param → original caller source
+                                    callee_path.source = source
+
+                                    # Prepend ALL intermediate call hops from call_chain
+                                    # This ensures we capture the full multi-hop chain:
+                                    # Source → Call1 → Call2 → Call3 → Sink
+                                    callee_path.path = [source] + new_call_chain + callee_path.path[1:]  # Skip synthetic source
+                                    callee_path.path_length = len(callee_path.path)
+
+                                    print(f"[CROSS-FUNC]   Stitched path: {callee_path.source.get('name')} -> {callee_func} -> {callee_path.sink.get('name')}", file=sys.stderr)
+                                    # Debug: Check path structure
+                                    print(f"[CROSS-FUNC]   Path details:", file=sys.stderr)
+                                    print(f"[CROSS-FUNC]     Source file: {callee_path.source.get('file')}", file=sys.stderr)
+                                    print(f"[CROSS-FUNC]     Sink file: {callee_path.sink.get('file')}", file=sys.stderr)
+                                    print(f"[CROSS-FUNC]     Path length: {len(callee_path.path)}", file=sys.stderr)
+                                    for i, step in enumerate(callee_path.path):
+                                        print(f"[CROSS-FUNC]       Step {i}: type={step.get('type')}, from_file={step.get('from_file', 'N/A')}, to_file={step.get('to_file', 'N/A')}", file=sys.stderr)
+
                                 paths.extend(callee_paths)
+                        else:
+                            print(f"[CROSS-FUNC]   FAILED: Could not normalize function name", file=sys.stderr)
 
             # Add successor blocks to worklist
             successors = self._get_block_successors(current_block)
@@ -417,9 +501,12 @@ class TaintFlowAnalyzer:
                 target
             )
 
+            print(f"[PROP] Assignment: {target} = {source_vars} (tainted: {new_tainted})", file=sys.stderr)
+
             # If any source variable is tainted, target becomes tainted
             if any(src_var in new_tainted for src_var in source_vars):
                 new_tainted.add(target)
+                print(f"[PROP]   -> {target} is now tainted!", file=sys.stderr)
 
         return new_tainted
 
