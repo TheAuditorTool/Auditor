@@ -1,6 +1,7 @@
 """Project structure and intelligence report command."""
 
 import click
+import sqlite3
 from pathlib import Path
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
@@ -13,7 +14,10 @@ from theauditor.utils.exit_codes import ExitCodes
 @click.option("--db-path", default="./.pf/repo_index.db", help="Path to repo_index.db")
 @click.option("--output", default="./.pf/readthis/STRUCTURE.md", help="Output file path")
 @click.option("--max-depth", default=4, type=int, help="Maximum directory tree depth")
-def structure(root, manifest, db_path, output, max_depth):
+@click.option("--monoliths", is_flag=True, help="Find files >2150 lines (too large for AI to read)")
+@click.option("--threshold", default=2150, type=int, help="Line count threshold for --monoliths (default: 2150)")
+@click.option("--format", type=click.Choice(['text', 'json']), default='text', help="Output format for --monoliths")
+def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, format):
     """Generate comprehensive project structure and intelligence report.
 
     Creates a detailed markdown report optimized for AI assistants to
@@ -90,9 +94,36 @@ def structure(root, manifest, db_path, output, max_depth):
       - Shows percentage of context your project uses
 
     Note: Run 'aud index' first for complete statistics including
-    symbol counts and detailed code metrics."""
+    symbol counts and detailed code metrics.
+
+    Monolith Detection (--monoliths flag):
+      Identifies files larger than 2150 lines (approximately 80KB or 25k tokens)
+      which cannot be read by AI assistants in a single request. These files
+      require chunked reading (see agents/refactor.md Task 3.4 for workflow).
+
+      Usage:
+        aud structure --monoliths                  # Find all large files
+        aud structure --monoliths --threshold 3000 # Custom threshold
+        aud structure --monoliths --format json    # JSON output
+
+      Output shows:
+        - File path
+        - Line count (compared to threshold)
+        - Symbol count (functions, classes)
+        - Refactor recommendation
+    """
     from theauditor.project_summary import generate_project_summary, generate_directory_tree
-    
+
+    # Handle --monoliths flag (separate mode)
+    if monoliths:
+        db_path_obj = Path(db_path)
+        if not db_path_obj.exists():
+            click.echo("Error: Database not found. Run 'aud index' first.", err=True)
+            return ExitCodes.TASK_INCOMPLETE
+
+        return _find_monoliths(db_path, threshold, format)
+
+    # Normal structure report generation (original behavior)
     # Check if manifest exists (not required but enhances report)
     manifest_exists = Path(manifest).exists()
     db_exists = Path(db_path).exists()
@@ -157,7 +188,102 @@ def structure(root, manifest, db_path, output, max_depth):
                 click.echo(f"  Context Usage: {token_percent:.1f}% of Claude's usable window")
         
         return ExitCodes.SUCCESS
-        
+
     except Exception as e:
         click.echo(f"Error generating report: {e}", err=True)
+        return ExitCodes.TASK_INCOMPLETE
+
+
+def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
+    """Find monolithic files (>threshold lines) that require chunked reading.
+
+    Args:
+        db_path: Path to repo_index.db
+        threshold: Line count threshold (default 2150)
+        output_format: 'text' or 'json'
+
+    Returns:
+        ExitCodes.SUCCESS or TASK_INCOMPLETE
+    """
+    import json
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Query: Find files with max line number > threshold
+        # Group by path to get line count and symbol count per file
+        cursor.execute("""
+            SELECT
+                path,
+                MAX(line) as line_count,
+                COUNT(DISTINCT name) as symbol_count
+            FROM symbols
+            WHERE path NOT LIKE '%test%'
+              AND path NOT LIKE '%/tests/%'
+              AND path NOT LIKE '%/__pycache__/%'
+              AND path NOT LIKE '%/node_modules/%'
+            GROUP BY path
+            HAVING line_count > ?
+            ORDER BY line_count DESC
+        """, (threshold,))
+
+        results = cursor.fetchall()
+        conn.close()
+
+        if not results:
+            if output_format == 'json':
+                click.echo(json.dumps({
+                    'monoliths': [],
+                    'total': 0,
+                    'threshold': threshold
+                }, indent=2))
+            else:
+                click.echo(f"No monolithic files found (threshold: {threshold} lines)")
+                click.echo("\nAll files are below the AI readability threshold!")
+            return ExitCodes.SUCCESS
+
+        # Format output
+        if output_format == 'json':
+            output_data = {
+                'monoliths': [
+                    {
+                        'path': path,
+                        'lines': lines,
+                        'symbols': symbols,
+                        'recommendation': 'Refactor using chunked reading (agents/refactor.md Task 3.4)'
+                    }
+                    for path, lines, symbols in results
+                ],
+                'total': len(results),
+                'threshold': threshold
+            }
+            click.echo(json.dumps(output_data, indent=2))
+        else:
+            # Text format
+            click.echo("=" * 80)
+            click.echo(f"Monolithic Files (>{threshold} lines)")
+            click.echo("=" * 80)
+            click.echo(f"Found {len(results)} files requiring chunked reading\n")
+
+            for path, lines, symbols in results:
+                click.echo(f"[MONOLITH] {path}")
+                click.echo(f"  Lines: {lines:,} (>{threshold})")
+                click.echo(f"  Symbols: {symbols:,} functions/classes")
+                click.echo(f"  Recommend: Refactor using chunked reading")
+                click.echo(f"             See agents/refactor.md Task 3.4 for workflow")
+                click.echo()
+
+            click.echo("=" * 80)
+            click.echo(f"Total: {len(results)} monolithic files requiring refactor planning")
+            click.echo("=" * 80)
+            click.echo("\nNext Steps:")
+            click.echo("  1. Trigger planning agent with: 'refactor <file> into modular files'")
+            click.echo("  2. Agent will automatically use chunked reading (1500-line chunks)")
+            click.echo("  3. Plan will follow database structure analysis + file content")
+
+        return ExitCodes.SUCCESS
+
+    except Exception as e:
+        click.echo(f"Error finding monoliths: {e}", err=True)
         return ExitCodes.TASK_INCOMPLETE

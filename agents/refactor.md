@@ -106,8 +106,11 @@ $ aud refactor --help     # Verify refactor syntax (if exists)
 
 **Jobs:**
 - [ ] Execute: `aud blueprint --structure`
-- [ ] Store full output for reference
-- [ ] **Audit:** Verify blueprint ran successfully. If audit reveals failures, amend and re-audit.
+- [ ] Execute: `aud structure --monoliths`
+- [ ] Store both outputs for reference
+- [ ] **Audit:** Verify both commands ran successfully. If audit reveals failures, amend and re-audit.
+
+**Why monoliths check:** Identifies files >2150 lines that require chunked reading (1500-line chunks). Knowing this UP FRONT allows planning chunk boundaries before starting detailed file analysis. Critical for refactor planning - no mid-workflow surprises when target file turns out to be 3000+ lines.
 
 ### Task 2.2: Extract Naming Conventions
 
@@ -139,11 +142,12 @@ $ aud refactor --help     # Verify refactor syntax (if exists)
 
 **Jobs:**
 - [ ] Verify blueprint analysis complete
+- [ ] Verify monoliths detection complete (know which files need chunked reading)
 - [ ] Confirm naming conventions extracted (snake_case % or camelCase %)
 - [ ] Confirm architectural precedents identified (schemas/, commands/, etc.)
 - [ ] Confirm frameworks detected
 - [ ] If any issues found, return to relevant task, fix issues, and re-audit
-- [ ] **Final verification:** Architectural context loaded from database
+- [ ] **Final verification:** Architectural context loaded from database + large file detection complete
 
 ---
 
@@ -179,14 +183,48 @@ $ aud refactor --help     # Verify refactor syntax (if exists)
 - [ ] Note: Low-coupling clusters are safer to extract
 - [ ] **Audit:** Verify relationship analysis complete. If audit reveals failures, amend and re-audit.
 
-### Task 3.4: Phase 3 Audit
+### Task 3.4: Read Large Files in Chunks (MANDATORY for >2150 lines)
+
+**Problem Solved:** Files >2150 lines (~80KB, ~25k tokens) cannot be read in one shot due to context limits. Chunked reading is REQUIRED for detailed inspection of implementation patterns, imports, and code structure.
+
+**When Required:** Target file has >2150 lines (use database query line count from Task 3.1)
+
+**Jobs:**
+- [ ] Check line count from database: `aud query --file <target> --show-functions | grep "Lines:"`
+- [ ] If file ≤2150 lines: Read normally with Read tool
+- [ ] If file >2150 lines: MANDATORY chunked reading:
+  - [ ] Read chunk 1: `Read(<target>, offset=0, limit=1500)`
+  - [ ] Read chunk 2: `Read(<target>, offset=1500, limit=1500)`
+  - [ ] Read chunk 3 (if >3000 lines): `Read(<target>, offset=3000, limit=1500)`
+  - [ ] Continue with 1500-line chunks until entire file covered
+- [ ] Use function boundaries from Task 3.1 to guide chunk boundaries
+- [ ] Synthesize understanding across chunks (imports, patterns, dependencies)
+- [ ] **Audit:** Verify entire file content read and understood. If audit reveals failures, amend and re-audit.
+
+**Example (core_ast_extractors.js, 2376 lines):**
+```
+Step 1: Database query shows 2376 lines (>2150 → chunked reading required)
+Step 2: Task 3.1 showed 38 functions (lines 49-2376)
+Step 3: Read in chunks:
+  - Chunk 1 (lines 1-1500): Imports + Functions 1-20 (AST parsing cluster)
+  - Chunk 2 (lines 1501-2376): Functions 21-38 (Type handling cluster)
+Step 4: Synthesize understanding:
+  - Identified 2 domain clusters from code inspection
+  - Confirmed database clustering analysis (Task 3.2)
+  - No external dependencies between clusters
+```
+
+**Critical:** NEVER skip reading large files. Chunking is NOT optional - it is MANDATORY workflow for files >2150 lines. Database queries (Tasks 3.1-3.3) provide symbol-level structure, but file reading provides implementation-level detail needed for safe refactoring.
+
+### Task 3.5: Phase 3 Audit
 
 **Jobs:**
 - [ ] Verify all symbols listed from database
 - [ ] Confirm clustering analysis complete (prefix groups, domain groups)
 - [ ] Confirm caller/callee relationships queried
+- [ ] Confirm file content read (chunked if >2150 lines, normal otherwise)
 - [ ] If any issues found, return to relevant task, fix issues, and re-audit
-- [ ] **Final verification:** Target file structure understood from database
+- [ ] **Final verification:** Target file structure understood from database AND file content inspected
 
 ---
 
