@@ -325,6 +325,10 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
         # Convert paths to dictionaries
         # Clean implementation - all paths are TaintPath objects
         path_dicts = [p.to_dict() for p in unique_paths]
+
+        # Debug: Check multi-file counts before returning
+        multi_file_in_dicts = sum(1 for p in path_dicts if p['source']['file'] != p['sink']['file'])
+        print(f"[CORE] Serialized {len(path_dicts)} paths ({multi_file_in_dicts} multi-file)", file=sys.stderr)
         
         # Create summary for pipeline integration
         summary = {
@@ -419,11 +423,15 @@ def save_taint_analysis(analysis_result: Dict[str, Any], output_path: str = "./.
 
 def normalize_taint_path(path: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize a taint path dictionary to ensure all required keys exist."""
+    # Debug: Check if we're losing multi-file paths
+    src_file_before = path.get("source", {}).get("file", "MISSING")
+    sink_file_before = path.get("sink", {}).get("file", "MISSING")
+
     # Ensure top-level keys
     # REMOVED: vulnerability_type and severity - Truth Couriers don't classify
     path.setdefault("path_length", 0)
     path.setdefault("path", [])
-    
+
     # Ensure source structure
     if "source" not in path:
         path["source"] = {}
@@ -431,7 +439,7 @@ def normalize_taint_path(path: Dict[str, Any]) -> Dict[str, Any]:
     path["source"].setdefault("file", "unknown_file")
     path["source"].setdefault("line", 0)
     path["source"].setdefault("pattern", "unknown_pattern")
-    
+
     # Ensure sink structure
     if "sink" not in path:
         path["sink"] = {}
@@ -439,5 +447,11 @@ def normalize_taint_path(path: Dict[str, Any]) -> Dict[str, Any]:
     path["sink"].setdefault("file", "unknown_file")
     path["sink"].setdefault("line", 0)
     path["sink"].setdefault("pattern", "unknown_pattern")
-    
+
+    # Debug: Check if normalization changed anything
+    src_file_after = path["source"]["file"]
+    sink_file_after = path["sink"]["file"]
+    if src_file_before != src_file_after or sink_file_before != sink_file_after:
+        print(f"[NORMALIZE] Changed: {src_file_before} -> {src_file_after}, {sink_file_before} -> {sink_file_after}", file=sys.stderr)
+
     return path

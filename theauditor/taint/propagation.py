@@ -648,13 +648,20 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
             if step_type in {"cfg_call", "argument_pass", "return_flow"}:
                 from_file = step.get("from_file")
                 to_file = step.get("to_file")
+                # Always print for cfg_call to debug
+                if step_type == "cfg_call":
+                    print(f"[DEDUP] cfg_call step: from={from_file} to={to_file}", file=sys.stderr)
                 if from_file and to_file and from_file != to_file:
                     cross_hops += 1
+                    print(f"[DEDUP] Cross-file hop detected! cross_hops={cross_hops}", file=sys.stderr)
 
         length = len(steps)
 
         # Prefer longer paths when they traverse files, shorter otherwise (cleaner intra-file output)
         length_component = length if cross_hops else -length
+
+        if cross_hops > 0:
+            print(f"[DEDUP] Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}", file=sys.stderr)
 
         return (cross_hops, 1 if uses_cfg else 0, length_component)
 
@@ -697,6 +704,10 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
             best_path.add_related_path(other_path)
 
         deduped_paths.append(best_path)
+
+    # Debug: Check what we're returning
+    multi_file_count = sum(1 for p in deduped_paths if p.source.get('file') != p.sink.get('file'))
+    print(f"[DEDUP] Returning {len(deduped_paths)} paths ({multi_file_count} multi-file)", file=sys.stderr)
 
     return deduped_paths
 
