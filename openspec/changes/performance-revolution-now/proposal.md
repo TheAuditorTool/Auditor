@@ -9,8 +9,8 @@ TheAuditor suffers from systemic "death by 1000 cuts" performance degradation ca
 - **95-second pattern detection** → Should be 5-10 seconds (90% slower than optimal)
 
 The root cause is **NOT** a single bug, but a **codewide architectural pattern** of redundant operations:
-- 80 full AST tree walks per Python file (should be 1)
-- 60 BILLION operations in taint analysis (should be 1 million)
+- 82 full AST tree walks per Python file (should be 1) - verified by 12-agent audit
+- 165 million to 20 billion operations in taint analysis (depending on recursion depth, should be 1 million)
 - Missing database indexes + LIKE wildcard patterns
 
 This was discovered following the `regex_perf.md` fix (7,900x LIKE wildcard speedup), which revealed the tip of a much larger iceberg.
@@ -32,19 +32,19 @@ This proposal eliminates redundant traversal anti-patterns through surgical refa
 - Add spatial indexes to `SchemaMemoryCache` (symbols_by_type, assignments_by_location, calls_by_location)
 - Replace LIKE wildcard patterns in `propagation.py` with indexed pre-filtering
 - Batch load CFG statements (1 query instead of 10,000)
-- **Impact**: 540 seconds saved per run (60,000x operation reduction)
+- **Impact**: 540 seconds saved per run (100-1000x operation reduction)
 
 #### **2. Python AST Single-Pass Visitor** (80% speedup: 30s → 5s per 1K files)
-- **BREAKING**: Replace 80 independent `ast.walk()` calls with `UnifiedPythonVisitor` pattern
+- **BREAKING**: Replace 82 independent `ast.walk()` calls with `UnifiedPythonVisitor` pattern
 - Consolidate framework extractors (SQLAlchemy, Django, Flask, etc.) into single traversal
-- Eliminate nested `ast.walk()` calls in Flask/async extractors
+- Eliminate nested `ast.walk()` calls in Flask/async extractors (including triply-nested walk at line 1053)
 - Replace string operations (`.endswith()`) with frozenset lookups
-- **Impact**: 25 seconds saved per 1,000 Python files (80x reduction in node visits)
+- **Impact**: 25 seconds saved per 1,000 Python files (82x reduction in node visits)
 
 ### **⚠️ TIER 1 - HIGH PRIORITY (2-4 Weeks)**
 
 #### **3. Vue In-Memory Compilation** (70% speedup: 9s → 3s per 100 Vue files)
-- Refactor Vue SFC compilation in `batch_templates.js` to skip disk I/O
+- Refactor Vue SFC compilation in `ast_extractors/javascript/batch_templates.js` to skip disk I/O
 - Pass compiled code directly to TypeScript API (in-memory)
 - **Impact**: 6 seconds saved per 100 Vue files
 
@@ -59,7 +59,7 @@ This proposal eliminates redundant traversal anti-patterns through surgical refa
 
 #### **5. FCE findings_consolidated.details_json Normalization** (75-700ms FCE overhead eliminated)
 - **BREAKING**: Normalize findings_consolidated.details_json to junction tables
-- Replace 8 json.loads() calls in FCE with JOIN queries
+- Replace 7 json.loads() calls in FCE with JOIN queries (lines 60, 78, 127, 168, 207, 265, 401)
 - Create normalized tables: finding_taint_paths, finding_metadata, finding_graph_hotspots, finding_cfg_complexity
 - Add indexes for O(1) lookups by finding_id
 - **Impact**: 75-700ms saved per FCE run (taint paths are 50-500ms bottleneck with 100-10K paths at 1KB+ each)
@@ -71,17 +71,11 @@ This proposal eliminates redundant traversal anti-patterns through surgical refa
 - **Impact**: Eliminates duplicate parsing, enables indexed parameter queries
 - **Note**: Should already be normalized per commit d8370a7 pattern, but was missed
 
-#### **7. python_routes.dependencies Normalization** (Post-d8370a7 compliance)
-- Normalize python_routes.dependencies (added AFTER schema normalization refactor)
-- Create python_route_dependencies junction table with AUTOINCREMENT pattern
-- **Impact**: Brings Python parity work into compliance with normalization policy
-
-#### **8. Schema Contract Validation Enhancement** (Prevent future violations)
+#### **7. Schema Contract Validation Enhancement** (Prevent future violations)
 - Add JSON blob detection to schema.py contract validator
-- Enforce junction table AUTOINCREMENT pattern
+- Enforce junction table AUTOINCREMENT pattern for new tables
 - Validate write path compliance (28 json.dumps() calls audited)
-- Fix 3 junction tables missing AUTOINCREMENT (react_component_hooks, react_hook_dependencies, import_style_names)
-- **Impact**: Prevents "3rd refactor" by catching violations at schema load time
+- **Impact**: Prevents future violations by catching them at schema load time
 
 ### **🟡 TIER 2 - MEDIUM PRIORITY (1-2 Days)**
 

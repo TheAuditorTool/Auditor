@@ -25,7 +25,7 @@
 
 ### 1. Taint Analysis Spatial Index Refactor
 
-**Objective**: Eliminate 60 BILLION operations → 1 MILLION (60,000x reduction)
+**Objective**: Eliminate 165M-20B operations (depending on recursion depth) → 1 MILLION (100-1000x reduction)
 
 **Estimated Time**: 3-4 days implementation + 1-2 days testing
 
@@ -328,21 +328,22 @@
 
 ### 5. FCE findings_consolidated.details_json Normalization
 
-**Objective**: Eliminate 75-700ms FCE overhead (8 json.loads() calls, taint paths are critical bottleneck)
+**Objective**: Eliminate 75-700ms FCE overhead (7 json.loads() calls at lines 60, 78, 127, 168, 207, 265, 401)
 
 **Estimated Time**: 2-3 days implementation + 1 day testing
 
 **PARALLEL-SAFE**: Different files from TIER 1
 
 #### 5.1 Audit Current details_json Usage
-- [ ] 5.1.1 Read `theauditor/fce.py:60-265`
-  - Identify all 8 json.loads() calls
+- [ ] 5.1.1 Read `theauditor/fce.py:60-401`
+  - Identify all 7 json.loads() calls
   - Line 60: Hotspots (5-50 items, ~5-10ms)
   - Line 78: Cycles (0-20 items, ~5-10ms)
   - Line 127: CFG complexity (10-100 items, ~10-20ms)
   - Line 168: Code churn (50-500 files, ~20-50ms)
   - Line 207: Test coverage (100-1K files, ~30-100ms)
   - Line 265: **CRITICAL** - Taint paths (100-10K paths at 1KB+ each, **50-500ms**)
+  - Line 401: Additional metadata
   - Document structure of each JSON payload
 - [ ] 5.1.2 Read `theauditor/indexer/database/base_database.py:~600`
   - Locate details_json write for findings_consolidated
@@ -541,59 +542,7 @@
 
 ---
 
-### 7. python_routes.dependencies Normalization
-
-**Objective**: Bring Python parity work into compliance with commit d8370a7 normalization policy
-
-**Estimated Time**: 1 day implementation + 1 day testing
-
-**PARALLEL-SAFE**: Different files from TIER 1
-
-#### 7.1 Audit Current Implementation
-- [ ] 7.1.1 Read `theauditor/indexer/database/python_database.py`
-  - Locate python_routes table writes
-  - Verify dependencies column is JSON TEXT
-  - Note: Added AFTER commit d8370a7 (Python parity work)
-
-#### 7.2 Create Normalized Schema
-- [ ] 7.2.1 Create `python_route_dependencies` table
-  ```python
-  PYTHON_ROUTE_DEPENDENCIES = TableSchema(
-      name="python_route_dependencies",
-      columns=[
-          Column("id", "INTEGER PRIMARY KEY AUTOINCREMENT"),
-          Column("route_id", "TEXT", nullable=False),  # FK to python_routes.id
-          Column("dependency_index", "INTEGER", nullable=False),
-          Column("dependency_name", "TEXT"),
-          Column("dependency_type", "TEXT"),  # FastAPI dependency type
-      ],
-      indexes=[
-          ("idx_python_route_dependencies_route_id", ["route_id"]),
-      ],
-      foreign_keys=[
-          ("route_id", "python_routes", "id", "CASCADE"),
-      ]
-  )
-  ```
-
-#### 7.3 Update Python Database Writer
-- [ ] 7.3.1 Modify `python_database.py` write methods
-  - Remove dependencies from python_routes INSERT
-  - Add batch INSERT to python_route_dependencies
-
-#### 7.4 Update Consumers (if any)
-- [ ] 7.4.1 Search for python_routes.dependencies readers
-  - Grep: `python_routes.*dependencies`
-  - Update to use JOIN query
-
-#### 7.5 Testing
-- [ ] 7.5.1 Test on FastAPI fixture projects
-  - Verify dependencies extracted correctly
-  - Verify backward compatibility with existing queries
-
----
-
-### 8. Schema Contract Validation Enhancement
+### 7. Schema Contract Validation Enhancement
 
 **Objective**: Prevent future "3rd refactor" by catching violations at schema load time
 
@@ -646,10 +595,8 @@
                   violations.append((table.name, 'Missing AUTOINCREMENT on id'))
       return violations
   ```
-- [ ] 8.2.2 Fix 3 junction tables missing AUTOINCREMENT
-  - `react_component_hooks` - Add AUTOINCREMENT to id column
-  - `react_hook_dependencies` - Add AUTOINCREMENT to id column
-  - `import_style_names` - Add AUTOINCREMENT to id column
+  - Note: Existing junction tables already have INTEGER PRIMARY KEY (which implies AUTOINCREMENT in SQLite)
+  - This validator is for catching future violations in new tables
 
 #### 8.3 Add Write Path Validator (Optional)
 - [ ] 8.3.1 Audit all json.dumps() calls
