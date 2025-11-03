@@ -54,37 +54,8 @@ class TaintFlowAnalyzer:
         taint_paths = []
 
         for source in sources:
-            # Debug for templateName in print.service
-            if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-                print(f'[DEBUG ANALYSIS] Processing templateName source', flush=True)
-                print(f'[DEBUG ANALYSIS]   file: {source.get("file")}', flush=True)
-                print(f'[DEBUG ANALYSIS]   line: {source.get("line")}', flush=True)
-
-            # Debug for batchId in area.service
-            if source.get('name') == 'batchId' and 'area.service' in source.get('file', ''):
-                print(f'[DEBUG SQL] Processing batchId source in area.service', flush=True)
-                print(f'[DEBUG SQL]   file: {source.get("file")}', flush=True)
-                print(f'[DEBUG SQL]   line: {source.get("line")}', flush=True)
-                print(f'[DEBUG SQL]   type: {source.get("type")}', flush=True)
-
             # Find the function containing this source
             source_function = self._get_containing_function(source)
-
-            if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-                print(f'[DEBUG ANALYSIS]   function: {source_function}', flush=True)
-                # Count sinks in same file
-                file_sinks = [s for s in sinks if s.get('file') == source.get('file')]
-                print(f'[DEBUG ANALYSIS]   sinks in same file: {len(file_sinks)}', flush=True)
-
-            if source.get('name') == 'batchId' and 'area.service' in source.get('file', ''):
-                print(f'[DEBUG SQL]   function: {source_function}', flush=True)
-                file_sinks = [s for s in sinks if s.get('file') == source.get('file')]
-                print(f'[DEBUG SQL]   sinks in same file: {len(file_sinks)}', flush=True)
-                sql_sinks = [s for s in file_sinks if s.get('category') == 'sql']
-                print(f'[DEBUG SQL]   SQL sinks: {len(sql_sinks)}', flush=True)
-                if sql_sinks:
-                    for s in sql_sinks[:2]:
-                        print(f'[DEBUG SQL]     Sink: {s.get("name")} at line {s.get("line")}', flush=True)
 
             if not source_function:
                 # Hard fail - database is WRONG if function not found
@@ -96,12 +67,6 @@ class TaintFlowAnalyzer:
             )
             taint_paths.extend(paths)
 
-            if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-                print(f'[DEBUG ANALYSIS]   paths found: {len(paths)}', flush=True)
-
-            if source.get('name') == 'batchId' and 'area.service' in source.get('file', ''):
-                print(f'[DEBUG SQL]   paths found: {len(paths)}', flush=True)
-
         return taint_paths
 
     def _analyze_function_cfg(self, source: Dict, function: str, sinks: List[Dict],
@@ -112,23 +77,13 @@ class TaintFlowAnalyzer:
         This is the core CFG-based analysis that tracks taint through
         control flow blocks and edges.
         """
-        # Debug for templateName
-        if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-            print(f'[DEBUG CFG ANALYSIS] Analyzing templateName in preparePrintData', flush=True)
-            print(f'[DEBUG CFG ANALYSIS]   function: {function}', flush=True)
-
         paths = []
 
         # Get CFG blocks for this function
         cfg_blocks = self._get_cfg_blocks(function)
 
-        if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-            print(f'[DEBUG CFG ANALYSIS]   cfg_blocks found: {len(cfg_blocks)}', flush=True)
-
         if not cfg_blocks:
             # Fallback to simple analysis if no CFG
-            if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-                print(f'[DEBUG CFG ANALYSIS]   No CFG, using simple flow', flush=True)
             return self._analyze_simple_flow(source, function, sinks)
 
         # Find the block containing the source
@@ -136,14 +91,7 @@ class TaintFlowAnalyzer:
             cfg_blocks, source.get('file', ''), source.get('line', 0)
         )
 
-        if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-            print(f'[DEBUG CFG ANALYSIS]   source_block found: {source_block is not None}', flush=True)
-            if source_block:
-                print(f'[DEBUG CFG ANALYSIS]   source_block lines: {source_block.get("start_line")}-{source_block.get("end_line")}', flush=True)
-
         if not source_block:
-            if source.get('name') == 'templateName' and 'print.service' in source.get('file', ''):
-                print(f'[DEBUG CFG ANALYSIS]   No source block found, returning empty', flush=True)
             return []
 
         # Initialize taint state
@@ -398,20 +346,10 @@ class TaintFlowAnalyzer:
         sink_pattern = sink.get('pattern', '') or ''
         sink_name = sink.get('name', '') or ''
 
-        # Debug for print.service
-        if 'print.service' in sink.get('file', ''):
-            print(f'[DEBUG SINK CHECK] Checking sink {sink_name} at line {sink.get("line")}', flush=True)
-            print(f'[DEBUG SINK CHECK]   Pattern: {sink_pattern}', flush=True)
-            print(f'[DEBUG SINK CHECK]   Tainted vars: {tainted_vars}', flush=True)
-
         for var in tainted_vars:
             if var in sink_pattern or var in sink_name:
-                if 'print.service' in sink.get('file', ''):
-                    print(f'[DEBUG SINK CHECK]   ✓ MATCH: {var} found in sink', flush=True)
                 return True
 
-        if 'print.service' in sink.get('file', ''):
-            print(f'[DEBUG SINK CHECK]   ✗ NO MATCH', flush=True)
         return False
 
     def _get_assignment_source_vars(self, file: str, line: int, target: str) -> List[str]:
@@ -459,12 +397,6 @@ class TaintFlowAnalyzer:
         """Propagate taint through a CFG block."""
         new_tainted = tainted_vars.copy()
 
-        # Debug for print.service
-        file = block.get('file', '')
-        if 'print.service' in file:
-            print(f'[DEBUG PROPAGATE] Block {block.get("id")} lines {block.get("start_line")}-{block.get("end_line")}', flush=True)
-            print(f'[DEBUG PROPAGATE]   Current tainted: {tainted_vars}', flush=True)
-
         # Get assignments in this block
         block_start = block.get('start_line', 0) or 0
         block_end = block.get('end_line', 0) or 0
@@ -474,9 +406,6 @@ class TaintFlowAnalyzer:
             if (a.get('file') == block.get('file') and
                 block_start <= a_line <= block_end):
                 block_assignments.append(a)
-
-        if 'print.service' in file:
-            print(f'[DEBUG PROPAGATE]   Found {len(block_assignments)} assignments', flush=True)
 
         for assignment in block_assignments:
             target = assignment.get('target_var', '') or ''
@@ -488,18 +417,9 @@ class TaintFlowAnalyzer:
                 target
             )
 
-            if 'print.service' in file:
-                print(f'[DEBUG PROPAGATE]   Assignment at line {assignment.get("line")}: {target} = ...', flush=True)
-                print(f'[DEBUG PROPAGATE]     Source vars: {source_vars}', flush=True)
-
             # If any source variable is tainted, target becomes tainted
             if any(src_var in new_tainted for src_var in source_vars):
                 new_tainted.add(target)
-                if 'print.service' in file:
-                    print(f'[DEBUG PROPAGATE]     ✓ {target} is now TAINTED', flush=True)
-
-        if 'print.service' in file:
-            print(f'[DEBUG PROPAGATE]   New tainted: {new_tainted}', flush=True)
 
         return new_tainted
 
