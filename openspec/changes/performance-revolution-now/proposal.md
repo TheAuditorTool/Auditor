@@ -53,14 +53,44 @@ This proposal eliminates redundant traversal anti-patterns through surgical refa
 - Support `tsconfig.json` path mappings and `node_modules` resolution
 - **Impact**: 40-60% more imports resolved (critical for taint accuracy)
 
+### **⚡ TIER 1.5 - JSON BLOB NORMALIZATION (1-2 Weeks)**
+
+**PARALLEL-SAFE**: Can be executed concurrently with TIER 1 (different files, no dependencies)
+
+#### **5. FCE findings_consolidated.details_json Normalization** (75-700ms FCE overhead eliminated)
+- **BREAKING**: Normalize findings_consolidated.details_json to junction tables
+- Replace 8 json.loads() calls in FCE with JOIN queries
+- Create normalized tables: finding_taint_paths, finding_metadata, finding_graph_hotspots, finding_cfg_complexity
+- Add indexes for O(1) lookups by finding_id
+- **Impact**: 75-700ms saved per FCE run (taint paths are 50-500ms bottleneck with 100-10K paths at 1KB+ each)
+- **Critical**: Commit d8370a7 (Oct 23, 2025) explicitly exempted findings_consolidated.details_json as "Intentional findings metadata storage" - this reverses that decision based on measured FCE overhead
+
+#### **6. symbols.parameters Normalization** (Eliminate duplicate JSON parsing)
+- Normalize symbols.parameters column to symbol_parameters junction table
+- Replace JSON parsing in taint/discovery.py:112 and extractors/javascript.py:1288
+- **Impact**: Eliminates duplicate parsing, enables indexed parameter queries
+- **Note**: Should already be normalized per commit d8370a7 pattern, but was missed
+
+#### **7. python_routes.dependencies Normalization** (Post-d8370a7 compliance)
+- Normalize python_routes.dependencies (added AFTER schema normalization refactor)
+- Create python_route_dependencies junction table with AUTOINCREMENT pattern
+- **Impact**: Brings Python parity work into compliance with normalization policy
+
+#### **8. Schema Contract Validation Enhancement** (Prevent future violations)
+- Add JSON blob detection to schema.py contract validator
+- Enforce junction table AUTOINCREMENT pattern
+- Validate write path compliance (28 json.dumps() calls audited)
+- Fix 3 junction tables missing AUTOINCREMENT (react_component_hooks, react_hook_dependencies, import_style_names)
+- **Impact**: Prevents "3rd refactor" by catching violations at schema load time
+
 ### **🟡 TIER 2 - MEDIUM PRIORITY (1-2 Days)**
 
-#### **5. Missing Database Indexes**
+#### **9. Missing Database Indexes**
 - Add `idx_function_call_args_argument_index` to schema
 - Add `idx_function_call_args_param_name` to schema
 - **Impact**: 120ms saved per run (minor but free)
 
-#### **6. GraphQL LIKE Pattern Fixes**
+#### **10. GraphQL LIKE Pattern Fixes**
 - Fix `graphql/injection.py:103` - Replace `LIKE '%{arg}%'`
 - Fix `graphql/input_validation.py:38` - Replace `LIKE '%String%'`
 - **Impact**: <500ms (minor, low priority)
@@ -86,8 +116,18 @@ This proposal eliminates redundant traversal anti-patterns through surgical refa
 - `theauditor/extractors/js/batch_templates.js` - Vue compilation (50 lines modified)
 - `theauditor/indexer/extractors/javascript.py` - Module resolution (200 lines modified)
 
+**TIER 1.5 (JSON Normalization - PARALLEL-SAFE with TIER 1)**:
+- `theauditor/fce.py` - Replace 8 json.loads() with JOINs (lines 60, 78, 127, 168, 207, 265, modified 200 lines)
+- `theauditor/indexer/schemas/core_schema.py` - Add 4 normalized tables (finding_taint_paths, finding_metadata, finding_graph_hotspots, finding_cfg_complexity) + symbol_parameters + python_route_dependencies (300 lines added)
+- `theauditor/indexer/database/base_database.py` - Remove details_json writes, add junction table writes (50 lines modified)
+- `theauditor/taint/discovery.py` - Replace symbols.parameters parsing (line 112, 5 lines modified)
+- `theauditor/indexer/extractors/javascript.py` - Replace symbols.parameters parsing (line 1288, 5 lines modified)
+- `theauditor/indexer/database/python_database.py` - Normalize python_routes.dependencies (30 lines modified)
+- `theauditor/indexer/schema.py` - Add JSON blob validator (100 lines added)
+- **Fix 3 junction tables**: react_component_hooks, react_hook_dependencies, import_style_names (add AUTOINCREMENT, 15 lines)
+
 **TIER 2 (Medium Priority)**:
-- `theauditor/indexer/schemas/core_schema.py` - Add indexes (2 lines)
+- `theauditor/indexer/schemas/core_schema.py` - Add 2 indexes (2 lines)
 - `theauditor/rules/graphql/injection.py` - Fix query (10 lines)
 - `theauditor/rules/graphql/input_validation.py` - Fix query (10 lines)
 
@@ -103,12 +143,29 @@ This proposal eliminates redundant traversal anti-patterns through surgical refa
    - External extractor API (`extract(file_info, content, tree)`) preserved
    - Database schema unchanged (no migration needed)
 
-**Migration Path**: All breaking changes are internal implementation details. Public APIs remain stable. No user-facing changes required.
+**TIER 1.5**:
+1. **FCE Data Access API** - findings_consolidated.details_json → normalized tables
+   - FCE queries change from JSON parsing to JOINs
+   - New tables: finding_taint_paths, finding_metadata, finding_graph_hotspots, finding_cfg_complexity
+   - **MIGRATION REQUIRED**: Database regenerated fresh (standard for schema changes)
+   - External FCE API unchanged (consumers still call `run_fce(root_path)`)
+
+2. **symbols.parameters Schema** - JSON TEXT → symbol_parameters junction table
+   - Taint discovery and JS extraction updated to use normalized table
+   - **MIGRATION REQUIRED**: Database regenerated fresh
+   - External symbol query API unchanged
+
+3. **python_routes.dependencies Schema** - JSON TEXT → python_route_dependencies junction table
+   - Python route extraction updated to use normalized table
+   - **MIGRATION REQUIRED**: Database regenerated fresh
+   - External route query API unchanged
+
+**Migration Path**: All breaking changes require `aud full` to regenerate database (standard procedure). Public APIs remain stable. No user-facing changes required beyond reindexing.
 
 ### **Dependencies**
 - No new external dependencies
 - No changes to Python version requirements (>=3.11)
-- No changes to database schema (indexes only)
+- **Schema Changes**: TIER 1.5 adds 6 normalized tables + 3 AUTOINCREMENT fixes (database regenerated fresh, standard procedure)
 
 ### **Backward Compatibility**
 - ✅ Database schema: Preserved (indexes are additive)
@@ -176,11 +233,51 @@ This proposal eliminates redundant traversal anti-patterns through surgical refa
 - Vue compilation: 4-6 hours
 - Module resolution: 1-2 weeks (complex, needs TypeScript integration)
 
+**TIER 1.5 (JSON Normalization - 1-2 Weeks, PARALLEL with TIER 1)**:
+- FCE normalization: 2-3 days implementation + 1 day testing
+- symbols.parameters normalization: 1 day implementation + 1 day testing
+- python_routes.dependencies normalization: 1 day implementation + 1 day testing
+- Schema contract validator: 1-2 days implementation + 1 day testing
+- Fix 3 junction tables: 2-3 hours
+
 **TIER 2 (Medium Priority - 1-2 Days)**:
 - Database indexes: 5 minutes
 - GraphQL fixes: 30 minutes
 
-**Total**: 3-6 weeks for all tiers
+**Total**: 4-7 weeks for all tiers (3-6 weeks if TIER 1 and TIER 1.5 executed in parallel by separate AIs)
+
+### **Parallelization Strategy (Multi-AI Execution)**
+
+This proposal is designed for safe parallel execution by multiple AIs. Below is the dependency matrix:
+
+**PARALLEL-SAFE (No file conflicts, can run concurrently)**:
+- ✅ **TIER 0 Task 1 (Taint) ‖ TIER 0 Task 2 (Python AST)** - Different file sets
+  - Taint: `theauditor/taint/*.py` + `generated_cache.py`
+  - Python AST: `theauditor/ast_extractors/python/*.py` + `indexer/extractors/python.py`
+
+- ✅ **TIER 1 (Vue/Module) ‖ TIER 1.5 (JSON Normalization)** - Zero overlap
+  - TIER 1: `extractors/js/*.js` + `indexer/extractors/javascript.py` (module resolution only)
+  - TIER 1.5: `fce.py` + `indexer/schemas/core_schema.py` + `indexer/database/*.py` + `taint/discovery.py:112` + `indexer/schema.py`
+  - **CONFLICT**: Both touch `indexer/extractors/javascript.py` BUT different sections (module resolution vs parameters parsing)
+  - **SAFE**: Coordinate line ranges (TIER 1 = lines 748-768, TIER 1.5 = line 1288)
+
+- ✅ **TIER 2 (All tasks)** - Trivial changes, can be done last by any AI
+
+**SEQUENTIAL DEPENDENCIES** (Must run in order):
+- ⚠️ **TIER 0 BEFORE TIER 1/1.5** - Spatial indexes required for performance testing baseline
+- ⚠️ **ALL TIERS BEFORE TIER 2** - Indexes are last step (trivial, 5 minutes)
+
+**Recommended Multi-AI Assignment**:
+- **AI #1 (Opus)**: TIER 0 Task 1 (Taint refactor) - Complex, needs deep analysis
+- **AI #2 (Sonnet)**: TIER 0 Task 2 (Python AST visitor) - Large refactor, fast coding
+- **AI #3 (Sonnet)**: TIER 1 (Vue + Module resolution) - Medium complexity
+- **AI #4 (Sonnet)**: TIER 1.5 (JSON normalization) - Schema work, database refactor
+- **Any AI**: TIER 2 (Cleanup) - Trivial, 1-2 days
+
+**Merge Strategy**:
+1. Complete TIER 0 Tasks 1+2, merge independently (no conflicts)
+2. Complete TIER 1 + TIER 1.5, coordinate `javascript.py` merge (1 file conflict)
+3. Complete TIER 2 last (trivial)
 
 ---
 

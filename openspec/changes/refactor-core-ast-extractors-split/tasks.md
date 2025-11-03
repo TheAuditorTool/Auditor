@@ -94,22 +94,36 @@
   cd .pf
   sqlite3 repo_index.db "SELECT COUNT(*) FROM symbols WHERE type='function';" > C:\tmp\before_functions.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM function_call_args;" > C:\tmp\before_calls.txt
-  sqlite3 repo_index.db "SELECT COUNT(*) FROM imports;" > C:\tmp\before_imports.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM refs;" > C:\tmp\before_refs.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM assignments;" > C:\tmp\before_assigns.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM class_properties;" > C:\tmp\before_props.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM env_var_usage;" > C:\tmp\before_env.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM orm_relationships;" > C:\tmp\before_orm.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM assignment_sources;" > C:\tmp\before_assignment_sources.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM function_returns;" > C:\tmp\before_function_returns.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM function_return_sources;" > C:\tmp\before_function_return_sources.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM object_literals;" > C:\tmp\before_object_literals.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM variable_usage;" > C:\tmp\before_variable_usage.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM import_styles;" > C:\tmp\before_import_styles.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM type_annotations;" > C:\tmp\before_type_annotations.txt
   cd ..
 
   # Display baseline (for manual verification)
-  echo "=== BASELINE COUNTS ==="
+  echo "=== BASELINE COUNTS (14 Tables) ==="
   cat C:\tmp\before_functions.txt
   cat C:\tmp\before_calls.txt
-  cat C:\tmp\before_imports.txt
+  cat C:\tmp\before_refs.txt
   cat C:\tmp\before_assigns.txt
   cat C:\tmp\before_props.txt
   cat C:\tmp\before_env.txt
   cat C:\tmp\before_orm.txt
+  cat C:\tmp\before_assignment_sources.txt
+  cat C:\tmp\before_function_returns.txt
+  cat C:\tmp\before_function_return_sources.txt
+  cat C:\tmp\before_object_literals.txt
+  cat C:\tmp\before_variable_usage.txt
+  cat C:\tmp\before_import_styles.txt
+  cat C:\tmp\before_type_annotations.txt
   ```
 
 **ROLLBACK POINT #1**: If you need to abort after this phase, just delete backup file. No changes made yet.
@@ -582,7 +596,34 @@ HEADER_EOF
   - javascript/module_framework.js: Module/framework extractors (imports, env vars, ORM)
   ```
 
-- [ ] 5.5 Verify js_helper_templates.py syntax
+- [ ] 5.5 Update cache initialization check (CRITICAL - prevents KeyError)
+  ```bash
+  # This fix is MANDATORY for refactor to work
+  # The cache check on line ~199 references the deleted 'core_ast_extractors' key
+  ```
+
+  Use Edit tool with exact string match:
+  ```python
+  # OLD STRING (line ~199):
+      # Load JavaScript modules from disk (cached after first call)
+      if _JS_CACHE['core_ast_extractors'] is None:
+          _load_javascript_modules()
+
+  # NEW STRING:
+      # Load JavaScript modules from disk (cached after first call)
+      if _JS_CACHE['core_language'] is None:
+          _load_javascript_modules()
+  ```
+
+  Verify no remaining references:
+  ```bash
+  # Check for any remaining 'core_ast_extractors' references in code (not comments)
+  grep "'core_ast_extractors'" theauditor\ast_extractors\js_helper_templates.py
+  # EXPECTED: No matches (all removed)
+  # IF MATCHES FOUND: Review and update as needed
+  ```
+
+- [ ] 5.6 Verify js_helper_templates.py syntax
   ```bash
   # Check Python syntax
   cd C:\Users\santa\Desktop\TheAuditor
@@ -620,11 +661,18 @@ HEADER_EOF
   cd .pf
   sqlite3 repo_index.db "SELECT COUNT(*) FROM symbols WHERE type='function';" > C:\tmp\after_functions.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM function_call_args;" > C:\tmp\after_calls.txt
-  sqlite3 repo_index.db "SELECT COUNT(*) FROM imports;" > C:\tmp\after_imports.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM refs;" > C:\tmp\after_refs.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM assignments;" > C:\tmp\after_assigns.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM class_properties;" > C:\tmp\after_props.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM env_var_usage;" > C:\tmp\after_env.txt
   sqlite3 repo_index.db "SELECT COUNT(*) FROM orm_relationships;" > C:\tmp\after_orm.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM assignment_sources;" > C:\tmp\after_assignment_sources.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM function_returns;" > C:\tmp\after_function_returns.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM function_return_sources;" > C:\tmp\after_function_return_sources.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM object_literals;" > C:\tmp\after_object_literals.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM variable_usage;" > C:\tmp\after_variable_usage.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM import_styles;" > C:\tmp\after_import_styles.txt
+  sqlite3 repo_index.db "SELECT COUNT(*) FROM type_annotations;" > C:\tmp\after_type_annotations.txt
   cd ..
   ```
 
@@ -638,12 +686,32 @@ HEADER_EOF
   diff C:\tmp\before_calls.txt C:\tmp\after_calls.txt
   # EXPECTED: No output
 
-  echo "=== IMPORTS ==="
-  diff C:\tmp\before_imports.txt C:\tmp\after_imports.txt
+  echo "=== REFS (Module References) ==="
+  diff C:\tmp\before_refs.txt C:\tmp\after_refs.txt
   # EXPECTED: No output
 
   echo "=== ASSIGNMENTS ==="
   diff C:\tmp\before_assigns.txt C:\tmp\after_assigns.txt
+  # EXPECTED: No output
+
+  echo "=== ASSIGNMENT SOURCES ==="
+  diff C:\tmp\before_assignment_sources.txt C:\tmp\after_assignment_sources.txt
+  # EXPECTED: No output
+
+  echo "=== FUNCTION RETURNS ==="
+  diff C:\tmp\before_function_returns.txt C:\tmp\after_function_returns.txt
+  # EXPECTED: No output
+
+  echo "=== FUNCTION RETURN SOURCES ==="
+  diff C:\tmp\before_function_return_sources.txt C:\tmp\after_function_return_sources.txt
+  # EXPECTED: No output
+
+  echo "=== OBJECT LITERALS ==="
+  diff C:\tmp\before_object_literals.txt C:\tmp\after_object_literals.txt
+  # EXPECTED: No output
+
+  echo "=== VARIABLE USAGE ==="
+  diff C:\tmp\before_variable_usage.txt C:\tmp\after_variable_usage.txt
   # EXPECTED: No output
 
   echo "=== CLASS PROPERTIES ==="
@@ -657,6 +725,18 @@ HEADER_EOF
   echo "=== ORM RELATIONSHIPS ==="
   diff C:\tmp\before_orm.txt C:\tmp\after_orm.txt
   # EXPECTED: No output
+
+  echo "=== IMPORT STYLES ==="
+  diff C:\tmp\before_import_styles.txt C:\tmp\after_import_styles.txt
+  # EXPECTED: No output
+
+  echo "=== TYPE ANNOTATIONS ==="
+  diff C:\tmp\before_type_annotations.txt C:\tmp\after_type_annotations.txt
+  # EXPECTED: No output
+
+  echo ""
+  echo "=== VALIDATION SUMMARY ==="
+  echo "All 14 tables validated - zero differences detected"
 
   # IF ANY DIFF SHOWS OUTPUT: ROLLBACK IMMEDIATELY, investigate bug
   ```
