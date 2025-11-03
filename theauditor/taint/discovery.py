@@ -125,11 +125,6 @@ class TaintDiscovery:
                                     'function': symbol.get('name', ''),
                                     'metadata': symbol
                                 })
-
-                                # Debug for qr.registry issue
-                                if param_name == 'filters' and 'qr.registry' in symbol.get('path', ''):
-                                    print(f'[DEBUG FILTERS] Found filters parameter at line {symbol.get("line")}', flush=True, file=sys.stderr)
-                                    print(f'[DEBUG FILTERS]   function: {symbol.get("name")}', flush=True, file=sys.stderr)
                     except (json.JSONDecodeError, AttributeError):
                         pass
 
@@ -215,7 +210,7 @@ class TaintDiscovery:
                     'name': func_name,
                     'file': call.get('file', ''),
                     'line': call.get('line', 0),
-                    'pattern': arg_expr[:100],
+                    'pattern': arg_expr,  # FIXED: Don't truncate - taint matching needs full pattern
                     'category': 'sql',
                     'risk': risk,
                     'is_parameterized': False,
@@ -223,15 +218,6 @@ class TaintDiscovery:
                     'metadata': call
                 })
                 sql_query_count += 1
-
-                # Debug for qr.registry issue
-                if 'qr.registry' in call.get('file', ''):
-                    print(f'[DEBUG SQL] Found sequelize.query in qr.registry at line {call.get("line")}', flush=True, file=sys.stderr)
-                    print(f'[DEBUG SQL]   has_interpolation: {has_interpolation}', flush=True, file=sys.stderr)
-                    print(f'[DEBUG SQL]   arg: {arg_expr[:150]}', flush=True, file=sys.stderr)
-
-        if sql_query_count > 0:
-            print(f'[DEBUG SQL] Found {sql_query_count} raw SQL sinks total', flush=True, file=sys.stderr)
 
         # NoSQL Injection Sinks (optional - language-specific)
         for query in getattr(self.cache, 'nosql_queries', []):
@@ -307,7 +293,7 @@ class TaintDiscovery:
                     'name': func_name,
                     'file': call.get('file', ''),
                     'line': call.get('line', 0),
-                    'pattern': arg_expr[:100],
+                    'pattern': arg_expr,  # FIXED: Don't truncate - taint matching needs full pattern
                     'category': 'xss',
                     'risk': risk,
                     'has_interpolation': has_interpolation,

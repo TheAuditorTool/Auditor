@@ -137,17 +137,19 @@ def init(name, description):
 
 @planning.command()
 @click.argument('plan_id', type=int)
-@click.option('--tasks', is_flag=True, help='Show task list')
+@click.option('--tasks/--no-tasks', default=True, help='Show task list (default: True)')
 @click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
-@click.option('--format', type=click.Choice(['flat', 'phases']), default='flat', help='Display format (flat or phase hierarchy)')
+@click.option('--format', type=click.Choice(['flat', 'phases']), default='phases', help='Display format (default: phases)')
 @handle_exceptions
 def show(plan_id, tasks, verbose, format):
     """Display plan details and task status.
 
+    By default shows full hierarchy (phases → tasks → jobs).
+
     Example:
-        aud planning show 1 --tasks
-        aud planning show 1 --verbose
-        aud planning show 1 --tasks --format phases  # Show Phase → Task → Job hierarchy
+        aud planning show 1                           # Full hierarchy (default)
+        aud planning show 1 --format flat             # Flat task list
+        aud planning show 1 --no-tasks                # Basic info only
     """
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
@@ -157,11 +159,15 @@ def show(plan_id, tasks, verbose, format):
         click.echo(f"Error: Plan {plan_id} not found", err=True)
         return
 
+    # Header
+    click.echo("=" * 80)
     click.echo(f"Plan {plan['id']}: {plan['name']}")
+    click.echo("=" * 80)
     click.echo(f"Status: {plan['status']}")
     click.echo(f"Created: {plan['created_at']}")
     if plan['description']:
         click.echo(f"Description: {plan['description']}")
+    click.echo(f"Database: {db_path}")
 
     if verbose and plan['metadata_json']:
         metadata = json.loads(plan['metadata_json'])
@@ -169,6 +175,7 @@ def show(plan_id, tasks, verbose, format):
         for key, value in metadata.items():
             click.echo(f"  {key}: {value}")
 
+    # Default to showing tasks with phases format
     if tasks:
         if format == 'phases':
             # Hierarchical planning: Phase → Task → Job display
@@ -258,6 +265,20 @@ def show(plan_id, tasks, verbose, format):
                     click.echo(f"    Assigned: {task['assigned_to']}")
                 if verbose and task['description']:
                     click.echo(f"    Description: {task['description']}")
+
+    # Helpful footer with commands
+    click.echo("\n" + "=" * 80)
+    click.echo("Commands:")
+    click.echo("  aud planning add-phase {plan_id} --phase-number N --title \"...\" --description \"...\"")
+    click.echo("  aud planning add-task {plan_id} --title \"...\" --description \"...\" --phase N")
+    click.echo("  aud planning add-job {plan_id} <task_number> --description \"...\"")
+    click.echo("  aud planning update-task {plan_id} <task_number> --status completed")
+    click.echo("  aud planning verify-task {plan_id} <task_number> --pass")
+    click.echo("  aud planning validate {plan_id}  # Validate against session logs")
+    click.echo("\nFiles:")
+    click.echo(f"  Database: {db_path}")
+    click.echo("  Agent prompts: agents/planning.md, agents/refactor.md, etc.")
+    click.echo("=" * 80)
 
 
 @planning.command("list")

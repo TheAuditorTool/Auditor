@@ -1,8 +1,9 @@
 # Planning System - Phase 3: Integration Testing & Real-World Validation
-**Document Version:** 3.0
+**Document Version:** 3.1
 **Protocol:** TeamSOP v4.20
 **Date Started:** 2025-11-03
-**Status:** **PHASE 1 & 2 COMPLETE ✅ | PHASE 3 IN PROGRESS**
+**Last Updated:** 2025-11-03 (Session 2)
+**Status:** **PHASE 1 & 2 COMPLETE ✅ | PHASE 2.5 COMPLETE ✅ | PHASE 3 READY**
 
 ---
 
@@ -11,15 +12,55 @@
 **What's Done:**
 - ✅ Phase 1: All 4 prerequisites complete (naming, precedents, refactor history, frameworks)
 - ✅ Phase 2: Agent infrastructure complete (4 agents, installation, triggers, workflows)
+- ✅ **Phase 2.5: Critical Integration Fixes (NEW - Session 2)**
+  - Fixed deadcode false positives (basename matching for JS files)
+  - Added `aud planning list` command (critical UX gap)
+  - Added `aud planning validate` command (Phase 6 validation)
+  - Fixed `aud planning show` default output (now shows full hierarchy)
+  - Integrated planning agents with database persistence (Phase 5)
 
 **What's NOT Done:**
-- ❌ End-to-end workflow testing (never actually used the agents)
+- ❌ End-to-end workflow testing (never actually used the agents in production)
 - ❌ Real-world validation (does it prevent hallucination in practice?)
 - ❌ Agent refinement based on actual usage
 - ❌ Integration verification (blueprint → query → synthesis actually works?)
 
 **The Gap:**
-Previous planning.md documented building the infrastructure but didn't account for the real work: actually USING the system and iterating based on what sucks.
+Infrastructure is NOW complete (Session 2 fixed critical bugs). Ready for Phase 3 testing with real refactor scenarios.
+
+---
+
+## Session 2 Summary (2025-11-03)
+
+**Context:** Continued from Session 1 after crash. Task: Demo/trial planning system with real example.
+
+**Discoveries:**
+1. **Deadcode Bug:** `core_ast_extractors.js` (2376 lines, critical file) flagged as [HIGH] dead code
+   - Root cause: Basename matching failed (searched full path in expressions with only basename)
+   - Fix: `theauditor/context/deadcode.py:115-146` - Added basename fallback for assignments/function args
+
+2. **Planning UX Gap:** No way to see what plans exist (`aud planning show` requires ID, but no `list` command)
+   - Fix: `theauditor/commands/planning.py:284-337` - Added `aud planning list` with status filtering + JSON output
+
+3. **Show Command Useless:** `aud planning show 1` only showed 3 lines (name, status, created date)
+   - Fix: `theauditor/commands/planning.py:138-281` - Changed defaults to show full Phase → Task → Job hierarchy + helpful commands footer
+
+4. **Phase 5 Missing:** Planning agents output markdown but never persisted to database
+   - Fix: `agents/planning.md:390-465` - Added Phase 5 (database persistence using `aud planning` commands)
+
+5. **Phase 6 Missing:** No validation against session logs (plans never validated post-execution)
+   - Fix: `agents/planning.md:469-566` + `theauditor/commands/planning.py:987-1155` - Added Phase 6 (MANDATORY validation)
+
+**Files Modified:**
+- `theauditor/context/deadcode.py` - Basename matching fix
+- `theauditor/commands/planning.py` - Added `list`, `validate` commands, fixed `show` defaults, added missing `sqlite3` import
+- `agents/planning.md` - Added Phase 5 (persistence) and Phase 6 (validation)
+
+**Planning System Status:**
+- **Before Session 2:** Phases 1-4 (Blueprint → Query → Synthesize → Approve)
+- **After Session 2:** Phases 1-6 (+ Persist + Validate) - Closed loop system
+
+**Next Step:** Phase 3 real-world testing with `core_ast_extractors.js` refactor demo
 
 ---
 
