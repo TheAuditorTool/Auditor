@@ -380,6 +380,13 @@ class TaintFlowAnalyzer:
                 cfg_func = block.get('function_name', '')
                 if block.get('file') == file and cfg_func.endswith('.' + method_name):
                     return cfg_func
+        else:
+            # For simple names like "log" or "this.log", search for functions in same file
+            # This handles method calls like: this.log(...) → AuditService.log
+            for block in self.cache.cfg_blocks:
+                cfg_func = block.get('function_name', '')
+                if block.get('file') == file and cfg_func.endswith('.' + func_name):
+                    return cfg_func
 
         return None
 
