@@ -58,7 +58,12 @@ class ASTParser(ASTPatternMixin, ASTExtractorMixin):
             self.has_tree_sitter = True
             self._init_tree_sitter_parsers()
         except ImportError:
-            print("Warning: Tree-sitter not available. Install with: pip install tree-sitter tree-sitter-python tree-sitter-javascript tree-sitter-typescript")
+            print("\n[WARNING] AST parsing dependencies not fully installed.")
+            print("  - Python analysis: ✓ Will work (uses built-in ast module)")
+            print("  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)")
+            print("  - Terraform/HCL analysis: ✗ Limited functionality")
+            print("\nTo enable full analysis capabilities, run:")
+            print("  aud setup-ai --target .\n")
 
     def _init_tree_sitter_parsers(self):
         """Initialize Tree-sitter language parsers with proper bindings."""

@@ -195,8 +195,11 @@ Use the RIGHT tool for the job:
 
 **Jobs:**
 - [ ] Execute: `aud blueprint --structure`
-- [ ] Store complete output for reference
-- [ ] **Audit:** Verify blueprint ran successfully. If audit reveals failures, amend and re-audit.
+- [ ] Execute: `aud structure --monoliths`
+- [ ] Store both outputs for reference
+- [ ] **Audit:** Verify both commands ran successfully. If audit reveals failures, amend and re-audit.
+
+**Why monoliths check:** Identifies files >2150 lines that require chunked reading (1500-line chunks). Knowing this UP FRONT allows planning chunk boundaries before detailed analysis starts. Prevents mid-workflow surprises when encountering large files.
 
 ### Task 1.3: Extract Naming Conventions
 
@@ -237,12 +240,13 @@ Use the RIGHT tool for the job:
 
 **Jobs:**
 - [ ] Verify blueprint analysis complete
+- [ ] Verify monoliths detection complete (know which files need chunked reading)
 - [ ] Confirm naming conventions extracted
 - [ ] Confirm architectural precedents extracted
 - [ ] Confirm frameworks detected
 - [ ] Confirm refactor history reviewed
 - [ ] If any issues found, return to relevant task, fix issues, and re-audit
-- [ ] **Final verification:** Foundation context loaded from database
+- [ ] **Final verification:** Foundation context loaded from database + large file detection complete
 
 ---
 
@@ -285,14 +289,51 @@ Use the RIGHT tool for the job:
 - [ ] Store relationship information
 - [ ] **Audit:** Verify symbol queried. If audit reveals failures, amend and re-audit.
 
-### Task 2.5: Phase 2 Audit
+### Task 2.5: Read Large Files in Chunks (EXCEPTION: Refactor planning for >2150 line files)
+
+**Problem Solved:** Files >2150 lines (~80KB, ~25k tokens) cannot be read in one shot. For refactor planning, database queries provide structure but file content is needed to understand implementation patterns, imports, and dependencies.
+
+**When Required:**
+- User request is refactor-related (split, modularize, extract) AND
+- Target file has >2150 lines (check from database query line count)
+
+**Jobs:**
+- [ ] Check if refactor planning: Keywords like "split", "refactor", "modularize", "extract"
+- [ ] Check line count from database: `aud query --file <target> --show-functions | grep "Lines:"`
+- [ ] If NOT refactor OR file ≤2150 lines: Skip to Task 2.6
+- [ ] If refactor AND file >2150 lines: MANDATORY chunked reading:
+  - [ ] Read chunk 1: `Read(<target>, offset=0, limit=1500)`
+  - [ ] Read chunk 2: `Read(<target>, offset=1500, limit=1500)`
+  - [ ] Read chunk 3 (if >3000 lines): `Read(<target>, offset=3000, limit=1500)`
+  - [ ] Continue with 1500-line chunks until entire file covered
+- [ ] Use function boundaries from Task 2.2 to guide chunk boundaries
+- [ ] Synthesize understanding across chunks (imports, patterns, dependencies)
+- [ ] **Audit:** If chunked reading required, verify entire file content read. If audit reveals failures, amend and re-audit.
+
+**Example (core_ast_extractors.js refactor, 2376 lines):**
+```
+Step 1: User request contains "refactor" keyword → Chunked reading may be needed
+Step 2: Database query shows 2376 lines (>2150 → chunked reading REQUIRED)
+Step 3: Read in chunks:
+  - Chunk 1 (lines 1-1500): Imports + Functions 1-20 (AST parsing cluster)
+  - Chunk 2 (lines 1501-2376): Functions 21-38 (Type handling cluster)
+Step 4: Synthesize understanding:
+  - Identified 2 domain clusters from code inspection
+  - Confirmed database clustering analysis (Task 2.2)
+  - No external dependencies between clusters → Safe to split
+```
+
+**Critical:** This is the ONLY exception to "no file reading" rule. For non-refactor planning (feature planning, architecture planning), database queries are sufficient. For refactor planning of large files, chunking is MANDATORY.
+
+### Task 2.6: Phase 2 Audit
 
 **Jobs:**
 - [ ] Verify relevant queries executed
 - [ ] Confirm actual code structure retrieved from database
-- [ ] Confirm NO file reading occurred
+- [ ] Confirm NO file reading occurred (UNLESS refactor planning for >2150 line file - see Task 2.5)
+- [ ] If chunked reading was required (Task 2.5), confirm entire file content read and understood
 - [ ] If any issues found, return to relevant task, fix issues, and re-audit
-- [ ] **Final verification:** Specific patterns queried from database
+- [ ] **Final verification:** Specific patterns queried from database (and file content inspected if applicable)
 
 ---
 
