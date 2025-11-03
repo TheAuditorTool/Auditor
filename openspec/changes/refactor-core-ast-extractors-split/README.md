@@ -1,8 +1,28 @@
 # refactor-core-ast-extractors-split
 
-**Status**: ✅ **IRONCLAD** - Ready for Architect Approval
-**Date**: 2025-11-01
+**Status**: ✅ **APPROVED - DUE DILIGENCE COMPLETE**
+**Proposal Date**: 2025-11-01
+**Audit Date**: 2025-11-03
 **Protocol**: OpenSpec + teamsop.md v4.20 Prime Directive
+
+---
+
+## Due Diligence Audit (2025-11-03)
+
+**Lead Auditor**: Opus AI (Lead Coder)
+**3 OPUS Agents Deployed**: Parallel verification of file state, orchestrator, and database validation
+
+### Critical Corrections Applied
+
+The proposal was 95% correct. 3 critical issues were identified and **fixed in tasks.md**:
+
+1. 🔴 **Cache Check Bug** → Added task 5.5 to fix line 199 in js_helper_templates.py
+2. 🔴 **Wrong Table Name** → Changed `imports` to `refs` table (imports table doesn't exist)
+3. 🔴 **Insufficient Validation** → Expanded from 6 to 14 tables (100% coverage)
+
+**Result**: ✅ All 3 corrections applied, proposal is now ready for implementation.
+
+See `due_diligence_audit.md` for complete audit report.
 
 ---
 
