@@ -101,16 +101,31 @@ def _detect_isolated_modules(
     """)
     imported_files = {row[0] for row in cursor.fetchall()}
 
-    # Also check module name imports
+    # Also check module name imports and dynamic imports
     cursor.execute("""
         SELECT DISTINCT value
         FROM refs
-        WHERE kind = 'import'
+        WHERE kind IN ('import', 'dynamic_import')
     """)
-    for module_name in cursor.fetchall():
-        # Convert 'theauditor.cli' -> 'theauditor/cli.py'
-        path = module_name[0].replace('.', '/') + '.py'
-        imported_files.add(path)
+    for module_path in cursor.fetchall():
+        module_str = module_path[0]
+
+        # Match against existing files by checking if module path is substring of file path
+        # Handles: '@/pages/dashboard/Login' -> 'frontend/src/pages/dashboard/Login.tsx'
+        for file in files_with_code:
+            # Strip path alias (@/) and check if rest matches
+            if '@/' in module_str:
+                module_without_alias = module_str.replace('@/', '')
+                if module_without_alias in file:
+                    imported_files.add(file)
+            # Python-style module paths: 'theauditor.cli' -> 'theauditor/cli.py'
+            elif '.' in module_str and '/' not in module_str:
+                path_py = module_str.replace('.', '/') + '.py'
+                if path_py == file:
+                    imported_files.add(file)
+            # Direct path match
+            elif module_str in file:
+                imported_files.add(file)
 
     # Step 3: Get files referenced in assignments (string paths)
     cursor.execute("""
@@ -145,7 +160,30 @@ def _detect_isolated_modules(
             if file in arg_str or file_basename in arg_str:
                 imported_files.add(file)
 
-    # Step 5: Set difference = truly isolated files
+    # Step 5: Check variable_usage for JSX component references (React Router, etc.)
+    # Files that export symbols used in JSX are NOT dead (e.g., <POSHome /> in routes)
+    cursor.execute("""
+        SELECT DISTINCT variable_name
+        FROM variable_usage
+        WHERE variable_name NOT LIKE '%.%'  -- Exclude property access like 'React.lazy'
+          AND variable_name NOT LIKE '%(%'   -- Exclude function calls
+          AND variable_name NOT IN ('React', 'useState', 'useEffect', 'children')  -- Exclude common hooks/props
+    """)
+    jsx_used_symbols = {row[0] for row in cursor.fetchall()}
+
+    # Match symbol names to files (e.g., "POSHome" -> "frontend/src/pages/pos/Home.tsx")
+    if jsx_used_symbols:
+        placeholders = ','.join('?' * len(jsx_used_symbols))
+        cursor.execute(f"""
+            SELECT DISTINCT path
+            FROM symbols
+            WHERE name IN ({placeholders})
+              AND type IN ('function', 'class', 'variable')
+        """, tuple(jsx_used_symbols))
+        for row in cursor.fetchall():
+            imported_files.add(row[0])
+
+    # Step 6: Set difference = truly isolated files
     isolated_files = files_with_code - imported_files
 
     # Filter exclusions
@@ -202,6 +240,7 @@ def _detect_dead_functions(
     """Find functions defined but NEVER called.
 
     Query: symbols.type='function' BUT name NOT IN function_call_args.callee_function
+    AND name NOT IN variable_usage (JSX component usage like <Component />)
     """
     cursor = conn.cursor()
 
@@ -219,6 +258,17 @@ def _detect_dead_functions(
         AND s.name NOT IN (
             SELECT DISTINCT callee_function
             FROM function_call_args
+        )
+        AND s.name NOT IN (
+            SELECT DISTINCT variable_name
+            FROM variable_usage
+            WHERE variable_name NOT LIKE '%.%'
+              AND variable_name NOT LIKE '%(%'
+        )
+        AND s.name NOT IN (
+            SELECT DISTINCT name
+            FROM symbols_jsx
+            WHERE type = 'function'
         )
         AND s.name NOT LIKE 'test_%'
         AND s.name NOT IN ('main', '__init__', '__main__', 'cli', '__repr__', '__str__')
