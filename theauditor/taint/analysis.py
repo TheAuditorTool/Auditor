@@ -33,6 +33,7 @@ class TaintFlowAnalyzer:
         self.cursor = cursor
         self.visited_paths = set()
         self.max_path_length = 100
+        self.function_cache = {}  # Cache (function, taint_set) -> paths to avoid reanalysis
 
     def analyze_interprocedural(self, sources: List[Dict], sinks: List[Dict],
                               call_graph: Dict, max_depth: int = 5) -> List['TaintPath']:
@@ -109,19 +110,40 @@ class TaintFlowAnalyzer:
 
         # Initialize taint state
         tainted_vars = {source.get('name', 'unknown')}
-        visited_blocks = set()
+        visited_blocks = {}  # Map block_id -> set of taint states we've seen
 
         # Worklist algorithm for CFG traversal
         worklist = deque([(source_block, tainted_vars, [source])])
+        max_worklist_seen = 0
 
         while worklist and len(paths) < 100:  # Limit total paths
+            # Monitor worklist growth
+            if len(worklist) > max_worklist_seen:
+                max_worklist_seen = len(worklist)
+                if max_worklist_seen > 1000:
+                    print(f"[WARNING] Worklist size: {max_worklist_seen}", file=sys.stderr)
+
             current_block, current_tainted, current_path = worklist.popleft()
 
-            # Skip if already visited this block with same taint state
-            state_key = (current_block.get('id'), frozenset(current_tainted))
-            if state_key in visited_blocks:
+            # Fixed-point optimization: Skip if we've already visited this block with same or superset of taint
+            block_id = current_block.get('id')
+            should_skip = False
+            if block_id in visited_blocks:
+                # Check if we've seen this block with a superset of current taint
+                for prev_taint in visited_blocks[block_id]:
+                    if current_tainted.issubset(prev_taint):
+                        # We already processed this block with same or more taint - skip
+                        print(f"[FIXED-POINT] Skipping block {block_id} - already seen with superset taint", file=sys.stderr)
+                        should_skip = True
+                        break
+
+            if should_skip:
                 continue
-            visited_blocks.add(state_key)
+
+            # Record this taint state for this block
+            if block_id not in visited_blocks:
+                visited_blocks[block_id] = []
+            visited_blocks[block_id].append(frozenset(current_tainted))
 
             # Propagate taint through this block FIRST
             # This allows assignments in the block to taint new variables before checking sinks
@@ -170,6 +192,20 @@ class TaintFlowAnalyzer:
                         if callee_func:
                             # Propagate taint into callee with tainted parameters
                             for param_name in tainted_params.keys():
+                                # Check function cache to avoid redundant analysis
+                                cache_key = (callee_func, callee_file, frozenset([param_name]))
+                                if cache_key in self.function_cache:
+                                    print(f"[CROSS-FUNC]   Using cached results for {callee_func} with {param_name}", file=sys.stderr)
+                                    cached_paths = self.function_cache[cache_key]
+                                    # Use cached paths...
+                                    for cached_path in cached_paths:
+                                        # Clone and adjust the path
+                                        from copy import deepcopy
+                                        cloned = deepcopy(cached_path)
+                                        cloned.source = source
+                                        paths.append(cloned)
+                                    continue
+
                                 # Find function start line from CFG or symbols
                                 callee_line = self._get_function_start_line(callee_func, callee_file)
 
@@ -204,6 +240,11 @@ class TaintFlowAnalyzer:
                                     callee_source, callee_func, sinks, call_graph, max_depth - 1, new_call_chain
                                 )
                                 print(f"[CROSS-FUNC]   Found {len(callee_paths)} paths in callee", file=sys.stderr)
+
+                                # Cache the results for this function/param combo
+                                cache_key = (callee_func, callee_file, frozenset([param_name]))
+                                self.function_cache[cache_key] = callee_paths
+                                print(f"[CROSS-FUNC]   Cached {len(callee_paths)} paths for {callee_func}", file=sys.stderr)
 
                                 # CRITICAL: Even if callee found 0 paths, mark the call site as returning tainted data
                                 # This enables multi-hop propagation through intermediate functions
@@ -248,6 +289,12 @@ class TaintFlowAnalyzer:
             successors = self._get_block_successors(current_block)
             for successor in successors:
                 new_path = current_path + [{'type': 'flow', 'block': current_block.get('id')}]
+
+                # Safety valve: Warn about very long paths but don't skip
+                if len(new_path) > self.max_path_length:
+                    print(f"[WARNING] Very long path detected: {len(new_path)} steps", file=sys.stderr)
+                    # Still add it - real paths can be long
+
                 worklist.append((successor, new_tainted.copy(), new_path))
 
         return paths
