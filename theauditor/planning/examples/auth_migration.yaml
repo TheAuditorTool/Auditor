@@ -62,5 +62,5 @@ rules:
 #    aud planning add-task 1 --title "Backend auth routes" --spec auth_migration.yaml
 #    aud planning add-task 2 --title "Frontend login components"
 # 3. Implement changes incrementally
-# 4. Verify each task: aud index && aud planning verify-task 1 N --verbose
+# 4. Verify each task: aud full --offline && aud planning verify-task 1 N --verbose
 # 5. Archive when complete: aud planning archive 1 --notes "Auth migration deployed"

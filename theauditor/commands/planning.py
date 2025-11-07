@@ -183,7 +183,7 @@ def show(plan_id, tasks, verbose, format):
 
             # Get all phases
             cursor.execute("""
-                SELECT id, phase_number, title, description, problem_solved, status
+                SELECT id, phase_number, title, description, success_criteria, status
                 FROM plan_phases
                 WHERE plan_id = ?
                 ORDER BY phase_number
@@ -193,11 +193,11 @@ def show(plan_id, tasks, verbose, format):
             if phases:
                 click.echo(f"\nPhase → Task → Job Hierarchy:")
                 for phase in phases:
-                    phase_id, phase_num, phase_title, phase_desc, problem_solved, phase_status = phase
+                    phase_id, phase_num, phase_title, phase_desc, success_criteria, phase_status = phase
                     status_icon = "[X]" if phase_status == 'completed' else "[ ]"
                     click.echo(f"\n{status_icon} PHASE {phase_num}: {phase_title}")
-                    if problem_solved:
-                        click.echo(f"    Problem Solved: {problem_solved}")
+                    if success_criteria:
+                        click.echo(f"    Success Criteria: {success_criteria}")
                     if verbose and phase_desc:
                         click.echo(f"    Description: {phase_desc}")
 
@@ -349,16 +349,16 @@ def list_plans(status, format):
 @click.option('--phase-number', type=int, required=True, help='Phase number')
 @click.option('--title', required=True, help='Phase title')
 @click.option('--description', default='', help='Phase description')
-@click.option('--problem-solved', help='What sub-problem this phase solves (justification)')
+@click.option('--success-criteria', help='What completion looks like for this phase (criteria)')
 @handle_exceptions
-def add_phase(plan_id, phase_number, title, description, problem_solved):
+def add_phase(plan_id, phase_number, title, description, success_criteria):
     """Add a phase to a plan (hierarchical planning structure).
 
-    Phases group related tasks and explicitly state what sub-problem they solve.
+    Phases group related tasks and explicitly state success criteria.
 
     Example:
         aud planning add-phase 1 --phase-number 1 --title "Load Context" \\
-            --problem-solved "Prevents inventing patterns when precedents exist"
+            --success-criteria "Blueprint analysis complete. Precedents extracted from database."
     """
     db_path = Path.cwd() / ".pf" / "planning.db"
     manager = PlanningManager(db_path)
@@ -370,15 +370,15 @@ def add_phase(plan_id, phase_number, title, description, problem_solved):
         phase_number=phase_number,
         title=title,
         description=description,
-        problem_solved=problem_solved,
+        success_criteria=success_criteria,
         status='pending',
         created_at=datetime.now(UTC).isoformat()
     )
     manager.commit()
 
     click.echo(f"Added phase {phase_number} to plan {plan_id}: {title}")
-    if problem_solved:
-        click.echo(f"Problem Solved: {problem_solved}")
+    if success_criteria:
+        click.echo(f"Success Criteria: {success_criteria}")
 
 
 @planning.command()

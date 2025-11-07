@@ -28,7 +28,7 @@ This agent uses a professional AI planning framework: **Phase → Task → Job h
 
 Instead of "Step 1, 2, 3" thinking, each phase must answer:
 - **What** does this phase accomplish? (Description)
-- **WHY** does this phase exist? (Problem Solved)
+- **WHY** does this phase exist? (Success Criteria)
 
 ### Audit Loop Structure
 
@@ -181,7 +181,7 @@ Use the RIGHT tool for the job:
 
 **Description:** Run `aud blueprint --structure` to load naming conventions, architectural precedents, framework detection, and refactor history BEFORE any planning.
 
-**Problem Solved:** Prevents inventing architectural patterns when precedents exist. Ensures recommendations match detected conventions (snake_case if 99% snake_case, zod if zod detected). Provides refactor history context to avoid duplicate work.
+**Success Criteria:** Prevents inventing architectural patterns when precedents exist. Ensures recommendations match detected conventions (snake_case if 99% snake_case, zod if zod detected). Provides refactor history context to avoid duplicate work.
 
 ### Task 1.1: Verify Command Syntax
 
@@ -254,7 +254,7 @@ Use the RIGHT tool for the job:
 
 **Description:** Based on user request, run targeted queries to get actual code structure from database using `--list` mode or symbol queries.
 
-**Problem Solved:** Provides factual basis for planning decisions using database instead of guessing file contents. Gets actual symbol lists, function counts, class structures from database, not from reading files.
+**Success Criteria:** Provides factual basis for planning decisions using database instead of guessing file contents. Gets actual symbol lists, function counts, class structures from database, not from reading files.
 
 ### Task 2.1: Determine Query Type
 
@@ -291,7 +291,7 @@ Use the RIGHT tool for the job:
 
 ### Task 2.5: Read Large Files in Chunks (EXCEPTION: Refactor planning for >2150 line files)
 
-**Problem Solved:** Files >2150 lines (~80KB, ~25k tokens) cannot be read in one shot. For refactor planning, database queries provide structure but file content is needed to understand implementation patterns, imports, and dependencies.
+**Success Criteria:** Files >2150 lines (~80KB, ~25k tokens) cannot be read in one shot. For refactor planning, database queries provide structure but file content is needed to understand implementation patterns, imports, and dependencies.
 
 **When Required:**
 - User request is refactor-related (split, modularize, extract) AND
@@ -341,7 +341,7 @@ Step 4: Synthesize understanding:
 
 **Description:** Create plan based ONLY on database query results. Follow detected precedents. Match detected conventions. Cite query results for every recommendation.
 
-**Problem Solved:** Prevents hallucinating patterns or inventing new conventions. Every recommendation backed by database evidence. Follows "precedents over invention" philosophy.
+**Success Criteria:** Prevents hallucinating patterns or inventing new conventions. Every recommendation backed by database evidence. Follows "precedents over invention" philosophy.
 
 ### Task 3.1: Compile Context Summary
 
@@ -397,7 +397,7 @@ Step 4: Synthesize understanding:
 
 **Description:** Present plan and WAIT for user confirmation. If user provides corrections, incorporate and regenerate plan. If user approves, proceed with execution.
 
-**Problem Solved:** Ensures user agreement before execution. Allows user to provide additional context or corrections. Prevents proceeding with wrong assumptions.
+**Success Criteria:** Ensures user agreement before execution. Allows user to provide additional context or corrections. Prevents proceeding with wrong assumptions.
 
 ### Task 4.1: Present Plan
 
@@ -432,7 +432,7 @@ Step 4: Synthesize understanding:
 
 **Description:** Save the approved plan to `.pf/planning.db` using `aud planning` commands so it can be tracked, verified, and resumed later.
 
-**Problem Solved:** Plans only exist as markdown output until persisted. Database storage enables: task tracking, verification specs, git snapshots, and `aud planning list/show` queries. Without this phase, the plan is just chat output with no persistence.
+**Success Criteria:** Plans only exist as markdown output until persisted. Database storage enables: task tracking, verification specs, git snapshots, and `aud planning list/show` queries. Without this phase, the plan is just chat output with no persistence.
 
 ### Task 5.1: Initialize Plan
 
@@ -450,10 +450,10 @@ Step 4: Synthesize understanding:
   aud planning add-phase <PLAN_ID> --phase-number <N> \
     --title "<Phase Title>" \
     --description "<What this phase accomplishes>" \
-    --problem-solved "<Why this phase exists>"
+    --success-criteria "<Why this phase exists>"
   ```
 - [ ] Use exact phase numbers from markdown plan (1, 2, 3, etc.)
-- [ ] Copy description and problem-solved verbatim from Phase → Task → Job structure
+- [ ] Copy description and success-criteria verbatim from Phase → Task → Job structure
 - [ ] **Audit:** Verify all phases added. If audit reveals failures, amend and re-audit.
 
 ### Task 5.3: Add Tasks
@@ -511,7 +511,7 @@ Step 4: Synthesize understanding:
 
 **Description:** After plan execution completes, validate that actual behavior matched the plan using session logs. This phase runs AFTER code changes are made.
 
-**Problem Solved:** Plans without validation are hypotheses without proof. Session logs provide ground truth about what actually happened during execution. Without validation, you can't know if the plan was followed, if workflow compliance occurred, or if blind edits were made. This phase closes the planning loop.
+**Success Criteria:** Plans without validation are hypotheses without proof. Session logs provide ground truth about what actually happened during execution. Without validation, you can't know if the plan was followed, if workflow compliance occurred, or if blind edits were made. This phase closes the planning loop.
 
 **IMPORTANT:** This phase runs in a FUTURE session, after the plan has been executed. It validates the PREVIOUS execution against the plan.
 
