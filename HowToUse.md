@@ -26,11 +26,8 @@
 # Install
 pip install theauditor
 
-# Initialize project (creates .pf/ directory with databases)
+# Run complete security audit (auto-creates .pf/ directory)
 cd C:\Your\Project\Path
-aud init
-
-# Run complete security audit
 aud full
 
 # View summary
@@ -56,9 +53,10 @@ cat .pf\readthis\summary.json
 ### 5-Minute Security Audit
 
 ```bash
-# Step 1: Index codebase (30-60 seconds)
-aud index
+# Step 1: Run complete audit (includes indexing + all analysis)
+aud full
 
+# Or run specific analysis after full audit:
 # Step 2: Run security patterns (10-15 seconds)
 aud detect-patterns
 
@@ -109,8 +107,7 @@ aud impact --file src\database.py --line 156
 # ... make changes ...
 
 # Step 4: Verify no regressions
-aud index
-aud refactor --migration-dir db\migrations
+aud full  # Includes refactor analysis
 aud lint --workset
 ```
 
@@ -165,9 +162,10 @@ aud learn-feedback --feedback feedback.json
 **Scenario**: Check IaC and container security
 
 ```bash
-# Step 1: Index infrastructure files
-aud index
+# Step 1: Run complete audit (includes infrastructure analysis)
+aud full
 
+# Or run specific Docker analysis:
 # Step 2: Analyze Docker security
 aud docker-analyze --severity high
 
@@ -187,93 +185,88 @@ aud workflows
 
 ### Foundation Commands (4)
 
-#### `aud init`
+#### `aud init` **[DEPRECATED]**
 
-**Purpose**: First-time setup of TheAuditor in a project
+**⚠️ DEPRECATION NOTICE**: This command now runs `aud full` for data fidelity.
 
-**Synopsis**:
+**Why Deprecated**:
+- `aud init` originally ran only 4 setup steps (index, workset, deps, docs)
+- Modern analysis requires complete pipeline context (frameworks, graphs, taint, etc.)
+- Partial initialization leads to incomplete/incorrect analysis results
+
+**Replacement**: Use `aud full` instead
 ```bash
-aud init [OPTIONS]
+# OLD workflow
+aud init && aud taint-analyze
+
+# NEW workflow
+aud full  # Auto-creates .pf/ and runs complete audit
 ```
 
-**Options**:
-```
---offline          Skip network operations (docs, deps)
---skip-docs        Skip documentation fetching
---skip-deps        Skip dependency checking
-```
+**Backward Compatibility**:
+- Command still works but redirects to `aud full`
+- Prints deprecation warning with 3-second cancellation window
+- Update scripts to use `aud full` directly
 
-**Workflow**:
-1. Index repository (`aud index`)
-2. Create workset (`aud workset`)
-3. Check dependencies (`aud deps`)
-4. Fetch documentation (`aud docs fetch`)
-
-**Example**:
+**Migration Guide**:
 ```bash
-# Standard initialization
-aud init
-
-# Offline mode (no network)
+# OLD: Initialization only
 aud init --offline
 
-# Skip dependency checking
-aud init --skip-deps
+# NEW: Complete audit (auto-initializes)
+aud full --offline
 ```
-
-**Output**: `.pf\` directory created with databases and manifests
 
 ---
 
-#### `aud index`
+#### `aud index` **[DEPRECATED]**
 
-**Purpose**: Build comprehensive code inventory and symbol database
+**⚠️ DEPRECATION NOTICE**: This command now runs `aud full` for data fidelity.
 
-**Synopsis**:
+**Why Deprecated**:
+- `aud index` only runs Phase 1 (AST indexing ~30-60 seconds)
+- Modern analysis requires Phases 2-20 (frameworks, graphs, taint, patterns)
+- Running `aud index` alone leads to incomplete analysis context
+- Commands like `taint-analyze`, `deadcode`, `graph` need full pipeline context
+
+**Replacement**: Use `aud full` instead
 ```bash
-aud index [OPTIONS]
+# OLD workflow (incomplete)
+aud index && aud taint-analyze && aud deadcode
+
+# NEW workflow (complete audit)
+aud full  # Includes indexing + all 20 phases
 ```
 
-**Options**:
-```
---root DIR                    Root directory (default: .)
---manifest PATH               Output manifest file
---db PATH                     Output SQLite database path
---print-stats                 Show detailed statistics
---dry-run                     Scan but don't write
---follow-symlinks             Follow symbolic links
---exclude-self                Exclude TheAuditor's own files
---no-archive                  Skip archiving previous index
---exclude-patterns PATTERN... Exclude patterns
-```
+**Backward Compatibility**:
+- Command still works but redirects to `aud full`
+- Prints deprecation warning with 3-second cancellation window
+- Performance: ~10-60 minutes (vs ~30 seconds for old index-only)
+- This is INTENTIONAL - ensures data fidelity
 
-**Database Tables Created**: 108 tables across 7 domains
-- Core: symbols, imports, assignments, function_call_args, CFG
-- Python: ORM models, routes, decorators, async, pytest
-- Node: React components, TypeScript types, Prisma
-- Infrastructure: Docker, Terraform, CDK, GitHub Actions
-- Security: SQL queries, JWT patterns, env vars
-
-**Example**:
+**Migration Guide**:
 ```bash
-# Basic indexing
-aud index
-
-# With statistics
+# OLD: Index only
 aud index --print-stats
 
-# Preview what would be indexed
-aud index --dry-run --print-stats
+# NEW: Complete audit with stats
+aud full
 
-# Exclude test files
-aud index --exclude-patterns "tests/" "node_modules/"
+# OLD: Exclude self-testing
+aud index --exclude-self
 
-# Custom database path
-aud index --db C:\custom\path\database.db
+# NEW: Exclude self-testing
+aud full --exclude-self
+
+# OLD: CI/CD quick index
+aud index --no-archive
+
+# NEW: CI/CD complete audit
+aud full --offline --quiet
 ```
 
-**Performance**:
-- Small (5K LOC): ~30 seconds
+**Note**: The database tables (108 tables) are still created the same way, but now
+via `aud full` which ensures all phases populate their respective tables correctly
 - Medium (20K LOC): ~60 seconds
 - Large (100K LOC): ~180 seconds
 
@@ -1882,8 +1875,8 @@ aud full [OPTIONS]
 **Execution Pipeline**:
 ```
 Stage 1: Foundation (Sequential)
-  ├─ aud index
-  └─ aud workset
+  ├─ Repository indexing (internal)
+  └─ Workset creation (internal)
 
 Stage 2: Analysis Preparation (Sequential)
   ├─ aud graph build
@@ -2170,7 +2163,7 @@ if summary['summary']['critical_count'] > 0:
 #### "Schema mismatch" error
 ```bash
 # Solution: Regenerate database
-aud index --exclude-self
+aud full --exclude-self
 ```
 
 #### Out of memory
@@ -2182,8 +2175,10 @@ aud full
 
 #### Slow indexing
 ```bash
-# Solution: Exclude test files and node_modules
-aud index --exclude-patterns "tests/" "node_modules/" "__pycache__/"
+# Solution: Configure exclusions in .auditorconfig before running aud full
+# Edit .auditorconfig to add:
+#   exclude_patterns = ["tests/", "node_modules/", "__pycache__/"]
+aud full
 ```
 
 #### Windows path issues
