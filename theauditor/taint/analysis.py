@@ -379,25 +379,24 @@ class TaintFlowAnalyzer:
         file_path = source.get('file', '')
         line = source.get('line', 0)
 
-        # Check traditional function symbols - find exact line match first
-        for symbol in self.cache.symbols:
+        # Use spatial index to get functions in this file's line block
+        block = line // 100 if line else 0
+        functions_in_block = self.cache.symbols_by_file_line.get(file_path, {}).get(block, [])
+
+        # Check exact line match first
+        for symbol in functions_in_block:
             start_line = symbol.get('line', 0) or 0
-            # For function definitions, the source line equals the function line
-            if (symbol.get('type') == 'function' and
-                symbol.get('path') == file_path and
-                start_line == line):
+            if start_line == line:
                 return symbol.get('name')
 
         # Then check range matches
-        for symbol in self.cache.symbols:
+        for symbol in functions_in_block:
             start_line = symbol.get('line', 0) or 0
             end_line = symbol.get('end_line')
             if end_line is None:
                 end_line = (line or 0) + 100
 
-            if (symbol.get('type') == 'function' and
-                symbol.get('path') == file_path and
-                line is not None and start_line <= line <= end_line):
+            if line is not None and start_line <= line <= end_line:
                 return symbol.get('name')
 
         # Check api_endpoints for endpoint handlers (arrow functions in route definitions)
@@ -467,10 +466,9 @@ class TaintFlowAnalyzer:
             if block.get('function_name') == function and block.get('file') == file:
                 return block.get('start_line')
 
-        # Fallback to symbols table
-        for symbol in self.cache.symbols:
-            if (symbol.get('type') == 'function' and
-                symbol.get('name') == function and
+        # Fallback to symbols table using spatial index
+        for symbol in self.cache.symbols_by_type.get('function', []):
+            if (symbol.get('name') == function and
                 symbol.get('path') == file):
                 return symbol.get('line')
 
@@ -558,15 +556,21 @@ class TaintFlowAnalyzer:
         """Propagate taint through a CFG block."""
         new_tainted = tainted_vars.copy()
 
-        # Get assignments in this block
+        # Get assignments in this block using spatial index
         block_start = block.get('start_line', 0) or 0
         block_end = block.get('end_line', 0) or 0
+        block_file = block.get('file')
+
+        # Query all 100-line blocks that overlap with this CFG block
+        start_block_idx = block_start // 100
+        end_block_idx = block_end // 100
+
         block_assignments = []
-        for a in self.cache.assignments:
-            a_line = a.get('line', 0) or 0
-            if (a.get('file') == block.get('file') and
-                block_start <= a_line <= block_end):
-                block_assignments.append(a)
+        for block_idx in range(start_block_idx, end_block_idx + 1):
+            for a in self.cache.assignments_by_location.get(block_file, {}).get(block_idx, []):
+                a_line = a.get('line', 0) or 0
+                if block_start <= a_line <= block_end:
+                    block_assignments.append(a)
 
         for assignment in block_assignments:
             target = assignment.get('target_var', '') or ''
@@ -588,15 +592,21 @@ class TaintFlowAnalyzer:
         return new_tainted
 
     def _get_calls_in_block(self, block: Dict) -> List[Dict]:
-        """Get function calls in a CFG block."""
-        calls = []
+        """Get function calls in a CFG block using spatial index."""
         block_start = block.get('start_line', 0) or 0
         block_end = block.get('end_line', 0) or 0
-        for c in self.cache.function_call_args:
-            c_line = c.get('line', 0) or 0
-            if (c.get('file') == block.get('file') and
-                block_start <= c_line <= block_end):
-                calls.append(c)
+        block_file = block.get('file')
+
+        # Query all 100-line blocks that overlap with this CFG block
+        start_block_idx = block_start // 100
+        end_block_idx = block_end // 100
+
+        calls = []
+        for block_idx in range(start_block_idx, end_block_idx + 1):
+            for c in self.cache.calls_by_location.get(block_file, {}).get(block_idx, []):
+                c_line = c.get('line', 0) or 0
+                if block_start <= c_line <= block_end:
+                    calls.append(c)
         return calls
 
     def _is_tainted_call(self, call: Dict, tainted_vars: Set[str]) -> bool:
@@ -605,18 +615,10 @@ class TaintFlowAnalyzer:
         return bool(args and any(var in args for var in tainted_vars))
 
     def _get_block_successors(self, block: Dict) -> List[Dict]:
-        """Get successor blocks in CFG."""
-        successors = []
+        """Get successor blocks in CFG using spatial index."""
         block_id = block.get('id')
-        for edge in self.cache.cfg_edges:
-            if edge.get('from_block') == block_id:
-                # Find the target block
-                to_id = edge.get('to_block')
-                for b in self.cache.cfg_blocks:
-                    if b.get('id') == to_id:
-                        successors.append(b)
-                        break
-        return successors
+        # O(1) lookup using pre-computed successors index
+        return self.cache.successors_by_block.get(block_id, [])
 
     def _get_function_assignments(self, function: str, file: str) -> List[Dict]:
         """Get all assignments in a function."""

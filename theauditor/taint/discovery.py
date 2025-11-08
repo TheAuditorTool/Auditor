@@ -102,8 +102,7 @@ class TaintDiscovery:
         # User Input Sources: Property access patterns that indicate user input
         # ZERO FALLBACK POLICY: Use sources_dict from registry, no hardcoded patterns
         input_patterns = sources_dict.get('user_input', [])
-        for symbol in self.cache.symbols:
-            if symbol.get('type') == 'property':
+        for symbol in self.cache.symbols_by_type.get('property', []):
                 name = symbol.get('name', '')
                 if input_patterns and any(pattern in name.lower() for pattern in input_patterns):
                     sources.append({
@@ -120,8 +119,7 @@ class TaintDiscovery:
         # Function Parameter Sources: Parse parameters from function symbols
         # These are often derived from user input (req.body, req.params, etc.)
         import json
-        for symbol in self.cache.symbols:
-            if symbol.get('type') == 'function':
+        for symbol in self.cache.symbols_by_type.get('function', []):
                 params_json = symbol.get('parameters', '[]')
                 if params_json:
                     try:
@@ -504,3 +502,83 @@ class TaintDiscovery:
             filtered.append(sink)
 
         return filtered
+
+    def discover_sanitizers(self) -> List[Dict[str, Any]]:
+        """
+        Discover sanitizers from framework tables.
+
+        Queries database for:
+        - validation_framework_usage (Joi, Yup, etc. validators)
+        - python_validators (Pydantic validators)
+        - sequelize_models (ORM models with safe parameterization)
+        - python_orm_models (SQLAlchemy/Django models)
+
+        Returns:
+            List of sanitizer dictionaries to register in TaintRegistry
+        """
+        sanitizers = []
+
+        # JavaScript validators (Joi, Yup, class-validator, etc.)
+        for validator in getattr(self.cache, 'validation_framework_usage', []):
+            sanitizers.append({
+                'type': 'validator',
+                'name': validator.get('function_name', ''),
+                'framework': validator.get('framework', 'unknown'),
+                'language': 'javascript',
+                'file': validator.get('file', ''),
+                'line': validator.get('line', 0),
+                'pattern': validator.get('function_name', ''),
+                'metadata': validator
+            })
+
+        # Python validators (Pydantic)
+        for validator in getattr(self.cache, 'python_validators', []):
+            validator_name = validator.get('validator_name', '')
+            sanitizers.append({
+                'type': 'validator',
+                'name': validator_name,
+                'framework': 'pydantic',
+                'language': 'python',
+                'file': validator.get('file', ''),
+                'line': validator.get('line', 0),
+                'pattern': validator_name,
+                'validator_type': validator.get('validator_type', 'field'),  # field vs root
+                'metadata': validator
+            })
+
+        # Sequelize ORM models (safe parameterization)
+        for model in getattr(self.cache, 'sequelize_models', []):
+            model_name = model.get('model_name', '')
+            # Register model methods as safe ORM operations
+            for method in ['findOne', 'findAll', 'findByPk', 'create', 'update', 'destroy']:
+                sanitizers.append({
+                    'type': 'orm_model',
+                    'name': f'{model_name}.{method}',
+                    'framework': 'sequelize',
+                    'language': 'javascript',
+                    'file': model.get('file', ''),
+                    'line': model.get('line', 0),
+                    'pattern': f'{model_name}.{method}',
+                    'model_name': model_name,
+                    'table_name': model.get('table_name'),
+                    'metadata': model
+                })
+
+        # Python ORM models (SQLAlchemy, Django)
+        for model in getattr(self.cache, 'python_orm_models', []):
+            model_name = model.get('model_name', '')
+            framework = model.get('framework', 'sqlalchemy')
+            # Register as safe ORM (parameterized queries)
+            sanitizers.append({
+                'type': 'orm_model',
+                'name': model_name,
+                'framework': framework,
+                'language': 'python',
+                'file': model.get('file', ''),
+                'line': model.get('line', 0),
+                'pattern': model_name,
+                'table_name': model.get('table_name'),
+                'metadata': model
+            })
+
+        return sanitizers
