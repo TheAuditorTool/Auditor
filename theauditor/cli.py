@@ -29,21 +29,21 @@ class VerboseGroup(click.Group):
         'PROJECT_SETUP': {
             'title': 'PROJECT SETUP',
             'description': 'Initial configuration and environment setup',
-            'commands': ['init', 'setup-ai', 'setup-claude', 'init-js', 'init-config'],
+            'commands': ['setup-ai', 'setup-claude', 'init-js', 'init-config'],  # 'init' deprecated (hidden)
             'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
         },
         'CORE_ANALYSIS': {
             'title': 'CORE ANALYSIS',
             'description': 'Essential indexing and workset commands',
-            'commands': ['full', 'index', 'workset'],
-            'ai_context': 'Foundation commands. index builds DB, workset filters scope, full runs everything.',
+            'commands': ['full', 'workset'],  # 'index' deprecated (hidden)
+            'ai_context': 'Foundation commands. full runs complete audit, workset filters scope.',
         },
         'SECURITY_SCANNING': {
             'title': 'SECURITY SCANNING',
             'description': 'Vulnerability detection and taint analysis',
-            'commands': ['detect-patterns', 'taint-analyze', 'docker-analyze',
+            'commands': ['detect-patterns', 'taint-analyze', 'boundaries', 'docker-analyze',
                         'detect-frameworks', 'rules', 'context', 'workflows', 'cdk', 'terraform', 'deadcode'],
-            'ai_context': 'Security-focused analysis. detect-patterns=rules, taint-analyze=data flow.',
+            'ai_context': 'Security-focused analysis. detect-patterns=rules, taint-analyze=data flow, boundaries=control distance.',
         },
         'DEPENDENCIES': {
             'title': 'DEPENDENCIES',
@@ -158,13 +158,13 @@ def cli():
       refactorings, and architectural issues.
 
     QUICK START:
-      aud init                    # First-time setup (creates .pf/ directory)
-      aud full                    # Run complete 20-phase security audit
+      aud full                    # Complete security audit (auto-creates .pf/ directory)
       aud full --offline          # Air-gapped analysis (no network calls)
+      aud full --quiet            # Minimal output for CI/CD pipelines
 
     COMMON WORKFLOWS:
       First time setup:
-        aud init && aud full              # Complete initialization and audit
+        aud full                          # Complete audit (auto-creates .pf/)
 
       After code changes:
         aud workset --diff HEAD~1         # Identify changed files
@@ -235,6 +235,7 @@ from theauditor.commands.full import full
 from theauditor.commands.fce import fce
 from theauditor.commands.impact import impact
 from theauditor.commands.taint import taint_analyze
+from theauditor.commands.boundaries import boundaries
 from theauditor.commands.setup import setup_ai
 from theauditor.commands.explain import explain
 
@@ -274,6 +275,10 @@ from theauditor.commands.deadcode import deadcode
 from theauditor.commands.session import session
 
 # Register simple commands
+# DEPRECATED: 'aud init' and 'aud index' now run 'aud full' for backward compatibility
+# Hidden from help but still registered for CI/CD pipelines
+init.hidden = True
+index.hidden = True
 cli.add_command(init)
 cli.add_command(index)
 cli.add_command(workset)
@@ -285,6 +290,7 @@ cli.add_command(full)
 cli.add_command(fce)
 cli.add_command(impact)
 cli.add_command(taint_analyze)
+cli.add_command(boundaries)
 cli.add_command(setup_ai)
 cli.add_command(setup_ai, name="setup-claude")  # Hidden legacy alias
 cli.add_command(explain)

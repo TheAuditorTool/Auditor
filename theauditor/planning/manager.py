@@ -411,7 +411,7 @@ class PlanningManager:
         return cursor.lastrowid
 
     def add_plan_phase(self, plan_id: int, phase_number: int, title: str,
-                      description: str = None, problem_solved: str = None,
+                      description: str = None, success_criteria: str = None,
                       status: str = 'pending', created_at: str = ''):
         """Add a phase to a plan (hierarchical planning structure).
 
@@ -420,7 +420,7 @@ class PlanningManager:
             phase_number: Phase number within plan
             title: Phase title (required)
             description: Phase description
-            problem_solved: What sub-problem this phase solves (justification)
+            success_criteria: What completion looks like for this phase (criteria)
             status: Phase status (pending|in_progress|completed)
             created_at: Creation timestamp (auto-generated if empty)
 
@@ -429,9 +429,9 @@ class PlanningManager:
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO plan_phases
-               (plan_id, phase_number, title, description, problem_solved, status, created_at)
+               (plan_id, phase_number, title, description, success_criteria, status, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (plan_id, phase_number, title, description, problem_solved, status,
+            (plan_id, phase_number, title, description, success_criteria, status,
              created_at if created_at else datetime.now(UTC).isoformat())
         )
         # Note: commit() must be called separately by caller
