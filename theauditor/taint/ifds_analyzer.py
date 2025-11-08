@@ -283,41 +283,77 @@ class IFDSTaintAnalyzer:
     def _get_predecessors(self, ap: AccessPath) -> List[Tuple[AccessPath, str, Dict]]:
         """Get all access paths that flow into this access path.
 
-        Queries graphs.db edges table with target=ap.node_id.
+        CRITICAL CHANGE (Phase 3): Now uses dynamic flow functions per Algorithm 1.
+
+        Instead of just querying static graphs.db edges, this method:
+        1. Queries repo_index.db to find what defines this variable
+        2. Dynamically computes predecessors based on statement type
+        3. Falls back to graphs.db for backward compatibility
+
+        This solves the directional mismatch from Phase 2.
 
         Returns:
             List of (predecessor_access_path, edge_type, metadata) tuples
         """
         predecessors = []
 
-        # Query graphs.db for incoming edges
-        # Use exact match only (no LIKE wildcard - kills performance)
-        self.graph_cursor.execute("""
-            SELECT source, target, type, file, line, metadata
-            FROM edges
-            WHERE target = ?
-            ORDER BY type
-        """, (ap.node_id,))
+        # PHASE 3: Dynamic flow functions (PRIMARY PATH)
+        # Query repo_index.db to find defining statement
+        defining_stmt = self._get_defining_statement(ap)
 
-        for row in self.graph_cursor.fetchall():
-            source_node = row['source']
-            edge_type = row['type']
+        if defining_stmt:
+            stmt_type = defining_stmt.get('type')
 
-            # Parse source as AccessPath
-            source_ap = AccessPath.parse(source_node, ap.max_length)
-            if not source_ap:
-                continue
+            if self.debug:
+                print(f"[IFDS] {ap.node_id} defined by {stmt_type}", file=sys.stderr)
 
-            # Check if source is relevant (conservative alias check)
-            if not self._could_alias(source_ap, ap):
-                continue
+            # Dispatch to appropriate flow function
+            if stmt_type == 'PARAMETER':
+                # THE CRITICAL FIX: Query function_call_args backward
+                dynamic_preds = self._flow_function_parameter(ap)
+                predecessors.extend(dynamic_preds)
 
-            meta = {
-                'file': row['file'] if row['file'] else source_ap.file,
-                'line': row['line'] if row['line'] else 0,
-            }
+            elif stmt_type == 'ASSIGNMENT':
+                # Simple variable flow
+                dynamic_preds = self._flow_function_assignment(ap, defining_stmt)
+                predecessors.extend(dynamic_preds)
 
-            predecessors.append((source_ap, edge_type, meta))
+            elif stmt_type == 'FIELD_LOAD':
+                # Field-sensitive flow
+                dynamic_preds = self._flow_function_field_load(ap, defining_stmt)
+                predecessors.extend(dynamic_preds)
+
+        # FALLBACK: Static graph edges (for types not yet implemented)
+        # Keep existing graph traversal for backward compatibility
+        # This ensures assignment/return edges from graphs.db still work
+        if not predecessors:
+            self.graph_cursor.execute("""
+                SELECT source, target, type, file, line, metadata
+                FROM edges
+                WHERE target = ?
+                ORDER BY type
+            """, (ap.node_id,))
+
+            for row in self.graph_cursor.fetchall():
+                source_node = row['source']
+                edge_type = row['type']
+
+                # Parse source as AccessPath
+                source_ap = AccessPath.parse(source_node, ap.max_length)
+                if not source_ap:
+                    continue
+
+                # Check if source is relevant (conservative alias check)
+                # SKIP alias check for parameter_binding edges
+                if edge_type != 'parameter_binding' and not self._could_alias(source_ap, ap):
+                    continue
+
+                meta = {
+                    'file': row['file'] if row['file'] else source_ap.file,
+                    'line': row['line'] if row['line'] else 0,
+                }
+
+                predecessors.append((source_ap, edge_type, meta))
 
         return predecessors
 
@@ -525,6 +561,253 @@ class IFDSTaintAnalyzer:
                     return True
 
         return False
+
+    def _get_defining_statement(self, ap: AccessPath) -> Optional[Dict[str, Any]]:
+        """Determine what defines this AccessPath (Algorithm 1 dispatcher).
+
+        Queries repo_index.db to find if this variable is:
+        - A function parameter (PARAMETER)
+        - Defined by assignment (ASSIGNMENT or FIELD_LOAD)
+        - A source/allocation (not implemented yet)
+
+        This is Step 1 of Algorithm 1 from the Oracle Labs paper.
+
+        Returns:
+            Dict with 'type' and statement data, or None if undefined
+        """
+        # Check if it's a function parameter
+        # Query symbols table for parameters
+        self.repo_cursor.execute("""
+            SELECT path, name, type, line, parameters
+            FROM symbols
+            WHERE path = ? AND name = ? AND type = 'parameter'
+            LIMIT 1
+        """, (ap.file, ap.base))
+
+        param_row = self.repo_cursor.fetchone()
+        if param_row:
+            return {
+                'type': 'PARAMETER',
+                'file': param_row['path'],
+                'name': param_row['name'],
+                'line': param_row['line']
+            }
+
+        # Check if it's defined by assignment
+        # Query assignments table
+        if ap.fields:
+            # Field access like req.body
+            # Check assignments with property_path
+            full_path = f"{ap.base}.{'.'.join(ap.fields)}"
+            self.repo_cursor.execute("""
+                SELECT file, line, target_var, source_expr, in_function, property_path
+                FROM assignments
+                WHERE file = ? AND target_var = ? AND in_function = ?
+                   AND (property_path = ? OR property_path IS NULL)
+                ORDER BY line DESC
+                LIMIT 1
+            """, (ap.file, ap.base, ap.function, full_path))
+        else:
+            # Simple variable
+            self.repo_cursor.execute("""
+                SELECT file, line, target_var, source_expr, in_function, property_path
+                FROM assignments
+                WHERE file = ? AND target_var = ? AND in_function = ?
+                ORDER BY line DESC
+                LIMIT 1
+            """, (ap.file, ap.base, ap.function))
+
+        assign_row = self.repo_cursor.fetchone()
+        if assign_row:
+            # Check if it's a field load (source_expr contains '.')
+            source_expr = assign_row['source_expr']
+            if '.' in source_expr and not source_expr.startswith('"') and not source_expr.startswith("'"):
+                return {
+                    'type': 'FIELD_LOAD',
+                    'file': assign_row['file'],
+                    'line': assign_row['line'],
+                    'target_var': assign_row['target_var'],
+                    'source_expr': source_expr,
+                    'property_path': assign_row['property_path']
+                }
+            else:
+                return {
+                    'type': 'ASSIGNMENT',
+                    'file': assign_row['file'],
+                    'line': assign_row['line'],
+                    'target_var': assign_row['target_var'],
+                    'source_expr': source_expr
+                }
+
+        # Not defined in this scope - could be from outer scope or undefined
+        return None
+
+    def _flow_function_parameter(self, ap: AccessPath) -> List[Tuple[AccessPath, str, Dict]]:
+        """Flow function for parameters - THE CRITICAL FIX for directional mismatch.
+
+        When tracing backward hits a parameter (e.g., db.js::execute::sql),
+        this finds all call sites that pass arguments to this parameter.
+
+        Algorithm:
+        1. Query function_call_args WHERE callee matches ap.function AND param_name = ap.base
+        2. For each call site, extract caller file, caller function, argument expression
+        3. Parse argument to get variable name
+        4. Return AccessPath for caller's argument
+
+        This dynamically creates the backward edge that Phase 2 couldn't pre-build.
+        """
+        predecessors = []
+
+        # Extract function name from ap.function (may be qualified like "MyClass.method")
+        func_name = ap.function.split('.')[-1] if '.' in ap.function else ap.function
+
+        # Query function_call_args for calls to this function with this parameter
+        self.repo_cursor.execute("""
+            SELECT file, line, caller_function, callee_function,
+                   argument_expr, param_name
+            FROM function_call_args
+            WHERE callee_file_path = ?
+              AND (callee_function LIKE ? OR callee_function = ?)
+              AND param_name = ?
+        """, (ap.file, f'%{func_name}%', func_name, ap.base))
+
+        for row in self.repo_cursor.fetchall():
+            caller_file = row['file']
+            caller_function = row['caller_function'] if row['caller_function'] else "global"
+            argument_expr = row['argument_expr']
+
+            # Parse argument expression to get variable name
+            arg_var = self._parse_arg_variable(argument_expr)
+            if not arg_var:
+                continue
+
+            # Create AccessPath for caller's argument
+            caller_ap = AccessPath(
+                file=caller_file,
+                function=caller_function,
+                base=arg_var.split('.')[0],
+                fields=tuple(arg_var.split('.')[1:]) if '.' in arg_var else ()
+            )
+
+            meta = {
+                'file': caller_file,
+                'line': row['line'],
+                'call': row['callee_function']
+            }
+
+            predecessors.append((caller_ap, 'parameter_call', meta))
+
+            if self.debug:
+                print(f"[IFDS] Parameter flow: {caller_ap.node_id} -> {ap.node_id}", file=sys.stderr)
+
+        return predecessors
+
+    def _flow_function_assignment(self, ap: AccessPath, stmt: Dict) -> List[Tuple[AccessPath, str, Dict]]:
+        """Flow function for assignments (Algorithm 1, Case 2).
+
+        For assignment x = y, when tracing x backward, return y.
+
+        Queries assignment_sources junction table for source variables.
+        """
+        predecessors = []
+
+        file = stmt['file']
+        line = stmt['line']
+        target_var = stmt['target_var']
+
+        # Query assignment_sources for source variables
+        self.repo_cursor.execute("""
+            SELECT source_var_name
+            FROM assignment_sources
+            WHERE assignment_file = ? AND assignment_line = ? AND assignment_target = ?
+        """, (file, line, target_var))
+
+        for row in self.repo_cursor.fetchall():
+            source_var = row['source_var_name']
+
+            # Create AccessPath for source variable
+            source_ap = AccessPath(
+                file=file,
+                function=ap.function,  # Same function scope
+                base=source_var.split('.')[0],
+                fields=tuple(source_var.split('.')[1:]) if '.' in source_var else ()
+            )
+
+            meta = {'file': file, 'line': line, 'assignment': True}
+            predecessors.append((source_ap, 'assignment', meta))
+
+        return predecessors
+
+    def _flow_function_field_load(self, ap: AccessPath, stmt: Dict) -> List[Tuple[AccessPath, str, Dict]]:
+        """Flow function for field loads (Algorithm 1, Case 3).
+
+        For x = y.f, when tracing:
+        - x backward → y.f
+        - x.g backward → y.f.g (field composition)
+        """
+        predecessors = []
+
+        source_expr = stmt['source_expr']
+        file = stmt['file']
+        line = stmt['line']
+
+        # Parse source_expr as base.field1.field2...
+        parts = source_expr.split('.')
+        if not parts:
+            return []
+
+        base = parts[0]
+        source_fields = tuple(parts[1:]) if len(parts) > 1 else ()
+
+        # If tracing x.g, need to compose with source fields
+        # Tracing x.g where x = y.f means predecessor is y.f.g
+        if ap.fields:
+            # Compose: source_fields + ap.fields
+            combined_fields = source_fields + ap.fields
+        else:
+            # Tracing x directly means predecessor is y.f
+            combined_fields = source_fields
+
+        source_ap = AccessPath(
+            file=file,
+            function=ap.function,
+            base=base,
+            fields=combined_fields
+        )
+
+        meta = {'file': file, 'line': line, 'field_load': True}
+        predecessors.append((source_ap, 'field_load', meta))
+
+        return predecessors
+
+    def _parse_arg_variable(self, arg_expr: str) -> Optional[str]:
+        """Parse argument expression to extract variable name.
+
+        Similar to dfg_builder._parse_argument_variable but simpler.
+        Returns variable name with optional field access (e.g., "req.body").
+        """
+        if not arg_expr or not isinstance(arg_expr, str):
+            return None
+
+        arg_expr = arg_expr.strip()
+
+        # Skip literals
+        if arg_expr.startswith('"') or arg_expr.startswith("'") or arg_expr.isdigit():
+            return None
+
+        # Skip function calls
+        if '(' in arg_expr:
+            return None
+
+        # Skip operators
+        if any(op in arg_expr for op in ['+', '-', '*', '/', '=', '<', '>', '!']):
+            return None
+
+        # Must start with valid identifier
+        if not (arg_expr[0].isalpha() or arg_expr[0] == '_'):
+            return None
+
+        return arg_expr  # May include dots for field access
 
     def close(self):
         """Close database connections."""

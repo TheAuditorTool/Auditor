@@ -9,6 +9,7 @@ database evolves.
 
 from typing import Dict, List, Any, Optional
 import sys
+import sqlite3
 
 
 def _matches_file_io_pattern(func_name: str, patterns: List[str]) -> bool:
@@ -197,23 +198,52 @@ class TaintDiscovery:
         if sinks_dict is None:
             sinks_dict = {}
 
-        # SQL Injection Sinks: Direct from sql_queries table
-        for query in self.cache.sql_queries:
-            # Assess risk based on query construction
-            query_text = query.get('query_text', '')
-            risk = self._assess_sql_risk(query_text)
+        # SQL Injection Sinks: Resolve SQL queries to their result variables
+        # PHASE 1 FIX: Pattern must be file::scope::variable to match DFG node IDs
+        # Join sql_queries with assignments table to find result variable
+        conn = sqlite3.connect(self.cache.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
 
-            sinks.append({
-                'type': 'sql',
-                'name': 'sql_query',
-                'file': query.get('file_path', ''),
-                'line': query.get('line_number', 0),
-                'pattern': query_text[:100],
-                'category': 'sql',
-                'risk': risk,
-                'is_parameterized': query.get('is_parameterized', False),
-                'metadata': query
-            })
+        for query in self.cache.sql_queries:
+            file_path = query.get('file_path', '')
+            line_number = query.get('line_number', 0)
+            query_text = query.get('query_text', '')
+
+            # Query assignments table to find variable assigned the query result
+            cursor.execute("""
+                SELECT target_var, in_function
+                FROM assignments
+                WHERE file = ? AND line = ?
+                LIMIT 1
+            """, (file_path, line_number))
+
+            result_row = cursor.fetchone()
+            if result_row:
+                # Found assignment - extract variable name
+                target_var = result_row['target_var']
+
+                # ✅ CORRECTED: Pattern is JUST the variable name (access path)
+                # IFDS analyzer will use file+line to find scope and construct node_id
+                pattern = target_var
+
+                # Assess risk based on query construction
+                risk = self._assess_sql_risk(query_text)
+
+                sinks.append({
+                    'type': 'sql',
+                    'name': target_var,
+                    'file': file_path,
+                    'line': line_number,
+                    'pattern': pattern,  # ✅ BARE VARIABLE NAME (e.g., "result")
+                    'category': 'sql',
+                    'risk': risk,
+                    'is_parameterized': query.get('is_parameterized', False),
+                    'metadata': query
+                })
+            # else: ZERO FALLBACK - skip sinks without assignments
+
+        conn.close()
 
         # SQL Injection Sinks: Raw SQL functions from registry
         # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
