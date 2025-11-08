@@ -256,7 +256,6 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
     (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
     from theauditor.taint import trace_taint, save_taint_analysis, normalize_taint_path
-    from theauditor.taint.insights import format_taint_report, calculate_severity, generate_summary, classify_vulnerability
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
     from theauditor.taint import TaintRegistry
@@ -416,30 +415,15 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
             use_memory_cache=memory,
             memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
-    
-    # Enrich raw paths with interpretive insights
+
+    # Normalize paths (factual transformation only, no insights)
     if result.get("success"):
-        # Add severity and classification to each path
-        enriched_paths = []
+        normalized_paths = []
         for path in result.get("taint_paths", result.get("paths", [])):
-            # Normalize the path first
-            path = normalize_taint_path(path)
-            # Add severity
-            path["severity"] = calculate_severity(path)
-            # Enrich sink information with vulnerability classification
-            path["vulnerability_type"] = classify_vulnerability(
-                path.get("sink", {}), 
-                SECURITY_SINKS
-            )
-            enriched_paths.append(path)
-        
-        # Update result with enriched paths
-        result["taint_paths"] = enriched_paths
-        result["paths"] = enriched_paths
-        
-        # Generate summary
-        result["summary"] = generate_summary(enriched_paths)
-    
+            normalized_paths.append(normalize_taint_path(path))
+        result["taint_paths"] = normalized_paths
+        result["paths"] = normalized_paths
+
     # Filter by severity if requested
     if severity != "all" and result.get("success"):
         filtered_paths = []
@@ -540,29 +524,25 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
         # JSON output for programmatic use
         click.echo(json_lib.dumps(result, indent=2, sort_keys=True))
     else:
-        # Human-readable report
-        report = format_taint_report(result)
-        click.echo(report)
-        
-        # Additional verbose output
-        if verbose and result.get("success"):
+        # Simple factual report (no insights)
+        if result.get("success"):
             paths = result.get("taint_paths", result.get("paths", []))
-            if paths and len(paths) > 10:
-                click.echo("\n" + "=" * 60)
-                click.echo("ADDITIONAL VULNERABILITY DETAILS")
-                click.echo("=" * 60)
-                
-                for i, path in enumerate(paths[10:20], 11):
-                    # Normalize path to ensure all keys exist
-                    path = normalize_taint_path(path)
-                    click.echo(f"\n{i}. {path['vulnerability_type']} ({path['severity']})")
-                    click.echo(f"   Source: {path['source']['file']}:{path['source']['line']}")
-                    click.echo(f"   Sink: {path['sink']['file']}:{path['sink']['line']}")
-                    arrow = "->" if IS_WINDOWS else "→"
-                    click.echo(f"   Pattern: {path['source'].get('pattern', '')} {arrow} {path['sink'].get('pattern', '')}")  # Empty not unknown
-                
-                if len(paths) > 20:
-                    click.echo(f"\n... and {len(paths) - 20} additional vulnerabilities not shown")
+            click.echo(f"\n[TAINT] Found {len(paths)} taint paths")
+            click.echo(f"[TAINT] Sources: {result.get('sources_found', 0)}")
+            click.echo(f"[TAINT] Sinks: {result.get('sinks_found', 0)}")
+
+            # Show first 10 paths
+            for i, path in enumerate(paths[:10], 1):
+                path = normalize_taint_path(path)
+                sink_type = path.get('sink', {}).get('type', 'unknown')
+                click.echo(f"\n{i}. {sink_type}")
+                click.echo(f"   Source: {path['source']['file']}:{path['source']['line']}")
+                click.echo(f"   Sink: {path['sink']['file']}:{path['sink']['line']}")
+
+            if len(paths) > 10:
+                click.echo(f"\n... and {len(paths) - 10} additional paths (use --json for full output)")
+        else:
+            click.echo(f"\n[ERROR] {result.get('error', 'Unknown error')}")
 
     # Exit with appropriate code
     if result.get("success"):

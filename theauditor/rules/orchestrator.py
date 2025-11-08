@@ -768,58 +768,99 @@ class RulesOrchestrator:
     
     def collect_rule_patterns(self, registry):
         """Collect and register all taint patterns from rules that define them.
-        
-        This method DYNAMICALLY discovers and calls register_taint_patterns()
-        functions from ALL rule modules, without hardcoding any module names.
-        
+
+        ARCHITECTURAL FIX: Framework-Aware Pattern Collection
+        This method now FILTERS rules by detected frameworks before registering patterns.
+        Only runs Python rules if Python frameworks detected (Flask, Django, etc.),
+        only runs JavaScript rules if JavaScript frameworks detected (Express, React, etc.).
+
+        This prevents registry pollution (Python patterns matching JavaScript code) and
+        ensures taint analysis only uses relevant patterns for the project's languages.
+
         Args:
             registry: TaintRegistry instance to populate with patterns
-            
+
         Returns:
             The populated registry
         """
+        # Query frameworks table to get detected languages
+        detected_languages = set()
+        if self.db_path.exists():
+            try:
+                conn = sqlite3.connect(str(self.db_path))
+                cursor = conn.cursor()
+
+                # Get all unique languages from frameworks table
+                # Schema Contract: frameworks table guaranteed to exist
+                # Note: build_query doesn't support DISTINCT, so use raw SQL
+                cursor.execute("SELECT DISTINCT language FROM frameworks")
+
+                for (language,) in cursor.fetchall():
+                    if language:  # Skip None values
+                        detected_languages.add(language.lower())
+
+                conn.close()
+
+                if self._debug:
+                    print(f"[ORCHESTRATOR] Detected languages: {detected_languages}")
+            except Exception as e:
+                if self._debug:
+                    print(f"[ORCHESTRATOR] Warning: Failed to query frameworks: {e}")
+                # ZERO FALLBACK POLICY: If frameworks query fails, continue with empty set
+                # This will skip all language-specific rules (correct behavior)
+
         # Track unique modules we've already processed
         processed_modules = set()
-        
+        skipped_categories = set()
+
         # Use the ALREADY DISCOVERED rules to find modules dynamically
         for category, rules in self.rules.items():
+            # CRITICAL FIX: Filter rules by detected languages
+            # Category name corresponds to language (python/, javascript/, rust/)
+            # Only process if framework detection found that language
+            if category in {'python', 'javascript', 'rust', 'typescript'} and category not in detected_languages:
+                skipped_categories.add(category)
+                if self._debug:
+                    print(f"[ORCHESTRATOR] Skipping {category} rules (no {category} frameworks detected)")
+                continue
+
             for rule in rules:
                 module_name = rule.module
-                
+
                 # Skip if we've already processed this module
                 if module_name in processed_modules:
                     continue
                 processed_modules.add(module_name)
-                
+
                 try:
                     # Import the module
                     module = importlib.import_module(module_name)
-                    
+
                     # Check if it has register_taint_patterns function
                     if hasattr(module, 'register_taint_patterns'):
                         register_func = getattr(module, 'register_taint_patterns')
-                        
+
                         # Call the registration function
                         register_func(registry)
-                        
+
                         if self._debug:
                             print(f"[ORCHESTRATOR] Registered patterns from {module_name}")
-                            
+
                 except ImportError as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Failed to import {module_name}: {e}")
                 except Exception as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Error registering patterns from {module_name}: {e}")
-        
+
         if self._debug:
-            # Report statistics about registered patterns
-            source_count = sum(len(patterns) for patterns in registry.sources.values())
-            sink_count = sum(len(patterns) for patterns in registry.sinks.values())
+            # Report statistics about registered patterns (language-aware now)
+            stats = registry.get_stats()
             processed_count = len(processed_modules)
             print(f"[ORCHESTRATOR] Dynamically processed {processed_count} modules")
-            print(f"[ORCHESTRATOR] Collected {source_count} sources and {sink_count} sinks from rules")
-        
+            print(f"[ORCHESTRATOR] Skipped {len(skipped_categories)} categories: {skipped_categories}")
+            print(f"[ORCHESTRATOR] Pattern statistics: {stats}")
+
         return registry
     
     def _get_taint_tracer(self):

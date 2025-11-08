@@ -243,6 +243,60 @@ class TaintDiscovery:
                 })
                 sql_query_count += 1
 
+        # ORM Query Methods as SQL Sinks
+        # Discover ORM methods like User.findByPk, Order.findAll, Model.create
+        # These are potential SQL injection points when parameters are user-controlled
+        orm_patterns = [
+            # Sequelize ORM patterns
+            '.findOne', '.findAll', '.findByPk', '.create', '.update',
+            '.destroy', '.bulkCreate', '.upsert', '.findOrCreate',
+            # Generic ORM patterns
+            '.query', '.execute', 'db.query', 'db.execute',
+            # Knex patterns
+            'knex.select', 'knex.insert', 'knex.update', 'knex.delete'
+        ]
+
+        for call in self.cache.function_call_args:
+            func_name = call.get('callee_function', '')
+            if not func_name:
+                continue
+
+            # Check if it's an ORM method call (Model.method pattern)
+            is_orm_method = False
+            for pattern in orm_patterns:
+                if pattern in func_name:
+                    # Additional check: ensure it looks like Model.method, not just contains pattern
+                    # This avoids false positives like 'findAllMatches'
+                    parts = func_name.split('.')
+                    if len(parts) >= 2 and parts[-1].startswith(pattern.lstrip('.')):
+                        is_orm_method = True
+                        break
+
+            if is_orm_method:
+                arg_expr = call.get('argument_expr')
+
+                # ZERO FALLBACK: Skip ORM calls with no arguments (NULL in DB)
+                # Methods like save(), commit() have no injection risk without args
+                if arg_expr is None:
+                    continue
+
+                # Check for unsafe patterns in ORM arguments
+                has_interpolation = '${' in arg_expr or '+' in arg_expr
+                risk = 'high' if has_interpolation else 'medium'
+
+                sinks.append({
+                    'type': 'sql',  # ORM methods are SQL sinks
+                    'name': func_name,
+                    'file': call.get('file', ''),
+                    'line': call.get('line', 0),
+                    'pattern': arg_expr,
+                    'category': 'orm',  # Subcategory to distinguish from raw SQL
+                    'risk': risk,
+                    'is_parameterized': not has_interpolation,  # ORM usually parameterized unless concatenation
+                    'has_interpolation': has_interpolation,
+                    'metadata': call
+                })
+
         # NoSQL Injection Sinks (optional - language-specific)
         for query in getattr(self.cache, 'nosql_queries', []):
             sinks.append({
@@ -399,10 +453,13 @@ class TaintDiscovery:
         """
         Filter out sinks that are automatically safe due to framework protections.
 
-        For example:
-        - res.json() in Express automatically escapes data
-        - React components escape by default (unless dangerouslySetInnerHTML)
-        - Parameterized queries are safe from SQL injection
+        Database-driven approach: Queries framework_safe_sinks table populated during indexing.
+        ZERO FALLBACK POLICY: No hardcoded safe patterns.
+
+        Examples from database:
+        - Express res.json() (auto-escapes JSON)
+        - React components (escape by default)
+        - Parameterized SQL queries
 
         Args:
             sinks: List of discovered sinks
@@ -410,19 +467,40 @@ class TaintDiscovery:
         Returns:
             Filtered list of sinks that are actually vulnerable
         """
+        # Query framework_safe_sinks table for safe patterns
+        # Build set of safe patterns for fast lookup
+        safe_patterns = set()
+
+        # Access framework_safe_sinks through cache
+        for safe_sink in getattr(self.cache, 'framework_safe_sinks', []):
+            # Only include patterns marked as safe (is_safe = 1)
+            if safe_sink.get('is_safe'):
+                pattern = safe_sink.get('sink_pattern', '')
+                if pattern:
+                    safe_patterns.add(pattern.lower())
+
         filtered = []
 
         for sink in sinks:
-            # Skip parameterized SQL queries
+            # Check if sink pattern matches any safe pattern from database
+            sink_name = sink.get('name', '').lower()
+            sink_pattern = sink.get('pattern', '').lower()
+
+            # Skip if pattern is in safe list
+            if sink_name in safe_patterns or sink_pattern in safe_patterns:
+                continue
+
+            # Skip if any safe pattern is a substring of the sink
+            # (e.g., 'res.json' matches 'res.json(data)')
+            if any(safe in sink_name or safe in sink_pattern for safe in safe_patterns):
+                continue
+
+            # Additional hardening: Skip parameterized SQL (defensive check)
+            # This is a safety net in case framework_safe_sinks table is incomplete
             if sink.get('category') == 'sql' and sink.get('is_parameterized'):
                 continue
 
-            # Skip React components that don't use dangerouslySetInnerHTML
-            if sink.get('category') == 'xss' and sink.get('type') == 'react':
-                if 'dangerouslySetInnerHTML' not in sink.get('pattern', ''):
-                    continue
-
-            # Keep all other sinks
+            # Keep sink if not safe
             filtered.append(sink)
 
         return filtered
