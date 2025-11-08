@@ -85,7 +85,9 @@ class JavaScriptExtractor(BaseExtractor):
             'angular_services': [],
             'angular_modules': [],
             'angular_guards': [],
-            'di_injections': []
+            'di_injections': [],
+            # Express framework
+            'express_middleware_chains': []  # PHASE 5: Middleware execution chains
         }
 
         # No AST = no extraction
@@ -140,6 +142,7 @@ class JavaScriptExtractor(BaseExtractor):
                     'vue_provide_inject': 'vue_provide_inject',
                     'orm_queries': 'orm_queries',
                     'api_endpoints': 'routes',  # Orchestrator uses 'routes' key
+                    'express_middleware_chains': 'express_middleware_chains',  # PHASE 5: Middleware execution chains
                     'validation_framework_usage': 'validation_framework_usage',  # Validation sanitizer detection
                     'cdk_constructs': 'cdk_constructs',  # AWS CDK infrastructure-as-code constructs
                 }

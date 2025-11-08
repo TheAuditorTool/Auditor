@@ -427,7 +427,9 @@ async function main() {
                     const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                     const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                     const ormQueries = extractORMQueries(functionCallArgs);
-                    const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+                    const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+                    const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
+                    const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
                     const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                     const sqlQueries = extractSQLQueries(functionCallArgs);
                     const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
@@ -496,6 +498,7 @@ async function main() {
                             react_hooks: reactHooks,
                             orm_queries: ormQueries,
                             routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                            express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
                             cdk_constructs: cdkConstructs,
@@ -947,7 +950,9 @@ try {
                 const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                 const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                 const ormQueries = extractORMQueries(functionCallArgs);
-                const apiEndpoints = extractAPIEndpoints(functionCallArgs);
+                const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+                const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
+                const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
                 const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
                 const sqlQueries = extractSQLQueries(functionCallArgs);
                 const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
@@ -1014,6 +1019,7 @@ try {
                         react_hooks: reactHooks,
                         orm_queries: ormQueries,
                         routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                        express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
                         cdk_constructs: cdkConstructs,

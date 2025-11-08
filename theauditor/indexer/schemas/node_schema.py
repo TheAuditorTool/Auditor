@@ -552,6 +552,34 @@ VALIDATION_FRAMEWORK_USAGE = TableSchema(
 )
 
 # ============================================================================
+# EXPRESS FRAMEWORK TABLES
+# ============================================================================
+
+EXPRESS_MIDDLEWARE_CHAINS = TableSchema(
+    name="express_middleware_chains",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),  # AUTOINCREMENT handled by SQLite
+        Column("file", "TEXT", nullable=False),  # Route file (e.g., account.routes.ts)
+        Column("route_line", "INTEGER", nullable=False),  # Line where router.METHOD called
+        Column("route_path", "TEXT", nullable=False),  # Endpoint path (e.g., "/account")
+        Column("route_method", "TEXT", nullable=False),  # HTTP method (GET, POST, etc.)
+        Column("execution_order", "INTEGER", nullable=False),  # 1, 2, 3... (order in argument list)
+        Column("handler_expr", "TEXT", nullable=False),  # Function expression (e.g., "validateBody(...)")
+        Column("handler_type", "TEXT", nullable=False),  # 'middleware' or 'controller'
+        Column("handler_file", "TEXT"),  # Resolved file (if possible) - FUTURE ENHANCEMENT
+        Column("handler_function", "TEXT"),  # Resolved function name - FUTURE ENHANCEMENT
+        Column("handler_line", "INTEGER"),  # Resolved line number - FUTURE ENHANCEMENT
+    ],
+    indexes=[
+        ("idx_express_middleware_chains_file", ["file"]),
+        ("idx_express_middleware_chains_route", ["route_line"]),
+        ("idx_express_middleware_chains_path", ["route_path"]),
+        ("idx_express_middleware_chains_method", ["route_method"]),
+        ("idx_express_middleware_chains_handler_type", ["handler_type"]),
+    ]
+)
+
+# ============================================================================
 # NODE TABLES REGISTRY
 # ============================================================================
 
@@ -587,6 +615,9 @@ NODE_TABLES: Dict[str, TableSchema] = {
     "frameworks": FRAMEWORKS,
     "framework_safe_sinks": FRAMEWORK_SAFE_SINKS,
     "validation_framework_usage": VALIDATION_FRAMEWORK_USAGE,
+
+    # Express framework
+    "express_middleware_chains": EXPRESS_MIDDLEWARE_CHAINS,
 
     # Sequelize ORM
     "sequelize_models": SEQUELIZE_MODELS,

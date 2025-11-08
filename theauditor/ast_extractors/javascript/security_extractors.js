@@ -64,16 +64,28 @@ function extractORMQueries(functionCallArgs) {
 }
 
 /**
- * Extract REST API endpoint definitions.
+ * Extract REST API endpoint definitions AND middleware chains.
  * Detects: app.get, router.post, etc.
  * Implements Python's javascript.py:455-460, 1158-1263 route extraction.
  *
+ * PHASE 5 ENHANCEMENT:
+ * - Captures ALL route handler arguments (not just route path at index 0)
+ * - Extracts middleware execution chain: router.METHOD(path, mw1, mw2, controller)
+ * - Returns BOTH endpoint records (for api_endpoints table) AND middleware chain records
+ *   (for express_middleware_chains table)
+ *
  * @param {Array} functionCallArgs - From extractFunctionCallArgs()
- * @returns {Array} - API endpoint records
+ * @returns {Object} - { endpoints: Array, middlewareChains: Array }
  */
 function extractAPIEndpoints(functionCallArgs) {
     const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'all']);
     const endpoints = [];
+    const middlewareChains = [];
+
+    // STEP 1: Group function calls by line number
+    // Same router.METHOD(...) call creates multiple functionCallArgs records (one per argument)
+    // We must group them to process each route definition as a single unit
+    const callsByLine = {};
 
     for (const call of functionCallArgs) {
         const callee = call.callee_function || '';
@@ -84,26 +96,68 @@ function extractAPIEndpoints(functionCallArgs) {
 
         if (!HTTP_METHODS.has(method)) continue;
 
-        // First argument is typically the route path
-        const route = call.argument_index === 0 ? call.argument_expr : null;
-
-        // FIX: Add type check. If route path isn't a string, skip it
-        // This prevents TypeError when route is a variable reference or non-string
-        if (!route || typeof route !== 'string') continue;
-
-        // Clean up route string
-        let cleanRoute = route.replace(/['"]/g, '').trim();
-
-        endpoints.push({
-            line: call.line,
-            method: method.toUpperCase(),
-            route: cleanRoute,
-            handler_function: call.caller_function,
-            requires_auth: false  // Could detect from middleware analysis
-        });
+        // Group by line number
+        if (!callsByLine[call.line]) {
+            callsByLine[call.line] = {
+                method: method,
+                callee: callee,
+                caller_function: call.caller_function,
+                calls: []
+            };
+        }
+        callsByLine[call.line].calls.push(call);
     }
 
-    return endpoints;
+    // STEP 2: Process each route definition
+    for (const [line, data] of Object.entries(callsByLine)) {
+        const { method, callee, caller_function, calls } = data;
+
+        // Sort by argument_index to get deterministic execution order
+        calls.sort((a, b) => a.argument_index - b.argument_index);
+
+        // STEP 3: Extract route path (argument 0)
+        const routeArg = calls.find(c => c.argument_index === 0);
+        if (!routeArg) continue;
+
+        const route = routeArg.argument_expr;
+        if (!route || typeof route !== 'string') continue;
+
+        let cleanRoute = route.replace(/['"]/g, '').trim();
+
+        // STEP 4: Extract endpoint record (for api_endpoints table)
+        endpoints.push({
+            line: parseInt(line),
+            method: method.toUpperCase(),
+            route: cleanRoute,
+            handler_function: caller_function,
+            requires_auth: false
+        });
+
+        // STEP 5: Extract middleware chain (arguments 1 to N-1)
+        // Pattern: router.post('/', middleware1, middleware2, controller)
+        //   arg0: '/'           ← route path (processed above)
+        //   arg1: middleware1   ← execution_order = 1
+        //   arg2: middleware2   ← execution_order = 2
+        //   arg3: controller    ← execution_order = 3, handler_type = 'controller'
+        for (let i = 1; i < calls.length; i++) {
+            const call = calls[i];
+
+            // Determine handler type: last argument is controller, others are middleware
+            const isController = i === calls.length - 1;
+
+            middlewareChains.push({
+                route_line: parseInt(line),
+                route_path: cleanRoute,
+                route_method: method.toUpperCase(),
+                execution_order: i,  // 1, 2, 3... (after route path at 0)
+                handler_expr: call.argument_expr || '',
+                handler_type: isController ? 'controller' : 'middleware'
+            });
+        }
+    }
+
+    // STEP 6: Return both datasets
+    return { endpoints, middlewareChains };
 }
 
 /**

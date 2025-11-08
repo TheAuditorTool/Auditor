@@ -35,6 +35,7 @@ class CoreStorage(BaseStorage):
         self.handlers = {
             'imports': self._store_imports,
             'routes': self._store_routes,
+            'express_middleware_chains': self._store_express_middleware_chains,  # PHASE 5
             'sql_objects': self._store_sql_objects,
             'sql_queries': self._store_sql_queries,
             'cdk_constructs': self._store_cdk_constructs,
@@ -91,6 +92,31 @@ class CoreStorage(BaseStorage):
                 method, pattern, controls = route
                 self.db_manager.add_endpoint(file_path, method, pattern, controls)
             self.counts['routes'] += 1
+
+    def _store_express_middleware_chains(self, file_path: str, express_middleware_chains: List, jsx_pass: bool):
+        """Store Express middleware chains (PHASE 5).
+
+        Each chain record represents one handler in a route definition's execution order.
+        Example: router.post('/', mw1, mw2, controller) creates 3 records.
+        """
+        for chain in express_middleware_chains:
+            if isinstance(chain, dict):
+                # Generic batch append - no add method needed, schema-driven
+                self.db_manager.generic_batches['express_middleware_chains'].append((
+                    file_path,
+                    chain.get('route_line'),
+                    chain.get('route_path', ''),
+                    chain.get('route_method', 'GET'),
+                    chain.get('execution_order', 0),
+                    chain.get('handler_expr', ''),
+                    chain.get('handler_type', 'middleware'),
+                    chain.get('handler_file'),  # Future enhancement
+                    chain.get('handler_function'),  # Future enhancement
+                    chain.get('handler_line')  # Future enhancement
+                ))
+                if 'express_middleware_chains' not in self.counts:
+                    self.counts['express_middleware_chains'] = 0
+                self.counts['express_middleware_chains'] += 1
 
     def _store_sql_objects(self, file_path: str, sql_objects: List, jsx_pass: bool):
         """Store SQL objects."""
