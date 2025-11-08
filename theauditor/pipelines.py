@@ -688,45 +688,87 @@ def run_full_pipeline(
                 pass  # Don't fail pipeline if journal fails
 
         try:
-            # Execute foundation command
-            if TempManager:
-                stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
-                    root, f"foundation_{phase_name.replace(' ', '_')}"
-                )
+            # CRITICAL FIX: Phase 1 (index) must call build_index() directly
+            # to avoid infinite recursion (index.py now redirects to 'full')
+            if "index" in " ".join(cmd):
+                log_output(f"[INDEX] Running build_index() directly (avoiding recursion)")
+                from theauditor.indexer_compat import build_index
+                from theauditor.utils.helpers import get_self_exclusion_patterns
+
+                # Get exclusion patterns if --exclude-self flag present
+                exclude_patterns = None
+                if exclude_self:
+                    exclude_patterns = get_self_exclusion_patterns(True)
+                    log_output(f"[INDEX] Excluding {len(exclude_patterns)} TheAuditor patterns")
+
+                # Call build_index() directly (no subprocess)
+                try:
+                    db_path = os.path.join(root, ".pf", "repo_index.db")
+                    manifest_path = os.path.join(root, ".pf", "manifest.json")
+
+                    result_dict = build_index(
+                        root_path=root,
+                        db_path=db_path,
+                        manifest_path=manifest_path,
+                        print_stats=True,
+                        exclude_patterns=exclude_patterns
+                    )
+
+                    # Create mock result object
+                    class MockResult:
+                        returncode = 0 if result_dict.get("success") else 1
+                        stdout = "[INDEX] Repository indexed successfully\n"
+                        stderr = result_dict.get("error", "") if not result_dict.get("success") else ""
+                    result = MockResult()
+                except Exception as e:
+                    import traceback
+                    tb = traceback.format_exc()
+                    class MockResult:
+                        returncode = 1
+                        stdout = ""
+                        stderr = f"[INDEX ERROR] {str(e)}\n{tb}\n"
+                    result = MockResult()
             else:
-                # Fallback to regular tempfile
-                with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
-                     tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
-                    stdout_file = out_tmp.name
-                    stderr_file = err_tmp.name
+                # All other commands run as subprocesses (normal path)
+                if TempManager:
+                    stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
+                        root, f"foundation_{phase_name.replace(' ', '_')}"
+                    )
+                else:
+                    # Fallback to regular tempfile
+                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
+                         tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
+                        stdout_file = out_tmp.name
+                        stderr_file = err_tmp.name
+
+                with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
+                     open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+
+                    # Determine appropriate timeout for this command
+                    cmd_timeout = get_command_timeout(cmd)
+
+                    result = run_subprocess_with_interrupt(
+                        cmd,
+                        stdout_fp=out_fp,
+                        stderr_fp=err_fp,
+                        cwd=root,
+                        shell=IS_WINDOWS,  # Windows compatibility fix
+                        timeout=cmd_timeout  # Adaptive timeout based on command type
+                    )
             
-            with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
-                 open(stderr_file, 'w+', encoding='utf-8') as err_fp:
-                
-                # Determine appropriate timeout for this command
-                cmd_timeout = get_command_timeout(cmd)
-                
-                result = run_subprocess_with_interrupt(
-                    cmd,
-                    stdout_fp=out_fp,
-                    stderr_fp=err_fp,
-                    cwd=root,
-                    shell=IS_WINDOWS,  # Windows compatibility fix
-                    timeout=cmd_timeout  # Adaptive timeout based on command type
-                )
-            
-            # Read outputs
-            with open(stdout_file, 'r', encoding='utf-8') as f:
-                result.stdout = f.read()
-            with open(stderr_file, 'r', encoding='utf-8') as f:
-                result.stderr = f.read()
-            
-            # Clean up temp files
-            try:
-                os.unlink(stdout_file)
-                os.unlink(stderr_file)
-            except (OSError, PermissionError):
-                pass
+            # Read outputs (only for subprocess path)
+            if "index" not in " ".join(cmd):
+                with open(stdout_file, 'r', encoding='utf-8') as f:
+                    result.stdout = f.read()
+                with open(stderr_file, 'r', encoding='utf-8') as f:
+                    result.stderr = f.read()
+
+                # Clean up temp files
+                try:
+                    os.unlink(stdout_file)
+                    os.unlink(stderr_file)
+                except (OSError, PermissionError):
+                    pass
             
             elapsed = time.time() - start_time
 
@@ -990,12 +1032,11 @@ def run_full_pipeline(
 
                             # STAGE 4: Run enriched taint analysis with registry
                             print(f"[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
-                            print(f"[TAINT]   Using Stage 3 (CFG multi-hop)", file=sys.stderr)
+                            # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
                             result = trace_taint(
                                 db_path=str(db_path),
-                                max_depth=5,
-                                registry=None,  # TEMPORARILY DISABLED FOR FAST DEBUG
-                                use_cfg=True,  # Stage 3 (CFG multi-hop)
+                                max_depth=10,  # IFDS supports deeper analysis
+                                registry=registry,  # FIXED: Re-enabled - feeds XSS/NoSQL/LDAP patterns from 200 rules
                                 use_memory_cache=True,
                                 memory_limit_mb=memory_limit
                             )

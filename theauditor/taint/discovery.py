@@ -62,34 +62,50 @@ class TaintDiscovery:
         Instead of searching for hardcoded patterns, we discover actual sources
         that exist in the codebase by querying the database tables directly.
 
+        Args:
+            sources_dict: Dictionary of source patterns by category from TaintRegistry
+                         (e.g., {'http_request': ['req.', 'request.'], 'user_input': ['body.', ...]})
+
         Returns:
             List of source dictionaries with metadata
         """
         sources = []
 
-        # HTTP Request Sources: Query api_endpoints table for actual endpoints
-        for endpoint in self.cache.api_endpoints:
-            # Public endpoints without auth are higher risk
-            risk = 'high' if not endpoint.get('has_auth', True) else 'medium'
+        # ZERO FALLBACK POLICY: If no sources_dict provided, return empty
+        if sources_dict is None:
+            sources_dict = {}
 
-            sources.append({
-                'type': 'http_request',
-                'name': endpoint.get('handler_function', 'unknown'),
-                'file': endpoint.get('file', ''),
-                'line': endpoint.get('line', 0),
-                'pattern': f"{endpoint.get('method', 'GET')} {endpoint.get('path', '/')}",
-                'category': 'http_request',
-                'risk': risk,
-                'has_auth': endpoint.get('has_auth', True),
-                'metadata': endpoint
-            })
+        # HTTP Request Sources: Use variable_usage table to find actual variable accesses
+        # CRITICAL: IFDS needs variable references (req.query.x), NOT HTTP metadata (GET /api/x)
+        # ZERO FALLBACK POLICY: Use sources_dict from registry, no hardcoded patterns
+        http_request_patterns = sources_dict.get('http_request', [])
+        seen_vars = set()
+        for var_usage in self.cache.variable_usage:
+            var_name = var_usage.get('variable_name', '')
+
+            # Match user input patterns from registry
+            if http_request_patterns and any(pattern in var_name.lower() for pattern in http_request_patterns):
+                if var_name not in seen_vars:
+                    seen_vars.add(var_name)
+
+                    sources.append({
+                        'type': 'http_request',
+                        'name': var_name,
+                        'file': var_usage.get('file', ''),
+                        'line': var_usage.get('line', 0),
+                        'pattern': var_name,  # ← Variable reference for IFDS
+                        'category': 'http_request',
+                        'risk': 'high',  # All user input is high risk
+                        'metadata': var_usage
+                    })
 
         # User Input Sources: Property access patterns that indicate user input
-        input_patterns = ['req.', 'request.', 'body.', 'query.', 'params.', 'args.', 'form.', 'cookies.']
+        # ZERO FALLBACK POLICY: Use sources_dict from registry, no hardcoded patterns
+        input_patterns = sources_dict.get('user_input', [])
         for symbol in self.cache.symbols:
             if symbol.get('type') == 'property':
                 name = symbol.get('name', '')
-                if any(pattern in name.lower() for pattern in input_patterns):
+                if input_patterns and any(pattern in name.lower() for pattern in input_patterns):
                     sources.append({
                         'type': 'user_input',
                         'name': name,
@@ -170,10 +186,18 @@ class TaintDiscovery:
         Instead of searching for hardcoded patterns, we discover actual sinks
         that exist in the codebase by querying the database tables directly.
 
+        Args:
+            sinks_dict: Dictionary of sink patterns by category from TaintRegistry
+                       (e.g., {'sql': ['Sequelize.literal', ...], 'command': ['exec', ...]})
+
         Returns:
             List of sink dictionaries with metadata
         """
         sinks = []
+
+        # ZERO FALLBACK POLICY: If no sinks_dict provided, return empty
+        if sinks_dict is None:
+            sinks_dict = {}
 
         # SQL Injection Sinks: Direct from sql_queries table
         for query in self.cache.sql_queries:
@@ -193,13 +217,13 @@ class TaintDiscovery:
                 'metadata': query
             })
 
-        # SQL Injection Sinks: Raw SQL functions (Sequelize.literal, etc.)
-        raw_sql_funcs = ['Sequelize.literal', 'sequelize.query', 'Sequelize.query',
-                         'db.raw', 'knex.raw', 'sql.raw', 'prisma.$queryRaw']
+        # SQL Injection Sinks: Raw SQL functions from registry
+        # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
+        raw_sql_funcs = sinks_dict.get('sql', [])
         sql_query_count = 0
         for call in self.cache.function_call_args:
             func_name = call.get('callee_function', '')
-            if any(raw_func in func_name for raw_func in raw_sql_funcs):
+            if raw_sql_funcs and any(raw_func in func_name for raw_func in raw_sql_funcs):
                 arg_expr = call.get('argument_expr', '')
                 # Check if argument contains template literal interpolation
                 has_interpolation = '${' in arg_expr
@@ -232,11 +256,12 @@ class TaintDiscovery:
                 'metadata': query
             })
 
-        # Command Injection Sinks: exec, eval, spawn, etc.
-        cmd_funcs = ['exec', 'execSync', 'spawn', 'spawnSync', 'eval', 'system', 'execFile', 'shell']
+        # Command Injection Sinks: From registry
+        # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
+        cmd_funcs = sinks_dict.get('command', [])
         for call in self.cache.function_call_args:
             func_name = call.get('callee_function', '')
-            if any(cmd in func_name for cmd in cmd_funcs):
+            if cmd_funcs and any(cmd in func_name for cmd in cmd_funcs):
                 sinks.append({
                     'type': 'command',
                     'name': func_name,
@@ -278,11 +303,12 @@ class TaintDiscovery:
                     'metadata': assignment
                 })
 
-        # XSS Sinks: document.write and document.writeln
-        xss_funcs = ['document.write', 'document.writeln']
+        # XSS Sinks: document.write and document.writeln from registry
+        # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
+        xss_funcs = sinks_dict.get('xss', [])
         for call in self.cache.function_call_args:
             func_name = call.get('callee_function', '')
-            if any(xss_func in func_name for xss_func in xss_funcs):
+            if xss_funcs and any(xss_func in func_name for xss_func in xss_funcs):
                 arg_expr = call.get('argument_expr', '')
                 # Check if argument contains template literal interpolation or concatenation
                 has_interpolation = '${' in arg_expr or '+' in arg_expr
@@ -300,12 +326,13 @@ class TaintDiscovery:
                     'metadata': call
                 })
 
-        # Path Traversal Sinks: File operations
+        # Path Traversal Sinks: File operations from registry
+        # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
         # CRITICAL: Use strict matching to avoid false positives like 'open' in 'openSgIpv4'
-        file_funcs = ['readFile', 'writeFile', 'open', 'unlink', 'mkdir', 'rmdir', 'access']
+        file_funcs = sinks_dict.get('path', [])
         for call in self.cache.function_call_args:
             func_name = call.get('callee_function', '')
-            if _matches_file_io_pattern(func_name, file_funcs):
+            if file_funcs and _matches_file_io_pattern(func_name, file_funcs):
                 # Check if first argument could be user-controlled
                 arg = call.get('argument_expr', '')
                 file_path = call.get('file', '')
@@ -322,11 +349,12 @@ class TaintDiscovery:
                         'metadata': call
                     })
 
-        # LDAP Injection Sinks
-        ldap_funcs = ['search', 'bind', 'add', 'modify', 'delete']
+        # LDAP Injection Sinks from registry
+        # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
+        ldap_funcs = sinks_dict.get('ldap', [])
         for call in self.cache.function_call_args:
             func_name = call.get('callee_function', '')
-            if any(f in func_name.lower() and 'ldap' in func_name.lower() for f in ldap_funcs):
+            if ldap_funcs and any(f in func_name.lower() and 'ldap' in func_name.lower() for f in ldap_funcs):
                 sinks.append({
                     'type': 'ldap',
                     'name': func_name,

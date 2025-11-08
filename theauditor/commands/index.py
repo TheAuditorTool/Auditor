@@ -1,299 +1,152 @@
-"""Build language-agnostic manifest and SQLite index of repository."""
+"""[DEPRECATED] Index command - now redirects to 'aud full' for data fidelity."""
 
+import time
 import click
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.helpers import get_self_exclusion_patterns
 
 
 @click.command()
 @handle_exceptions
-@click.option("--root", default=".", help="Root directory to index")
-@click.option("--manifest", default=None, help="Output manifest file path")
-@click.option("--db", default=None, help="Output SQLite database path")
-@click.option("--print-stats", is_flag=True, help="Print summary statistics")
-@click.option("--dry-run", is_flag=True, help="Scan but don't write files")
-@click.option("--follow-symlinks", is_flag=True, help="Follow symbolic links (default: skip)")
+@click.option("--root", default=".", help="Root directory to analyze")
+@click.option("--quiet", is_flag=True, help="Minimal output")
 @click.option("--exclude-self", is_flag=True, help="Exclude TheAuditor's own files (for self-testing)")
-@click.option("--no-archive", is_flag=True, help="Skip archiving previous index (fast rebuild)")
-def index(root, manifest, db, print_stats, dry_run, follow_symlinks, exclude_self, no_archive):
-    """Build comprehensive code inventory and symbol database from source code AST parsing.
+@click.option("--offline", is_flag=True, help="Skip network operations (deps, docs)")
+@click.option("--subprocess-taint", is_flag=True, help="Run taint analysis as subprocess (slower but isolated)")
+@click.option("--wipecache", is_flag=True, help="Delete all caches before run")
+@click.pass_context
+def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
+    """[DEPRECATED] This command now runs 'aud full' for data fidelity.
 
-    THE foundational command for TheAuditor - creates a complete SQLite database inventory
-    of your codebase by parsing Abstract Syntax Trees (AST) for all supported languages.
-    Extracts every function, class, import, variable, and their relationships into a
-    queryable database that powers all other analysis commands.
+    ════════════════════════════════════════════════════════════════════════════════
+    DEPRECATION NOTICE: 'aud index' is DEPRECATED
+    ════════════════════════════════════════════════════════════════════════════════
 
-    This command is REQUIRED before running any analysis - taint-analyze, deadcode, graph,
-    impact, and 30+ other commands all read from the database created by index. Think of
-    it as "compile once, analyze many times" - the database persists across multiple
-    analysis runs until you re-index.
+    The 'aud index' command no longer provides sufficient data fidelity for modern
+    TheAuditor analysis. It now automatically runs the complete 'aud full' pipeline
+    (20 phases) to ensure all analysis commands have proper context.
 
-    AI ASSISTANT CONTEXT:
-      Purpose: Creates foundational SQLite database of code facts for all analysis
-      Input: Source code files (Python, JavaScript, TypeScript, JSX, TSX)
-      Output: .pf/repo_index.db (SQLite), .pf/manifest.json (file inventory)
-      Prerequisites: None (this is the entry point command)
-      Integration: Required by ALL analysis commands (taint, graph, deadcode, etc.)
-      Performance: ~5-20 seconds for medium codebases (scales with file count)
+    WHY THIS CHANGE:
+      • Taint analysis requires framework detection (Phase 2)
+      • Deadcode detection requires workset creation (Phase 3)
+      • Graph analysis requires dependency graphs (Phase 9-11)
+      • Impact analysis requires call graphs and CFGs
+      • Running partial pipelines leads to incomplete/incorrect results
 
-    WHAT IT INDEXES:
-      Code Structure:
-        - Functions, methods, classes, variables (with line numbers)
-        - Function signatures (parameters, return types, decorators)
-        - Class inheritance hierarchies and method overrides
-        - Variable assignments and scope information
+    WHAT HAPPENS NOW:
+      Running 'aud index' will execute the COMPLETE audit pipeline including:
+        - Repository indexing (AST parsing)
+        - Framework detection (Django, Flask, React, etc.)
+        - Dependency analysis and vulnerability scanning
+        - Workset creation (file filtering)
+        - Security pattern detection (200+ patterns)
+        - Taint analysis (cross-file data flow)
+        - Graph analysis (hotspots, cycles)
+        - Control flow graphs (complexity analysis)
+        - Factual Correlation Engine (finding aggregation)
+        - Report generation (AI-optimized chunks)
 
-      Relationships:
-        - Import statements (who imports what)
-        - Function calls (caller -> callee with line numbers)
-        - Class instantiations and method invocations
-        - Module dependencies (import graph)
+    MIGRATION GUIDE:
+      OLD Workflow:
+        aud index                    # Phase 1 only
+        aud taint-analyze            # Incomplete context
+        aud deadcode                 # Incomplete context
 
-      Metadata:
-        - File paths, sizes, line counts, language detection
-        - Framework detection (Flask, Django, React, Express, etc.)
-        - Security patterns (crypto usage, file I/O, network calls)
-        - AST cache for incremental re-indexing
+      NEW Workflow:
+        aud full                     # All phases (includes taint, deadcode, etc.)
+        aud full --offline           # Air-gapped (skips network operations)
+        aud full --quiet             # Minimal output for CI/CD
 
-      Database Tables Created:
-        - files: All source files with metadata
-        - symbols: Functions, classes, methods, variables
-        - refs: Import statements and module dependencies
-        - calls: Function call graph (caller -> callee)
-        - assignments: Variable assignments and data flow
-        - patterns: Security-relevant code patterns
-        - frameworks: Detected frameworks and versions
+    BACKWARD COMPATIBILITY:
+      This command will continue to work to maintain CI/CD compatibility, but will
+      run the full audit pipeline instead of just indexing. Update your workflows:
 
-    HOW IT WORKS (Indexing Pipeline):
-      1. File Discovery: Recursively scans root directory for source files
-         - Respects .gitignore patterns
-         - Filters by extension (.py, .js, .ts, .jsx, .tsx)
-         - Optionally follows symlinks (--follow-symlinks)
+      CI/CD Pipelines:
+        OLD: aud index && aud taint-analyze && aud deadcode
+        NEW: aud full --quiet
 
-      2. Language Detection: Identifies parser for each file
-         - Python: ast module (built-in)
-         - JavaScript/TypeScript: tree-sitter (external)
+      Development Workflow:
+        OLD: aud index --print-stats
+        NEW: aud full
 
-      3. AST Parsing: Parses each file into Abstract Syntax Tree
-         - Caches parsed ASTs in .pf/.ast_cache/ (70% speedup on re-index)
-         - Handles syntax errors gracefully (logs and continues)
+      Self-Testing:
+        OLD: aud index --exclude-self
+        NEW: aud full --exclude-self
 
-      4. Fact Extraction: Walks AST to extract symbols and relationships
-         - Function definitions (name, line, params, decorators)
-         - Class definitions (name, bases, methods)
-         - Import statements (source, target, alias)
-         - Function calls (callee, args, line number)
+    UNSUPPORTED FLAGS (removed in deprecation):
+      The following flags from the old 'aud index' are NOT supported:
+        --manifest, --db           → Configure via .auditorconfig or env vars
+        --print-stats              → Use 'aud full' (always shows summary)
+        --dry-run                  → Use 'aud full --offline' for no network I/O
+        --follow-symlinks          → Controlled by .auditorconfig
+        --no-archive               → Archiving handled by 'aud full' automatically
 
-      5. Database Write: Inserts extracted facts into SQLite
-         - Schema validation after write (ensures contract compliance)
-         - Transaction-based (atomic commit on success)
-         - Archives previous index to .pf/history/full/ (rollback capability)
+    PERFORMANCE:
+      OLD 'aud index': ~10-30 seconds (Phase 1 only)
+      NEW redirect:    ~10-60 minutes (complete 20-phase pipeline)
 
-    EXAMPLES:
-      # Use Case 1: First-time indexing (fresh project setup)
-      aud index --print-stats
+      This is INTENTIONAL - you should be running the full audit for data fidelity.
+      For incremental analysis, use workset filtering after initial audit:
+        aud full                     # Initial complete audit
+        aud taint-analyze --workset  # Incremental on changed files
 
-      # Use Case 2: Re-index after code changes (incremental with cache)
-      aud index
+    TIMELINE:
+      This deprecation warning will be removed in v2.0 when 'aud index' is fully
+      retired. Update your scripts and pipelines now to avoid future issues.
 
-      # Use Case 3: Preview what would be indexed without writing
-      aud index --dry-run --print-stats
+    For more information:
+      aud full --help              # See complete pipeline documentation
+      aud explain workset          # Learn about incremental analysis
+      aud explain fce              # Understand finding correlation
 
-      # Use Case 4: Fast rebuild without archiving previous index
-      aud index --no-archive
-
-      # Use Case 5: Self-testing TheAuditor's own codebase
-      aud index --exclude-self --print-stats
-
-    COMMON WORKFLOWS:
-      First-Time Project Setup:
-        cd /path/to/project && aud index --print-stats
-
-      After Code Changes (Git Workflow):
-        git pull && aud index && aud taint-analyze
-
-      CI/CD Pipeline (Fresh Index Every Build):
-        aud index --no-archive && aud full --fail-on-findings
-
-    OUTPUT FILES:
-      .pf/repo_index.db              # SQLite database (50-200MB for medium projects)
-      .pf/manifest.json              # File inventory with metadata (1-5MB)
-      .pf/.ast_cache/                # Cached AST trees (optional, speeds up re-index)
-      .pf/history/full/YYYYMMDD_HHMMSS/  # Archived previous index (rollback)
-      .pf/pipeline.log               # Indexing errors and warnings
-
-    OUTPUT FORMAT (manifest.json Schema):
-      {
-        "files": [
-          {
-            "path": "src/main.py",
-            "language": "python",
-            "size_bytes": 1024,
-            "lines_of_code": 45,
-            "last_modified": "2025-11-01T12:00:00Z"
-          }
-        ],
-        "statistics": {
-          "total_files": 120,
-          "total_symbols": 450,
-          "total_imports": 200
-        }
-      }
-
-    PERFORMANCE EXPECTATIONS:
-      Small (<100 files):       ~2-5 seconds,   ~50MB RAM,  ~10MB database
-      Medium (500 files):       ~10-20 seconds, ~200MB RAM, ~50MB database
-      Large (2000+ files):      ~60-120 seconds, ~500MB RAM, ~200MB database
-      Note: AST cache reduces re-index time by 70% (second run ~3-6s for small)
-
-    FLAG INTERACTIONS:
-      Mutually Exclusive:
-        None (all flags can be combined)
-
-      Recommended Combinations:
-        --print-stats --dry-run        # Preview indexing without writing
-        --no-archive --print-stats     # Fast rebuild with statistics
-
-      Flag Modifiers:
-        --dry-run: Skips all file writes (database, manifest, archive)
-        --no-archive: Skips archiving (saves ~5s but loses rollback capability)
-        --exclude-self: Excludes TheAuditor's own files (for self-testing only)
-        --follow-symlinks: Follows symlinks (may cause infinite loops, use cautiously)
-
-    PREREQUISITES:
-      Required:
-        Python >=3.11              # Language runtime
-        Disk space: ~3x codebase size  # For database + archive + cache
-
-      Optional:
-        Git repository             # For .gitignore pattern respect
-        .auditorconfig             # Custom exclude patterns
-
-    EXIT CODES:
-      0 = Success, index created and validated
-      1 = Indexing error (syntax errors, I/O failures)
-      2 = Schema validation failure (database contract violation)
-
-    RELATED COMMANDS:
-      aud full                   # Runs index + all analysis commands
-      aud taint-analyze          # Requires index first
-      aud graph build            # Builds graph database from repo_index.db
-      aud deadcode               # Finds unused code (requires index)
-      aud workset                # Filters index to changed files only
-
-    SEE ALSO:
-      aud explain workset        # Understand incremental analysis
-      aud explain fce            # Learn about database-driven analysis
-
-    TROUBLESHOOTING:
-      Error: "Permission denied" writing to .pf/:
-        -> Run from repository root with write permissions
-        -> Check if .pf/ directory is locked by another process
-
-      Slow indexing (>2 minutes for medium project):
-        -> First run is slower (no AST cache), second run 70% faster
-        -> Use --exclude patterns in .auditorconfig for vendor/ or node_modules/
-        -> Large files (>10K LOC) slow parsing, consider splitting
-
-      Out of memory during indexing:
-        -> Database write is memory-intensive for large projects
-        -> Index in smaller batches (use --root on subdirectories)
-        -> Close other applications to free RAM
-
-      Schema validation warnings after indexing:
-        -> Usually safe to ignore (migrated columns from old schema)
-        -> If persistent, delete .pf/ and re-run 'aud index' fresh
-
-      Syntax errors in indexed files:
-        -> Index continues gracefully, logs errors to .pf/pipeline.log
-        -> Check log for files that failed to parse
-        -> Fix syntax errors in source files and re-run index
-
-    NOTE: The database is regenerated fresh on every 'aud index' run. Incremental
-    indexing (only changed files) is NOT supported - full re-parse every time ensures
-    consistency. Use AST cache (automatic) to speed up repeated indexing.
+    ════════════════════════════════════════════════════════════════════════════════
     """
-    from theauditor.indexer import build_index
-    from theauditor.config_runtime import load_runtime_config
-    
-    # Load configuration
-    config = load_runtime_config(root)
-    
-    # Use config defaults if not provided
-    if manifest is None:
-        manifest = config["paths"]["manifest"]
-    if db is None:
-        db = config["paths"]["db"]
+    # Print prominent deprecation warning (unless --quiet)
+    if not quiet:
+        click.echo("")
+        click.echo("=" * 80)
+        click.echo(" " * 28 + "DEPRECATION WARNING")
+        click.echo("=" * 80)
+        click.echo("")
+        click.echo("  The 'aud index' command is DEPRECATED and now runs 'aud full' instead.")
+        click.echo("")
+        click.echo("  WHY: 'aud index' alone no longer provides sufficient data fidelity")
+        click.echo("       for modern TheAuditor analysis. Most commands require the full")
+        click.echo("       pipeline context (frameworks, workset, graphs) to operate correctly.")
+        click.echo("")
+        click.echo("  IMPACT: This will run the COMPLETE 20-phase audit pipeline (~10-60 minutes)")
+        click.echo("          instead of just Phase 1 indexing (~10-30 seconds).")
+        click.echo("")
+        click.echo("  ACTION REQUIRED:")
+        click.echo("    • Update CI/CD pipelines to use 'aud full' explicitly")
+        click.echo("    • Replace 'aud index && aud taint-analyze' with just 'aud full'")
+        click.echo("    • Use 'aud full --offline' for air-gapped environments")
+        click.echo("    • Use 'aud full --quiet' for minimal output in automation")
+        click.echo("")
+        click.echo("  This warning will be removed in v2.0 when 'aud index' is fully retired.")
+        click.echo("")
+        click.echo("=" * 80)
+        click.echo("")
+        click.echo("Proceeding with 'aud full' in 3 seconds... (Press Ctrl+C to cancel)")
+        click.echo("")
 
-    # Build exclude patterns using centralized function
-    exclude_patterns = get_self_exclusion_patterns(exclude_self)
-
-    if exclude_self and print_stats:
-        click.echo(f"[EXCLUDE-SELF] Excluding TheAuditor's own files from indexing")
-        click.echo(f"[EXCLUDE-SELF] {len(exclude_patterns)} patterns will be excluded")
-
-    # ARCHIVE previous index before rebuilding (unless --no-archive or --dry-run)
-    if not no_archive and not dry_run:
-        from pathlib import Path
-        pf_dir = Path(".pf")
-
-        # Only archive if .pf exists with contents
-        if pf_dir.exists() and any(pf_dir.iterdir()):
-            try:
-                from theauditor.commands._archive import _archive
-                from click.testing import CliRunner
-
-                click.echo("[INDEX] Archiving previous index data to .pf/history/full/...")
-
-                # Call _archive programmatically
-                runner = CliRunner()
-                result_archive = runner.invoke(_archive, ["--run-type", "full"])
-
-                if result_archive.exit_code != 0:
-                    click.echo(f"[WARNING] Archive failed but continuing: {result_archive.output}", err=True)
-                elif print_stats:
-                    click.echo(f"[INDEX] Archive complete")
-            except Exception as e:
-                click.echo(f"[WARNING] Could not archive previous index: {e}", err=True)
-                click.echo(f"[WARNING] Continuing with index rebuild...", err=True)
-    elif no_archive and print_stats:
-        click.echo("[INDEX] Skipping archive (--no-archive flag)")
-
-    result = build_index(
-        root_path=root,
-        manifest_path=manifest,
-        db_path=db,
-        print_stats=print_stats,
-        dry_run=dry_run,
-        follow_symlinks=follow_symlinks,
-        exclude_patterns=exclude_patterns,
-    )
-
-    if result.get("error"):
-        click.echo(f"Error: {result['error']}", err=True)
-        raise click.ClickException(result["error"])
-
-    # SCHEMA CONTRACT: Validate database schema after indexing
-    if not dry_run:
+        # Give users time to cancel if they didn't expect this
         try:
-            import sqlite3
-            from theauditor.indexer.schema import validate_all_tables
+            time.sleep(3)
+        except KeyboardInterrupt:
+            click.echo("\nCancelled. Please update your command to use 'aud full' instead.")
+            ctx.exit(0)
 
-            conn = sqlite3.connect(db)
-            cursor = conn.cursor()
-            mismatches = validate_all_tables(cursor)
-            conn.close()
+    # Import full command here to avoid circular dependency
+    from theauditor.commands.full import full
 
-            if mismatches:
-                click.echo("", err=True)
-                click.echo(" Schema Validation Warnings ", err=True)
-                click.echo("=" * 60, err=True)
-                for table_name, errors in mismatches.items():
-                    click.echo(f"  {table_name}:", err=True)
-                    for error in errors[:3]:  # Show first 3 errors per table
-                        click.echo(f"    - {error}", err=True)
-                click.echo("", err=True)
-                click.echo("Note: Some warnings may be expected (migrated columns).", err=True)
-                click.echo("Run 'aud index' again to rebuild with correct schema.", err=True)
-        except Exception as e:
-            click.echo(f"Schema validation skipped: {e}", err=True)
+    # Call aud full with mapped parameters
+    # Note: Some old 'aud index' flags are not supported (manifest, db, print-stats, etc.)
+    ctx.invoke(
+        full,
+        root=root,
+        quiet=quiet,
+        exclude_self=exclude_self,
+        offline=offline,
+        subprocess_taint=subprocess_taint,
+        wipecache=wipecache
+    )

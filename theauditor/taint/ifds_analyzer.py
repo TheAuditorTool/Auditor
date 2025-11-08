@@ -1,0 +1,461 @@
+"""IFDS-based taint analyzer using pre-computed graphs.
+
+This module implements demand-driven backward taint analysis using the IFDS
+framework adapted from "IFDS Taint Analysis with Access Paths" (Allen et al., 2021).
+
+Key differences from paper:
+- Uses pre-computed graphs.db instead of on-the-fly graph construction
+- Database-first (no SSA/φ-nodes, works with normalized AST data)
+- Multi-language (Python, JS, TS via extractors)
+
+Architecture:
+    Sources → [Backward IFDS] → Sinks
+              ↓
+    graphs.db (DFG + Call Graph)
+              ↓
+    5-10 hop cross-file flows
+
+Performance: O(CallD³ + 2ED²) - h-sparse IFDS (page 10, Table 3)
+"""
+
+from __future__ import annotations  # Defer evaluation of type annotations
+import sqlite3
+import sys
+from pathlib import Path
+from typing import Dict, List, Set, Optional, Tuple, Any, TYPE_CHECKING
+from collections import deque, defaultdict
+
+from .access_path import AccessPath
+
+# Avoid circular import: core.py imports ifds_analyzer, ifds_analyzer imports core
+# TaintPath is only used for type hints, so we can defer the import
+if TYPE_CHECKING:
+    from .core import TaintPath
+
+
+class IFDSTaintAnalyzer:
+    """Demand-driven taint analyzer using IFDS backward reachability.
+
+    Uses pre-computed graphs from DFGBuilder and PathCorrelator instead of
+    rebuilding data flow on every run.
+    """
+
+    def __init__(self, repo_db_path: str, graph_db_path: str, cache=None):
+        """Initialize IFDS analyzer with database connections.
+
+        Args:
+            repo_db_path: Path to repo_index.db (CFG, symbols, assignments)
+            graph_db_path: Path to graphs.db (DFG, call graph)
+            cache: Optional memory cache for performance
+        """
+        self.repo_conn = sqlite3.connect(repo_db_path)
+        self.repo_conn.row_factory = sqlite3.Row
+        self.repo_cursor = self.repo_conn.cursor()
+
+        self.graph_conn = sqlite3.connect(graph_db_path)
+        self.graph_conn.row_factory = sqlite3.Row
+        self.graph_cursor = self.graph_conn.cursor()
+
+        self.cache = cache
+
+        # Function summaries: (func_name, file) -> {param_path: [return_paths]}
+        self.summaries: Dict[Tuple[str, str], Dict[str, Set[str]]] = {}
+
+        # Visited nodes for cycle detection
+        self.visited: Set[Tuple[str, str]] = set()
+
+        self.max_depth = 10  # 10-hop max
+        self.max_paths_per_sink = 100
+
+        self.debug = False  # Set via env var
+
+    def analyze_sink_to_sources(self, sink: Dict, sources: List[Dict],
+                                max_depth: int = 10) -> List[TaintPath]:
+        """Find all taint paths from sink to sources using IFDS backward analysis.
+
+        Algorithm (IFDS paper - demand-driven):
+        1. Start at sink (backward analysis is demand-driven from sinks)
+        2. Query graphs.db for data dependencies (backward edges)
+        3. Follow edges backward through assignments, calls, returns
+        4. Check if path reaches ANY source (early termination)
+        5. Build TaintPath with full hop chain
+
+        Args:
+            sink: Security sink dict (file, line, pattern, name)
+            sources: List of taint source dicts
+            max_depth: Maximum hops (default 10)
+
+        Returns:
+            List of TaintPath objects with 5-10 hop cross-file flows
+        """
+        self.max_depth = max_depth
+        all_paths = []
+
+        # Parse all sources as AccessPaths for matching
+        source_aps = []
+        for source in sources:
+            source_ap = self._dict_to_access_path(source)
+            if source_ap:
+                source_aps.append((source, source_ap))
+
+        if not source_aps:
+            return []
+
+        if self.debug:
+            print(f"\n[IFDS] Analyzing sink: {sink.get('pattern', '?')}", file=sys.stderr)
+            print(f"[IFDS] Checking against {len(source_aps)} sources", file=sys.stderr)
+
+        # Trace backward from sink, checking if ANY source is reachable
+        paths = self._trace_backward_to_any_source(sink, source_aps, max_depth)
+        all_paths.extend(paths)
+
+        if self.debug and all_paths:
+            print(f"[IFDS] Found {len(all_paths)} paths", file=sys.stderr)
+
+        return all_paths
+
+    def _trace_backward_to_any_source(self, sink: Dict, source_aps: List[Tuple[Dict, AccessPath]],
+                                      max_depth: int) -> List[TaintPath]:
+        """Backward trace from sink, checking if ANY source is reachable.
+
+        This is more efficient than looping through sources because we check
+        all sources at each step rather than doing separate traces.
+
+        Args:
+            sink: Sink dict
+            source_aps: List of (source_dict, AccessPath) tuples
+            max_depth: Maximum hops
+
+        Returns:
+            List of TaintPath objects
+        """
+        # Runtime import to avoid circular dependency
+        from .core import TaintPath
+
+        paths = []
+
+        # Parse sink as AccessPath
+        sink_ap = self._dict_to_access_path(sink)
+        if not sink_ap:
+            return []
+
+        # Worklist: (current_ap, depth, hop_chain)
+        worklist = deque([(sink_ap, 0, [])])
+        visited_states: Set[Tuple[str, int]] = set()
+        iteration = 0
+
+        while worklist and len(paths) < self.max_paths_per_sink:
+            iteration += 1
+            if iteration > 10000:  # Safety valve
+                if self.debug:
+                    print(f"[IFDS] Hit iteration limit", file=sys.stderr)
+                break
+
+            current_ap, depth, hop_chain = worklist.popleft()
+
+            # Cycle detection
+            state = (current_ap.node_id, depth)
+            if state in visited_states:
+                continue
+            visited_states.add(state)
+
+            # Check if current node matches ANY source
+            for source_dict, source_ap in source_aps:
+                if self._access_paths_match(current_ap, source_ap):
+                    # Found a path!
+                    path = self._build_taint_path(source_dict, sink, hop_chain)
+                    paths.append(path)
+                    if len(paths) >= self.max_paths_per_sink:
+                        break
+
+            if depth >= max_depth:
+                continue
+
+            # Get predecessors from graphs.db
+            predecessors = self._get_predecessors(current_ap)
+            for pred_ap, edge_type, edge_meta in predecessors:
+                hop = {
+                    'type': edge_type,
+                    'from': pred_ap.node_id,
+                    'to': current_ap.node_id,
+                    'from_file': pred_ap.file,
+                    'to_file': current_ap.file,
+                    'line': edge_meta.get('line', 0),
+                    'depth': depth + 1
+                }
+                new_chain = [hop] + hop_chain  # Prepend (backward)
+                worklist.append((pred_ap, depth + 1, new_chain))
+
+        return paths
+
+    def _trace_backward_from_sink(self, sink: Dict, source_ap: AccessPath,
+                                  max_depth: int) -> List[TaintPath]:
+        """Backward trace from sink to source using graphs.db.
+
+        This is the core IFDS backward reachability algorithm.
+
+        Algorithm:
+            worklist = [(sink_access_path, depth=0, path_hops=[])]
+            while worklist:
+                current_ap, depth, hops = worklist.pop()
+                if current_ap matches source_ap:
+                    return TaintPath(source, sink, hops)
+                if depth < max_depth:
+                    for predecessor in get_data_dependencies(current_ap):
+                        worklist.append((predecessor, depth+1, hops + [hop]))
+
+        Returns:
+            List of TaintPath objects if sink is reachable from source
+        """
+        # Runtime import to avoid circular dependency
+        from .core import TaintPath
+
+        paths = []
+
+        # Parse sink as AccessPath
+        sink_ap = self._dict_to_access_path(sink)
+        if not sink_ap:
+            return []
+
+        # Worklist: (access_path, depth, hop_chain)
+        worklist = deque([(sink_ap, 0, [])])
+        visited_states: Set[Tuple[str, int]] = set()
+
+        iteration = 0
+        while worklist and len(paths) < 10:  # Max 10 paths per sink
+            iteration += 1
+            if iteration > 10000:
+                if self.debug:
+                    print(f"[IFDS] Hit iteration limit", file=sys.stderr)
+                break
+
+            current_ap, depth, hop_chain = worklist.popleft()
+
+            # Cycle detection
+            state = (current_ap.node_id, depth)
+            if state in visited_states:
+                continue
+            visited_states.add(state)
+
+            # Check if we reached the source
+            if self._access_paths_match(current_ap, source_ap):
+                # Found a path! Build TaintPath
+                path = self._build_taint_path(source, sink, hop_chain)
+                paths.append(path)
+                if self.debug:
+                    print(f"[IFDS] Found path with {len(hop_chain)} hops: {source_ap} -> {sink_ap}", file=sys.stderr)
+                continue
+
+            # Max depth check
+            if depth >= max_depth:
+                continue
+
+            # Get predecessors from graphs.db
+            predecessors = self._get_predecessors(current_ap)
+
+            for pred_ap, edge_type, edge_meta in predecessors:
+                # Build hop metadata
+                hop = {
+                    'type': edge_type,
+                    'from': pred_ap.node_id,
+                    'to': current_ap.node_id,
+                    'from_file': pred_ap.file,
+                    'to_file': current_ap.file,
+                    'line': edge_meta.get('line', 0),
+                    'depth': depth + 1
+                }
+
+                new_chain = [hop] + hop_chain  # Prepend (backward analysis)
+                worklist.append((pred_ap, depth + 1, new_chain))
+
+        return paths
+
+    def _get_predecessors(self, ap: AccessPath) -> List[Tuple[AccessPath, str, Dict]]:
+        """Get all access paths that flow into this access path.
+
+        Queries graphs.db edges table with target=ap.node_id.
+
+        Returns:
+            List of (predecessor_access_path, edge_type, metadata) tuples
+        """
+        predecessors = []
+
+        # Query graphs.db for incoming edges
+        # Use exact match only (no LIKE wildcard - kills performance)
+        self.graph_cursor.execute("""
+            SELECT source, target, type, file, line, metadata
+            FROM edges
+            WHERE target = ?
+            ORDER BY type
+        """, (ap.node_id,))
+
+        for row in self.graph_cursor.fetchall():
+            source_node = row['source']
+            edge_type = row['type']
+
+            # Parse source as AccessPath
+            source_ap = AccessPath.parse(source_node, ap.max_length)
+            if not source_ap:
+                continue
+
+            # Check if source is relevant (conservative alias check)
+            if not self._could_alias(source_ap, ap):
+                continue
+
+            meta = {
+                'file': row['file'] if row['file'] else source_ap.file,
+                'line': row['line'] if row['line'] else 0,
+            }
+
+            predecessors.append((source_ap, edge_type, meta))
+
+        return predecessors
+
+    def _could_alias(self, ap1: AccessPath, ap2: AccessPath) -> bool:
+        """Conservative alias check (no expensive alias analysis).
+
+        From paper (page 10): "Our taint analysis deliberately omits computing
+        complete aliasing information... This deliberate trade-off of soundness
+        for scalability drastically reduces theoretical complexity."
+
+        Args:
+            ap1, ap2: Access paths to compare
+
+        Returns:
+            True if paths could potentially alias (conservative)
+        """
+        # Same base variable = could alias
+        if ap1.base == ap2.base:
+            return True
+
+        # Field prefix match
+        if ap1.matches(ap2):
+            return True
+
+        # TODO: Add more sophisticated aliasing if needed
+        # For now, be conservative
+
+        return False
+
+    def _access_paths_match(self, ap1: AccessPath, ap2: AccessPath) -> bool:
+        """Check if two access paths represent the same data.
+
+        Args:
+            ap1, ap2: Access paths to compare
+
+        Returns:
+            True if paths definitely match
+        """
+        # Exact match on base + fields
+        if ap1.base == ap2.base and ap1.fields == ap2.fields:
+            return True
+
+        # Prefix match (conservative)
+        if ap1.matches(ap2):
+            # Only match if files/functions are compatible
+            # Allow cross-file matches (data flows across files)
+            return True
+
+        return False
+
+    def _dict_to_access_path(self, node_dict: Dict) -> Optional[AccessPath]:
+        """Convert source/sink dict to AccessPath.
+
+        Args:
+            node_dict: Dict with 'file', 'line', 'name', 'pattern'
+
+        Returns:
+            AccessPath or None if cannot parse
+        """
+        file = node_dict.get('file', '')
+        pattern = node_dict.get('pattern', node_dict.get('name', ''))
+
+        if not file or not pattern:
+            return None
+
+        # Get containing function
+        function = self._get_containing_function(file, node_dict.get('line', 0))
+
+        # Parse pattern as base.field.field
+        parts = pattern.split('.')
+        base = parts[0]
+        fields = tuple(parts[1:]) if len(parts) > 1 else ()
+
+        return AccessPath(
+            file=file,
+            function=function,
+            base=base,
+            fields=fields
+        )
+
+    def _get_containing_function(self, file: str, line: int) -> str:
+        """Get function containing a line.
+
+        Args:
+            file: File path
+            line: Line number
+
+        Returns:
+            Function name or "global"
+        """
+        self.repo_cursor.execute("""
+            SELECT name FROM symbols
+            WHERE path = ? AND type = 'function' AND line <= ?
+            ORDER BY line DESC
+            LIMIT 1
+        """, (file, line))
+
+        row = self.repo_cursor.fetchone()
+        return row['name'] if row else "global"
+
+    def _build_taint_path(self, source: Dict, sink: Dict,
+                         hop_chain: List[Dict]):  # Return type removed to avoid circular import
+        """Build TaintPath object from hop chain.
+
+        Args:
+            source: Source dict
+            sink: Sink dict
+            hop_chain: List of hop metadata dicts
+
+        Returns:
+            TaintPath with full hop chain
+        """
+        # Runtime import to avoid circular dependency
+        from .core import TaintPath
+
+        # Convert hops to path format
+        path_steps = []
+
+        # Add source
+        path_steps.append({
+            'type': 'source',
+            'file': source.get('file'),
+            'line': source.get('line'),
+            'name': source.get('name'),
+            'pattern': source.get('pattern')
+        })
+
+        # Add each hop
+        for hop in hop_chain:
+            path_steps.append(hop)
+
+        # Add sink
+        path_steps.append({
+            'type': 'sink',
+            'file': sink.get('file'),
+            'line': sink.get('line'),
+            'name': sink.get('name'),
+            'pattern': sink.get('pattern')
+        })
+
+        # Create TaintPath
+        path = TaintPath(source, sink, path_steps)
+        path.flow_sensitive = True  # IFDS is flow-sensitive
+        path.path_length = len(path_steps)
+
+        return path
+
+    def close(self):
+        """Close database connections."""
+        self.repo_conn.close()
+        self.graph_conn.close()

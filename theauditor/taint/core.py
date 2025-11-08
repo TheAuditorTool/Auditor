@@ -134,27 +134,26 @@ class TaintPath:
         self.related_sources.append(related_entry)
 
 
-def trace_taint(db_path: str, max_depth: int = 5, registry=None,
-                use_cfg: bool = True,
+def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                 use_memory_cache: bool = True, memory_limit_mb: int = 12000,
-                cache: Optional['MemoryCache'] = None) -> Dict[str, Any]:
+                cache: Optional['MemoryCache'] = None,
+                graph_db_path: str = None) -> Dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
 
     Args:
-        db_path: Path to the SQLite database
-        max_depth: Maximum depth to trace taint propagation
-        registry: Optional TaintRegistry with enriched patterns from rules
-        use_cfg: Enable CFG-based analysis (Stage 3 multi-hop when True, Stage 2 when False)
+        db_path: Path to repo_index.db database
+        max_depth: Maximum depth to trace taint propagation (default 10)
+        registry: MANDATORY TaintRegistry with patterns from rules (NO FALLBACK)
         use_memory_cache: Enable in-memory caching for performance (default: True)
         memory_limit_mb: Memory limit for cache in MB (default: 12000)
         cache: Optional pre-loaded MemoryCache to use (avoids reload)
+        graph_db_path: Path to graphs.db (default: .pf/graphs.db, MUST exist)
 
-    Stage Selection (v1.2.1):
-        - use_cfg=True: Stage 3 (CFG-based multi-hop with worklist)
-        - use_cfg=False: Stage 2 (call-graph flow-insensitive)
-
-    Note: The stage3 parameter was removed in v1.2.1 - use_cfg now controls everything.
+    IFDS Mode (ONLY MODE - BASED ON ALLEN ET AL. 2021):
+        Uses pre-computed graphs.db for 5-10 hop cross-file taint tracking.
+        Implements demand-driven backward IFDS with access path tracking.
+        NO FALLBACKS - If graphs.db or registry missing, CRASHES.
 
     Returns:
         Dictionary containing:
@@ -201,55 +200,39 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
             pass
     
     # ARCHITECTURAL FIX: Database-first architecture
-    # Framework patterns are handled upstream and registered via TaintRegistry
-    # The taint analyzer operates ONLY on patterns provided by the registry
-    if registry:
-        # CRITICAL FIX: Load defaults FIRST, then merge registry on top
-        # TaintConfig() creates empty config - we need from_defaults() first!
-        config = TaintConfig.from_defaults().with_registry(registry)
-    else:
-        # Fallback to defaults if no registry provided
-        # This maintains backward compatibility but won't include framework-specific patterns
-        config = TaintConfig.from_defaults()
+    # ZERO FALLBACK POLICY: Registry is MANDATORY
+    if registry is None:
+        raise ValueError(
+            "Registry is MANDATORY for taint analysis. "
+            "Run with orchestrator.collect_rule_patterns(registry) first. "
+            "NO FALLBACKS ALLOWED."
+        )
+
+    config = TaintConfig.from_defaults().with_registry(registry)
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    # Attempt to preload database into memory cache for performance
-    # CRITICAL FIX: Use provided cache if available (avoids reload in pipeline)
-    if use_memory_cache:
-        if cache is None:  # Only create if not provided
-            # Always use SchemaMemoryCache (feature flags removed)
-            from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
-            from .schema_cache_adapter import SchemaMemoryCacheAdapter
-            print("[TAINT] Using SchemaMemoryCache", file=sys.stderr)
-            schema_cache = SchemaMemoryCache(db_path)
-            cache = SchemaMemoryCacheAdapter(schema_cache)
-            print(f"[TAINT] SchemaMemoryCache loaded: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
-        else:
-            # Using pre-loaded cache from pipeline
-            print(f"[TAINT] Using pre-loaded cache: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
+    # CRITICAL: Cache is MANDATORY (ZERO FALLBACK POLICY)
+    # Database is regenerated fresh every run - if cache fails, pipeline is broken
+    if cache is None:
+        from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
+        from .schema_cache_adapter import SchemaMemoryCacheAdapter
+        print("[TAINT] Creating SchemaMemoryCache (mandatory for discovery)", file=sys.stderr)
+        schema_cache = SchemaMemoryCache(db_path)
+        cache = SchemaMemoryCacheAdapter(schema_cache)
+        print(f"[TAINT] SchemaMemoryCache loaded: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
     else:
-        cache = None  # Explicitly disable cache if not requested
-    
+        print(f"[TAINT] Using pre-loaded cache: {cache.get_memory_usage_mb():.1f}MB", file=sys.stderr)
+
     try:
-        # Always use database-driven discovery when cache available (feature flags removed)
-        if cache:
-            # Use database-driven discovery
-            from .discovery import TaintDiscovery
-            print("[TAINT] Using database-driven discovery", file=sys.stderr)
-            discovery = TaintDiscovery(cache)
-            sources = discovery.discover_sources(config.sources)
-            sinks = discovery.discover_sinks(config.sinks)
-            sinks = discovery.filter_framework_safe_sinks(sinks)
-        else:
-            # Fallback when cache not available (should be rare)
-            # This is not a feature flag, just handling when cache is disabled
-            print("[TAINT] Cache not available, using direct database queries", file=sys.stderr)
-            sources = find_taint_sources(cursor, config.sources, cache=None)
-            sinks = find_security_sinks(cursor, config.sinks, cache=None)
-            from .database import filter_framework_safe_sinks
-            sinks = filter_framework_safe_sinks(cursor, sinks)
+        # Database-driven discovery (cache guaranteed to exist)
+        from .discovery import TaintDiscovery
+        print("[TAINT] Using database-driven discovery", file=sys.stderr)
+        discovery = TaintDiscovery(cache)
+        sources = discovery.discover_sources(config.sources)
+        sinks = discovery.discover_sinks(config.sinks)
+        sinks = discovery.filter_framework_safe_sinks(sinks)
 
         # Step 3: Build a call graph for efficient traversal
         call_graph = build_call_graph(cursor)
@@ -284,34 +267,50 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
                 if sink_module == source_module:
                     filtered.append(sink)
 
-            # If no sinks in same module, return all (fallback for cross-module flows)
-            return filtered if filtered else all_sinks
+            # ZERO FALLBACK POLICY: Return filtered results only
+            # Cross-module flows handled by IFDS multi-hop analysis
+            return filtered
 
-        # Step 4: Trace taint flow from each source
+        # Step 4: IFDS Taint Analysis (ONLY MODE - NO FALLBACKS)
+        # ZERO FALLBACK POLICY: graphs.db MUST exist or CRASH
+        if graph_db_path is None:
+            db_dir = Path(db_path).parent
+            graph_db_path = str(db_dir / "graphs.db")
+
+        if not Path(graph_db_path).exists():
+            raise FileNotFoundError(
+                f"graphs.db not found at {graph_db_path}. "
+                f"Run 'aud graph build' to create it. "
+                f"NO FALLBACKS - Taint analysis requires pre-computed graphs."
+            )
+
+        print(f"[TAINT] Using IFDS mode with graphs.db", file=sys.stderr)
+        sys.stderr.flush()
+
+        from .ifds_analyzer import IFDSTaintAnalyzer
+
+        print(f"[TAINT] Analyzing {len(sinks)} sinks against {len(sources)} sources (demand-driven)", file=sys.stderr)
+        sys.stderr.flush()
+
+        ifds_analyzer = IFDSTaintAnalyzer(
+            repo_db_path=db_path,
+            graph_db_path=graph_db_path,
+            cache=cache
+        )
+        ifds_analyzer.debug = os.environ.get("THEAUDITOR_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG")
+
+        # IFDS: Demand-driven backward analysis from sinks
         taint_paths = []
+        for idx, sink in enumerate(sinks):
+            if idx % 100 == 0:
+                print(f"[TAINT] Progress: {idx}/{len(sinks)} sinks analyzed, {len(taint_paths)} paths found", file=sys.stderr)
+                sys.stderr.flush()
+            paths = ifds_analyzer.analyze_sink_to_sources(sink, sources, max_depth)
+            taint_paths.extend(paths)
 
-        # Use unified analyzer if CFG enabled and cache available
-        if use_cfg and cache:
-            analyzer = TaintFlowAnalyzer(cache, cursor)
-            taint_paths = analyzer.analyze_interprocedural(sources, sinks, call_graph, max_depth)
-        else:
-            # Fallback to old method for now (will be removed in final cleanup)
-            from .propagation import trace_from_source
-            for source in sources:
-                # Find what function contains this source
-                source_function = get_containing_function(cursor, source)
-                if not source_function:
-                    continue
+        ifds_analyzer.close()
+        print(f"[TAINT] IFDS found {len(taint_paths)} paths", file=sys.stderr)
 
-                # Filter sinks by proximity for performance (10x speedup)
-                relevant_sinks = filter_sinks_by_proximity(source, sinks)
-
-                # Trace taint propagation from this source
-                paths = trace_from_source(
-                    cursor, source, source_function, relevant_sinks, call_graph, max_depth, use_cfg, cache=cache
-                )
-                taint_paths.extend(paths)
-        
         # Step 5: Deduplicate paths
         unique_paths = deduplicate_paths(taint_paths)
         
@@ -384,6 +383,13 @@ def trace_taint(db_path: str, max_depth: int = 5, registry=None,
                 "summary": {"total_count": 0, "by_type": {}, "critical_count": 0, "high_count": 0, "medium_count": 0, "low_count": 0}
             }
     except Exception as e:
+        # ZERO FALLBACK POLICY: Print error before returning (hard fail)
+        import traceback
+        error_msg = f"[TAINT ERROR] {str(e)}"
+        traceback_str = traceback.format_exc()
+        print(error_msg, file=sys.stderr)
+        print(traceback_str, file=sys.stderr)
+
         return {
             "success": False,
             "error": str(e),
