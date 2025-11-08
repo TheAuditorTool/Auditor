@@ -609,7 +609,7 @@ def register_taint_patterns(taint_registry):
 
     # Register auth middleware as sanitizers (they clean/validate)
     for pattern in patterns.AUTH_MIDDLEWARE:
-        taint_registry.register_sanitizer(pattern, "auth_validation", "api")
+        taint_registry.register_sanitizer(pattern, "api")
 
     # Register public patterns as sources (untrusted)
     for pattern in patterns.PUBLIC_ENDPOINT_PATTERNS:

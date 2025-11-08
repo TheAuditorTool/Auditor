@@ -40,13 +40,14 @@ class IFDSTaintAnalyzer:
     rebuilding data flow on every run.
     """
 
-    def __init__(self, repo_db_path: str, graph_db_path: str, cache=None):
+    def __init__(self, repo_db_path: str, graph_db_path: str, cache=None, registry=None):
         """Initialize IFDS analyzer with database connections.
 
         Args:
             repo_db_path: Path to repo_index.db (CFG, symbols, assignments)
             graph_db_path: Path to graphs.db (DFG, call graph)
             cache: Optional memory cache for performance
+            registry: Optional TaintRegistry for sanitizer checking
         """
         self.repo_conn = sqlite3.connect(repo_db_path)
         self.repo_conn.row_factory = sqlite3.Row
@@ -57,6 +58,7 @@ class IFDSTaintAnalyzer:
         self.graph_cursor = self.graph_conn.cursor()
 
         self.cache = cache
+        self.registry = registry
 
         # Function summaries: (func_name, file) -> {param_path: [return_paths]}
         self.summaries: Dict[Tuple[str, str], Dict[str, Set[str]]] = {}
@@ -68,6 +70,9 @@ class IFDSTaintAnalyzer:
         self.max_paths_per_sink = 100
 
         self.debug = False  # Set via env var
+
+        # Load safe sinks (sanitizers) from database
+        self._load_safe_sinks()
 
     def analyze_sink_to_sources(self, sink: Dict, sources: List[Dict],
                                 max_depth: int = 10) -> List[TaintPath]:
@@ -162,7 +167,12 @@ class IFDSTaintAnalyzer:
             # Check if current node matches ANY source
             for source_dict, source_ap in source_aps:
                 if self._access_paths_match(current_ap, source_ap):
-                    # Found a path!
+                    # Found a path! Check if it's sanitized
+                    if self._path_goes_through_sanitizer(hop_chain):
+                        if self.debug:
+                            print(f"[IFDS] Skipping sanitized path from {source_ap} to sink", file=sys.stderr)
+                        continue
+
                     path = self._build_taint_path(source_dict, sink, hop_chain)
                     paths.append(path)
                     if len(paths) >= self.max_paths_per_sink:
@@ -454,6 +464,67 @@ class IFDSTaintAnalyzer:
         path.path_length = len(path_steps)
 
         return path
+
+    def _load_safe_sinks(self):
+        """Load sanitizers from framework_safe_sinks table."""
+        self.safe_sinks: Set[str] = set()
+        try:
+            self.repo_cursor.execute("SELECT pattern FROM framework_safe_sinks")
+            for row in self.repo_cursor.fetchall():
+                self.safe_sinks.add(row['pattern'])
+            if self.debug and self.safe_sinks:
+                print(f"[IFDS] Loaded {len(self.safe_sinks)} safe sinks (sanitizers)", file=sys.stderr)
+        except sqlite3.OperationalError:
+            # Table doesn't exist - no sanitizers loaded
+            pass
+
+    def _is_sanitizer(self, function_name: str) -> bool:
+        """Check if a function is a sanitizer.
+
+        Checks both registry patterns and database safe_sinks.
+        """
+        # Check database safe sinks
+        if function_name in self.safe_sinks:
+            return True
+
+        # Check any pattern that partially matches
+        for safe_sink in self.safe_sinks:
+            if safe_sink in function_name or function_name in safe_sink:
+                return True
+
+        # Check registry if available
+        if self.registry and self.registry.is_sanitizer(function_name):
+            return True
+
+        return False
+
+    def _path_goes_through_sanitizer(self, hop_chain: List[Dict]) -> bool:
+        """Check if a taint path goes through a sanitizer.
+
+        Queries repo_index.db to check if any hop involves a sanitizer call.
+        """
+        for hop in hop_chain:
+            hop_file = hop.get('from_file') or hop.get('to_file')
+            hop_line = hop.get('line', 0)
+
+            if not hop_file or not hop_line:
+                continue
+
+            # Query function calls at this line
+            self.repo_cursor.execute("""
+                SELECT callee_function FROM function_call_args
+                WHERE file = ? AND line = ?
+                LIMIT 10
+            """, (hop_file, hop_line))
+
+            for row in self.repo_cursor.fetchall():
+                callee = row['callee_function']
+                if self._is_sanitizer(callee):
+                    if self.debug:
+                        print(f"[IFDS] Path sanitized by {callee} at {hop_file}:{hop_line}", file=sys.stderr)
+                    return True
+
+        return False
 
     def close(self):
         """Close database connections."""

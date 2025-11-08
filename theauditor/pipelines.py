@@ -249,7 +249,15 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
             elapsed = time.time() - start_time
             
             # Check for special exit codes (findings commands)
-            is_findings_command = "taint-analyze" in cmd or ("deps" in cmd and "--vuln-scan" in cmd)
+            # These commands exit with 1 (high severity) or 2 (critical) when findings exist
+            cmd_str = " ".join(str(c) for c in cmd)
+            is_findings_command = (
+                "taint-analyze" in cmd_str or
+                ("deps" in cmd_str and "--vuln-scan" in cmd_str) or
+                "cdk" in cmd_str or
+                "terraform" in cmd_str or
+                "workflows" in cmd_str
+            )
             if is_findings_command:
                 success = result.returncode in [0, 1, 2]
             else:
@@ -1404,7 +1412,15 @@ def run_full_pipeline(
                 elapsed = time.time() - start_time
 
                 # Handle special exit codes for findings commands
-                is_findings_command = "taint-analyze" in cmd or ("deps" in cmd and "--vuln-scan" in cmd)
+                # These commands exit with 1 (high severity) or 2 (critical) when findings exist
+                cmd_str = " ".join(str(c) for c in cmd)
+                is_findings_command = (
+                    "taint-analyze" in cmd_str or
+                    ("deps" in cmd_str and "--vuln-scan" in cmd_str) or
+                    "cdk" in cmd_str or
+                    "terraform" in cmd_str or
+                    "workflows" in cmd_str
+                )
                 if is_findings_command:
                     success = result.returncode in [0, 1, 2]
                 else:

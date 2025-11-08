@@ -29,31 +29,132 @@ class TaintRegistry:
     """Lightweight pattern accumulator for taint sources, sinks, and sanitizers.
 
     Populated dynamically by orchestrator from 200+ rules, then fed to discovery.
+
+    Structure: Language-aware nested dictionaries
+        sources[language][category] = [patterns]
+        sinks[language][category] = [patterns]
+        sanitizers[language] = [patterns]
+
+    This allows orchestrator to filter rules by detected frameworks (e.g., only
+    run Python rules if Flask detected) and populate registry with pre-filtered patterns.
     """
 
     def __init__(self):
-        self.sources: Dict[str, List[str]] = {}
-        self.sinks: Dict[str, List[str]] = {}
-        self.sanitizers: List[str] = []
+        # Language-aware nested structure: sources[language][category] = [patterns]
+        self.sources: Dict[str, Dict[str, List[str]]] = {}
+        self.sinks: Dict[str, Dict[str, List[str]]] = {}
+        self.sanitizers: Dict[str, List[str]] = {}
 
-    def register_source(self, category: str, patterns: List[str]):
-        self.sources.setdefault(category, []).extend(patterns)
+    def register_source(self, pattern: str, category: str, language: str):
+        """Register a taint source pattern for a specific language.
 
-    def register_sink(self, category: str, patterns: List[str]):
-        self.sinks.setdefault(category, []).extend(patterns)
+        Args:
+            pattern: Source pattern (e.g., 'req.body', 'request.args')
+            category: Source category (e.g., 'user_input', 'http_request')
+            language: Language identifier (e.g., 'python', 'javascript', 'rust')
+        """
+        if language not in self.sources:
+            self.sources[language] = {}
+        if category not in self.sources[language]:
+            self.sources[language][category] = []
+        if pattern not in self.sources[language][category]:
+            self.sources[language][category].append(pattern)
 
-    def register_sanitizer(self, pattern: str):
-        if pattern not in self.sanitizers:
-            self.sanitizers.append(pattern)
+    def register_sink(self, pattern: str, category: str, language: str):
+        """Register a taint sink pattern for a specific language.
 
-    def is_sanitizer(self, function_name: str) -> bool:
-        return function_name in self.sanitizers
+        Args:
+            pattern: Sink pattern (e.g., 'execute', 'eval', 'system')
+            category: Sink category (e.g., 'sql', 'command', 'xss')
+            language: Language identifier (e.g., 'python', 'javascript', 'rust')
+        """
+        if language not in self.sinks:
+            self.sinks[language] = {}
+        if category not in self.sinks[language]:
+            self.sinks[language][category] = []
+        if pattern not in self.sinks[language][category]:
+            self.sinks[language][category].append(pattern)
+
+    def register_sanitizer(self, pattern: str, language: str = None):
+        """Register a sanitizer pattern, optionally language-specific.
+
+        Args:
+            pattern: Sanitizer function name (e.g., 'sanitize', 'escape')
+            language: Optional language identifier (None = applies to all languages)
+        """
+        lang_key = language if language else 'global'
+        if lang_key not in self.sanitizers:
+            self.sanitizers[lang_key] = []
+        if pattern not in self.sanitizers[lang_key]:
+            self.sanitizers[lang_key].append(pattern)
+
+    def is_sanitizer(self, function_name: str, language: str = None) -> bool:
+        """Check if a function is a registered sanitizer.
+
+        Args:
+            function_name: Function name to check
+            language: Optional language to check (also checks global sanitizers)
+
+        Returns:
+            True if function is a registered sanitizer
+        """
+        # Check global sanitizers
+        if 'global' in self.sanitizers and function_name in self.sanitizers['global']:
+            return True
+        # Check language-specific sanitizers
+        if language and language in self.sanitizers and function_name in self.sanitizers[language]:
+            return True
+        return False
+
+    def get_sources_for_language(self, language: str) -> Dict[str, List[str]]:
+        """Get all source patterns for a specific language.
+
+        Args:
+            language: Language identifier (e.g., 'python', 'javascript')
+
+        Returns:
+            Dictionary mapping category to pattern list
+        """
+        return self.sources.get(language, {})
+
+    def get_sinks_for_language(self, language: str) -> Dict[str, List[str]]:
+        """Get all sink patterns for a specific language.
+
+        Args:
+            language: Language identifier (e.g., 'python', 'javascript')
+
+        Returns:
+            Dictionary mapping category to pattern list
+        """
+        return self.sinks.get(language, {})
 
     def get_stats(self) -> Dict[str, int]:
+        """Get registry statistics for debugging.
+
+        Returns:
+            Dictionary with simple total counts
+        """
+        # Count total sources across all languages
+        total_sources = sum(
+            len(patterns)
+            for lang_sources in self.sources.values()
+            for patterns in lang_sources.values()
+        )
+
+        # Count total sinks across all languages
+        total_sinks = sum(
+            len(patterns)
+            for lang_sinks in self.sinks.values()
+            for patterns in lang_sinks.values()
+        )
+
+        # Count total sanitizers
+        total_sanitizers = sum(len(patterns) for patterns in self.sanitizers.values())
+
         return {
-            'total_sources': sum(len(v) for v in self.sources.values()),
-            'total_sinks': sum(len(v) for v in self.sinks.values()),
-            'total_sanitizers': len(self.sanitizers),
+            'total_sources': total_sources,
+            'total_sinks': total_sinks,
+            'total_sanitizers': total_sanitizers
         }
 
 
@@ -76,35 +177,25 @@ class TaintPath:
         self.related_sources: List[Dict[str, Any]] = []
     
     def _classify_vulnerability(self) -> str:
-        """Classify the vulnerability based on sink type - factual categorization."""
-        sink_name = self.sink.get("name", "").lower()
+        """Classify the vulnerability based on sink type - factual categorization.
+
+        Uses sink category from discovery (populated by database queries).
+        ZERO FALLBACK POLICY: If category missing, return generic type.
+        """
         sink_category = self.sink.get("category", "")
-        
-        # Use category if available, otherwise infer from name
-        if sink_category:
-            category_map = {
-                "sql": "SQL Injection",
-                "command": "Command Injection", 
-                "xss": "Cross-Site Scripting (XSS)",
-                "path": "Path Traversal",
-                "ldap": "LDAP Injection",
-                "nosql": "NoSQL Injection"
-            }
-            return category_map.get(sink_category, "Data Exposure")
-        
-        # Fallback: infer from sink name patterns
-        for vuln_type, sinks in SECURITY_SINKS.items():
-            if any(s.lower() in sink_name for s in sinks):
-                return {
-                    "sql": "SQL Injection",
-                    "command": "Command Injection",
-                    "xss": "Cross-Site Scripting (XSS)",
-                    "path": "Path Traversal",
-                    "ldap": "LDAP Injection",
-                    "nosql": "NoSQL Injection"
-                }.get(vuln_type, "Data Exposure")
-        
-        return "Data Exposure"
+
+        # Map sink category to vulnerability classification
+        # These are factual categories from database schema, not interpretations
+        category_map = {
+            "sql": "SQL Injection",
+            "command": "Command Injection",
+            "xss": "Cross-Site Scripting (XSS)",
+            "path": "Path Traversal",
+            "ldap": "LDAP Injection",
+            "nosql": "NoSQL Injection"
+        }
+
+        return category_map.get(sink_category, "Data Exposure")
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization with guaranteed structure."""
@@ -320,10 +411,16 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
     """
     import sqlite3
     import os
-    
-    # Create configuration instead of modifying globals
-    # This ensures thread safety and reentrancy
-    
+
+    # ARCHITECTURAL FIX: Database-first architecture
+    # ZERO FALLBACK POLICY: Registry is MANDATORY
+    if registry is None:
+        raise ValueError(
+            "Registry is MANDATORY for taint analysis. "
+            "Run with orchestrator.collect_rule_patterns(registry) first. "
+            "NO FALLBACKS ALLOWED."
+        )
+
     # Load framework data from database (not output files)
     frameworks = []
     # CRITICAL FIX: Use parameter, don't shadow it
@@ -354,17 +451,23 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         except (sqlite3.Error, ImportError):
             # Gracefully continue without framework enhancement
             pass
-    
-    # ARCHITECTURAL FIX: Database-first architecture
-    # ZERO FALLBACK POLICY: Registry is MANDATORY
-    if registry is None:
-        raise ValueError(
-            "Registry is MANDATORY for taint analysis. "
-            "Run with orchestrator.collect_rule_patterns(registry) first. "
-            "NO FALLBACKS ALLOWED."
-        )
 
-    config = TaintConfig.from_defaults().with_registry(registry)
+    # Merge all language-specific patterns into flat structure for discovery
+    # Orchestrator has already filtered rules by detected frameworks,
+    # so registry only contains patterns for languages present in the project
+    merged_sources: Dict[str, List[str]] = {}
+    for lang_sources in registry.sources.values():
+        for category, patterns in lang_sources.items():
+            if category not in merged_sources:
+                merged_sources[category] = []
+            merged_sources[category].extend(patterns)
+
+    merged_sinks: Dict[str, List[str]] = {}
+    for lang_sinks in registry.sinks.values():
+        for category, patterns in lang_sinks.items():
+            if category not in merged_sinks:
+                merged_sinks[category] = []
+            merged_sinks[category].extend(patterns)
     
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -386,14 +489,11 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         from .discovery import TaintDiscovery
         print("[TAINT] Using database-driven discovery", file=sys.stderr)
         discovery = TaintDiscovery(cache)
-        sources = discovery.discover_sources(config.sources)
-        sinks = discovery.discover_sinks(config.sinks)
+        sources = discovery.discover_sources(merged_sources)
+        sinks = discovery.discover_sinks(merged_sinks)
         sinks = discovery.filter_framework_safe_sinks(sinks)
 
-        # Step 3: Build a call graph for efficient traversal
-        call_graph = build_call_graph(cursor)
-
-        # Step 3.5: Helper function for proximity filtering
+        # Helper function for proximity filtering
         def filter_sinks_by_proximity(source, all_sinks):
             """Filter sinks to same module as source for performance.
 
@@ -451,14 +551,17 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         ifds_analyzer = IFDSTaintAnalyzer(
             repo_db_path=db_path,
             graph_db_path=graph_db_path,
-            cache=cache
+            cache=cache,
+            registry=registry
         )
         ifds_analyzer.debug = os.environ.get("THEAUDITOR_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG")
 
         # IFDS: Demand-driven backward analysis from sinks
         taint_paths = []
+        # Adaptive progress interval: 10% of total sinks (min 100, max 1000)
+        progress_interval = max(100, min(1000, len(sinks) // 10))
         for idx, sink in enumerate(sinks):
-            if idx % 100 == 0:
+            if idx % progress_interval == 0:
                 print(f"[TAINT] Progress: {idx}/{len(sinks)} sinks analyzed, {len(taint_paths)} paths found", file=sys.stderr)
                 sys.stderr.flush()
             paths = ifds_analyzer.analyze_sink_to_sources(sink, sources, max_depth)

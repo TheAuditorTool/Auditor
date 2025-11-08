@@ -154,14 +154,15 @@ class ManifestParser:
                     import re
                     # Handle extras: package[extra]==version
                     dep_spec_clean = re.sub(r'\[.*?\]', '', dep_spec)
-                    
-                    # Check if this is our package
-                    if dep_spec_clean.startswith(package_name):
-                        # Extract version if present
-                        match = re.match(rf'^{re.escape(package_name)}\s*([><=~!]+)\s*(.+)$', dep_spec_clean)
+
+                    # Check if this is our package (case-insensitive for Python packages)
+                    # Python package names in requirements.txt can be Django/django, Flask/flask, etc.
+                    if dep_spec_clean.lower().startswith(package_name.lower()):
+                        # Extract version if present (case-insensitive regex)
+                        match = re.match(rf'^{re.escape(package_name)}\s*([><=~!]+)\s*(.+)$', dep_spec_clean, re.IGNORECASE)
                         if match:
                             return match.group(2).strip()
-                        elif dep_spec_clean.strip() == package_name:
+                        elif dep_spec_clean.strip().lower() == package_name.lower():
                             return "latest"
         
         # Handle string format (requirements.txt content)

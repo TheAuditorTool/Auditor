@@ -54,12 +54,14 @@ class ExitCodes:
     @classmethod
     def should_fail_pipeline(cls, code: int) -> bool:
         """Determine if an exit code should fail a CI/CD pipeline.
-        
+
         Args:
             code: The exit code to check
-            
+
         Returns:
             True if the code indicates a failure that should stop the pipeline
         """
-        # Only SUCCESS (0) should allow pipeline to continue
-        return code != cls.SUCCESS
+        # Exit codes 0, 1, 2 indicate successful command execution
+        # 0 = no findings, 1 = high severity findings, 2 = critical findings
+        # Only 3+ (task incomplete or other errors) should fail the pipeline
+        return code >= cls.TASK_INCOMPLETE
