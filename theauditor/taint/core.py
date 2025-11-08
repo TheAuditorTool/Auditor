@@ -489,6 +489,18 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         from .discovery import TaintDiscovery
         print("[TAINT] Using database-driven discovery", file=sys.stderr)
         discovery = TaintDiscovery(cache)
+
+        # Discover sanitizers from framework tables and register them
+        print("[TAINT] Discovering sanitizers from framework tables", file=sys.stderr)
+        sanitizers = discovery.discover_sanitizers()
+        for sanitizer in sanitizers:
+            # Register sanitizers by language
+            lang = sanitizer.get('language', 'global')
+            pattern = sanitizer.get('pattern', '')
+            if pattern:
+                registry.register_sanitizer(pattern, lang)
+        print(f"[TAINT] Registered {len(sanitizers)} sanitizers from frameworks", file=sys.stderr)
+
         sources = discovery.discover_sources(merged_sources)
         sinks = discovery.discover_sinks(merged_sinks)
         sinks = discovery.filter_framework_safe_sinks(sinks)
@@ -498,24 +510,27 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
             """Filter sinks to same module as source for performance.
 
             Reduces O(sources × sinks) from 4M to ~400K combinations.
-            Trade-off: May miss legitimate cross-module flows.
+            ZERO FALLBACK: Returns empty list if source file missing (discovery bug).
             """
             source_file = source.get('file', '')
             if not source_file:
-                return all_sinks  # No filtering if source file unknown
+                # ZERO FALLBACK POLICY: Source without file is discovery bug, skip it
+                return []
 
             # Extract top-level module (e.g., 'theauditor' from 'theauditor/taint/core.py')
             source_parts = source_file.replace('\\', '/').split('/')
             source_module = source_parts[0] if source_parts else ''
 
             if not source_module:
-                return all_sinks
+                # ZERO FALLBACK POLICY: No module means malformed path, skip it
+                return []
 
             # Filter sinks to same top-level module
             filtered = []
             for sink in all_sinks:
                 sink_file = sink.get('file', '')
                 if not sink_file:
+                    # Skip malformed sink (discovery bug)
                     continue
                 sink_parts = sink_file.replace('\\', '/').split('/')
                 sink_module = sink_parts[0] if sink_parts else ''
@@ -572,14 +587,48 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
 
         # Step 5: Deduplicate paths
         unique_paths = deduplicate_paths(taint_paths)
-        
-        # Step 6: Build factual summary with vulnerability counts
+
+        # Step 6: Persist flows to database (taint_flows table)
+        import json
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Clear existing flows
+        cursor.execute("DELETE FROM taint_flows")
+
+        # Insert resolved flows
+        for path in unique_paths:
+            cursor.execute("""
+                INSERT INTO taint_flows (
+                    source_file, source_line, source_pattern,
+                    sink_file, sink_line, sink_pattern,
+                    vulnerability_type, path_length, hops, path_json, flow_sensitive
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                path.source.get('file', ''),
+                path.source.get('line', 0),
+                path.source.get('pattern', ''),
+                path.sink.get('file', ''),
+                path.sink.get('line', 0),
+                path.sink.get('pattern', ''),
+                path.vulnerability_type,
+                len(path.path) if path.path else 0,
+                len(path.path) if path.path else 0,
+                json.dumps(path.path) if path.path else '[]',
+                1  # flow_sensitive = True (IFDS is CFG-aware)
+            ))
+
+        conn.commit()
+        conn.close()
+        print(f"[TAINT] Persisted {len(unique_paths)} flows to taint_flows table", file=sys.stderr)
+
+        # Step 7: Build factual summary with vulnerability counts
         # Count vulnerabilities by type (factual categorization, not interpretation)
         # Clean implementation - only TaintPath objects now
         vulnerabilities_by_type = defaultdict(int)
         for path in unique_paths:
             vulnerabilities_by_type[path.vulnerability_type] += 1
-        
+
         # Convert paths to dictionaries
         # Clean implementation - all paths are TaintPath objects
         path_dicts = [p.to_dict() for p in unique_paths]

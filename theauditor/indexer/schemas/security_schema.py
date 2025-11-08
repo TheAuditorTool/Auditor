@@ -122,6 +122,34 @@ JWT_PATTERNS = TableSchema(
 )
 
 # ============================================================================
+# TAINT FLOWS - Resolved taint analysis paths
+# ============================================================================
+
+TAINT_FLOWS = TableSchema(
+    name="taint_flows",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True, autoincrement=True),
+        Column("source_file", "TEXT", nullable=False),
+        Column("source_line", "INTEGER", nullable=False),
+        Column("source_pattern", "TEXT", nullable=False),  # e.g., "req.body"
+        Column("sink_file", "TEXT", nullable=False),
+        Column("sink_line", "INTEGER", nullable=False),
+        Column("sink_pattern", "TEXT", nullable=False),  # e.g., "execute"
+        Column("vulnerability_type", "TEXT", nullable=False),  # "sql_injection", "xss", etc.
+        Column("path_length", "INTEGER", nullable=False),  # Number of hops
+        Column("hops", "INTEGER", nullable=False),  # Same as path_length for compatibility
+        Column("path_json", "TEXT", nullable=False),  # JSON array of hop chain
+        Column("flow_sensitive", "INTEGER", nullable=False, default="1"),  # Boolean: CFG-aware
+    ],
+    indexes=[
+        ("idx_taint_flows_source", ["source_file", "source_line"]),
+        ("idx_taint_flows_sink", ["sink_file", "sink_line"]),
+        ("idx_taint_flows_type", ["vulnerability_type"]),
+        ("idx_taint_flows_length", ["path_length"]),
+    ]
+)
+
+# ============================================================================
 # SECURITY TABLES REGISTRY
 # ============================================================================
 
@@ -131,4 +159,5 @@ SECURITY_TABLES: Dict[str, TableSchema] = {
     "sql_queries": SQL_QUERIES,
     "sql_query_tables": SQL_QUERY_TABLES,
     "jwt_patterns": JWT_PATTERNS,
+    "taint_flows": TAINT_FLOWS,
 }
