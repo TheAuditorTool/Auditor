@@ -72,10 +72,10 @@ TABLES: Dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 155 tables (schema continues to grow with framework extraction)
+# Total: 156 tables (schema continues to grow with framework extraction)
 
 # Verify table count at module load time
-assert len(TABLES) == 155, f"Schema contract violation: Expected 155 tables, got {len(TABLES)}"
+assert len(TABLES) == 156, f"Schema contract violation: Expected 156 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
@@ -213,6 +213,9 @@ IMPORT_STYLE_NAMES = TABLES['import_style_names']
 FRAMEWORKS = TABLES['frameworks']
 FRAMEWORK_SAFE_SINKS = TABLES['framework_safe_sinks']
 VALIDATION_FRAMEWORK_USAGE = TABLES['validation_framework_usage']
+
+# Express framework
+EXPRESS_MIDDLEWARE_CHAINS = TABLES['express_middleware_chains']
 
 # -------------------------
 # INFRASTRUCTURE TABLES (18 tables from schemas/infrastructure_schema.py)

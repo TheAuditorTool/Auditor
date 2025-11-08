@@ -69,10 +69,19 @@ class IFDSTaintAnalyzer:
         self.max_depth = 10  # 10-hop max
         self.max_paths_per_sink = 100
 
-        self.debug = False  # Set via env var
+        # Enable debug logging via environment variable
+        import os
+        self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
+
+        if self.debug:
+            print("[IFDS] ========================================", file=sys.stderr)
+            print("[IFDS] IFDS Analyzer Initialized (DEBUG MODE)", file=sys.stderr)
+            print(f"[IFDS] Database: {repo_db_path}", file=sys.stderr)
+            print("[IFDS] ========================================", file=sys.stderr)
 
         # Load safe sinks (sanitizers) from database
         self._load_safe_sinks()
+        self._load_validation_sanitizers()
 
     def analyze_sink_to_sources(self, sink: Dict, sources: List[Dict],
                                 max_depth: int = 10) -> List[TaintPath]:
@@ -323,6 +332,26 @@ class IFDSTaintAnalyzer:
                 dynamic_preds = self._flow_function_field_load(ap, defining_stmt)
                 predecessors.extend(dynamic_preds)
 
+            elif stmt_type == 'CALL_ASSIGNMENT':
+                # PHASE 4.1: Return-to-caller flow (x = func())
+                dynamic_preds = self._flow_function_return_to_caller(ap, defining_stmt)
+                predecessors.extend(dynamic_preds)
+
+            elif stmt_type == 'FIELD_STORE':
+                # PHASE 4.2: Field store taint-kill (x.f = y)
+                dynamic_preds = self._flow_function_field_store(ap, defining_stmt)
+                predecessors.extend(dynamic_preds)
+
+        # PHASE 5: Check if we're at a controller entry point in Express middleware chain
+        # This runs regardless of defining_stmt (controllers may not have defining statements)
+        if ap.function:  # Has function context
+            express_preds = self._flow_function_express_controller_entry(ap)
+            if express_preds:
+                predecessors.extend(express_preds)
+                if self.debug:
+                    for pred_ap, flow_type, meta in express_preds:
+                        print(f"[IFDS] Express middleware chain: {ap.file}:{ap.function} → {pred_ap.file} (route {meta['route']})", file=sys.stderr)
+
         # FALLBACK: Static graph edges (for types not yet implemented)
         # Keep existing graph traversal for backward compatibility
         # This ensures assignment/return edges from graphs.db still work
@@ -503,15 +532,72 @@ class IFDSTaintAnalyzer:
 
     def _load_safe_sinks(self):
         """Load sanitizers from framework_safe_sinks table."""
+        if self.debug:
+            print("[IFDS] → ENTRY: _load_safe_sinks()", file=sys.stderr)
+
         self.safe_sinks: Set[str] = set()
         try:
-            self.repo_cursor.execute("SELECT pattern FROM framework_safe_sinks")
-            for row in self.repo_cursor.fetchall():
-                self.safe_sinks.add(row['pattern'])
-            if self.debug and self.safe_sinks:
-                print(f"[IFDS] Loaded {len(self.safe_sinks)} safe sinks (sanitizers)", file=sys.stderr)
-        except sqlite3.OperationalError:
+            # FIX: Column is 'sink_pattern', not 'pattern'
+            self.repo_cursor.execute("SELECT sink_pattern FROM framework_safe_sinks")
+            rows = self.repo_cursor.fetchall()
+
+            if self.debug:
+                print(f"[IFDS]   Query returned {len(rows)} rows from framework_safe_sinks", file=sys.stderr)
+
+            for row in rows:
+                pattern = row['sink_pattern']
+                self.safe_sinks.add(pattern)
+                if self.debug:
+                    print(f"[IFDS]   + Safe sink pattern: {pattern}", file=sys.stderr)
+
+            if self.debug:
+                print(f"[IFDS] ← EXIT: Loaded {len(self.safe_sinks)} safe sink patterns", file=sys.stderr)
+        except sqlite3.OperationalError as e:
+            if self.debug:
+                print(f"[IFDS] ← EXIT: Table framework_safe_sinks not found ({e})", file=sys.stderr)
             # Table doesn't exist - no sanitizers loaded
+            pass
+
+    def _load_validation_sanitizers(self):
+        """Load validation framework sanitizers from validation_framework_usage table.
+
+        This captures location-based sanitizers like Zod middleware that must be
+        matched by file:line, not just function name pattern.
+        """
+        if self.debug:
+            print("[IFDS] → ENTRY: _load_validation_sanitizers()", file=sys.stderr)
+
+        self.validation_sanitizers: List[Dict] = []
+        try:
+            self.repo_cursor.execute("""
+                SELECT file_path, line, framework, method, argument_expr, is_validator
+                FROM validation_framework_usage
+                WHERE is_validator = 1
+            """)
+            rows = self.repo_cursor.fetchall()
+
+            if self.debug:
+                print(f"[IFDS]   Query returned {len(rows)} rows from validation_framework_usage", file=sys.stderr)
+
+            for row in rows:
+                sanitizer = {
+                    'file': row['file_path'],
+                    'line': row['line'],
+                    'framework': row['framework'],
+                    'method': row['method'],
+                    'argument': row['argument_expr']
+                }
+                self.validation_sanitizers.append(sanitizer)
+
+                if self.debug:
+                    print(f"[IFDS]   + Validation sanitizer: {sanitizer['framework']}.{sanitizer['method']}({sanitizer['argument']}) at {sanitizer['file']}:{sanitizer['line']}", file=sys.stderr)
+
+            if self.debug:
+                print(f"[IFDS] ← EXIT: Loaded {len(self.validation_sanitizers)} validation sanitizers", file=sys.stderr)
+        except sqlite3.OperationalError as e:
+            if self.debug:
+                print(f"[IFDS] ← EXIT: Table validation_framework_usage not found ({e})", file=sys.stderr)
+            # Table doesn't exist - no validation sanitizers loaded
             pass
 
     def _is_sanitizer(self, function_name: str) -> bool:
@@ -519,32 +605,91 @@ class IFDSTaintAnalyzer:
 
         Checks both registry patterns and database safe_sinks.
         """
-        # Check database safe sinks
+        if self.debug:
+            print(f"[IFDS]     → _is_sanitizer('{function_name}')?", file=sys.stderr)
+
+        # Check database safe sinks (exact match)
         if function_name in self.safe_sinks:
+            if self.debug:
+                print(f"[IFDS]     ✓ EXACT MATCH in safe_sinks: {function_name}", file=sys.stderr)
             return True
 
         # Check any pattern that partially matches
         for safe_sink in self.safe_sinks:
             if safe_sink in function_name or function_name in safe_sink:
+                if self.debug:
+                    print(f"[IFDS]     ✓ PARTIAL MATCH: '{safe_sink}' ~ '{function_name}'", file=sys.stderr)
                 return True
 
         # Check registry if available
         if self.registry and self.registry.is_sanitizer(function_name):
+            if self.debug:
+                print(f"[IFDS]     ✓ REGISTRY MATCH: {function_name}", file=sys.stderr)
             return True
 
+        if self.debug:
+            print(f"[IFDS]     ✗ NOT a sanitizer: {function_name}", file=sys.stderr)
         return False
 
     def _path_goes_through_sanitizer(self, hop_chain: List[Dict]) -> bool:
         """Check if a taint path goes through a sanitizer.
 
-        Queries repo_index.db to check if any hop involves a sanitizer call.
+        Checks TWO types of sanitizers:
+        1. Validation framework sanitizers (location-based: file:line match from validation_framework_usage)
+        2. Safe sink patterns (name-based: function name pattern match from framework_safe_sinks)
+
+        This is the critical taint-kill logic that prevents false positives.
         """
-        for hop in hop_chain:
+        if self.debug:
+            print(f"[IFDS] → ENTRY: _path_goes_through_sanitizer() - checking {len(hop_chain)} hops", file=sys.stderr)
+
+        for i, hop in enumerate(hop_chain):
             hop_file = hop.get('from_file') or hop.get('to_file')
             hop_line = hop.get('line', 0)
 
+            if self.debug:
+                print(f"[IFDS]   Hop {i+1}/{len(hop_chain)}: {hop_file}:{hop_line}", file=sys.stderr)
+
             if not hop_file or not hop_line:
+                if self.debug:
+                    print(f"[IFDS]     ✗ Skipping (missing file or line)", file=sys.stderr)
                 continue
+
+            # ============================================================
+            # CHECK 1: Validation Framework Sanitizers (Location-Based)
+            # ============================================================
+            # These are middleware sanitizers like Zod that must be matched by
+            # exact file:line location, not just function name pattern
+            if self.debug:
+                print(f"[IFDS]     CHECK 1: Validation framework sanitizers ({len(self.validation_sanitizers)} loaded)", file=sys.stderr)
+
+            for san in self.validation_sanitizers:
+                # Match by file path (handle both absolute and relative paths)
+                file_match = (
+                    hop_file == san['file'] or
+                    hop_file.endswith(san['file']) or
+                    san['file'].endswith(hop_file)
+                )
+
+                if file_match and hop_line == san['line']:
+                    if self.debug:
+                        print(f"[IFDS]     ✓✓✓ VALIDATION SANITIZER MATCH ✓✓✓", file=sys.stderr)
+                        print(f"[IFDS]         Framework: {san['framework']}", file=sys.stderr)
+                        print(f"[IFDS]         Method: {san['method']}", file=sys.stderr)
+                        print(f"[IFDS]         Argument: {san['argument']}", file=sys.stderr)
+                        print(f"[IFDS]         Location: {san['file']}:{san['line']}", file=sys.stderr)
+                        print(f"[IFDS]     ✓✓✓ TAINT KILLED ✓✓✓", file=sys.stderr)
+                    return True
+
+            if self.debug:
+                print(f"[IFDS]     ✗ No validation sanitizer match at this hop", file=sys.stderr)
+
+            # ============================================================
+            # CHECK 2: Safe Sink Patterns (Function Name-Based)
+            # ============================================================
+            # These are inherently safe functions like res.json() that auto-escape
+            if self.debug:
+                print(f"[IFDS]     CHECK 2: Safe sink patterns ({len(self.safe_sinks)} loaded)", file=sys.stderr)
 
             # Query function calls at this line
             self.repo_cursor.execute("""
@@ -553,13 +698,28 @@ class IFDSTaintAnalyzer:
                 LIMIT 10
             """, (hop_file, hop_line))
 
-            for row in self.repo_cursor.fetchall():
-                callee = row['callee_function']
+            callees = [row['callee_function'] for row in self.repo_cursor.fetchall()]
+
+            if self.debug:
+                if callees:
+                    print(f"[IFDS]     Found {len(callees)} function calls at this line: {callees}", file=sys.stderr)
+                else:
+                    print(f"[IFDS]     No function calls found at this line", file=sys.stderr)
+
+            for callee in callees:
                 if self._is_sanitizer(callee):
                     if self.debug:
-                        print(f"[IFDS] Path sanitized by {callee} at {hop_file}:{hop_line}", file=sys.stderr)
+                        print(f"[IFDS]     ✓✓✓ SAFE SINK MATCH ✓✓✓", file=sys.stderr)
+                        print(f"[IFDS]         Function: {callee}", file=sys.stderr)
+                        print(f"[IFDS]         Location: {hop_file}:{hop_line}", file=sys.stderr)
+                        print(f"[IFDS]     ✓✓✓ TAINT KILLED ✓✓✓", file=sys.stderr)
                     return True
 
+            if self.debug:
+                print(f"[IFDS]     ✗ No safe sink match at this hop", file=sys.stderr)
+
+        if self.debug:
+            print(f"[IFDS] ← EXIT: _path_goes_through_sanitizer() - NO SANITIZER FOUND (path is tainted)", file=sys.stderr)
         return False
 
     def _get_defining_statement(self, ap: AccessPath) -> Optional[Dict[str, Any]]:
@@ -568,6 +728,8 @@ class IFDSTaintAnalyzer:
         Queries repo_index.db to find if this variable is:
         - A function parameter (PARAMETER)
         - Defined by assignment (ASSIGNMENT or FIELD_LOAD)
+        - Defined by function call assignment (CALL_ASSIGNMENT) - Phase 4.1
+        - Defined by field store (FIELD_STORE) - Phase 4.2
         - A source/allocation (not implemented yet)
 
         This is Step 1 of Algorithm 1 from the Oracle Labs paper.
@@ -592,6 +754,29 @@ class IFDSTaintAnalyzer:
                 'name': param_row['name'],
                 'line': param_row['line']
             }
+
+        # PHASE 4.2: Check if tracing a field that was stored (field write)
+        # This must come BEFORE general assignment check
+        if ap.fields:
+            # Check if this field path was written to (x.f = y)
+            full_path = f"{ap.base}.{'.'.join(ap.fields)}"
+            self.repo_cursor.execute("""
+                SELECT file, line, target_var, source_expr, in_function, property_path
+                FROM assignments
+                WHERE file = ? AND property_path = ? AND in_function = ?
+                ORDER BY line DESC
+                LIMIT 1
+            """, (ap.file, full_path, ap.function))
+
+            field_store_row = self.repo_cursor.fetchone()
+            if field_store_row:
+                return {
+                    'type': 'FIELD_STORE',
+                    'file': field_store_row['file'],
+                    'line': field_store_row['line'],
+                    'target_path': full_path,
+                    'source_expr': field_store_row['source_expr']
+                }
 
         # Check if it's defined by assignment
         # Query assignments table
@@ -619,8 +804,22 @@ class IFDSTaintAnalyzer:
 
         assign_row = self.repo_cursor.fetchone()
         if assign_row:
-            # Check if it's a field load (source_expr contains '.')
             source_expr = assign_row['source_expr']
+
+            # PHASE 4.1: Check if assignment is from function call (x = func())
+            # Detect function calls by presence of '(' but exclude string literals
+            if '(' in source_expr and ')' in source_expr:
+                # Exclude string literals and property access
+                if not source_expr.startswith('"') and not source_expr.startswith("'"):
+                    return {
+                        'type': 'CALL_ASSIGNMENT',
+                        'file': assign_row['file'],
+                        'line': assign_row['line'],
+                        'target_var': assign_row['target_var'],
+                        'callee_expr': source_expr  # e.g., "getTainted()" or "s3.Bucket(...)"
+                    }
+
+            # Check if it's a field load (source_expr contains '.')
             if '.' in source_expr and not source_expr.startswith('"') and not source_expr.startswith("'"):
                 return {
                     'type': 'FIELD_LOAD',
@@ -779,6 +978,467 @@ class IFDSTaintAnalyzer:
         predecessors.append((source_ap, 'field_load', meta))
 
         return predecessors
+
+    def _flow_function_return_to_caller(self, ap: AccessPath, stmt: Dict) -> List[Tuple[AccessPath, str, Dict]]:
+        """Flow function for return-to-caller (PHASE 4.1).
+
+        When tracing variable x defined by x = func(), this:
+        1. Finds the function being called (func)
+        2. Queries function_returns to find what func() returns
+        3. Queries function_return_sources to get returned variable(s)
+        4. Creates AccessPath for returned variable inside func()
+
+        This completes the inter-procedural circuit:
+        - Phase 3: Caller → Callee (parameter binding)
+        - Phase 4.1: Callee → Caller (return binding)
+
+        Algorithm per paper section 2.1:
+            When seeing x = func() at caller:
+            - Find func's return statements
+            - Map x to returned variable(s)
+        """
+        predecessors = []
+
+        callee_expr = stmt['callee_expr']  # e.g., "getTainted()" or "s3.Bucket(...)"
+        file = stmt['file']
+        line = stmt['line']
+
+        # Parse function name from call expression
+        # Handle cases: func(), obj.method(), require('mod').func()
+        func_name = self._parse_function_name_from_call(callee_expr)
+        if not func_name:
+            if self.debug:
+                print(f"[IFDS] Could not parse function name from {callee_expr}", file=sys.stderr)
+            return []
+
+        # Query function_call_args to find callee file and full function name
+        # This gives us the actual callee location
+        self.repo_cursor.execute("""
+            SELECT DISTINCT callee_file_path, callee_function
+            FROM function_call_args
+            WHERE file = ? AND line = ?
+              AND (callee_function LIKE ? OR callee_function = ?)
+            LIMIT 5
+        """, (file, line, f'%{func_name}%', func_name))
+
+        call_sites = self.repo_cursor.fetchall()
+        if not call_sites:
+            # Try without line number (may be off by 1)
+            self.repo_cursor.execute("""
+                SELECT DISTINCT callee_file_path, callee_function
+                FROM function_call_args
+                WHERE file = ?
+                  AND (callee_function LIKE ? OR callee_function = ?)
+                LIMIT 5
+            """, (file, f'%{func_name}%', func_name))
+            call_sites = self.repo_cursor.fetchall()
+
+        for call_site in call_sites:
+            callee_file = call_site['callee_file_path']
+            callee_function = call_site['callee_function']
+
+            if not callee_file or not callee_function:
+                continue
+
+            # Query function_returns for this function
+            self.repo_cursor.execute("""
+                SELECT file, line, function_name, return_expr
+                FROM function_returns
+                WHERE file = ? AND function_name = ?
+                LIMIT 10
+            """, (callee_file, callee_function))
+
+            returns = self.repo_cursor.fetchall()
+            if not returns:
+                # Try with partial match
+                self.repo_cursor.execute("""
+                    SELECT file, line, function_name, return_expr
+                    FROM function_returns
+                    WHERE file = ? AND function_name LIKE ?
+                    LIMIT 10
+                """, (callee_file, f'%{callee_function}%'))
+                returns = self.repo_cursor.fetchall()
+
+            for ret in returns:
+                # Query function_return_sources to get returned variable(s)
+                self.repo_cursor.execute("""
+                    SELECT return_var_name
+                    FROM function_return_sources
+                    WHERE return_file = ? AND return_line = ? AND return_function = ?
+                """, (ret['file'], ret['line'], ret['function_name']))
+
+                return_sources = self.repo_cursor.fetchall()
+
+                for src in return_sources:
+                    return_var = src['return_var_name']
+
+                    # Skip if return_var is empty or not a valid identifier
+                    if not return_var or not isinstance(return_var, str):
+                        continue
+
+                    # Create AccessPath for returned variable in callee
+                    # Parse as base.field1.field2...
+                    parts = return_var.split('.')
+                    base = parts[0]
+                    fields = tuple(parts[1:]) if len(parts) > 1 else ()
+
+                    # If tracing caller variable with fields (x.f where x = func()),
+                    # need to compose: func returns y, so trace y.f
+                    if ap.fields:
+                        # Compose returned variable with traced fields
+                        combined_fields = fields + ap.fields
+                    else:
+                        combined_fields = fields
+
+                    return_ap = AccessPath(
+                        file=callee_file,
+                        function=callee_function,
+                        base=base,
+                        fields=combined_fields
+                    )
+
+                    meta = {
+                        'file': callee_file,
+                        'line': ret['line'],
+                        'return': True,
+                        'callee': callee_function
+                    }
+
+                    predecessors.append((return_ap, 'return_to_caller', meta))
+
+                    if self.debug:
+                        print(f"[IFDS] Return-to-caller: {return_ap.node_id} -> {ap.node_id}", file=sys.stderr)
+
+        return predecessors
+
+    def _flow_function_field_store(self, ap: AccessPath, stmt: Dict) -> List[Tuple[AccessPath, str, Dict]]:
+        """Flow function for field stores (PHASE 4.2) - Algorithm 1 Case 5.
+
+        Implements taint-kill logic for field assignments (x.f = y).
+
+        Algorithm per Oracle Labs paper (page 5, Case 5):
+        When tracing b.f1...fn backward through z.g1...gm = y:
+
+        Case 1: EXACT MATCH (z == b AND g1...gm == f1...fm)
+            → Trace y (the source of the assignment)
+
+        Case 2: CHILD OVERWRITE (traced path is child of stored path)
+            Example: Tracing b.f1.f2 through b.f1 = y
+            → KILL TAINT (parent overwritten, child no longer exists)
+
+        Case 3: DIFFERENT FIELDS (no overlap)
+            → PASS (identity function, unaffected)
+
+        This is critical for reducing false positives.
+        """
+        predecessors = []
+
+        target_path = stmt['target_path']  # e.g., "req.body"
+        source_expr = stmt['source_expr']  # e.g., "safe_value" or variable
+        file = stmt['file']
+        line = stmt['line']
+
+        # Parse AccessPath being traced
+        traced_path = f"{ap.base}.{'.'.join(ap.fields)}" if ap.fields else ap.base
+
+        # Case 1: Exact match - trace the source
+        if traced_path == target_path:
+            # Parse source expression to get variable
+            source_var = self._parse_arg_variable(source_expr)
+            if source_var:
+                # Create AccessPath for source
+                parts = source_var.split('.')
+                base = parts[0]
+                fields = tuple(parts[1:]) if len(parts) > 1 else ()
+
+                source_ap = AccessPath(
+                    file=file,
+                    function=ap.function,
+                    base=base,
+                    fields=fields
+                )
+
+                meta = {'file': file, 'line': line, 'field_store': True}
+                predecessors.append((source_ap, 'field_store', meta))
+
+                if self.debug:
+                    print(f"[IFDS] Field store exact: {source_ap.node_id} -> {ap.node_id}", file=sys.stderr)
+            else:
+                # Source is literal (e.g., "safe_string") → KILL TAINT
+                if self.debug:
+                    print(f"[IFDS] TAINT KILL: {traced_path} = literal at {file}:{line}", file=sys.stderr)
+                # Return empty list = path terminates
+
+            return predecessors
+
+        # Case 2: Child overwrite - KILL TAINT
+        # Example: Tracing req.body.username through req.body = {...}
+        # The parent (req.body) was overwritten, so req.body.username no longer exists
+        if traced_path.startswith(target_path + '.'):
+            # Traced path is a CHILD of stored path
+            # TAINT KILL: Parent overwritten, child no longer valid
+            if self.debug:
+                print(f"[IFDS] TAINT KILL: {traced_path} (child) overwritten by {target_path} (parent) at {file}:{line}", file=sys.stderr)
+            return []  # Empty list = path terminates
+
+        # Case 3: Different fields - PASS (identity function)
+        # Example: Tracing req.headers through req.body = y (unrelated fields)
+        # The traced path is unaffected by this field store
+        if not target_path.startswith(traced_path):
+            # Different fields, no aliasing
+            # Identity function - trace continues unchanged
+            meta = {'file': file, 'line': line, 'field_store_pass': True}
+            predecessors.append((ap, 'field_store_pass', meta))
+
+            if self.debug:
+                print(f"[IFDS] Field store pass: {traced_path} unaffected by {target_path}", file=sys.stderr)
+
+        return predecessors
+
+    def _flow_function_express_controller_entry(self, ap: AccessPath) -> List[Tuple[AccessPath, str, Dict]]:
+        """Flow function for Express controller entry points (PHASE 5).
+
+        When tracing backward hits a controller function entry, check if it's called
+        from an Express middleware chain. If so, create predecessor AccessPath at the
+        PREVIOUS handler in the chain (typically validation middleware).
+
+        This enables traces to traverse Express's next() callback boundary.
+
+        Example:
+            Tracing: area.controller.ts:create function entry
+            Query: express_middleware_chains for route calling controller.create
+            Find: validateBody at execution_order=1, controller.create at execution_order=2
+            Return: AccessPath for validateBody (exit point, same variable)
+
+        This is the missing link that connects controllers to their sanitizing middleware.
+        """
+        predecessors = []
+
+        if self.debug:
+            print(f"[IFDS] → ENTRY: _flow_function_express_controller_entry() for {ap.node_id}", file=sys.stderr)
+            print(f"[IFDS]   file={ap.file}, function={ap.function}, base={ap.base}", file=sys.stderr)
+
+        # PHASE 5 handles TWO cases:
+        # Case 1: Controller → Middleware (at controller entry point with function context)
+        # Case 2: Middleware → Previous Middleware (at middleware file with no function context)
+
+        # Case 1: At controller entry point
+        if ap.function:
+            # Query: Is this function a controller in a middleware chain?
+            # CRITICAL FIX: Don't filter by file - middleware chains store ROUTE file, not CONTROLLER file
+            # Instead, match by handler_expr containing function name
+            self.repo_cursor.execute("""
+                SELECT
+                    route_line,
+                    route_path,
+                    route_method,
+                    execution_order,
+                    file,
+                    handler_expr
+                FROM express_middleware_chains
+                WHERE handler_type = 'controller'
+                ORDER BY route_line, execution_order
+            """)
+
+            controller_entries = self.repo_cursor.fetchall()
+
+            if self.debug:
+                print(f"[IFDS]   Case 1: Checking {len(controller_entries)} controller entries", file=sys.stderr)
+
+            for entry in controller_entries:
+                # Check if handler_expr contains the function name
+                # Example: "controller.create" should match function name "create"
+                handler_expr = entry['handler_expr']
+                if ap.function not in handler_expr:
+                    continue
+
+                # Find the PREVIOUS handler in execution chain (middleware that ran before controller)
+                prev_order = entry['execution_order'] - 1
+
+                if prev_order < 1:
+                    # No middleware before this controller (direct route handler)
+                    if self.debug:
+                        print(f"[IFDS]   No middleware before controller (execution_order={entry['execution_order']})", file=sys.stderr)
+                    continue
+
+                # Query for middleware at prev_order
+                self.repo_cursor.execute("""
+                    SELECT file, handler_expr, handler_type, route_path, route_method
+                    FROM express_middleware_chains
+                    WHERE route_line = ?
+                      AND route_path = ?
+                      AND execution_order = ?
+                    LIMIT 1
+                """, (entry['route_line'], entry['route_path'], prev_order))
+
+                middleware = self.repo_cursor.fetchone()
+
+                if not middleware:
+                    if self.debug:
+                        print(f"[IFDS]   No middleware found at execution_order={prev_order}", file=sys.stderr)
+                    continue
+
+                # Create AccessPath at middleware exit point
+                # CRITICAL FIX: middleware['file'] is the ROUTE file, not where middleware actually is!
+                # We need to find where the middleware function (e.g., validateBody) is actually defined
+                # For validation middleware, check validation_framework_usage table
+                middleware_file = middleware['file']  # Default to route file
+                middleware_line = 0  # Default to 0 if not found
+
+                # Check if this is a validation middleware (validateBody, validateParams, validateQuery)
+                if 'validate' in middleware['handler_expr'].lower():
+                    # Query validation_framework_usage to find actual middleware file AND line
+                    # CRITICAL: Need line number for sanitizer matching in _path_goes_through_sanitizer()
+                    self.repo_cursor.execute("""
+                        SELECT file_path, line
+                        FROM validation_framework_usage
+                        WHERE is_validator = 1
+                        LIMIT 1
+                    """)
+                    validation_record = self.repo_cursor.fetchone()
+                    if validation_record:
+                        middleware_file = validation_record['file_path']
+                        middleware_line = validation_record['line']
+                        if self.debug:
+                            print(f"[IFDS]   Resolved validation middleware to: {middleware_file}:{middleware_line}", file=sys.stderr)
+
+                middleware_ap = AccessPath(
+                    file=middleware_file,  # Actual middleware file (validate.ts) not route file
+                    function=None,  # Middleware file context
+                    base=ap.base,  # Same variable being traced
+                    fields=ap.fields  # Same field path
+                )
+
+                meta = {
+                    'route': entry['route_path'],
+                    'method': entry['route_method'],
+                    'from_order': entry['execution_order'],
+                    'to_order': prev_order,
+                    'middleware_expr': middleware['handler_expr'],
+                    'line': middleware_line  # CRITICAL: Include line for sanitizer matching
+                }
+
+                predecessors.append((middleware_ap, 'express_middleware_chain', meta))
+
+                if self.debug:
+                    print(f"[IFDS] ✓✓✓ EXPRESS MIDDLEWARE CHAIN TRAVERSAL ✓✓✓", file=sys.stderr)
+                    print(f"[IFDS]   From: {ap.file}:{ap.function} (controller, order={entry['execution_order']})", file=sys.stderr)
+                    print(f"[IFDS]   To:   {middleware['file']} (middleware '{middleware['handler_expr']}', order={prev_order})", file=sys.stderr)
+                    print(f"[IFDS]   Route: {meta['method']} {meta['route']}", file=sys.stderr)
+
+        # Case 2: At middleware file (function=None)
+        # Check if we're at a middleware location and can traverse to previous middleware
+        elif ap.file:
+            if self.debug:
+                print(f"[IFDS]   Case 2: Checking if {ap.file} is middleware in any chain", file=sys.stderr)
+
+            # Query: Is this file a middleware in any chain?
+            # We need to find chains where this file appears as middleware
+            # Note: ap.file might be validate.ts (actual middleware file) but express_middleware_chains stores route file
+            # So we need to reverse-lookup: which routes call middleware that resolves to this file?
+
+            # For validation middleware, we can check validation_framework_usage
+            self.repo_cursor.execute("""
+                SELECT file_path, line
+                FROM validation_framework_usage
+                WHERE is_validator = 1
+                  AND file_path = ?
+                LIMIT 1
+            """, (ap.file,))
+
+            validation_match = self.repo_cursor.fetchone()
+
+            if validation_match:
+                if self.debug:
+                    print(f"[IFDS]   Matched validation middleware at {ap.file}", file=sys.stderr)
+
+                # This is a validation middleware file - find which routes use it
+                # Query middleware chains for validation middleware
+                self.repo_cursor.execute("""
+                    SELECT route_line, route_path, route_method, execution_order, file
+                    FROM express_middleware_chains
+                    WHERE handler_type = 'middleware'
+                      AND handler_expr LIKE '%validate%'
+                    ORDER BY route_line, execution_order
+                """)
+
+                middleware_entries = self.repo_cursor.fetchall()
+
+                for entry in middleware_entries:
+                    # Find previous middleware in this chain
+                    prev_order = entry['execution_order'] - 1
+                    if prev_order < 1:
+                        continue  # No previous middleware
+
+                    # Query for previous middleware
+                    self.repo_cursor.execute("""
+                        SELECT file, handler_expr, handler_type, route_path, route_method
+                        FROM express_middleware_chains
+                        WHERE route_line = ? AND route_path = ? AND execution_order = ?
+                        LIMIT 1
+                    """, (entry['route_line'], entry['route_path'], prev_order))
+
+                    prev_middleware = self.repo_cursor.fetchone()
+                    if not prev_middleware:
+                        continue
+
+                    # Create AccessPath at previous middleware
+                    # For now, just use the route file (prev_middleware['file'])
+                    # TODO: Resolve actual middleware file location (Phase 5.2)
+                    prev_middleware_ap = AccessPath(
+                        file=prev_middleware['file'],  # Route file for now
+                        function=None,  # Middleware context
+                        base=ap.base,  # Same variable
+                        fields=ap.fields  # Same field path
+                    )
+
+                    meta = {
+                        'route': entry['route_path'],
+                        'method': entry['route_method'],
+                        'from_order': entry['execution_order'],
+                        'to_order': prev_order,
+                        'middleware_expr': prev_middleware['handler_expr'],
+                        'line': 0  # TODO: Resolve line for non-validation middleware
+                    }
+
+                    predecessors.append((prev_middleware_ap, 'express_middleware_chain', meta))
+
+                    if self.debug:
+                        print(f"[IFDS] ✓✓✓ MIDDLEWARE CHAIN CONTINUATION ✓✓✓", file=sys.stderr)
+                        print(f"[IFDS]   From: {ap.file} (middleware, order={entry['execution_order']})", file=sys.stderr)
+                        print(f"[IFDS]   To:   {prev_middleware['file']} (middleware '{prev_middleware['handler_expr']}', order={prev_order})", file=sys.stderr)
+
+        if self.debug:
+            print(f"[IFDS] ← EXIT: Returning {len(predecessors)} middleware predecessors", file=sys.stderr)
+
+        return predecessors
+
+    def _parse_function_name_from_call(self, call_expr: str) -> Optional[str]:
+        """Parse function name from call expression.
+
+        Examples:
+            "getTainted()" → "getTainted"
+            "s3.Bucket(...)" → "Bucket"
+            "User.findAll({ limit, offset })" → "findAll"
+            "require('child_process').execSync" → "execSync"
+
+        Returns:
+            Function name or None if cannot parse
+        """
+        if not call_expr or '(' not in call_expr:
+            return None
+
+        # Remove arguments (everything from first '(' onwards)
+        before_args = call_expr.split('(')[0].strip()
+
+        # Handle method calls: obj.method → method
+        if '.' in before_args:
+            parts = before_args.split('.')
+            # Get last part (method name)
+            return parts[-1].strip()
+
+        # Simple function call
+        return before_args.strip()
 
     def _parse_arg_variable(self, arg_expr: str) -> Optional[str]:
         """Parse argument expression to extract variable name.

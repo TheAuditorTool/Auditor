@@ -297,8 +297,18 @@ class TaintDiscovery:
                     # This avoids false positives like 'findAllMatches'
                     parts = func_name.split('.')
                     if len(parts) >= 2 and parts[-1].startswith(pattern.lstrip('.')):
-                        is_orm_method = True
-                        break
+                        # PHASE 5.5 FIX: Capital Letter Rule
+                        # Distinguish Model.create (true ORM sink) from service.createAccount (function to trace)
+                        # Models are PascalCased (User, Account), services are camelCased (accountService, userService)
+                        model_or_service_name = parts[-2]
+
+                        # Only flag as ORM sink if the caller is a capitalized Model name
+                        if model_or_service_name and model_or_service_name[0].isupper():
+                            # This is a true ORM sink: Model.method (e.g., User.create, Account.findOne)
+                            is_orm_method = True
+                            break
+                        # else: This is a service method (e.g., accountService.createAccount)
+                        # Do NOT flag as sink - let analyzer trace into it for multi-hop analysis
 
             if is_orm_method:
                 arg_expr = call.get('argument_expr')

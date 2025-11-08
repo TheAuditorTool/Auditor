@@ -300,6 +300,7 @@ class BaseDatabaseManager:
                 # API endpoints (before junction table)
                 ('api_endpoints', 'INSERT'),
                 ('api_endpoint_controls', 'INSERT'),  # Junction table
+                ('express_middleware_chains', 'INSERT'),  # PHASE 5: Express middleware execution chains
                 ('python_orm_models', 'INSERT'),
                 ('python_orm_fields', 'INSERT'),
                 ('python_routes', 'INSERT'),
