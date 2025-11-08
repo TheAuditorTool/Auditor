@@ -11,6 +11,17 @@ from typing import Dict, Any, List
 
 import click
 
+# Legacy constant for old insights code (7 refactors old)
+# TODO: Remove when insights module is rewritten
+SECURITY_SINKS = {
+    "sql": ["execute", "query", "raw", "literal"],
+    "command": ["exec", "system", "spawn", "popen"],
+    "xss": ["innerHTML", "outerHTML", "write", "writeln", "dangerouslySetInnerHTML"],
+    "path": ["open", "readFile", "writeFile", "unlink"],
+    "ldap": ["search", "bind"],
+    "nosql": ["find", "aggregate", "mapReduce"],
+}
+
 
 @click.command()
 @click.option("--mode", "-m", 
@@ -336,8 +347,7 @@ def run_taint_insights(output_dir: Path) -> Dict[str, Any]:
     """Run taint severity insights."""
     try:
         from datetime import datetime, UTC
-        from theauditor.taint.insights import calculate_severity, classify_vulnerability, generate_summary
-        from theauditor.taint_analyzer import SECURITY_SINKS
+        from theauditor.insights.taint import calculate_severity, classify_vulnerability, generate_summary
         
         # Load raw taint data
         taint_path = Path(".pf/raw/taint_analysis.json")

@@ -9,24 +9,52 @@ Schema Contract:
 
 import sys
 import json
+import sqlite3
 from pathlib import Path
-from typing import Dict, List, Any, Optional, TYPE_CHECKING
+from typing import Dict, List, Any, Optional, TYPE_CHECKING, Tuple
 from collections import defaultdict
 
 if TYPE_CHECKING:
     from .memory_cache import MemoryCache
 
 from theauditor.indexer.schema import build_query
-from .sources import TAINT_SOURCES, SECURITY_SINKS, SANITIZERS
-from .config import TaintConfig
-from .database import (
-    find_taint_sources,
-    find_security_sinks,
-    build_call_graph,
-    get_containing_function,
-)
-from .propagation import deduplicate_paths
 from .analysis import TaintFlowAnalyzer
+
+
+# ============================================================================
+# TAINT REGISTRY - Pattern accumulator for dynamic rule discovery
+# ============================================================================
+
+class TaintRegistry:
+    """Lightweight pattern accumulator for taint sources, sinks, and sanitizers.
+
+    Populated dynamically by orchestrator from 200+ rules, then fed to discovery.
+    """
+
+    def __init__(self):
+        self.sources: Dict[str, List[str]] = {}
+        self.sinks: Dict[str, List[str]] = {}
+        self.sanitizers: List[str] = []
+
+    def register_source(self, category: str, patterns: List[str]):
+        self.sources.setdefault(category, []).extend(patterns)
+
+    def register_sink(self, category: str, patterns: List[str]):
+        self.sinks.setdefault(category, []).extend(patterns)
+
+    def register_sanitizer(self, pattern: str):
+        if pattern not in self.sanitizers:
+            self.sanitizers.append(pattern)
+
+    def is_sanitizer(self, function_name: str) -> bool:
+        return function_name in self.sanitizers
+
+    def get_stats(self) -> Dict[str, int]:
+        return {
+            'total_sources': sum(len(v) for v in self.sources.values()),
+            'total_sinks': sum(len(v) for v in self.sinks.values()),
+            'total_sanitizers': len(self.sanitizers),
+        }
 
 
 class TaintPath:
@@ -133,6 +161,134 @@ class TaintPath:
         }
         self.related_sources.append(related_entry)
 
+
+# ============================================================================
+# UTILITY FUNCTIONS (Moved from propagation.py during cleanup)
+# ============================================================================
+
+def has_sanitizer_between(cursor: sqlite3.Cursor, source: Dict[str, Any], sink: Dict[str, Any]) -> bool:
+    """Check if there's a sanitizer call between source and sink in the same function.
+
+    Schema Contract:
+        Queries symbols table (guaranteed to exist)
+    """
+    if source["file"] != sink["file"]:
+        return False
+
+    # Initialize registry for sanitizer checking
+    registry = TaintRegistry()
+
+    # Find all calls between source and sink lines
+    query = build_query('symbols', ['name', 'line'],
+        where="path = ? AND type = 'call' AND line > ? AND line < ?",
+        order_by="line"
+    )
+    cursor.execute(query, (source["file"], source["line"], sink["line"]))
+
+    intermediate_calls = cursor.fetchall()
+
+    # Check if any intermediate call is a sanitizer using registry
+    for call_name, _ in intermediate_calls:
+        if registry.is_sanitizer(call_name):
+            return True
+
+    return False
+
+
+def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
+    """Deduplicate taint paths while preserving the most informative flow for each source-sink pair.
+
+    Key rule: Prefer cross-file / multi-hop and flow-sensitive paths over shorter, same-file variants.
+    This prevents the Stage 2 direct path (2 steps) from overwriting Stage 3 multi-hop results.
+    """
+
+    def _path_score(path: Any) -> Tuple[int, int, int]:
+        """Score paths so we keep the most informative version per source/sink pair.
+
+        Score dimensions (higher is better):
+        1. Number of cross-file hops (`cfg_call`, `argument_pass`, `return_flow`)
+        2. Whether the path used flow-sensitive analysis (Stage 3)
+        3. Path length (prefer longer when cross-file, shorter otherwise)
+        """
+        steps = path.path or []
+
+        cross_hops = 0
+        uses_cfg = bool(getattr(path, "flow_sensitive", False))
+
+        for step in steps:
+            step_type = step.get("type")
+            if step_type == "cfg_call":
+                uses_cfg = True  # Ensure cfg-aware paths win ties
+            if step_type in {"cfg_call", "argument_pass", "return_flow"}:
+                from_file = step.get("from_file")
+                to_file = step.get("to_file")
+                # Always print for cfg_call to debug
+                if step_type == "cfg_call":
+                    print(f"[DEDUP] cfg_call step: from={from_file} to={to_file}", file=sys.stderr)
+                if from_file and to_file and from_file != to_file:
+                    cross_hops += 1
+                    print(f"[DEDUP] Cross-file hop detected! cross_hops={cross_hops}", file=sys.stderr)
+
+        length = len(steps)
+
+        # Prefer longer paths when they traverse files, shorter otherwise (cleaner intra-file output)
+        length_component = length if cross_hops else -length
+
+        if cross_hops > 0:
+            print(f"[DEDUP] Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}", file=sys.stderr)
+
+        return (cross_hops, 1 if uses_cfg else 0, length_component)
+
+    # Phase 1: retain the best path for each unique source/sink pairing.
+    unique_source_sink: Dict[Tuple[str, str], Tuple[Any, Tuple[int, int, int]]] = {}
+
+    for path in paths:
+        key = (
+            f"{path.source['file']}:{path.source['line']}",
+            f"{path.sink['file']}:{path.sink['line']}",
+        )
+        score = _path_score(path)
+
+        if key not in unique_source_sink or score > unique_source_sink[key][1]:
+            unique_source_sink[key] = (path, score)
+
+    if not unique_source_sink:
+        return []
+
+    # Phase 2: group by sink location so we only emit one finding per sink line.
+    sink_groups: Dict[Tuple[str, int], List[Any]] = {}
+    for path, _score in unique_source_sink.values():
+        sink = path.sink
+        sink_key = (sink.get("file", "unknown_file"), sink.get("line", 0))
+        sink_groups.setdefault(sink_key, []).append(path)
+
+    deduped_paths: List[Any] = []
+    for sink_key, sink_paths in sink_groups.items():
+        if not sink_paths:
+            continue
+
+        scored_paths = [(p, _path_score(p)) for p in sink_paths]
+        scored_paths.sort(key=lambda item: item[1], reverse=True)
+        best_path, _ = scored_paths[0]
+
+        # Reset aggregation before attaching related sources
+        best_path.related_sources = []
+
+        for other_path, _ in scored_paths[1:]:
+            best_path.add_related_path(other_path)
+
+        deduped_paths.append(best_path)
+
+    # Debug: Check what we're returning
+    multi_file_count = sum(1 for p in deduped_paths if p.source.get('file') != p.sink.get('file'))
+    print(f"[DEDUP] Returning {len(deduped_paths)} paths ({multi_file_count} multi-file)", file=sys.stderr)
+
+    return deduped_paths
+
+
+# ============================================================================
+# MAIN TAINT ANALYSIS FUNCTION
+# ============================================================================
 
 def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                 use_memory_cache: bool = True, memory_limit_mb: int = 12000,

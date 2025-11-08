@@ -993,9 +993,8 @@ def run_full_pipeline(
                     def run_taint_direct():
                         """Run taint analysis directly in-process WITH rules orchestrator."""
                         try:
-                            from theauditor.taint import trace_taint, save_taint_analysis
+                            from theauditor.taint import trace_taint, save_taint_analysis, TaintRegistry
                             from theauditor.utils.memory import get_recommended_memory_limit
-                            from theauditor.taint.registry import TaintRegistry
                             from theauditor.rules.orchestrator import RulesOrchestrator
 
                             # Log start
