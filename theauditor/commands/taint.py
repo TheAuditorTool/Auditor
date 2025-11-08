@@ -22,13 +22,11 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]),
               default="all", help="Filter results by severity level")
 @click.option("--rules/--no-rules", default=True, help="Enable/disable rule-based detection")
-@click.option("--use-cfg/--no-cfg", default=True,
-              help="Use flow-sensitive CFG analysis (enabled by default)")
 @click.option("--memory/--no-memory", default=True,
               help="Use in-memory caching for 5-10x performance (enabled by default)")
 @click.option("--memory-limit", default=None, type=int,
               help="Memory limit for cache in MB (auto-detected based on system RAM if not set)")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, memory, memory_limit):
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory, memory_limit):
     """Trace data flow from untrusted sources to dangerous sinks to detect injection vulnerabilities.
 
     Performs inter-procedural data flow analysis to identify security vulnerabilities where untrusted
@@ -353,12 +351,12 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         
         # STAGE 4: Run enriched taint analysis with registry
         click.echo("Performing data-flow taint analysis...")
-        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
+        # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
+        click.echo(f"  Using IFDS mode (graphs.db)")
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
             registry=registry,
-            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
             use_memory_cache=memory,
             memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )
@@ -404,11 +402,16 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     else:
         # Original taint analysis without orchestrator
         click.echo("Performing taint analysis (rules disabled)...")
-        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
+        # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
+        click.echo(f"  Using IFDS mode (graphs.db)")
+
+        # Create empty registry (no patterns from rules, only hardcoded patterns from discovery.py)
+        registry = TaintRegistry()
+
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
-            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
+            registry=registry,
             use_memory_cache=memory,
             memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
         )

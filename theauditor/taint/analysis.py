@@ -34,6 +34,9 @@ class TaintFlowAnalyzer:
         self.visited_paths = set()
         self.max_path_length = 100
         self.function_cache = {}  # Cache (function, taint_set) -> paths to avoid reanalysis
+        self.global_call_stack = set()  # CRITICAL FIX: Track recursive calls globally to prevent infinite loops
+        self.total_iterations = 0  # Safety valve: total worklist iterations across all calls
+        self.max_total_iterations = 50000  # Hard limit to prevent 18-hour hangs
 
     def analyze_interprocedural(self, sources: List[Dict], sinks: List[Dict],
                               call_graph: Dict, max_depth: int = 5) -> List['TaintPath']:
@@ -117,6 +120,14 @@ class TaintFlowAnalyzer:
         max_worklist_seen = 0
 
         while worklist and len(paths) < 100:  # Limit total paths
+            # CRITICAL FIX: Global iteration limit to prevent infinite loops
+            self.total_iterations += 1
+            if self.total_iterations > self.max_total_iterations:
+                print(f"[CRITICAL] Hit global iteration limit ({self.max_total_iterations}) - stopping to prevent hang", file=sys.stderr)
+                print(f"[CRITICAL] This prevents 18-hour hangs from recursive call cycles", file=sys.stderr)
+                print(f"[CRITICAL] Found {len(paths)} paths before limit", file=sys.stderr)
+                break
+
             # Monitor worklist growth
             if len(worklist) > max_worklist_seen:
                 max_worklist_seen = len(worklist)
@@ -222,6 +233,12 @@ class TaintFlowAnalyzer:
                                 # Now: callee can continue propagating taint through multiple function calls
                                 print(f"[CROSS-FUNC]   Recursing with all {len(sinks)} sinks (multi-hop enabled)", file=sys.stderr)
 
+                                # CRITICAL FIX: Detect recursive call cycles BEFORE entering
+                                call_signature = (callee_func, callee_file, frozenset([param_name]))
+                                if call_signature in self.global_call_stack:
+                                    print(f"[CROSS-FUNC]   CYCLE DETECTED: {callee_func} already on call stack - skipping to prevent infinite recursion", file=sys.stderr)
+                                    continue
+
                                 # Build call_hop for this call to pass to recursive analysis
                                 call_hop = {
                                     'type': 'cfg_call',
@@ -236,9 +253,15 @@ class TaintFlowAnalyzer:
                                 new_call_chain = call_chain + [call_hop]
                                 print(f"[CROSS-FUNC]   Call chain depth: {len(new_call_chain)}", file=sys.stderr)
 
-                                callee_paths = self._analyze_function_cfg(
-                                    callee_source, callee_func, sinks, call_graph, max_depth - 1, new_call_chain
-                                )
+                                # Add to global call stack before recursing
+                                self.global_call_stack.add(call_signature)
+                                try:
+                                    callee_paths = self._analyze_function_cfg(
+                                        callee_source, callee_func, sinks, call_graph, max_depth - 1, new_call_chain
+                                    )
+                                finally:
+                                    # Always remove from stack even if exception
+                                    self.global_call_stack.discard(call_signature)
                                 print(f"[CROSS-FUNC]   Found {len(callee_paths)} paths in callee", file=sys.stderr)
 
                                 # Cache the results for this function/param combo
