@@ -241,7 +241,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
         → Analyze in smaller batches with --path-filter
 
       False positives (sanitized input flagged):
-        → Check if sanitization function is recognized (see taint/registry.py)
+        → Check if sanitization function is recognized (see taint/core.py TaintRegistry)
         → Use custom sanitizers via .theauditor.yml config
         → Review with --verbose to see full taint path
 
@@ -255,11 +255,11 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
     Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
     (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
-    from theauditor.taint_analyzer import trace_taint, save_taint_analysis, normalize_taint_path, SECURITY_SINKS
+    from theauditor.taint import trace_taint, save_taint_analysis, normalize_taint_path
     from theauditor.taint.insights import format_taint_report, calculate_severity, generate_summary, classify_vulnerability
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
-    from theauditor.taint.registry import TaintRegistry
+    from theauditor.taint import TaintRegistry
     from theauditor.utils.memory import get_recommended_memory_limit
     import json as json_lib
     
@@ -405,7 +405,8 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
         # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
         click.echo(f"  Using IFDS mode (graphs.db)")
 
-        # Create empty registry (no patterns from rules, only hardcoded patterns from discovery.py)
+        # Create empty registry (NO patterns - discovery.py uses registry for patterns)
+        # With empty registry, discovery returns ZERO sources/sinks (finds nothing)
         registry = TaintRegistry()
 
         result = trace_taint(
