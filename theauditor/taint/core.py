@@ -160,13 +160,13 @@ class TaintRegistry:
 
 class TaintPath:
     """Represents a taint flow path from source to sink."""
-    
+
     def __init__(self, source: Dict[str, Any], sink: Dict[str, Any], path: List[Dict[str, Any]]):
         self.source = source
         self.sink = sink
         self.path = path
         self.vulnerability_type = self._classify_vulnerability()
-        
+
         # CFG-specific attributes (optional, added by cfg_integration)
         self.flow_sensitive = False
         self.conditions = []
@@ -175,6 +175,11 @@ class TaintPath:
         self.tainted_vars = []
         self.sanitized_vars = []
         self.related_sources: List[Dict[str, Any]] = []
+
+        # PHASE 6: Sanitizer metadata (added by ifds_analyzer when path is sanitized)
+        self.sanitizer_file: Optional[str] = None
+        self.sanitizer_line: Optional[int] = None
+        self.sanitizer_method: Optional[str] = None
     
     def _classify_vulnerability(self) -> str:
         """Classify the vulnerability based on sink type - factual categorization.
@@ -571,33 +576,104 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         )
         ifds_analyzer.debug = os.environ.get("THEAUDITOR_DEBUG") or os.environ.get("THEAUDITOR_TAINT_DEBUG")
 
-        # IFDS: Demand-driven backward analysis from sinks
-        taint_paths = []
+        # PHASE 6: Collect BOTH vulnerable and sanitized paths
+        all_vulnerable_paths = []
+        all_sanitized_paths = []
+
         # Adaptive progress interval: 10% of total sinks (min 100, max 1000)
         progress_interval = max(100, min(1000, len(sinks) // 10))
         for idx, sink in enumerate(sinks):
             if idx % progress_interval == 0:
-                print(f"[TAINT] Progress: {idx}/{len(sinks)} sinks analyzed, {len(taint_paths)} paths found", file=sys.stderr)
+                total_found = len(all_vulnerable_paths) + len(all_sanitized_paths)
+                print(f"[TAINT] Progress: {idx}/{len(sinks)} sinks analyzed, {total_found} total paths ({len(all_vulnerable_paths)} vulnerable, {len(all_sanitized_paths)} sanitized)", file=sys.stderr)
                 sys.stderr.flush()
-            paths = ifds_analyzer.analyze_sink_to_sources(sink, sources, max_depth)
-            taint_paths.extend(paths)
+
+            vulnerable, sanitized = ifds_analyzer.analyze_sink_to_sources(sink, sources, max_depth)
+            all_vulnerable_paths.extend(vulnerable)
+            all_sanitized_paths.extend(sanitized)
 
         ifds_analyzer.close()
-        print(f"[TAINT] IFDS found {len(taint_paths)} paths", file=sys.stderr)
+        print(f"[TAINT] IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths", file=sys.stderr)
 
-        # Step 5: Deduplicate paths
-        unique_paths = deduplicate_paths(taint_paths)
+        # PHASE 6: Merge for deduplication (keeps best path per sink)
+        taint_paths = all_vulnerable_paths  # Use vulnerable paths for backward compatibility
 
-        # Step 6: Persist flows to database (taint_flows table)
+        # Step 5: Deduplicate vulnerable paths (keep legacy behavior)
+        unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
+
+        # PHASE 6: Deduplicate sanitized paths separately
+        unique_sanitized_paths = deduplicate_paths(all_sanitized_paths)
+
+        # Step 6: Persist flows to database (resolved_flow_audit table - PHASE 6)
         import json
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Clear existing flows
-        cursor.execute("DELETE FROM taint_flows")
+        # Clear existing flows from both tables
+        cursor.execute("DELETE FROM resolved_flow_audit")
+        cursor.execute("DELETE FROM taint_flows")  # Keep for backward compatibility
 
-        # Insert resolved flows
-        for path in unique_paths:
+        # PHASE 6: Insert ALL resolved flows (vulnerable + sanitized) into resolved_flow_audit
+        total_inserted = 0
+
+        # Insert vulnerable paths (status='VULNERABLE', no sanitizer)
+        for path in unique_vulnerable_paths:
+            cursor.execute("""
+                INSERT INTO resolved_flow_audit (
+                    source_file, source_line, source_pattern,
+                    sink_file, sink_line, sink_pattern,
+                    vulnerability_type, path_length, hops, path_json, flow_sensitive,
+                    status, sanitizer_file, sanitizer_line, sanitizer_method
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                path.source.get('file', ''),
+                path.source.get('line', 0),
+                path.source.get('pattern', ''),
+                path.sink.get('file', ''),
+                path.sink.get('line', 0),
+                path.sink.get('pattern', ''),
+                path.vulnerability_type,
+                len(path.path) if path.path else 0,
+                len(path.path) if path.path else 0,
+                json.dumps(path.path) if path.path else '[]',
+                1,  # flow_sensitive = True (IFDS is CFG-aware)
+                'VULNERABLE',  # status
+                None,  # sanitizer_file
+                None,  # sanitizer_line
+                None   # sanitizer_method
+            ))
+            total_inserted += 1
+
+        # Insert sanitized paths (status='SANITIZED', with sanitizer metadata)
+        for path in unique_sanitized_paths:
+            cursor.execute("""
+                INSERT INTO resolved_flow_audit (
+                    source_file, source_line, source_pattern,
+                    sink_file, sink_line, sink_pattern,
+                    vulnerability_type, path_length, hops, path_json, flow_sensitive,
+                    status, sanitizer_file, sanitizer_line, sanitizer_method
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                path.source.get('file', ''),
+                path.source.get('line', 0),
+                path.source.get('pattern', ''),
+                path.sink.get('file', ''),
+                path.sink.get('line', 0),
+                path.sink.get('pattern', ''),
+                path.vulnerability_type,
+                len(path.path) if path.path else 0,
+                len(path.path) if path.path else 0,
+                json.dumps(path.path) if path.path else '[]',
+                1,  # flow_sensitive = True (IFDS is CFG-aware)
+                'SANITIZED',  # status
+                path.sanitizer_file,
+                path.sanitizer_line,
+                path.sanitizer_method
+            ))
+            total_inserted += 1
+
+        # BACKWARD COMPATIBILITY: Also write vulnerable paths to taint_flows table
+        for path in unique_vulnerable_paths:
             cursor.execute("""
                 INSERT INTO taint_flows (
                     source_file, source_line, source_pattern,
@@ -620,7 +696,11 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
 
         conn.commit()
         conn.close()
-        print(f"[TAINT] Persisted {len(unique_paths)} flows to taint_flows table", file=sys.stderr)
+        print(f"[TAINT] Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)", file=sys.stderr)
+        print(f"[TAINT] Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)", file=sys.stderr)
+
+        # Continue using unique_vulnerable_paths for return value (backward compatibility)
+        unique_paths = unique_vulnerable_paths
 
         # Step 7: Build factual summary with vulnerability counts
         # Count vulnerabilities by type (factual categorization, not interpretation)

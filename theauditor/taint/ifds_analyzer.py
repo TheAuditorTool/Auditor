@@ -8,12 +8,16 @@ Key differences from paper:
 - Database-first (no SSA/φ-nodes, works with normalized AST data)
 - Multi-language (Python, JS, TS via extractors)
 
-Architecture:
+Architecture (Phase 6.1 - Goal B: Full Provenance):
     Sources → [Backward IFDS] → Sinks
               ↓
     graphs.db (DFG + Call Graph)
               ↓
-    5-10 hop cross-file flows
+    8-10 hop cross-file flows (COMPLETE call chain)
+
+CRITICAL: Source matches are WAYPOINTS, not termination points.
+Paths are recorded ONLY at max_depth or natural termination.
+This captures the full call chain: route → middleware → controller → service → ORM
 
 Performance: O(CallD³ + 2ED²) - h-sparse IFDS (page 10, Table 3)
 """
@@ -84,15 +88,20 @@ class IFDSTaintAnalyzer:
         self._load_validation_sanitizers()
 
     def analyze_sink_to_sources(self, sink: Dict, sources: List[Dict],
-                                max_depth: int = 10) -> List[TaintPath]:
+                                max_depth: int = 10) -> Tuple[List['TaintPath'], List['TaintPath']]:
         """Find all taint paths from sink to sources using IFDS backward analysis.
 
-        Algorithm (IFDS paper - demand-driven):
+        PHASE 6.1 CHANGE (Goal B - Full Provenance):
+        Now returns (vulnerable_paths, sanitized_paths) tuple.
+
+        Algorithm (IFDS paper - demand-driven with full provenance):
         1. Start at sink (backward analysis is demand-driven from sinks)
         2. Query graphs.db for data dependencies (backward edges)
-        3. Follow edges backward through assignments, calls, returns
-        4. Check if path reaches ANY source (early termination)
-        5. Build TaintPath with full hop chain
+        3. Follow edges backward through assignments, calls, returns, middleware
+        4. Annotate when path reaches ANY source (DO NOT terminate early)
+        5. Continue to max_depth to capture COMPLETE call chain
+        6. Build TaintPath with full hop chain (8-10 hops)
+        7. Classify path as vulnerable or sanitized based on sanitizer presence
 
         Args:
             sink: Security sink dict (file, line, pattern, name)
@@ -100,10 +109,9 @@ class IFDSTaintAnalyzer:
             max_depth: Maximum hops (default 10)
 
         Returns:
-            List of TaintPath objects with 5-10 hop cross-file flows
+            Tuple of (vulnerable_paths, sanitized_paths)
         """
         self.max_depth = max_depth
-        all_paths = []
 
         # Parse all sources as AccessPaths for matching
         source_aps = []
@@ -113,27 +121,39 @@ class IFDSTaintAnalyzer:
                 source_aps.append((source, source_ap))
 
         if not source_aps:
-            return []
+            return ([], [])
 
         if self.debug:
             print(f"\n[IFDS] Analyzing sink: {sink.get('pattern', '?')}", file=sys.stderr)
             print(f"[IFDS] Checking against {len(source_aps)} sources", file=sys.stderr)
 
         # Trace backward from sink, checking if ANY source is reachable
-        paths = self._trace_backward_to_any_source(sink, source_aps, max_depth)
-        all_paths.extend(paths)
+        vulnerable, sanitized = self._trace_backward_to_any_source(sink, source_aps, max_depth)
 
-        if self.debug and all_paths:
-            print(f"[IFDS] Found {len(all_paths)} paths", file=sys.stderr)
+        if self.debug:
+            print(f"[IFDS] Found {len(vulnerable)} vulnerable paths, {len(sanitized)} sanitized paths", file=sys.stderr)
 
-        return all_paths
+        return (vulnerable, sanitized)
 
     def _trace_backward_to_any_source(self, sink: Dict, source_aps: List[Tuple[Dict, AccessPath]],
-                                      max_depth: int) -> List[TaintPath]:
+                                      max_depth: int) -> Tuple[List['TaintPath'], List['TaintPath']]:
         """Backward trace from sink, checking if ANY source is reachable.
 
-        This is more efficient than looping through sources because we check
-        all sources at each step rather than doing separate traces.
+        PHASE 6.1 CHANGE (Goal B - Full Provenance):
+        Now returns (vulnerable_paths, sanitized_paths) tuple.
+
+        CRITICAL ARCHITECTURAL CHANGE: Source matches are now WAYPOINTS, not termination points.
+        Paths are recorded ONLY at max_depth or natural termination (no predecessors).
+        This captures the COMPLETE call chain (8-10 hops) instead of stopping at first source (2-3 hops).
+
+        Algorithm:
+        1. Start at sink (backward analysis)
+        2. Query graphs.db for data dependencies (backward edges)
+        3. Follow edges backward through assignments, calls, returns, middleware
+        4. When source is matched, ANNOTATE it (store matched_source in worklist state)
+        5. CONTINUE exploring to max_depth (DO NOT terminate early)
+        6. Record path ONLY when exploration terminates (max_depth OR no predecessors)
+        7. Classify path as vulnerable or sanitized based on sanitizer presence
 
         Args:
             sink: Sink dict
@@ -141,31 +161,33 @@ class IFDSTaintAnalyzer:
             max_depth: Maximum hops
 
         Returns:
-            List of TaintPath objects
+            Tuple of (vulnerable_paths, sanitized_paths)
         """
         # Runtime import to avoid circular dependency
         from .core import TaintPath
 
-        paths = []
+        vulnerable_paths = []
+        sanitized_paths = []
 
         # Parse sink as AccessPath
         sink_ap = self._dict_to_access_path(sink)
         if not sink_ap:
-            return []
+            return ([], [])
 
-        # Worklist: (current_ap, depth, hop_chain)
-        worklist = deque([(sink_ap, 0, [])])
+        # Worklist: (current_ap, depth, hop_chain, matched_source)
+        # PHASE 6.1: Added matched_source to track which source (if any) this path reached
+        worklist = deque([(sink_ap, 0, [], None)])
         visited_states: Set[Tuple[str, int]] = set()
         iteration = 0
 
-        while worklist and len(paths) < self.max_paths_per_sink:
+        while worklist and (len(vulnerable_paths) + len(sanitized_paths)) < self.max_paths_per_sink:
             iteration += 1
             if iteration > 10000:  # Safety valve
                 if self.debug:
                     print(f"[IFDS] Hit iteration limit", file=sys.stderr)
                 break
 
-            current_ap, depth, hop_chain = worklist.popleft()
+            current_ap, depth, hop_chain, matched_source = worklist.popleft()
 
             # Cycle detection
             state = (current_ap.node_id, depth)
@@ -173,25 +195,74 @@ class IFDSTaintAnalyzer:
                 continue
             visited_states.add(state)
 
-            # Check if current node matches ANY source
+            # PHASE 6.1: Check if current node matches ANY source (ANNOTATE, don't terminate)
+            current_matched_source = matched_source  # Carry forward previous match
             for source_dict, source_ap in source_aps:
                 if self._access_paths_match(current_ap, source_ap):
-                    # Found a path! Check if it's sanitized
-                    if self._path_goes_through_sanitizer(hop_chain):
-                        if self.debug:
-                            print(f"[IFDS] Skipping sanitized path from {source_ap} to sink", file=sys.stderr)
-                        continue
+                    current_matched_source = source_dict
+                    # ALWAYS print source match (not just debug mode)
+                    print(f"[IFDS] *** SOURCE MATCHED at depth={depth}: {current_ap.node_id}", file=sys.stderr)
+                    print(f"[IFDS]     Pattern: {source_dict.get('pattern')}", file=sys.stderr)
+                    print(f"[IFDS]     Current hop_chain length: {len(hop_chain)}", file=sys.stderr)
+                    print(f"[IFDS]     -> Continuing to explore predecessors (Goal B)", file=sys.stderr)
+                    break
 
-                    path = self._build_taint_path(source_dict, sink, hop_chain)
-                    paths.append(path)
-                    if len(paths) >= self.max_paths_per_sink:
-                        break
-
+            # PHASE 6.1: Check termination conditions (ONLY place where paths are recorded)
             if depth >= max_depth:
+                # Reached max depth - if we matched a source, record the path
+                if current_matched_source:
+                    sanitizer_meta = self._path_goes_through_sanitizer(hop_chain)
+
+                    if sanitizer_meta:
+                        path = self._build_taint_path(current_matched_source, sink, hop_chain)
+                        path.sanitizer_file = sanitizer_meta['file']
+                        path.sanitizer_line = sanitizer_meta['line']
+                        path.sanitizer_method = sanitizer_meta['method']
+                        sanitized_paths.append(path)
+
+                        if self.debug:
+                            print(f"[IFDS] ✓ Recorded SANITIZED path at max_depth={depth}, {len(hop_chain)} hops", file=sys.stderr)
+                    else:
+                        path = self._build_taint_path(current_matched_source, sink, hop_chain)
+                        vulnerable_paths.append(path)
+
+                        if self.debug:
+                            print(f"[IFDS] ✓ Recorded VULNERABLE path at max_depth={depth}, {len(hop_chain)} hops", file=sys.stderr)
+
                 continue
 
             # Get predecessors from graphs.db
             predecessors = self._get_predecessors(current_ap)
+
+            # ALWAYS log predecessor count at depth 0-3 (critical early exploration)
+            if depth <= 3:
+                print(f"[IFDS] *** Depth={depth}, node={current_ap.node_id[:80]}, found {len(predecessors)} predecessors", file=sys.stderr)
+
+            # PHASE 6.1: Natural termination - no more predecessors
+            if not predecessors:
+                # If we matched a source, record the path (complete call chain)
+                if current_matched_source:
+                    sanitizer_meta = self._path_goes_through_sanitizer(hop_chain)
+
+                    if sanitizer_meta:
+                        path = self._build_taint_path(current_matched_source, sink, hop_chain)
+                        path.sanitizer_file = sanitizer_meta['file']
+                        path.sanitizer_line = sanitizer_meta['line']
+                        path.sanitizer_method = sanitizer_meta['method']
+                        sanitized_paths.append(path)
+
+                        if self.debug:
+                            print(f"[IFDS] ✓ Recorded SANITIZED path at natural termination (no predecessors), {len(hop_chain)} hops", file=sys.stderr)
+                    else:
+                        path = self._build_taint_path(current_matched_source, sink, hop_chain)
+                        vulnerable_paths.append(path)
+
+                        if self.debug:
+                            print(f"[IFDS] ✓ Recorded VULNERABLE path at natural termination (no predecessors), {len(hop_chain)} hops", file=sys.stderr)
+
+                continue
+
+            # PHASE 6.1: Continue exploration (this runs EVEN IF we matched a source)
             for pred_ap, edge_type, edge_meta in predecessors:
                 hop = {
                     'type': edge_type,
@@ -203,9 +274,10 @@ class IFDSTaintAnalyzer:
                     'depth': depth + 1
                 }
                 new_chain = [hop] + hop_chain  # Prepend (backward)
-                worklist.append((pred_ap, depth + 1, new_chain))
+                # PHASE 6.1: Pass matched_source forward so we know this path reached a source
+                worklist.append((pred_ap, depth + 1, new_chain, current_matched_source))
 
-        return paths
+        return (vulnerable_paths, sanitized_paths)
 
     def _trace_backward_from_sink(self, sink: Dict, source_ap: AccessPath,
                                   max_depth: int) -> List[TaintPath]:
@@ -352,37 +424,18 @@ class IFDSTaintAnalyzer:
                     for pred_ap, flow_type, meta in express_preds:
                         print(f"[IFDS] Express middleware chain: {ap.file}:{ap.function} → {pred_ap.file} (route {meta['route']})", file=sys.stderr)
 
-        # FALLBACK: Static graph edges (for types not yet implemented)
-        # Keep existing graph traversal for backward compatibility
-        # This ensures assignment/return edges from graphs.db still work
-        if not predecessors:
-            self.graph_cursor.execute("""
-                SELECT source, target, type, file, line, metadata
-                FROM edges
-                WHERE target = ?
-                ORDER BY type
-            """, (ap.node_id,))
-
-            for row in self.graph_cursor.fetchall():
-                source_node = row['source']
-                edge_type = row['type']
-
-                # Parse source as AccessPath
-                source_ap = AccessPath.parse(source_node, ap.max_length)
-                if not source_ap:
-                    continue
-
-                # Check if source is relevant (conservative alias check)
-                # SKIP alias check for parameter_binding edges
-                if edge_type != 'parameter_binding' and not self._could_alias(source_ap, ap):
-                    continue
-
-                meta = {
-                    'file': row['file'] if row['file'] else source_ap.file,
-                    'line': row['line'] if row['line'] else 0,
-                }
-
-                predecessors.append((source_ap, edge_type, meta))
+        # PHASE 6.1: FALLBACK DELETED per ZERO FALLBACK POLICY (CLAUDE.md:159-248)
+        # If dynamic flow functions don't find predecessors, path terminates (CORRECT).
+        # Empty predecessors means we've reached the limit of what we know.
+        # This is NOT a failure - it's the natural termination of backward trace.
+        # OLD CODE (CANCER):
+        #   if not predecessors:
+        #       query graphs.db for backward compatibility
+        # WHY DELETED:
+        #   - Database is FRESH every run (no backward compatibility needed)
+        #   - Fallback hides bugs in dynamic flow functions
+        #   - Graceful degradation creates inconsistent behavior
+        #   - If flow function doesn't handle a type, FIX THE FLOW FUNCTION
 
         return predecessors
 
@@ -631,14 +684,20 @@ class IFDSTaintAnalyzer:
             print(f"[IFDS]     ✗ NOT a sanitizer: {function_name}", file=sys.stderr)
         return False
 
-    def _path_goes_through_sanitizer(self, hop_chain: List[Dict]) -> bool:
+    def _path_goes_through_sanitizer(self, hop_chain: List[Dict]) -> Optional[Dict]:
         """Check if a taint path goes through a sanitizer.
+
+        PHASE 6 CHANGE: Now returns sanitizer metadata instead of bool.
 
         Checks TWO types of sanitizers:
         1. Validation framework sanitizers (location-based: file:line match from validation_framework_usage)
         2. Safe sink patterns (name-based: function name pattern match from framework_safe_sinks)
 
         This is the critical taint-kill logic that prevents false positives.
+
+        Returns:
+            Dict with sanitizer metadata if path is sanitized, None if vulnerable
+            Format: {'file': str, 'line': int, 'method': str}
         """
         if self.debug:
             print(f"[IFDS] → ENTRY: _path_goes_through_sanitizer() - checking {len(hop_chain)} hops", file=sys.stderr)
@@ -679,7 +738,13 @@ class IFDSTaintAnalyzer:
                         print(f"[IFDS]         Argument: {san['argument']}", file=sys.stderr)
                         print(f"[IFDS]         Location: {san['file']}:{san['line']}", file=sys.stderr)
                         print(f"[IFDS]     ✓✓✓ TAINT KILLED ✓✓✓", file=sys.stderr)
-                    return True
+
+                    # PHASE 6: Return sanitizer metadata instead of bool
+                    return {
+                        'file': san['file'],
+                        'line': san['line'],
+                        'method': f"{san['framework']}.{san['method']}"
+                    }
 
             if self.debug:
                 print(f"[IFDS]     ✗ No validation sanitizer match at this hop", file=sys.stderr)
@@ -713,14 +778,20 @@ class IFDSTaintAnalyzer:
                         print(f"[IFDS]         Function: {callee}", file=sys.stderr)
                         print(f"[IFDS]         Location: {hop_file}:{hop_line}", file=sys.stderr)
                         print(f"[IFDS]     ✓✓✓ TAINT KILLED ✓✓✓", file=sys.stderr)
-                    return True
+
+                    # PHASE 6: Return sanitizer metadata instead of bool
+                    return {
+                        'file': hop_file,
+                        'line': hop_line,
+                        'method': callee
+                    }
 
             if self.debug:
                 print(f"[IFDS]     ✗ No safe sink match at this hop", file=sys.stderr)
 
         if self.debug:
             print(f"[IFDS] ← EXIT: _path_goes_through_sanitizer() - NO SANITIZER FOUND (path is tainted)", file=sys.stderr)
-        return False
+        return None  # PHASE 6: Return None instead of False
 
     def _get_defining_statement(self, ap: AccessPath) -> Optional[Dict[str, Any]]:
         """Determine what defines this AccessPath (Algorithm 1 dispatcher).
@@ -737,6 +808,9 @@ class IFDSTaintAnalyzer:
         Returns:
             Dict with 'type' and statement data, or None if undefined
         """
+        # PHASE 6.1: Debug logging for function=None cases
+        if ap.function is None and ap.file and 'validate' in ap.file:
+            print(f"[IFDS] _get_defining_statement: ap={ap.node_id}, function=None", file=sys.stderr)
         # Check if it's a function parameter
         # Query symbols table for parameters
         self.repo_cursor.execute("""
@@ -760,13 +834,24 @@ class IFDSTaintAnalyzer:
         if ap.fields:
             # Check if this field path was written to (x.f = y)
             full_path = f"{ap.base}.{'.'.join(ap.fields)}"
-            self.repo_cursor.execute("""
-                SELECT file, line, target_var, source_expr, in_function, property_path
-                FROM assignments
-                WHERE file = ? AND property_path = ? AND in_function = ?
-                ORDER BY line DESC
-                LIMIT 1
-            """, (ap.file, full_path, ap.function))
+
+            # PHASE 6.1: Handle function=None (middleware/file-level context)
+            if ap.function is None:
+                self.repo_cursor.execute("""
+                    SELECT file, line, target_var, source_expr, in_function, property_path
+                    FROM assignments
+                    WHERE file = ? AND property_path = ?
+                    ORDER BY line DESC
+                    LIMIT 1
+                """, (ap.file, full_path))
+            else:
+                self.repo_cursor.execute("""
+                    SELECT file, line, target_var, source_expr, in_function, property_path
+                    FROM assignments
+                    WHERE file = ? AND property_path = ? AND in_function = ?
+                    ORDER BY line DESC
+                    LIMIT 1
+                """, (ap.file, full_path, ap.function))
 
             field_store_row = self.repo_cursor.fetchone()
             if field_store_row:
@@ -775,32 +860,64 @@ class IFDSTaintAnalyzer:
                     'file': field_store_row['file'],
                     'line': field_store_row['line'],
                     'target_path': full_path,
-                    'source_expr': field_store_row['source_expr']
+                    'source_expr': field_store_row['source_expr'],
+                    'in_function': field_store_row['in_function']  # PHASE 6.1: Include for function scope tracking
                 }
 
         # Check if it's defined by assignment
         # Query assignments table
         if ap.fields:
             # Field access like req.body
-            # Check assignments with property_path
+            # PHASE 6.1: Extractors may store "req.body" as single target_var OR as base="req" + property_path="req.body"
+            # Try BOTH patterns
             full_path = f"{ap.base}.{'.'.join(ap.fields)}"
-            self.repo_cursor.execute("""
-                SELECT file, line, target_var, source_expr, in_function, property_path
-                FROM assignments
-                WHERE file = ? AND target_var = ? AND in_function = ?
-                   AND (property_path = ? OR property_path IS NULL)
-                ORDER BY line DESC
-                LIMIT 1
-            """, (ap.file, ap.base, ap.function, full_path))
+
+            # PHASE 6.1: Handle function=None (middleware/file-level context)
+            # Try 1: target_var = full path (e.g., "req.body" as single string)
+            # Try 2: target_var = base + property_path = full path
+            if ap.function is None:
+                self.repo_cursor.execute("""
+                    SELECT file, line, target_var, source_expr, in_function, property_path
+                    FROM assignments
+                    WHERE file = ?
+                      AND (
+                        target_var = ?
+                        OR (target_var = ? AND (property_path = ? OR property_path IS NULL))
+                      )
+                    ORDER BY line DESC
+                    LIMIT 1
+                """, (ap.file, full_path, ap.base, full_path))
+            else:
+                self.repo_cursor.execute("""
+                    SELECT file, line, target_var, source_expr, in_function, property_path
+                    FROM assignments
+                    WHERE file = ? AND in_function = ?
+                      AND (
+                        target_var = ?
+                        OR (target_var = ? AND (property_path = ? OR property_path IS NULL))
+                      )
+                    ORDER BY line DESC
+                    LIMIT 1
+                """, (ap.file, ap.function, full_path, ap.base, full_path))
         else:
             # Simple variable
-            self.repo_cursor.execute("""
-                SELECT file, line, target_var, source_expr, in_function, property_path
-                FROM assignments
-                WHERE file = ? AND target_var = ? AND in_function = ?
-                ORDER BY line DESC
-                LIMIT 1
-            """, (ap.file, ap.base, ap.function))
+            # PHASE 6.1: Handle function=None (middleware/file-level context)
+            if ap.function is None:
+                self.repo_cursor.execute("""
+                    SELECT file, line, target_var, source_expr, in_function, property_path
+                    FROM assignments
+                    WHERE file = ? AND target_var = ?
+                    ORDER BY line DESC
+                    LIMIT 1
+                """, (ap.file, ap.base))
+            else:
+                self.repo_cursor.execute("""
+                    SELECT file, line, target_var, source_expr, in_function, property_path
+                    FROM assignments
+                    WHERE file = ? AND target_var = ? AND in_function = ?
+                    ORDER BY line DESC
+                    LIMIT 1
+                """, (ap.file, ap.base, ap.function))
 
         assign_row = self.repo_cursor.fetchone()
         if assign_row:
@@ -816,7 +933,8 @@ class IFDSTaintAnalyzer:
                         'file': assign_row['file'],
                         'line': assign_row['line'],
                         'target_var': assign_row['target_var'],
-                        'callee_expr': source_expr  # e.g., "getTainted()" or "s3.Bucket(...)"
+                        'callee_expr': source_expr,  # e.g., "getTainted()" or "s3.Bucket(...)"
+                        'in_function': assign_row['in_function']  # PHASE 6.1: Include for function scope tracking
                     }
 
             # Check if it's a field load (source_expr contains '.')
@@ -827,7 +945,8 @@ class IFDSTaintAnalyzer:
                     'line': assign_row['line'],
                     'target_var': assign_row['target_var'],
                     'source_expr': source_expr,
-                    'property_path': assign_row['property_path']
+                    'property_path': assign_row['property_path'],
+                    'in_function': assign_row['in_function']  # PHASE 6.1: Include for function scope tracking
                 }
             else:
                 return {
@@ -835,7 +954,8 @@ class IFDSTaintAnalyzer:
                     'file': assign_row['file'],
                     'line': assign_row['line'],
                     'target_var': assign_row['target_var'],
-                    'source_expr': source_expr
+                    'source_expr': source_expr,
+                    'in_function': assign_row['in_function']  # PHASE 6.1: Include for function scope tracking
                 }
 
         # Not defined in this scope - could be from outer scope or undefined
@@ -913,6 +1033,8 @@ class IFDSTaintAnalyzer:
         file = stmt['file']
         line = stmt['line']
         target_var = stmt['target_var']
+        # PHASE 6.1: Use in_function from stmt if available (fixes function=None inheritance bug)
+        stmt_function = stmt.get('in_function')
 
         # Query assignment_sources for source variables
         self.repo_cursor.execute("""
@@ -925,9 +1047,10 @@ class IFDSTaintAnalyzer:
             source_var = row['source_var_name']
 
             # Create AccessPath for source variable
+            # PHASE 6.1: Use stmt_function instead of ap.function to avoid inheriting None
             source_ap = AccessPath(
                 file=file,
-                function=ap.function,  # Same function scope
+                function=stmt_function if stmt_function else ap.function,  # Use actual function scope from assignment
                 base=source_var.split('.')[0],
                 fields=tuple(source_var.split('.')[1:]) if '.' in source_var else ()
             )
@@ -982,26 +1105,27 @@ class IFDSTaintAnalyzer:
     def _flow_function_return_to_caller(self, ap: AccessPath, stmt: Dict) -> List[Tuple[AccessPath, str, Dict]]:
         """Flow function for return-to-caller (PHASE 4.1).
 
-        When tracing variable x defined by x = func(), this:
-        1. Finds the function being called (func)
-        2. Queries function_returns to find what func() returns
-        3. Queries function_return_sources to get returned variable(s)
-        4. Creates AccessPath for returned variable inside func()
+        PHASE 6.1: Enhanced to handle library functions without returns.
 
-        This completes the inter-procedural circuit:
-        - Phase 3: Caller → Callee (parameter binding)
-        - Phase 4.1: Callee → Caller (return binding)
+        When tracing variable x defined by x = func(arg1, arg2), taint can flow from:
+        1. Return values (for project functions with function_returns)
+        2. Arguments (for library functions OR when taint propagates through args)
 
-        Algorithm per paper section 2.1:
-            When seeing x = func() at caller:
-            - Find func's return statements
-            - Map x to returned variable(s)
+        Algorithm:
+        1. Try return-to-caller flow (project functions)
+        2. ALWAYS add argument flow (library functions + taint-propagating calls)
+
+        This is NOT a fallback - both flows are valid sources of taint.
+        Example: x = parseAsync(req.body) → taint from req.body (argument)
+        Example: x = getTainted() → taint from return value
         """
         predecessors = []
 
         callee_expr = stmt['callee_expr']  # e.g., "getTainted()" or "s3.Bucket(...)"
         file = stmt['file']
         line = stmt['line']
+        # PHASE 6.1: Use in_function from stmt
+        stmt_function = stmt.get('in_function')
 
         # Parse function name from call expression
         # Handle cases: func(), obj.method(), require('mod').func()
@@ -1108,6 +1232,36 @@ class IFDSTaintAnalyzer:
 
                     if self.debug:
                         print(f"[IFDS] Return-to-caller: {return_ap.node_id} -> {ap.node_id}", file=sys.stderr)
+
+        # PHASE 6.1: ALWAYS add argument flow (library functions + taint-propagating calls)
+        # Query assignment_sources for arguments passed to this call
+        # This handles library functions (parseAsync, validate, etc.) that have no returns in DB
+        self.repo_cursor.execute("""
+            SELECT source_var_name
+            FROM assignment_sources
+            WHERE assignment_file = ? AND assignment_line = ? AND assignment_target = ?
+        """, (file, line, ap.base))
+
+        for row in self.repo_cursor.fetchall():
+            source_var = row['source_var_name']
+
+            # Skip function names and method names (we want arguments, not callees)
+            if '(' in source_var or source_var == func_name:
+                continue
+
+            # Create AccessPath for argument variable
+            arg_ap = AccessPath(
+                file=file,
+                function=stmt_function if stmt_function else ap.function,
+                base=source_var.split('.')[0],
+                fields=tuple(source_var.split('.')[1:]) if '.' in source_var else ()
+            )
+
+            meta = {'file': file, 'line': line, 'call_argument': True}
+            predecessors.append((arg_ap, 'call_argument', meta))
+
+            if self.debug:
+                print(f"[IFDS] Call argument flow: {arg_ap.node_id} -> {ap.node_id}", file=sys.stderr)
 
         return predecessors
 
@@ -1302,11 +1456,15 @@ class IFDSTaintAnalyzer:
                         if self.debug:
                             print(f"[IFDS]   Resolved validation middleware to: {middleware_file}:{middleware_line}", file=sys.stderr)
 
+                # PHASE 6.1: Map controller variable to request object
+                # Controller variables (results, data, etc.) come from req.body/params/query
+                # Validation middleware operates on req.body (most common), so trace req.body
+                # TODO: Infer req.params/req.query based on middleware type
                 middleware_ap = AccessPath(
-                    file=middleware_file,  # Actual middleware file (validate.ts) not route file
-                    function=None,  # Middleware file context
-                    base=ap.base,  # Same variable being traced
-                    fields=ap.fields  # Same field path
+                    file=middleware_file,  # Actual middleware file (validate.ts)
+                    function=None,  # Middleware file context (not scoped to function)
+                    base="req",  # Request object (not controller's local variable)
+                    fields=("body",)  # Validation middleware validates req.body
                 )
 
                 meta = {

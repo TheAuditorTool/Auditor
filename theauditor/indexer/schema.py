@@ -63,7 +63,7 @@ from .schemas.graphql_schema import GRAPHQL_TABLES
 
 TABLES: Dict[str, TableSchema] = {
     **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
-    **SECURITY_TABLES,       # 6 tables (SQL, JWT, env vars, taint flows - cross-language security)
+    **SECURITY_TABLES,       # 7 tables (SQL, JWT, env vars, taint flows + resolved_flow_audit)
     **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
     **PYTHON_TABLES,         # 59 tables (5 basic + 54 advanced Python patterns)
     **NODE_TABLES,           # 26 tables (React/Vue/TypeScript + build tools)
@@ -72,10 +72,10 @@ TABLES: Dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 156 tables (schema continues to grow with framework extraction)
+# Total: 157 tables (Phase 6: Added resolved_flow_audit for full taint provenance)
 
 # Verify table count at module load time
-assert len(TABLES) == 156, f"Schema contract violation: Expected 156 tables, got {len(TABLES)}"
+assert len(TABLES) == 157, f"Schema contract violation: Expected 157 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
@@ -113,13 +113,15 @@ CFG_BLOCK_STATEMENTS = TABLES['cfg_block_statements']
 FINDINGS_CONSOLIDATED = TABLES['findings_consolidated']
 
 # -------------------------
-# SECURITY TABLES (5 tables from schemas/security_schema.py)
+# SECURITY TABLES (7 tables from schemas/security_schema.py)
 # -------------------------
 SQL_OBJECTS = TABLES['sql_objects']
 SQL_QUERIES = TABLES['sql_queries']
 SQL_QUERY_TABLES = TABLES['sql_query_tables']
 JWT_PATTERNS = TABLES['jwt_patterns']
 ENV_VAR_USAGE = TABLES['env_var_usage']
+TAINT_FLOWS = TABLES['taint_flows']  # Legacy table
+RESOLVED_FLOW_AUDIT = TABLES['resolved_flow_audit']  # Phase 6: Full provenance
 
 # -------------------------
 # FRAMEWORK TABLES (5 tables from schemas/frameworks_schema.py)
