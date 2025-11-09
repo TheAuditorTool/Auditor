@@ -19,7 +19,8 @@ from .core import (
 )
 
 # Analyzers
-from .analysis import TaintFlowAnalyzer
+# ARCHITECTURAL FIX (2025-11-09): TaintFlowAnalyzer removed (dormant engine)
+# analysis.py renamed to analysis.py.backup per Priority 1 directive
 from .ifds_analyzer import IFDSTaintAnalyzer
 
 # Discovery system (database-driven, NO hardcoded patterns)
@@ -39,8 +40,7 @@ __all__ = [
     "has_sanitizer_between",
     "deduplicate_paths",
 
-    # Analyzers
-    "TaintFlowAnalyzer",
+    # Analyzers (only IFDS is active)
     "IFDSTaintAnalyzer",
 
     # Discovery

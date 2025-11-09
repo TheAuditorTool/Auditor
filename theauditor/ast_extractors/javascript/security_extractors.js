@@ -214,6 +214,7 @@ function extractValidationFrameworkUsage(functionCallArgs, assignments, imports)
             const validation = {
                 line: call.line,
                 framework: getFrameworkName(callee, frameworks, schemaVars),
+                function_name: callee,  // Full callee for database (e.g., 'userSchema.parseAsync')
                 method: getMethodName(callee),
                 variable_name: getVariableName(callee),
                 is_validator: isValidatorMethod(callee),
@@ -227,6 +228,137 @@ function extractValidationFrameworkUsage(functionCallArgs, assignments, imports)
 
     debugLog(`Total validation calls extracted: ${validationCalls.length}`);
     return validationCalls;
+}
+
+/**
+ * Extract schema definitions (Zod, Joi, Yup schema builders)
+ * Detects: z.object(), z.string(), Joi.number(), etc.
+ *
+ * PURPOSE: Track schema DEFINITIONS for coverage metrics (separate from validation USAGE)
+ *
+ * ARCHITECTURAL DECISION (2025-11-09):
+ * Validation extraction was split into TWO concerns:
+ * 1. extractValidationFrameworkUsage() - Tracks where validation is APPLIED (parseAsync, validate)
+ *    - is_validator=TRUE
+ *    - Used by: Taint analysis for sanitization tracking
+ * 2. extractSchemaDefinitions() - Tracks where schemas are DEFINED (z.object, z.string)
+ *    - is_validator=FALSE
+ *    - Used by: Coverage metrics, schema inventory
+ *
+ * Both write to the SAME table (validation_framework_usage) differentiated by is_validator flag.
+ * Schema already supported this via is_validator column (node_schema.py:544).
+ *
+ * @param {Array} functionCallArgs - From extractFunctionCallArgs()
+ * @param {Array} assignments - Variable assignments (not currently used, reserved for future)
+ * @param {Array} imports - Import statements to detect framework
+ * @returns {Array} - Schema definition records (is_validator=false)
+ */
+function extractSchemaDefinitions(functionCallArgs, assignments, imports) {
+    const schemaDefs = [];
+
+    // Debug logging helper (reuse pattern from extractValidationFrameworkUsage)
+    const debugLog = (msg, data) => {
+        if (process.env.THEAUDITOR_VALIDATION_DEBUG === '1') {
+            console.error(`[SCHEMA-DEF-EXTRACT] ${msg}`);
+            if (data) {
+                console.error(`[SCHEMA-DEF-EXTRACT]   ${JSON.stringify(data)}`);
+            }
+        }
+    };
+
+    debugLog('Starting schema definition extraction', {
+        functionCallArgs_count: functionCallArgs.length,
+        imports_count: imports.length
+    });
+
+    // Step 1: Detect which validation frameworks are imported
+    const frameworks = detectValidationFrameworks(imports, debugLog);
+    debugLog(`Detected ${frameworks.length} validation frameworks in imports`, frameworks);
+
+    if (frameworks.length === 0) {
+        debugLog('No validation frameworks found, skipping extraction');
+        return schemaDefs;
+    }
+
+    // Step 2: Define schema builder methods for each framework
+    // These are the DEFINITION methods (z.object, z.string) NOT validator methods (parse, validate)
+    const SCHEMA_BUILDERS = {
+        // Zod builders
+        'zod': [
+            'object', 'string', 'number', 'array', 'boolean', 'date', 'enum', 'union', 'tuple',
+            'record', 'map', 'set', 'promise', 'function', 'lazy', 'literal', 'void', 'undefined',
+            'null', 'any', 'unknown', 'never', 'instanceof', 'discriminatedUnion', 'intersection',
+            'optional', 'nullable', 'coerce', 'nativeEnum', 'bigint', 'nan'
+        ],
+        // Joi builders
+        'joi': [
+            'object', 'string', 'number', 'array', 'boolean', 'date', 'alternatives', 'any',
+            'binary', 'link', 'symbol', 'func'
+        ],
+        // Yup builders
+        'yup': [
+            'object', 'string', 'number', 'array', 'boolean', 'date', 'mixed', 'ref', 'lazy'
+        ],
+        // Default set (union of all frameworks)
+        'default': [
+            'object', 'string', 'number', 'array', 'boolean', 'date', 'enum', 'union', 'tuple',
+            'record', 'map', 'set', 'literal', 'any', 'unknown', 'alternatives', 'binary',
+            'link', 'symbol', 'func', 'mixed', 'ref', 'lazy'
+        ]
+    };
+
+    // Step 3: Build set of builder methods for detected frameworks
+    const builderMethods = new Set();
+    for (const fw of frameworks) {
+        const methods = SCHEMA_BUILDERS[fw.name] || SCHEMA_BUILDERS['default'];
+        methods.forEach(m => builderMethods.add(m));
+    }
+
+    debugLog(`Watching for ${builderMethods.size} schema builder methods`, Array.from(builderMethods));
+
+    // Step 4: Extract schema builder calls
+    for (const call of functionCallArgs) {
+        const callee = call.callee_function || '';
+        if (!callee) continue;
+
+        // Extract method name (last part after final dot)
+        // Examples: z.object → object, Joi.string → string
+        const method = callee.split('.').pop();
+
+        // Check if this is a schema builder method
+        if (!builderMethods.has(method)) continue;
+
+        // Check if the prefix matches one of our frameworks
+        let matchedFramework = null;
+        for (const fw of frameworks) {
+            for (const name of fw.importedNames) {
+                // Check for direct framework calls: z.object, Joi.string, yup.number
+                if (callee.startsWith(`${name}.`)) {
+                    matchedFramework = fw.name;
+                    break;
+                }
+            }
+            if (matchedFramework) break;
+        }
+
+        // Only extract if we matched a known framework prefix
+        if (matchedFramework) {
+            const schemaDef = {
+                line: call.line,
+                framework: matchedFramework,
+                method: method,
+                variable_name: null,  // Schema builders don't have variable context in this extraction
+                is_validator: false,  // FALSE = schema definition (not validation call)
+                argument_expr: (call.argument_expr || '').substring(0, 200)  // Truncate long args
+            };
+
+            debugLog(`Extracted schema definition at line ${call.line}`, schemaDef);
+            schemaDefs.push(schemaDef);
+        }
+    }
+
+    debugLog(`Total schema definitions extracted: ${schemaDefs.length}`);
+    return schemaDefs;
 }
 
 // === HELPER FUNCTIONS ===
@@ -270,10 +402,29 @@ function detectValidationFrameworks(imports, debugLog) {
 
 /**
  * Find schema variable declarations
+ * [ENHANCED] Added more schema builder patterns for comprehensive coverage
  */
 function findSchemaVariables(assignments, frameworks, debugLog) {
     const schemas = {};
-    const SCHEMA_BUILDERS = ['object', 'string', 'number', 'array', 'boolean', 'date', 'enum', 'union', 'tuple'];
+
+    // Zod schema builders
+    const ZOD_BUILDERS = [
+        'object', 'string', 'number', 'array', 'boolean', 'date', 'enum', 'union', 'tuple',
+        'record', 'map', 'set', 'promise', 'function', 'lazy', 'literal', 'void', 'undefined',
+        'null', 'any', 'unknown', 'never', 'instanceof', 'discriminatedUnion', 'intersection',
+        'optional', 'nullable', 'coerce', 'nativeEnum', 'bigint', 'nan'
+    ];
+
+    // Joi schema builders
+    const JOI_BUILDERS = [
+        'object', 'string', 'number', 'array', 'boolean', 'date', 'alternatives', 'any',
+        'binary', 'link', 'symbol', 'func'
+    ];
+
+    // Yup schema builders
+    const YUP_BUILDERS = [
+        'object', 'string', 'number', 'array', 'boolean', 'date', 'mixed', 'ref', 'lazy'
+    ];
 
     for (const assign of assignments) {
         const target = assign.target_var;
@@ -281,18 +432,39 @@ function findSchemaVariables(assignments, frameworks, debugLog) {
 
         // Look for: const userSchema = z.object(...)
         for (const fw of frameworks) {
+            // Select appropriate builders based on framework
+            let builders = ZOD_BUILDERS;
+            if (fw.name === 'joi') {
+                builders = JOI_BUILDERS;
+            } else if (fw.name === 'yup') {
+                builders = YUP_BUILDERS;
+            }
+
             for (const name of fw.importedNames) {
                 // Check if source expression uses schema builder
-                for (const builder of SCHEMA_BUILDERS) {
-                    if (source.includes(`${name}.${builder}`)) {
+                for (const builder of builders) {
+                    if (source.includes(`${name}.${builder}(`)) {
                         schemas[target] = { framework: fw.name };
                         debugLog(`Found schema variable: ${target}`, {
                             target_var: target,
                             framework: fw.name,
+                            builder: builder,
                             source_expr: source.substring(0, 100)
                         });
                         break;
                     }
+                }
+
+                // Also catch chained schema definitions:
+                // const schema = z.string().email().max(255)
+                if (source.includes(`${name}.`)) {
+                    schemas[target] = { framework: fw.name };
+                    debugLog(`Found chained schema variable: ${target}`, {
+                        target_var: target,
+                        framework: fw.name,
+                        source_expr: source.substring(0, 100)
+                    });
+                    break;
                 }
             }
         }
@@ -303,18 +475,16 @@ function findSchemaVariables(assignments, frameworks, debugLog) {
 
 /**
  * Check if call is validation method
- * [MODIFIED] Relaxed logic to support imported schemas
+ * [FIXED] Precise pattern matching to avoid false positives (JSON.parse, etc.)
+ *
+ * BUG FIX (2025-01-09):
+ * Previous Pattern 1 was too broad - flagged ANY .parse() call if file imported Zod/Joi.
+ * Result: JSON.parse(), parseInt(), custom .parse() methods all flagged as validation.
+ * Fix: Check if variable name LOOKS like a schema/validator before accepting.
  */
 function isValidationCall(callee, frameworks, schemaVars) {
-    // Pattern 1: Check if this file imports a validation framework
-    // AND the call is to a known validation method.
-    // This catches imported schemas (e.g., userSchema.parseAsync)
-    if (frameworks.length > 0 && isValidatorMethod(callee)) {
-        return true;
-    }
-
-    // Pattern 2: Direct framework call (z.parse, Joi.validate)
-    // This is often caught by Pattern 1, but we keep it for robustness.
+    // Pattern 1: Direct framework call (z.parse, Joi.validate, yup.object)
+    // This is the MOST PRECISE pattern - matches 'z.parse', 'Joi.validate'
     for (const fw of frameworks) {
         for (const name of fw.importedNames) {
             if (callee.startsWith(`${name}.`) && isValidatorMethod(callee)) {
@@ -323,13 +493,62 @@ function isValidationCall(callee, frameworks, schemaVars) {
         }
     }
 
-    // Pattern 3: Schema variable call defined in *this* file
-    // (This is the original logic, kept as a fallback)
-    if (callee.includes('.')) {
+    // Pattern 2: Schema variable call (userSchema.parse, validateUser.validate)
+    // Check if variable name LOOKS like a schema/validator
+    if (callee.includes('.') && frameworks.length > 0 && isValidatorMethod(callee)) {
         const varName = callee.split('.')[0];
-        if (varName in schemaVars && isValidatorMethod(callee)) {
+
+        // Sub-pattern 2a: Variable defined in this file's assignments
+        if (varName in schemaVars) {
             return true;
         }
+
+        // Sub-pattern 2b: Variable NAME suggests it's a schema/validator
+        // Common patterns: userSchema, requestSchema, emailValidator, validateUser
+        if (looksLikeSchemaVariable(varName)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Check if variable name looks like a schema/validator.
+ * Used to detect IMPORTED schemas that aren't in schemaVars (defined in other files).
+ *
+ * Patterns:
+ * - Ends with 'Schema': userSchema, requestSchema, dataSchema
+ * - Ends with 'Validator': emailValidator, userValidator
+ * - Contains 'schema': mySchemaObj, schemaConfig
+ * - Contains 'validator': validatorFn, myValidator
+ * - Starts with 'validate': validateUser, validateRequest
+ * - Common validation var names: schema, validator, validation
+ *
+ * @param {string} varName - Variable name to check
+ * @returns {boolean} - True if name suggests schema/validator
+ */
+function looksLikeSchemaVariable(varName) {
+    const lower = varName.toLowerCase();
+
+    // Ends with 'schema' or 'validator'
+    if (lower.endsWith('schema') || lower.endsWith('validator')) {
+        return true;
+    }
+
+    // Contains 'schema' or 'validator' (but not as whole word 'parse', 'int', etc.)
+    if (lower.includes('schema') || lower.includes('validator')) {
+        return true;
+    }
+
+    // Starts with 'validate'
+    if (lower.startsWith('validate')) {
+        return true;
+    }
+
+    // Common single-word names
+    if (['schema', 'validator', 'validation'].includes(lower)) {
+        return true;
     }
 
     return false;
