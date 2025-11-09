@@ -511,7 +511,7 @@ class DFGBuilder:
         Returns:
             Combined graph with all data flow edges (intra + inter-procedural)
         """
-        # Build all three graph types
+        # Build all graph types
         assignment_graph = self.build_assignment_flow_graph(root)
         return_graph = self.build_return_flow_graph(root)
         parameter_graph = self.build_parameter_binding_edges(root)
@@ -526,7 +526,8 @@ class DFGBuilder:
             nodes[node["id"]] = node
 
         # Combine edges
-        edges = assignment_graph["edges"] + return_graph["edges"] + parameter_graph["edges"]
+        edges = (assignment_graph["edges"] + return_graph["edges"] +
+                parameter_graph["edges"])
 
         # Merge stats
         stats = {

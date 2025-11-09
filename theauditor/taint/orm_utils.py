@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 import sqlite3
 from typing import Dict, List, Optional, Set, Tuple, Iterable, TYPE_CHECKING
@@ -222,7 +221,12 @@ class PythonOrmContext:
     def _resolve_model_from_annotation(self, annotation: Optional[str]) -> Optional[str]:
         if not annotation:
             return None
-        tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", annotation)
+
+        # Split on common delimiters (spaces, brackets, commas) to extract tokens
+        # NO REGEX - use simple string operations
+        annotation_clean = annotation.replace('[', ' ').replace(']', ' ').replace(',', ' ').replace('(', ' ').replace(')', ' ')
+        tokens = [t.strip() for t in annotation_clean.split() if t.strip()]
+
         for token in tokens:
             if token in self.model_names:
                 return token
@@ -252,11 +256,24 @@ class PythonOrmContext:
         return None
 
     def _infer_model_from_assignment(self, source_expr: str) -> Optional[str]:
-        match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(", source_expr or "")
-        if match:
-            candidate = match.group(1)
-            if candidate in self.model_names:
-                return candidate
+        # NO REGEX - use simple string operations to extract constructor call
+        if not source_expr:
+            return None
+
+        # Strip leading whitespace and find first opening paren
+        expr = source_expr.strip()
+        if '(' not in expr:
+            return None
+
+        # Extract token before first '('
+        candidate = expr.split('(')[0].strip()
+
+        # Validate it's an identifier (no special chars)
+        if not candidate or not (candidate[0].isalpha() or candidate[0] == '_'):
+            return None
+
+        if candidate in self.model_names:
+            return candidate
         return None
 
     def _get_assignments(self, file_path: str, func_name: str) -> List[Dict[str, str]]:

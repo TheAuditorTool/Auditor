@@ -512,21 +512,6 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         sinks = discovery.discover_sinks(merged_sinks)
         sinks = discovery.filter_framework_safe_sinks(sinks)
 
-        # PRIORITY 1C: Connect frontend API calls to backend endpoints (ADDED 2025-11-09)
-        # Extract frontend API bridge sinks and generate cross-boundary flows
-        frontend_api_sinks = [s for s in sinks if s.get('category') == 'frontend_api_bridge']
-        if frontend_api_sinks:
-            print(f"[TAINT] Connecting {len(frontend_api_sinks)} frontend API calls to backend endpoints", file=sys.stderr)
-            cross_boundary_flows = discovery.connect_frontend_backend(frontend_api_sinks)
-
-            # Add synthetic backend sources from matched endpoints
-            for flow in cross_boundary_flows:
-                backend_source = flow['backend_source']
-                sources.append(backend_source)
-
-            print(f"[TAINT] Created {len(cross_boundary_flows)} cross-boundary flow connectors", file=sys.stderr)
-            print(f"[TAINT] Total sources: {len(sources)} (includes {len(cross_boundary_flows)} frontend-bridged)", file=sys.stderr)
-
         # Helper function for proximity filtering
         def filter_sinks_by_proximity(source, all_sinks):
             """Filter sinks to same module as source for performance.

@@ -1512,13 +1512,31 @@ class IFDSTaintAnalyzer:
 
                 # This is a validation middleware file - find which routes use it
                 # Query middleware chains for validation middleware
+                # Get handler expressions from validation_framework_usage table (database-driven)
                 self.repo_cursor.execute("""
-                    SELECT route_line, route_path, route_method, execution_order, file
-                    FROM express_middleware_chains
-                    WHERE handler_type = 'middleware'
-                      AND handler_expr LIKE '%validate%'
-                    ORDER BY route_line, execution_order
+                    SELECT DISTINCT method
+                    FROM validation_framework_usage
+                    WHERE is_validator = 1
                 """)
+
+                validation_methods = [row['method'] for row in self.repo_cursor.fetchall()]
+
+                if not validation_methods:
+                    if self.debug:
+                        print(f"[IFDS]   No validation methods found in database", file=sys.stderr)
+                    # Continue without validation middleware
+                else:
+                    # Query middleware chains matching known validation methods
+                    placeholders = ','.join('?' * len(validation_methods))
+                    self.repo_cursor.execute(f"""
+                        SELECT route_line, route_path, route_method, execution_order, file, handler_expr
+                        FROM express_middleware_chains
+                        WHERE handler_type = 'middleware'
+                          AND (
+                            {' OR '.join(f"handler_expr LIKE ?" for _ in validation_methods)}
+                          )
+                        ORDER BY route_line, execution_order
+                    """, [f'%{method}%' for method in validation_methods])
 
                 middleware_entries = self.repo_cursor.fetchall()
 
