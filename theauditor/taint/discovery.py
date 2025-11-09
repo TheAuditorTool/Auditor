@@ -117,43 +117,6 @@ class TaintDiscovery:
                         'metadata': symbol
                     })
 
-        # PRIORITY 1A: Frontend Input Sources (ADDED 2025-11-09)
-        # Discover form inputs, event handlers, and client-side storage access
-        # These are the PRIMARY attack vectors for client → server flows
-        frontend_input_patterns = sources_dict.get('frontend_input', [
-            'e.target.value', 'event.target.value', 'event.target.checked',
-            'formdata', 'formdata.get', 'formdata.append',
-            'localstorage.getitem', 'sessionstorage.getitem',
-            'urlsearchparams', 'location.search', 'location.hash', 'location.href',
-            'document.cookie', 'window.location'
-        ])
-
-        frontend_seen = set()
-        for var_usage in self.cache.variable_usage:
-            var_name = var_usage.get('variable_name', '')
-            file_path = var_usage.get('file', '')
-
-            # Only process frontend files
-            if not any(marker in file_path.lower() for marker in ['frontend', 'src/components', 'src/pages', 'client']):
-                continue
-
-            # Match frontend input patterns
-            var_name_lower = var_name.lower()
-            if frontend_input_patterns and any(pattern in var_name_lower for pattern in frontend_input_patterns):
-                if (file_path, var_name) not in frontend_seen:
-                    frontend_seen.add((file_path, var_name))
-
-                    sources.append({
-                        'type': 'frontend_input',
-                        'name': var_name,
-                        'file': file_path,
-                        'line': var_usage.get('line', 0),
-                        'pattern': var_name,
-                        'category': 'frontend_input',
-                        'risk': 'high',  # User input from browser is high risk
-                        'metadata': var_usage
-                    })
-
         # Function Parameter Sources: Parse parameters from function symbols
         # These are often derived from user input (req.body, req.params, etc.)
         import json
@@ -309,8 +272,24 @@ class TaintDiscovery:
                 sql_query_count += 1
 
         # ORM Query Methods as SQL Sinks
-        # Discover ORM methods like User.findByPk, Order.findAll, Model.create
-        # These are potential SQL injection points when parameters are user-controlled
+        # Query sequelize_models and python_orm_models tables to determine if caller is a model
+        conn = sqlite3.connect(self.cache.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Build set of known model names
+        model_names = set()
+        cursor.execute("SELECT model_name FROM sequelize_models")
+        for row in cursor.fetchall():
+            model_names.add(row['model_name'])
+
+        cursor.execute("SELECT model_name FROM python_orm_models")
+        for row in cursor.fetchall():
+            model_names.add(row['model_name'])
+
+        conn.close()
+
+        # ORM method patterns
         orm_patterns = [
             # Sequelize ORM patterns
             '.findOne', '.findAll', '.findByPk', '.create', '.update',
@@ -334,18 +313,13 @@ class TaintDiscovery:
                     # This avoids false positives like 'findAllMatches'
                     parts = func_name.split('.')
                     if len(parts) >= 2 and parts[-1].startswith(pattern.lstrip('.')):
-                        # PHASE 5.5 FIX: Capital Letter Rule
-                        # Distinguish Model.create (true ORM sink) from service.createAccount (function to trace)
-                        # Models are PascalCased (User, Account), services are camelCased (accountService, userService)
+                        # Query database to check if caller is a known ORM model
                         model_or_service_name = parts[-2]
 
-                        # Only flag as ORM sink if the caller is a capitalized Model name
-                        if model_or_service_name and model_or_service_name[0].isupper():
-                            # This is a true ORM sink: Model.method (e.g., User.create, Account.findOne)
+                        # Only flag as ORM sink if the caller is in sequelize_models or python_orm_models table
+                        if model_or_service_name in model_names:
                             is_orm_method = True
                             break
-                        # else: This is a service method (e.g., accountService.createAccount)
-                        # Do NOT flag as sink - let analyzer trace into it for multi-hop analysis
 
             if is_orm_method:
                 arg_expr = call.get('argument_expr')
@@ -454,46 +428,6 @@ class TaintDiscovery:
                     'has_interpolation': has_interpolation,
                     'metadata': call
                 })
-
-        # PRIORITY 1B: Frontend API Call Sinks (ADDED 2025-11-09)
-        # These are "bridge sinks" - they end frontend taint flow and start backend flow
-        # When user data flows into fetch/axios, it crosses the frontend→backend boundary
-        api_call_patterns = ['fetch', 'axios.post', 'axios.put', 'axios.delete',
-                           'axios.patch', 'axios.request', 'axios.get']
-
-        for call in self.cache.function_call_args:
-            func_name = call.get('callee_function', '')
-            file_path = call.get('file', '')
-
-            # Only process frontend files
-            if not any(marker in file_path.lower() for marker in ['frontend', 'src/components', 'src/pages', 'client']):
-                continue
-
-            # Match API call patterns
-            func_name_lower = func_name.lower()
-            if any(pattern in func_name_lower for pattern in api_call_patterns):
-                arg_expr = call.get('argument_expr', '')
-
-                # Skip if no argument expression (NULL in database)
-                if not arg_expr:
-                    continue
-
-                # Check if call includes user data (body, data, params, headers)
-                # This indicates tainted data is being sent to backend
-                has_user_data = any(keyword in arg_expr.lower() for keyword in
-                                   ['body', 'data', 'params', 'headers', 'query'])
-
-                if has_user_data or 'fetch' in func_name_lower:  # fetch always passes data
-                    sinks.append({
-                        'type': 'api_call',
-                        'name': func_name,
-                        'file': file_path,
-                        'line': call.get('line', 0),
-                        'pattern': arg_expr,
-                        'category': 'frontend_api_bridge',
-                        'risk': 'high',
-                        'metadata': call
-                    })
 
         # Path Traversal Sinks: File operations from registry
         # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
@@ -699,349 +633,3 @@ class TaintDiscovery:
             })
 
         return sanitizers
-
-    def connect_frontend_backend(self, frontend_api_sinks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        PRIORITY 1C: Cross-boundary connector (ADDED 2025-11-09, ENHANCED 2025-11-09)
-
-        Match frontend API calls to backend endpoints to create synthetic sources.
-        This enables frontend → backend taint flow tracing.
-
-        ENHANCEMENT: Supports service layer abstractions like Plant's api.ts pattern.
-
-        Algorithm:
-        1. Build service method → API path mapping (areaApi.create → POST /areas)
-        2. For direct calls (fetch/axios): Extract path from call args
-        3. For service calls (areaApi.create): Look up path from mapping
-        4. Match against api_endpoints table (method + path)
-        5. Create synthetic backend source (req.body) at matched endpoint
-
-        Args:
-            frontend_api_sinks: List of frontend API call sinks from discover_sinks()
-
-        Returns:
-            List of cross-boundary flow connectors (frontend sink + backend source pairs)
-        """
-        cross_boundary_flows = []
-
-        # Load backend endpoints and index by (method, path) for O(1) lookup
-        endpoint_index = {}
-        for endpoint in getattr(self.cache, 'api_endpoints', []):
-            method = endpoint.get('method', '').upper()
-            full_path = endpoint.get('full_path', '')
-
-            if method and full_path:
-                # Normalize path (remove leading /, remove /api/v1 prefix, remove trailing /)
-                # /api/v1/areas/ → areas
-                # /api/v1/areas/:id → areas/:id
-                path_normalized = full_path.lstrip('/').replace('api/v1/', '').replace('api/', '').rstrip('/')
-                key = (method, path_normalized)
-
-                # Store endpoint metadata
-                if key not in endpoint_index:
-                    endpoint_index[key] = []
-                endpoint_index[key].append(endpoint)
-
-        # ENHANCEMENT: Build service method → API path mapping
-        # Handles patterns like: areaApi.create → POST /areas
-        service_method_map = self._build_service_method_map()
-
-        # Match each frontend API call to backend endpoints
-        for api_sink in frontend_api_sinks:
-            arg_expr = api_sink.get('pattern', '')
-            func_name = api_sink.get('name', '')
-
-            # Try service method resolution first (check map directly, not dot requirement)
-            if func_name in service_method_map:
-                # Mapped function (e.g., fetchByZone → GET /areas, or areaApi.create → POST /areas)
-                method, path = service_method_map[func_name]
-            else:
-                # Unmapped call - try to extract directly from call args
-                method = self._extract_http_method(func_name, arg_expr)
-                path = self._extract_api_path(arg_expr)
-
-            if not method or not path:
-                continue  # Skip if can't resolve
-
-            # Normalize path for matching (remove leading/trailing /, remove /api/v1 prefix)
-            # /areas/ → areas
-            # /areas/:id → areas/:id
-            path_normalized = path.lstrip('/').replace('api/v1/', '').replace('api/', '').rstrip('/')
-
-            # Look up matching backend endpoint
-            endpoint_key = (method, path_normalized)
-            matched_endpoints = endpoint_index.get(endpoint_key, [])
-
-            # Create cross-boundary flow for each matched endpoint
-            for backend_ep in matched_endpoints:
-                cross_boundary_flows.append({
-                    'frontend_sink': api_sink,
-                    'backend_source': {
-                        'type': 'http_request',
-                        'name': 'req.body',  # Backend receives as req.body
-                        'file': backend_ep.get('file', ''),
-                        'line': backend_ep.get('line', 0),
-                        'pattern': 'req.body',
-                        'category': 'http_request',
-                        'risk': 'high',
-                        'bridge_from_frontend': api_sink.get('file', ''),  # Track origin
-                        'metadata': backend_ep
-                    }
-                })
-
-        return cross_boundary_flows
-
-    def _extract_http_method(self, func_name: str, arg_expr: str) -> str:
-        """Extract HTTP method from API call."""
-        func_lower = func_name.lower()
-
-        # Method from function name (axios.post, axios.get, etc.)
-        if 'post' in func_lower:
-            return 'POST'
-        elif 'put' in func_lower:
-            return 'PUT'
-        elif 'delete' in func_lower:
-            return 'DELETE'
-        elif 'patch' in func_lower:
-            return 'PATCH'
-        elif 'get' in func_lower:
-            return 'GET'
-
-        # Method from fetch options: {method: 'POST'}
-        if 'method' in arg_expr:
-            import re
-            method_match = re.search(r"method\s*:\s*['\"](\w+)['\"]", arg_expr, re.IGNORECASE)
-            if method_match:
-                return method_match.group(1).upper()
-
-        # Default to GET for fetch with no method specified
-        return 'GET'
-
-    def _extract_api_path(self, arg_expr: str) -> str:
-        """Extract API path from fetch/axios call argument."""
-        import re
-
-        # Pattern 1: fetch('/api/users', ...)
-        # Pattern 2: axios.post('/api/users', ...)
-        # Look for quoted string at start of arg_expr
-        path_match = re.search(r"['\"]([^'\"]+)['\"]", arg_expr)
-        if path_match:
-            path = path_match.group(1)
-            # Remove query params if present
-            if '?' in path:
-                path = path.split('?')[0]
-            return path
-
-        return ''
-
-    def _build_service_method_map(self) -> Dict[str, Tuple[str, str]]:
-        """
-        Build mapping of wrapper functions to API paths (PROJECT-AGNOSTIC).
-
-        ENHANCEMENT (2025-11-09): TWO-LEVEL tracing for complex architectures.
-
-        Architecture support:
-        - Direct calls: fetchUsers() -> axios.get('/users')
-        - Service wrappers: areaApi.list() -> api.get('/areas')
-        - Store methods: fetchByZone() -> areaApi.list() -> api.get('/areas')
-
-        Algorithm:
-        1. Build LEVEL 1 map: wrapper methods (list, create) → (METHOD, PATH)
-        2. Build LEVEL 2 map: store methods (fetchByZone) → wrapper methods (areaApi.list)
-        3. Resolve chain: fetchByZone → areaApi.list → list → GET /areas
-
-        Returns:
-            Dict mapping store/wrapper function names to (method, path) tuples
-        """
-        import re
-        import sqlite3
-
-        conn = sqlite3.connect(self.cache.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        # LEVEL 1: Build qualified wrapper → API endpoint mapping
-        # Maps: "areaApi.list" → ("GET", "/areas"), "destructionApi.list" → ("GET", "/destructions")
-        # Also maps simple names: "list" → last seen (fallback)
-        qualified_wrapper_map = {}
-        simple_wrapper_map = {}
-
-        # First pass: Find wrapper method definitions and what APIs they call
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr, caller_function
-            FROM function_call_args
-            WHERE file LIKE '%frontend%'
-              AND file LIKE '%service%'
-              AND (callee_function LIKE 'api.get' OR callee_function LIKE 'api.post'
-                   OR callee_function LIKE 'api.put' OR callee_function LIKE 'api.delete'
-                   OR callee_function LIKE 'axios.get' OR callee_function LIKE 'axios.post'
-                   OR callee_function LIKE 'axios.put' OR callee_function LIKE 'axios.delete'
-                   OR callee_function LIKE '%fetch%')
-        """)
-
-        # Track which wrapper object each method belongs to by finding nearby assignments
-        for row in cursor.fetchall():
-            callee = row['callee_function']
-            arg_expr = row['argument_expr']
-            caller_function = row['caller_function']
-            file_path = row['file']
-            line = row['line']
-
-            if not arg_expr or not caller_function:
-                continue
-
-            # Extract HTTP method
-            callee_lower = callee.lower()
-            if 'get' in callee_lower and 'delete' not in callee_lower:
-                http_method = 'GET'
-            elif 'post' in callee_lower:
-                http_method = 'POST'
-            elif 'put' in callee_lower:
-                http_method = 'PUT'
-            elif 'delete' in callee_lower:
-                http_method = 'DELETE'
-            elif 'fetch' in callee_lower:
-                method_match = re.search(r"method\s*:\s*['\"](\w+)['\"]", arg_expr, re.IGNORECASE)
-                http_method = method_match.group(1).upper() if method_match else 'GET'
-            else:
-                continue
-
-            # Extract API path (supports single quotes, double quotes, and backticks)
-            path_match = re.search(r"['\"`]([^'\"` `]+)['\"`]", arg_expr)
-            if not path_match:
-                continue
-
-            api_path = path_match.group(1)
-            if '?' in api_path:
-                api_path = api_path.split('?')[0]
-            # Replace template variables like ${id} with :id
-            api_path = re.sub(r'\$\{[^}]+\}', ':id', api_path)
-
-            # Find the wrapper object name by looking for nearby assignment
-            cursor.execute("""
-                SELECT target_var
-                FROM assignments
-                WHERE file = ? AND line <= ? AND line >= ?
-                  AND target_var LIKE '%Api'
-                ORDER BY line DESC
-                LIMIT 1
-            """, (file_path, line + 5, line - 50))
-
-            wrapper_obj_row = cursor.fetchone()
-            if wrapper_obj_row and wrapper_obj_row['target_var']:
-                wrapper_obj = wrapper_obj_row['target_var']
-                qualified_name = f"{wrapper_obj}.{caller_function}"
-                qualified_wrapper_map[qualified_name] = (http_method, api_path)
-
-            # Also store simple name as fallback
-            simple_wrapper_map[caller_function] = (http_method, api_path)
-
-        # LEVEL 2: Build store method → wrapper call mapping
-        # Maps: "fetchByZone" → "areaApi.list"
-        store_to_wrapper_map = {}
-
-        cursor.execute("""
-            SELECT file, line, callee_function, caller_function
-            FROM function_call_args
-            WHERE file LIKE '%frontend%'
-              AND file LIKE '%store%'
-              AND callee_function LIKE '%.%'
-        """)
-
-        for row in cursor.fetchall():
-            callee = row['callee_function']  # e.g., "areaApi.list"
-            caller = row['caller_function']  # e.g., "fetchByZone"
-
-            if not callee or not caller or '.' not in callee:
-                continue
-
-            # Filter: Only keep API wrapper calls (xxxApi.method pattern)
-            # Ignore Array.isArray, console.error, etc.
-            wrapper_obj = callee.split('.')[0]
-            if not wrapper_obj.endswith('Api'):
-                continue
-
-            # Store full qualified wrapper call (prefer earlier matches, not last)
-            if caller not in store_to_wrapper_map:
-                store_to_wrapper_map[caller] = callee
-
-        # LEVEL 2B: Also handle direct API calls (api.get, api.post, etc.) in store methods
-        # Maps: "fetchPlants" → ("GET", "/plants")
-        direct_api_calls = {}
-
-        cursor.execute("""
-            SELECT file, line, callee_function, argument_expr, caller_function
-            FROM function_call_args
-            WHERE file LIKE '%frontend%'
-              AND file LIKE '%store%'
-              AND (callee_function LIKE 'api.get' OR callee_function LIKE 'api.post'
-                   OR callee_function LIKE 'api.put' OR callee_function LIKE 'api.delete'
-                   OR callee_function LIKE 'axios.get' OR callee_function LIKE 'axios.post'
-                   OR callee_function LIKE 'axios.put' OR callee_function LIKE 'axios.delete')
-        """)
-
-        for row in cursor.fetchall():
-            callee = row['callee_function']
-            arg_expr = row['argument_expr']
-            caller = row['caller_function']
-
-            if not arg_expr or not caller:
-                continue
-
-            # Skip if already mapped via wrapper pattern
-            if caller in store_to_wrapper_map:
-                continue
-
-            # Extract HTTP method
-            callee_lower = callee.lower()
-            if 'get' in callee_lower and 'delete' not in callee_lower:
-                http_method = 'GET'
-            elif 'post' in callee_lower:
-                http_method = 'POST'
-            elif 'put' in callee_lower:
-                http_method = 'PUT'
-            elif 'delete' in callee_lower:
-                http_method = 'DELETE'
-            else:
-                continue
-
-            # Extract API path (supports single quotes, double quotes, and backticks)
-            path_match = re.search(r"['\"`]([^'\"` `]+)['\"`]", arg_expr)
-            if not path_match:
-                continue
-
-            api_path = path_match.group(1)
-            if '?' in api_path:
-                api_path = api_path.split('?')[0]
-            # Replace template variables like ${id} with :id
-            api_path = re.sub(r'\$\{[^}]+\}', ':id', api_path)
-
-            # Store direct API call mapping (prefer first match)
-            if caller not in direct_api_calls:
-                direct_api_calls[caller] = (http_method, api_path)
-
-        # COMBINE: Resolve full chain
-        final_mapping = {}
-
-        # First, add all qualified wrappers directly (areaApi.list, etc.)
-        final_mapping.update(qualified_wrapper_map)
-
-        # Add simple names as fallback (list, create, etc.)
-        final_mapping.update(simple_wrapper_map)
-
-        # Then, resolve store methods through their wrapper calls
-        for store_method, qualified_wrapper in store_to_wrapper_map.items():
-            if qualified_wrapper in qualified_wrapper_map:
-                # Resolve using qualified name: fetchByZone → areaApi.list → GET /areas
-                final_mapping[store_method] = qualified_wrapper_map[qualified_wrapper]
-            else:
-                # Fallback: try simple method name
-                simple_method = qualified_wrapper.split('.')[-1]
-                if simple_method in simple_wrapper_map:
-                    final_mapping[store_method] = simple_wrapper_map[simple_method]
-
-        # Finally, add direct API calls from store methods
-        final_mapping.update(direct_api_calls)
-
-        conn.close()
-        return final_mapping
