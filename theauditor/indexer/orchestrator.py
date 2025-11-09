@@ -347,6 +347,17 @@ class IndexerOrchestrator:
         JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
         self.db_manager.commit()
 
+        # PHASE 6.7: Resolve router mount hierarchy (ADDED 2025-11-09)
+        # Populate api_endpoints.full_path by resolving router.use() mount statements
+        # CRITICAL: Flush and commit before resolution (opens new connection)
+        self.db_manager.flush_batch()
+        self.db_manager.commit()
+
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[INDEXER] PHASE 6.7: Resolving router mount hierarchy...", file=sys.stderr)
+        JavaScriptExtractor.resolve_router_mount_hierarchy(self.db_manager.db_path)
+        self.db_manager.commit()
+
         # Report results with database location
         base_msg = (f"[Indexer] Indexed {self.counts['files']} files, "
                    f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "

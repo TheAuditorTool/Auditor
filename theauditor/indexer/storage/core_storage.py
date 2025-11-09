@@ -35,6 +35,7 @@ class CoreStorage(BaseStorage):
         self.handlers = {
             'imports': self._store_imports,
             'routes': self._store_routes,
+            'router_mounts': self._store_router_mounts,  # PHASE 6.7
             'express_middleware_chains': self._store_express_middleware_chains,  # PHASE 5
             'sql_objects': self._store_sql_objects,
             'sql_queries': self._store_sql_queries,
@@ -92,6 +93,21 @@ class CoreStorage(BaseStorage):
                 method, pattern, controls = route
                 self.db_manager.add_endpoint(file_path, method, pattern, controls)
             self.counts['routes'] += 1
+
+    def _store_router_mounts(self, file_path: str, router_mounts: List, jsx_pass: bool):
+        """Store router mount points (PHASE 6.7 - AST-based route resolution)."""
+        for mount in router_mounts:
+            if isinstance(mount, dict):
+                self.db_manager.add_router_mount(
+                    file=mount.get('file', file_path),
+                    line=mount.get('line', 0),
+                    mount_path_expr=mount.get('mount_path_expr', ''),
+                    router_variable=mount.get('router_variable', ''),
+                    is_literal=mount.get('is_literal', False)
+                )
+                if 'router_mounts' not in self.counts:
+                    self.counts['router_mounts'] = 0
+                self.counts['router_mounts'] += 1
 
     def _store_express_middleware_chains(self, file_path: str, express_middleware_chains: List, jsx_pass: bool):
         """Store Express middleware chains (PHASE 5).

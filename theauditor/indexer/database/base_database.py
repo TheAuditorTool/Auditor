@@ -299,6 +299,7 @@ class BaseDatabaseManager:
 
                 # API endpoints (before junction table)
                 ('api_endpoints', 'INSERT'),
+                ('router_mounts', 'INSERT'),  # PHASE 6.7: Router mount points for full_path resolution
                 ('api_endpoint_controls', 'INSERT'),  # Junction table
                 ('express_middleware_chains', 'INSERT'),  # PHASE 5: Express middleware execution chains
                 ('python_orm_models', 'INSERT'),

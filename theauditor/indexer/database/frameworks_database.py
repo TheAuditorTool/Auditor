@@ -29,9 +29,10 @@ class FrameworksDatabaseMixin:
 
         NO FALLBACKS. If controls is malformed, hard fail.
         """
-        # Phase 1: Add endpoint record (6 params, no controls column)
+        # Phase 1: Add endpoint record (8 columns: file, line, method, pattern, path, full_path, has_auth, handler_function)
+        # full_path starts as NULL, will be populated by resolve_router_mount_hierarchy()
         self.generic_batches['api_endpoints'].append((file_path, line, method, pattern, path,
-                                                      has_auth, handler_function))
+                                                      None, has_auth, handler_function))
 
         # Phase 2: Add junction records for each control/middleware
         if controls:
@@ -78,3 +79,24 @@ class FrameworksDatabaseMixin:
         """Add a Prisma model field record to the batch."""
         self.generic_batches['prisma_models'].append((model_name, field_name, field_type,
                                                       is_indexed, is_unique, is_relation))
+
+    # ========================================================
+    # ROUTER MOUNT BATCH METHODS (ADDED 2025-11-09: Phase 6.7)
+    # ========================================================
+
+    def add_router_mount(self, file: str, line: int, mount_path_expr: str,
+                        router_variable: str, is_literal: bool):
+        """Add a router mount record to the batch.
+
+        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
+
+        Args:
+            file: File containing the router.use() statement
+            line: Line number
+            mount_path_expr: Mount path expression ('/areas', 'API_PREFIX', or `${API_PREFIX}/auth`)
+            router_variable: Router variable name ('areaRoutes', 'protectedRouter')
+            is_literal: True if static string, False if identifier/template
+        """
+        self.generic_batches['router_mounts'].append((
+            file, line, mount_path_expr, router_variable, 1 if is_literal else 0
+        ))
