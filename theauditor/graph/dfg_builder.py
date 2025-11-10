@@ -455,6 +455,311 @@ class DFGBuilder:
             }
         }
 
+    def build_cross_boundary_edges(self, root: str = ".") -> Dict[str, Any]:
+        """Build edges connecting frontend API calls to backend controllers.
+
+        Creates edges from frontend body variables to backend req.body/params/query.
+        This enables cross-boundary taint flow tracking from user inputs in the
+        frontend to API handlers in the backend.
+
+        Example edge:
+            frontend/src/components/Form.tsx::submit::userData ->
+            backend/src/controllers/user.controller.ts::create::req.body
+
+        Args:
+            root: Project root directory (for metadata only)
+
+        Returns:
+            Dict with nodes, edges, and metadata
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        nodes: Dict[str, DFGNode] = {}
+        edges: List[DFGEdge] = []
+
+        stats = {
+            'total_matches': 0,
+            'edges_created': 0,
+            'unique_nodes': 0,
+            'skipped_no_body': 0,
+            'skipped_no_handler': 0
+        }
+
+        # DETERMINISTIC JOIN: Match frontend API calls to backend endpoints
+        # Uses full_path (actual route) not pattern (generic template)
+        # Handles trailing slash differences with rtrim()
+        cursor.execute("""
+            SELECT
+                fe.file AS fe_file,
+                fe.line AS fe_line,
+                fe.method AS method,
+                fe.url_literal AS url_literal,
+                fe.body_variable AS body_variable,
+                fe.function_name AS fe_function,
+                be.file AS be_file,
+                be.full_path AS full_path,
+                be.handler_function AS handler_function
+            FROM frontend_api_calls fe
+            JOIN api_endpoints be ON
+                fe.method = be.method
+                AND rtrim(fe.url_literal, '/') = rtrim(be.full_path, '/')
+            WHERE fe.body_variable IS NOT NULL
+              AND be.handler_function IS NOT NULL
+              AND fe.method IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
+        """)
+
+        matches = cursor.fetchall()
+        stats['total_matches'] = len(matches)
+
+        with click.progressbar(
+            matches,
+            label="Building cross-boundary edges",
+            show_pos=True,
+            show_percent=True,
+            item_show_func=lambda x: f"{x['url_literal']}" if x else None
+        ) as match_results:
+            for match in match_results:
+                # Skip if no body variable (shouldn't happen due to WHERE clause)
+                if not match['body_variable']:
+                    stats['skipped_no_body'] += 1
+                    continue
+
+                # Skip if no handler function (shouldn't happen due to WHERE clause)
+                if not match['handler_function']:
+                    stats['skipped_no_handler'] += 1
+                    continue
+
+                # Extract handler function name
+                # First, remove wrapper if present: "handler(controller.create)" -> "controller.create"
+                handler_func = match['handler_function']
+                if handler_func.startswith('handler(') and handler_func.endswith(')'):
+                    handler_func = handler_func[8:-1]  # Remove "handler(" and ")"
+
+                # Now extract the function name: "controller.create" -> "create"
+                if '.' in handler_func:
+                    controller_func = handler_func.split('.')[-1]
+                else:
+                    controller_func = handler_func
+
+                # Frontend variables
+                fe_file = match['fe_file']
+                fe_body = match['body_variable']
+                fe_func = match['fe_function'] if match['fe_function'] else 'global'
+
+                # Backend route file
+                be_file = match['be_file']
+                method = match['method']
+
+                # Query for the actual controller file using the handler function
+                # ZERO FALLBACK: If not found, use the route file as controller file
+                cursor.execute("""
+                    SELECT DISTINCT path
+                    FROM symbols
+                    WHERE name = ? AND type = 'function'
+                    ORDER BY
+                        CASE WHEN path LIKE '%controller%' THEN 0 ELSE 1 END,
+                        path
+                    LIMIT 1
+                """, (controller_func,))
+
+                controller_result = cursor.fetchone()
+                controller_file = controller_result['path'] if controller_result else be_file
+
+                # Create frontend node (source)
+                source_id = f"{fe_file}::{fe_func}::{fe_body}"
+                if source_id not in nodes:
+                    nodes[source_id] = DFGNode(
+                        id=source_id,
+                        file=fe_file,
+                        variable_name=fe_body,
+                        scope=fe_func,
+                        type="variable",
+                        metadata={"is_frontend_input": True}
+                    )
+
+                # Determine backend request field based on HTTP method
+                # POST/PUT/PATCH typically use body, GET/DELETE use params/query
+                if method in ('POST', 'PUT', 'PATCH'):
+                    req_field = 'req.body'
+                else:
+                    req_field = 'req.params'  # Could also be req.query
+
+                # Create backend node (target)
+                target_id = f"{controller_file}::{controller_func}::{req_field}"
+                if target_id not in nodes:
+                    nodes[target_id] = DFGNode(
+                        id=target_id,
+                        file=controller_file,
+                        variable_name=req_field,
+                        scope=controller_func,
+                        type="parameter",
+                        metadata={"is_api_source": True, "method": method}
+                    )
+
+                # Create cross-boundary edge
+                edge = DFGEdge(
+                    source=source_id,
+                    target=target_id,
+                    type="cross_boundary",
+                    file=fe_file,
+                    line=match['fe_line'],
+                    expression=f"{method} {match['url_literal']}",
+                    function=fe_func,
+                    metadata={
+                        "frontend_file": fe_file,
+                        "backend_file": controller_file,
+                        "api_method": method,
+                        "api_route": match['full_path'],
+                        "body_variable": fe_body,
+                        "request_field": req_field
+                    }
+                )
+                edges.append(edge)
+                stats['edges_created'] += 1
+
+        conn.close()
+
+        stats['unique_nodes'] = len(nodes)
+
+        return {
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
+            "metadata": {
+                "root": str(Path(root).resolve()),
+                "graph_type": "cross_boundary",
+                "stats": stats
+            }
+        }
+
+    def build_express_middleware_edges(self, root: str = ".") -> Dict[str, Any]:
+        """Build edges connecting Express middleware chains.
+
+        Creates edges showing data flow through middleware execution order.
+        For a route with validateBody -> authenticate -> controller,
+        creates edges showing req.body flows through the chain.
+
+        Args:
+            root: Project root directory (for metadata only)
+
+        Returns:
+            Dict with nodes, edges, and metadata
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        nodes: Dict[str, DFGNode] = {}
+        edges: List[DFGEdge] = []
+
+        stats = {
+            'total_routes': 0,
+            'total_middleware': 0,
+            'edges_created': 0,
+            'unique_nodes': 0
+        }
+
+        # Query middleware chains ordered by route and execution order
+        cursor.execute("""
+            SELECT file, route_path, route_method, execution_order,
+                   handler_expr, handler_type, handler_function
+            FROM express_middleware_chains
+            WHERE handler_type IN ('middleware', 'controller')
+            ORDER BY route_path, route_method, execution_order
+        """)
+
+        # Group by route
+        routes: Dict[str, List] = defaultdict(list)
+        for row in cursor.fetchall():
+            key = f"{row['route_method']} {row['route_path']}"
+            routes[key].append(row)
+            stats['total_middleware'] += 1
+
+        stats['total_routes'] = len(routes)
+
+        with click.progressbar(
+            routes.items(),
+            label="Building middleware chain edges",
+            show_pos=True,
+            show_percent=True,
+            item_show_func=lambda x: x[0] if x else None
+        ) as route_items:
+            for route_key, handlers in route_items:
+                if len(handlers) < 2:
+                    continue  # Need at least 2 handlers to create edges
+
+                # Create edges between consecutive handlers in the chain
+                for i in range(len(handlers) - 1):
+                    curr_handler = handlers[i]
+                    next_handler = handlers[i + 1]
+
+                    # Extract handler identifiers
+                    curr_func = curr_handler['handler_function'] or curr_handler['handler_expr']
+                    next_func = next_handler['handler_function'] or next_handler['handler_expr']
+
+                    if not curr_func or not next_func:
+                        continue
+
+                    # Middleware typically passes req object through the chain
+                    # Create edges for req, req.body, req.params, req.query
+                    for req_field in ['req', 'req.body', 'req.params', 'req.query']:
+                        # Source node (current handler output)
+                        source_id = f"{curr_handler['file']}::{curr_func}::{req_field}"
+                        if source_id not in nodes:
+                            nodes[source_id] = DFGNode(
+                                id=source_id,
+                                file=curr_handler['file'],
+                                variable_name=req_field,
+                                scope=curr_func,
+                                type="variable",
+                                metadata={"is_middleware": True}
+                            )
+
+                        # Target node (next handler input)
+                        target_id = f"{next_handler['file']}::{next_func}::{req_field}"
+                        if target_id not in nodes:
+                            nodes[target_id] = DFGNode(
+                                id=target_id,
+                                file=next_handler['file'],
+                                variable_name=req_field,
+                                scope=next_func,
+                                type="parameter",
+                                metadata={"is_middleware": True}
+                            )
+
+                        # Create middleware chain edge
+                        edge = DFGEdge(
+                            source=source_id,
+                            target=target_id,
+                            type="express_middleware_chain",
+                            file=curr_handler['file'],
+                            line=0,  # Middleware chains don't have specific line numbers
+                            expression=f"{curr_func} -> {next_func}",
+                            function=curr_func,
+                            metadata={
+                                "route": route_key,
+                                "execution_order": curr_handler['execution_order'],
+                                "next_order": next_handler['execution_order']
+                            }
+                        )
+                        edges.append(edge)
+                        stats['edges_created'] += 1
+
+        conn.close()
+
+        stats['unique_nodes'] = len(nodes)
+
+        return {
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
+            "metadata": {
+                "root": str(Path(root).resolve()),
+                "graph_type": "express_middleware",
+                "stats": stats
+            }
+        }
+
     def _parse_argument_variable(self, arg_expr: str) -> Optional[str]:
         """Extract variable name from argument expression.
 
@@ -503,40 +808,63 @@ class DFGBuilder:
         return arg_expr
 
     def build_unified_flow_graph(self, root: str = ".") -> Dict[str, Any]:
-        """Build unified data flow graph combining assignments, returns, and parameter bindings.
+        """Build unified data flow graph combining all edge types.
+
+        Includes:
+        - Assignment edges (x = y)
+        - Return edges (return x)
+        - Parameter binding edges (func(x) -> param)
+        - Cross-boundary edges (frontend -> backend API)
+        - Express middleware edges (chain execution order)
 
         Args:
             root: Project root directory
 
         Returns:
-            Combined graph with all data flow edges (intra + inter-procedural)
+            Combined graph with all data flow edges (complete provenance)
         """
         # Build all graph types
+        print("Building assignment flow graph...")
         assignment_graph = self.build_assignment_flow_graph(root)
+
+        print("Building return flow graph...")
         return_graph = self.build_return_flow_graph(root)
+
+        print("Building parameter binding edges...")
         parameter_graph = self.build_parameter_binding_edges(root)
+
+        print("Building cross-boundary API edges...")
+        cross_boundary_graph = self.build_cross_boundary_edges(root)
+
+        print("Building Express middleware chain edges...")
+        middleware_graph = self.build_express_middleware_edges(root)
 
         # Merge nodes (dedup by id)
         nodes = {}
-        for node in assignment_graph["nodes"]:
-            nodes[node["id"]] = node
-        for node in return_graph["nodes"]:
-            nodes[node["id"]] = node
-        for node in parameter_graph["nodes"]:
-            nodes[node["id"]] = node
+        for graph in [assignment_graph, return_graph, parameter_graph,
+                      cross_boundary_graph, middleware_graph]:
+            for node in graph["nodes"]:
+                nodes[node["id"]] = node
 
         # Combine edges
-        edges = (assignment_graph["edges"] + return_graph["edges"] +
-                parameter_graph["edges"])
+        edges = (assignment_graph["edges"] +
+                return_graph["edges"] +
+                parameter_graph["edges"] +
+                cross_boundary_graph["edges"] +
+                middleware_graph["edges"])
 
         # Merge stats
         stats = {
             "assignment_stats": assignment_graph["metadata"]["stats"],
             "return_stats": return_graph["metadata"]["stats"],
             "parameter_stats": parameter_graph["metadata"]["stats"],
+            "cross_boundary_stats": cross_boundary_graph["metadata"]["stats"],
+            "middleware_stats": middleware_graph["metadata"]["stats"],
             "total_nodes": len(nodes),
             "total_edges": len(edges)
         }
+
+        print(f"\nUnified graph complete: {len(nodes)} nodes, {len(edges)} edges")
 
         return {
             "nodes": list(nodes.values()),
