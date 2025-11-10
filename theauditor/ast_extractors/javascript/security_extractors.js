@@ -1166,6 +1166,35 @@ function extractFrontendApiCalls(functionCallArgs, imports) {
             url = parseUrl(args[0]);
             if (!url) continue;
             method = 'DELETE';
+
+        // Pattern 6: Axios wrapper patterns (api.get, apiService.post, instance.put, etc.)
+        // Common patterns: apiService.get(), api.post(), this.instance.put(), service.delete()
+        } else if (callee.match(/\.(get|post|put|patch|delete)$/)) {
+            // Check if this looks like an API wrapper (not random .get() calls)
+            const prefix = callee.substring(0, callee.lastIndexOf('.'));
+            const httpMethod = callee.substring(callee.lastIndexOf('.') + 1).toUpperCase();
+
+            // Common API wrapper prefixes
+            const apiWrapperPrefixes = ['api', 'apiService', 'service', 'http', 'httpClient',
+                                         'client', 'axios', 'instance', 'this.instance',
+                                         'this.api', 'this.http', 'request'];
+
+            // Check if it's likely an API wrapper
+            const isLikelyApiWrapper = apiWrapperPrefixes.some(p =>
+                prefix === p || prefix.endsWith('.' + p) || prefix.includes('api') || prefix.includes('service')
+            );
+
+            if (isLikelyApiWrapper && args[0]) {
+                url = parseUrl(args[0]);
+                if (!url) continue;
+
+                method = httpMethod;
+
+                // For POST/PUT/PATCH, second argument is usually the body
+                if (['POST', 'PUT', 'PATCH'].includes(method) && args[1]) {
+                    body_variable = args[1].argument_expr;
+                }
+            }
         }
 
         // --- Save the extracted call ---

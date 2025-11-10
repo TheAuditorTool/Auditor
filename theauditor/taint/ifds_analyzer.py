@@ -437,6 +437,15 @@ class IFDSTaintAnalyzer:
         #   - Graceful degradation creates inconsistent behavior
         #   - If flow function doesn't handle a type, FIX THE FLOW FUNCTION
 
+        # PART 3: Cross-boundary flow (Frontend → Backend)
+        # Check if we can jump from backend API source to frontend API call
+        cross_boundary_preds = self._flow_function_cross_boundary_bridge(ap)
+        if cross_boundary_preds:
+            predecessors.extend(cross_boundary_preds)
+            if self.debug:
+                for pred_ap, flow_type, meta in cross_boundary_preds:
+                    print(f"[IFDS] Cross-boundary flow: {pred_ap.file} (frontend) → {ap.file} (backend)", file=sys.stderr)
+
         return predecessors
 
     def _could_alias(self, ap1: AccessPath, ap2: AccessPath) -> bool:
@@ -1584,6 +1593,188 @@ class IFDSTaintAnalyzer:
 
         if self.debug:
             print(f"[IFDS] ← EXIT: Returning {len(predecessors)} middleware predecessors", file=sys.stderr)
+
+        return predecessors
+
+    def _flow_function_cross_boundary_bridge(self, ap: AccessPath) -> List[Tuple[AccessPath, str, Dict]]:
+        """Flow function for cross-boundary flows (Frontend → Backend) - PART 3.
+
+        When tracing backward hits a backend API source (req.body/params/query),
+        this bridges the gap to frontend API calls that send data to this endpoint.
+
+        This connects:
+        - Frontend: fetch('/api/users', {body: userData})
+        - Backend: router.post('/users', (req) => { req.body })
+
+        Algorithm:
+        1. Check if we're at req.body/params/query (backend API source)
+        2. Find the backend API endpoint for this controller/function
+        3. Query frontend_api_calls for matching URL and method
+        4. Create AccessPaths for frontend body variables
+        5. Handle field propagation (req.body.username → userData.username)
+
+        Returns:
+            List of (frontend_access_path, edge_type, metadata) tuples
+        """
+        predecessors = []
+
+        if self.debug:
+            print(f"[IFDS] → ENTRY: _flow_function_cross_boundary_bridge() for {ap.node_id}", file=sys.stderr)
+            print(f"[IFDS]   base={ap.base}, fields={ap.fields}", file=sys.stderr)
+
+        # Step 1: Check if we're at a backend API source (req.body/params/query)
+        if ap.base != "req":
+            return []  # Not a request object
+
+        if not ap.fields or ap.fields[0] not in ("body", "params", "query"):
+            return []  # Not an API source field
+
+        # We're at req.body/params/query - this is a backend API source!
+        source_type = ap.fields[0]  # "body", "params", or "query"
+        remaining_fields = ap.fields[1:] if len(ap.fields) > 1 else ()  # e.g., ("username",) from req.body.username
+
+        if self.debug:
+            print(f"[IFDS]   ✓ At backend API source: req.{source_type}", file=sys.stderr)
+            if remaining_fields:
+                print(f"[IFDS]     With fields: {remaining_fields}", file=sys.stderr)
+
+        # Step 2: Find the backend API endpoint for this function
+        # Query api_endpoints to find which route this controller handles
+        if not ap.function:
+            if self.debug:
+                print(f"[IFDS]   ✗ No function context, cannot determine API endpoint", file=sys.stderr)
+            return []
+
+        # The handler_function field contains patterns like:
+        # - "controller.create"
+        # - "handler(controller.create)"
+        # - "FacilityController.update"
+        # We need to match if ap.function appears in these patterns
+
+        # Try matching where handler_function contains our function name
+        self.repo_cursor.execute("""
+            SELECT method, pattern, path, file, handler_function
+            FROM api_endpoints
+            WHERE (file = ? OR file LIKE ?)
+              AND (handler_function LIKE ? OR handler_function LIKE ? OR handler_function LIKE ?)
+            LIMIT 10
+        """, (ap.file, f'%{ap.file.split("/")[-1]}%',  # Match file or just filename
+              f'%{ap.function}%',  # Direct match
+              f'%.{ap.function}%',  # controller.create pattern
+              f'%({ap.function})%'  # handler(controller.create) pattern
+        ))
+
+        backend_endpoints = self.repo_cursor.fetchall()
+
+        if not backend_endpoints:
+            if self.debug:
+                print(f"[IFDS]   ✗ No API endpoint found for {ap.file}:{ap.function}", file=sys.stderr)
+            return []
+
+        if self.debug:
+            print(f"[IFDS]   Found {len(backend_endpoints)} backend endpoints", file=sys.stderr)
+
+        # Step 3: For each backend endpoint, find matching frontend API calls
+        for endpoint in backend_endpoints:
+            method = endpoint['method']
+            # Use pattern (e.g., "/users/:id") or path (e.g., "/users")
+            route = endpoint['pattern'] if endpoint['pattern'] else endpoint['path']
+            handler_func = endpoint['handler_function']
+
+            if not route:
+                continue
+
+            if self.debug:
+                print(f"[IFDS]   Checking backend: {method} {route} (handler: {handler_func})", file=sys.stderr)
+
+            # Step 4: Query frontend_api_calls for matching calls
+            # Handle route patterns - convert Express :param to template literal pattern
+            # Backend: /users/:id → Frontend: /users/${id} or /users/123
+
+            # For exact matches
+            self.repo_cursor.execute("""
+                SELECT file, line, method, url_literal, body_variable, function_name
+                FROM frontend_api_calls
+                WHERE method = ? AND url_literal = ?
+                LIMIT 10
+            """, (method, route))
+
+            frontend_calls = list(self.repo_cursor.fetchall())
+
+            # Also check with /api/v1 prefix (common pattern)
+            if not frontend_calls and not route.startswith('/api'):
+                api_route = f'/api/v1{route}'
+                self.repo_cursor.execute("""
+                    SELECT file, line, method, url_literal, body_variable, function_name
+                    FROM frontend_api_calls
+                    WHERE method = ? AND url_literal = ?
+                    LIMIT 10
+                """, (method, api_route))
+                frontend_calls.extend(self.repo_cursor.fetchall())
+
+            # For pattern matching (e.g., /users/:id matches /users/${userId})
+            if ':' in route:
+                # Convert :param to % for LIKE query
+                # /users/:id → /users/%
+                pattern = route.replace(':', '%')
+                self.repo_cursor.execute("""
+                    SELECT file, line, method, url_literal, body_variable, function_name
+                    FROM frontend_api_calls
+                    WHERE method = ? AND url_literal LIKE ?
+                    LIMIT 10
+                """, (method, pattern))
+                frontend_calls.extend(self.repo_cursor.fetchall())
+
+            if self.debug:
+                print(f"[IFDS]   Found {len(frontend_calls)} matching frontend calls", file=sys.stderr)
+
+            # Step 5: Create AccessPaths for each frontend call's body variable
+            for fe_call in frontend_calls:
+                # Skip if no body variable (GET requests, etc.)
+                if not fe_call['body_variable']:
+                    continue
+
+                # Only trace body variables for req.body, not req.params/query
+                # (params and query come from URL, not request body)
+                if source_type == "body":
+                    # Parse body variable (e.g., "userData" or "formData.user")
+                    body_var = fe_call['body_variable']
+                    parts = body_var.split('.')
+                    base = parts[0]
+                    base_fields = tuple(parts[1:]) if len(parts) > 1 else ()
+
+                    # Compose fields: if tracing req.body.username,
+                    # and frontend sends userData, trace userData.username
+                    combined_fields = base_fields + remaining_fields
+
+                    frontend_ap = AccessPath(
+                        file=fe_call['file'],
+                        function=fe_call['function_name'] if fe_call['function_name'] else 'global',
+                        base=base,
+                        fields=combined_fields
+                    )
+
+                    meta = {
+                        'file': fe_call['file'],
+                        'line': fe_call['line'],
+                        'method': fe_call['method'],
+                        'url': fe_call['url_literal'],
+                        'backend_route': route,
+                        'backend_function': ap.function,
+                        'cross_boundary': True
+                    }
+
+                    predecessors.append((frontend_ap, 'cross_boundary_api', meta))
+
+                    if self.debug:
+                        print(f"[IFDS] ✓✓✓ CROSS-BOUNDARY BRIDGE ✓✓✓", file=sys.stderr)
+                        print(f"[IFDS]   Frontend: {frontend_ap.node_id}", file=sys.stderr)
+                        print(f"[IFDS]   API call: {meta['method']} {meta['url']} (line {meta['line']})", file=sys.stderr)
+                        print(f"[IFDS]   Backend:  {ap.node_id}", file=sys.stderr)
+                        print(f"[IFDS]   Route:    {meta['backend_route']} → {meta['backend_function']}", file=sys.stderr)
+
+        if self.debug:
+            print(f"[IFDS] ← EXIT: Returning {len(predecessors)} cross-boundary predecessors", file=sys.stderr)
 
         return predecessors
 
