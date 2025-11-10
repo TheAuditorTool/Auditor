@@ -210,6 +210,11 @@ class TaintDiscovery:
             line_number = query.get('line_number', 0)
             query_text = query.get('query_text', '')
 
+            # Filter out migration files based on extraction_source tag
+            extraction_source = query.get('extraction_source', '')
+            if extraction_source == 'migration_file':
+                continue  # Skip migrations - they run at deploy time, not runtime
+
             # Query assignments table to find variable assigned the query result
             cursor.execute("""
                 SELECT target_var, in_function
@@ -250,6 +255,11 @@ class TaintDiscovery:
         raw_sql_funcs = sinks_dict.get('sql', [])
         sql_query_count = 0
         for call in self.cache.function_call_args:
+            # Filter out migration files
+            file_path = call.get('file', '')
+            if '/migrations/' in file_path or 'migrations\\' in file_path or '/migrate/' in file_path or 'migrate\\' in file_path:
+                continue  # Skip migrations - they run at deploy time, not runtime
+
             func_name = call.get('callee_function', '')
             if raw_sql_funcs and any(raw_func in func_name for raw_func in raw_sql_funcs):
                 arg_expr = call.get('argument_expr', '')
@@ -301,6 +311,11 @@ class TaintDiscovery:
         ]
 
         for call in self.cache.function_call_args:
+            # Filter out migration files
+            file_path = call.get('file', '')
+            if '/migrations/' in file_path or 'migrations\\' in file_path or '/migrate/' in file_path or 'migrate\\' in file_path:
+                continue  # Skip migrations - they run at deploy time, not runtime
+
             func_name = call.get('callee_function', '')
             if not func_name:
                 continue

@@ -9,6 +9,15 @@ This module contains the IndexerOrchestrator class that coordinates:
 
 The orchestrator implements the main indexing workflow while delegating
 specialized concerns to focused modules (storage, extractors, database).
+
+CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
+1. Add the table definition to the appropriate schema file (e.g., node_schema.py)
+2. Add storage handler to the corresponding storage file (e.g., node_storage.py)
+3. Add database method to the corresponding database file (e.g., node_database.py)
+4. Update table count in schema.py
+5. RUN: python -m theauditor.indexer.schemas.codegen
+   This regenerates generated_cache.py which taint analysis uses for memory loading!
+   WITHOUT THIS STEP, YOUR TABLE WON'T BE ACCESSIBLE TO THE ANALYZER!
 """
 
 import os
@@ -215,6 +224,41 @@ class IndexerOrchestrator:
         Returns:
             Tuple of (counts, stats) dictionaries
         """
+        # SCHEMA VALIDATION: Ensure generated code is up-to-date before indexing
+        from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
+        from theauditor.utils.exit_codes import ExitCodes
+        from pathlib import Path
+        import sys
+
+        # Get current schema hash
+        current_hash = SchemaCodeGenerator.get_schema_hash()
+
+        # Check generated cache file for its hash
+        cache_file = Path(__file__).parent / 'schemas' / 'generated_cache.py'
+        built_hash = None
+
+        if cache_file.exists():
+            with open(cache_file, 'r') as f:
+                lines = f.readlines()
+                if len(lines) >= 2 and 'SCHEMA_HASH:' in lines[1]:
+                    built_hash = lines[1].split('SCHEMA_HASH:')[1].strip()
+
+        # Validate hashes match
+        if current_hash != built_hash:
+            print("[SCHEMA STALE] Schema files have changed but generated code is out of date!", file=sys.stderr)
+            print("[SCHEMA STALE] Regenerating code automatically...", file=sys.stderr)
+
+            try:
+                # Auto-regenerate the schema files
+                output_dir = Path(__file__).parent / 'schemas'
+                SchemaCodeGenerator.write_generated_code(output_dir)
+                print("[SCHEMA FIX] Generated code updated successfully", file=sys.stderr)
+                print("[SCHEMA FIX] Please re-run the indexing command", file=sys.stderr)
+                sys.exit(ExitCodes.SCHEMA_STALE)
+            except Exception as e:
+                print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
+                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}")
+
         # Detect frameworks inline (for safe sink detection)
         self.frameworks = self._detect_frameworks_inline()
 

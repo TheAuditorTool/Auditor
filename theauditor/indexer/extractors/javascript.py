@@ -55,6 +55,7 @@ class JavaScriptExtractor(BaseExtractor):
             'returns': [],
             'variable_usage': [],
             'cfg': [],
+            'frontend_api_calls': [],  # CRITICAL: Cross-boundary taint tracking
             # Security patterns
             'sql_queries': [],  # CRITICAL: SQL injection detection
             'jwt_patterns': [],  # CRITICAL: JWT secret detection
@@ -297,6 +298,11 @@ class JavaScriptExtractor(BaseExtractor):
                 di_injections = extracted_data.get('di_injections', [])
                 if di_injections:
                     result['di_injections'].extend(di_injections)
+
+                # Extract Frontend API calls (cross-boundary flow support)
+                frontend_api_calls = extracted_data.get('frontend_api_calls', [])
+                if frontend_api_calls:
+                    result['frontend_api_calls'] = frontend_api_calls
 
                 # Phase 5 data loaded - Python extractors wrapped in conditional below
 

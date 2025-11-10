@@ -38,7 +38,8 @@ class NodeStorage(BaseStorage):
             'angular_guards': self._store_angular_guards,
             'di_injections': self._store_di_injections,
             'lock_analysis': self._store_lock_analysis,
-            'import_styles': self._store_import_styles
+            'import_styles': self._store_import_styles,
+            'frontend_api_calls': self._store_frontend_api_calls
         }
 
     def _store_react_hooks(self, file_path: str, react_hooks: List, jsx_pass: bool):
@@ -336,3 +337,18 @@ class NodeStorage(BaseStorage):
             if 'import_styles' not in self.counts:
                 self.counts['import_styles'] = 0
             self.counts['import_styles'] += 1
+
+    def _store_frontend_api_calls(self, file_path: str, frontend_api_calls: List, jsx_pass: bool):
+        """Store frontend API calls (fetch/axios) for cross-boundary flow tracking."""
+        for call in frontend_api_calls:
+            self.db_manager.add_frontend_api_call(
+                file_path,
+                call['line'],
+                call['method'],
+                call['url_literal'],
+                call.get('body_variable'),
+                call.get('function_name')
+            )
+            if 'frontend_api_calls' not in self.counts:
+                self.counts['frontend_api_calls'] = 0
+            self.counts['frontend_api_calls'] += 1

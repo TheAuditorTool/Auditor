@@ -580,6 +580,27 @@ EXPRESS_MIDDLEWARE_CHAINS = TableSchema(
 )
 
 # ============================================================================
+# FRONTEND API CALLS - Cross-boundary flow tracking (frontend -> backend)
+# ============================================================================
+
+FRONTEND_API_CALLS = TableSchema(
+    name="frontend_api_calls",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("method", "TEXT", nullable=False),  # GET, POST, PUT, DELETE, PATCH
+        Column("url_literal", "TEXT", nullable=False),  # Static API path (e.g., '/api/users')
+        Column("body_variable", "TEXT"),  # Variable name sent as body (e.g., 'userData')
+        Column("function_name", "TEXT"),  # Function containing the API call
+    ],
+    indexes=[
+        ("idx_frontend_api_calls_file", ["file"]),
+        ("idx_frontend_api_calls_url", ["url_literal"]),
+        ("idx_frontend_api_calls_method", ["method"]),
+    ]
+)
+
+# ============================================================================
 # NODE TABLES REGISTRY
 # ============================================================================
 
@@ -618,6 +639,9 @@ NODE_TABLES: Dict[str, TableSchema] = {
 
     # Express framework
     "express_middleware_chains": EXPRESS_MIDDLEWARE_CHAINS,
+
+    # Frontend API calls (cross-boundary flow tracking)
+    "frontend_api_calls": FRONTEND_API_CALLS,
 
     # Sequelize ORM
     "sequelize_models": SEQUELIZE_MODELS,

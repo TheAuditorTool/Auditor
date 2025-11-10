@@ -443,6 +443,7 @@ async function main() {
                     }
                     const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
                     const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                    const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                     let vueComponents = [];
                     let vueHooks = [];
@@ -518,6 +519,7 @@ async function main() {
                             angular_modules: angularData.modules || [],
                             angular_guards: angularData.guards || [],
                             di_injections: angularData.di_injections || [],
+                            frontend_api_calls: frontendApiCalls,
                             vue_components: vueComponents,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
@@ -969,6 +971,7 @@ try {
                 const sequelizeModels = extractSequelizeModels(functions, classes, functionCallArgs, imports);
                 const bullmqJobs = extractBullMQJobs(functions, classes, functionCallArgs, imports);
                 const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                 let vueComponents = [];
                 let vueHooks = [];
@@ -1033,12 +1036,16 @@ try {
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
                         cdk_constructs: cdkConstructs,
-                        sequelize_models: sequelizeModels,
-                        bullmq_jobs: bullmqJobs,
+                        sequelize_models: sequelizeModels.sequelize_models || [],
+                        sequelize_associations: sequelizeModels.sequelize_associations || [],
+                        bullmq_queues: bullmqJobs.bullmq_queues || [],
+                        bullmq_workers: bullmqJobs.bullmq_workers || [],
                         angular_components: angularData.components,
                         angular_services: angularData.services,
                         angular_modules: angularData.modules,
                         angular_guards: angularData.guards,
+                        di_injections: angularData.di_injections || [],
+                        frontend_api_calls: frontendApiCalls,
                         vue_components: vueComponents,
                         vue_hooks: vueHooks,
                         vue_directives: vueDirectives,
