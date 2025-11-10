@@ -31,10 +31,10 @@ from collections import deque, defaultdict
 
 from .access_path import AccessPath
 
-# Avoid circular import: core.py imports ifds_analyzer, ifds_analyzer imports core
+# Avoid circular import: core.py imports ifds_analyzer, ifds_analyzer imports TaintPath
 # TaintPath is only used for type hints, so we can defer the import
 if TYPE_CHECKING:
-    from .core import TaintPath
+    from .taint_path import TaintPath
 
 
 class IFDSTaintAnalyzer:
@@ -164,7 +164,7 @@ class IFDSTaintAnalyzer:
             Tuple of (vulnerable_paths, sanitized_paths)
         """
         # Runtime import to avoid circular dependency
-        from .core import TaintPath
+        from .taint_path import TaintPath
 
         vulnerable_paths = []
         sanitized_paths = []
@@ -299,7 +299,7 @@ class IFDSTaintAnalyzer:
             List of TaintPath objects if sink is reachable from source
         """
         # Runtime import to avoid circular dependency
-        from .core import TaintPath
+        from .taint_path import TaintPath
 
         paths = []
 
@@ -549,7 +549,7 @@ class IFDSTaintAnalyzer:
             TaintPath with full hop chain
         """
         # Runtime import to avoid circular dependency
-        from .core import TaintPath
+        from .taint_path import TaintPath
 
         # Convert hops to path format
         path_steps = []
@@ -977,18 +977,16 @@ class IFDSTaintAnalyzer:
         """
         predecessors = []
 
-        # Extract function name from ap.function (may be qualified like "MyClass.method")
-        func_name = ap.function.split('.')[-1] if '.' in ap.function else ap.function
-
         # Query function_call_args for calls to this function with this parameter
+        # Use exact matching - database has exact callee_file_path and callee_function from AST
         self.repo_cursor.execute("""
             SELECT file, line, caller_function, callee_function,
                    argument_expr, param_name
             FROM function_call_args
             WHERE callee_file_path = ?
-              AND (callee_function LIKE ? OR callee_function = ?)
+              AND callee_function = ?
               AND param_name = ?
-        """, (ap.file, f'%{func_name}%', func_name, ap.base))
+        """, (ap.file, ap.function, ap.base))
 
         for row in self.repo_cursor.fetchall():
             caller_file = row['file']
