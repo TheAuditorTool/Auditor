@@ -1031,3 +1031,156 @@ function splitObjectPairs(content) {
 
     return pairs;
 }
+
+/**
+ * Extract Frontend API calls (fetch, axios)
+ *
+ * Detects patterns:
+ * - fetch('/api/users', { method: 'POST', body: data })
+ * - axios.post('/api/products', data)
+ * - axios.get('/api/items', { params: query })
+ *
+ * PURPOSE: Populate frontend_api_calls table to bridge
+ * frontend-to-backend taint analysis.
+ *
+ * @param {Array} functionCallArgs - From extractFunctionCallArgs()
+ * @param {Array} imports - From extractImports()
+ * @returns {Array} - Frontend API call records
+ */
+function extractFrontendApiCalls(functionCallArgs, imports) {
+    const apiCalls = [];
+
+    // --- Debug Logging ---
+    const debugLog = (msg, data) => {
+        if (process.env.THEAUDITOR_DEBUG === '1') {
+            console.error(`[FE-API-EXTRACT] ${msg}`);
+            if (data) console.error(`[FE-API-EXTRACT]   ${JSON.stringify(data)}`);
+        }
+    };
+
+    // --- Framework Detection ---
+    const hasAxios = imports.some(i => i.module === 'axios');
+    const hasFetch = true; // fetch is global, always assume true
+
+    if (!hasAxios && !hasFetch) {
+        return apiCalls;
+    }
+
+    debugLog('Starting frontend API call extraction', { hasAxios });
+
+    // --- Argument Parsing Helpers ---
+    const parseUrl = (call) => {
+        if (call.argument_index === 0 && call.argument_expr) {
+            const url = call.argument_expr.trim().replace(/['"`]/g, '');
+            // Only return static, relative URLs
+            if (url.startsWith('/')) {
+                return url.split('?')[0]; // Remove query string
+            }
+        }
+        return null;
+    };
+
+    const parseFetchOptions = (call) => {
+        const options = { method: 'GET', body_variable: null }; // Default for fetch
+        if (call.argument_index === 1 && call.argument_expr) {
+            const expr = call.argument_expr;
+
+            // Extract Method
+            const methodMatch = expr.match(/method:\s*['"]([^'"]+)['"]/i);
+            if (methodMatch) {
+                options.method = methodMatch[1].toUpperCase();
+            }
+
+            // Extract Body Variable
+            // Handles: body: data, body: JSON.stringify(data)
+            const bodyMatch = expr.match(/body:\s*([^\s,{}]+)/i);
+            if (bodyMatch) {
+                let bodyVar = bodyMatch[1];
+                if (bodyVar.startsWith('JSON.stringify(')) {
+                    bodyVar = bodyVar.substring(15, bodyVar.length - 1);
+                }
+                options.body_variable = bodyVar;
+            }
+        }
+        return options;
+    };
+
+    // --- Group calls by line ---
+    const callsByLine = {};
+    for (const call of functionCallArgs) {
+        const callee = call.callee_function || '';
+        if (!callee) continue;
+
+        if (!callsByLine[call.line]) {
+            callsByLine[call.line] = {
+                callee: callee,
+                caller: call.caller_function,
+                args: []
+            };
+        }
+        callsByLine[call.line].args[call.argument_index] = call;
+    }
+
+    // --- Process grouped calls ---
+    for (const line in callsByLine) {
+        const callData = callsByLine[line];
+        const callee = callData.callee;
+        const args = callData.args;
+
+        let url = null;
+        let method = null;
+        let body_variable = null;
+
+        // Pattern 1: fetch()
+        if (callee === 'fetch' && args[0]) {
+            url = parseUrl(args[0]);
+            if (!url) continue; // Skip non-static or external fetches
+
+            const options = parseFetchOptions(args[1] || {});
+            method = options.method;
+            body_variable = options.body_variable;
+
+        // Pattern 2: axios.get(url, config)
+        } else if ((callee === 'axios.get' || callee === 'axios') && args[0]) {
+            url = parseUrl(args[0]);
+            if (!url) continue;
+            method = 'GET';
+            // body_variable is in config.params, not body (skip for now)
+
+        // Pattern 3: axios.post(url, data, config)
+        } else if (callee === 'axios.post' && args[0] && args[1]) {
+            url = parseUrl(args[0]);
+            if (!url) continue;
+            method = 'POST';
+            body_variable = args[1].argument_expr;
+
+        // Pattern 4: axios.put / axios.patch
+        } else if ((callee === 'axios.put' || callee === 'axios.patch') && args[0] && args[1]) {
+            url = parseUrl(args[0]);
+            if (!url) continue;
+            method = callee === 'axios.put' ? 'PUT' : 'PATCH';
+            body_variable = args[1].argument_expr;
+
+        // Pattern 5: axios.delete
+        } else if (callee === 'axios.delete' && args[0]) {
+            url = parseUrl(args[0]);
+            if (!url) continue;
+            method = 'DELETE';
+        }
+
+        // --- Save the extracted call ---
+        if (url && method) {
+            apiCalls.push({
+                file: args[0].file, // File path from the first argument
+                line: parseInt(line),
+                method: method,
+                url_literal: url,
+                body_variable: body_variable,
+                function_name: callData.caller
+            });
+            debugLog(`Extracted FE API Call at line ${line}`, { url, method, body_variable });
+        }
+    }
+
+    return apiCalls;
+}

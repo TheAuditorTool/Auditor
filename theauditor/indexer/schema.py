@@ -1,6 +1,11 @@
 """
 Database schema definitions - Single Source of Truth.
 
+CRITICAL: After adding/modifying ANY table schema, you MUST run:
+    python -m theauditor.indexer.schemas.codegen
+This regenerates generated_cache.py which the taint analyzer ACTUALLY uses!
+Without this step, your new tables will NOT be loaded into memory!
+
 This module is now a STUB that merges language-specific schema modules.
 The actual table definitions have been split into:
 - schemas/core_schema.py (21 tables - language-agnostic core patterns)
@@ -72,10 +77,10 @@ TABLES: Dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 158 tables (Phase 6.7: Added router_mounts for AST-based route resolution)
+# Total: 159 tables (Added frontend_api_calls for cross-boundary flow tracking)
 
 # Verify table count at module load time
-assert len(TABLES) == 158, f"Schema contract violation: Expected 158 tables, got {len(TABLES)}"
+assert len(TABLES) == 159, f"Schema contract violation: Expected 159 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
@@ -218,6 +223,9 @@ VALIDATION_FRAMEWORK_USAGE = TABLES['validation_framework_usage']
 
 # Express framework
 EXPRESS_MIDDLEWARE_CHAINS = TABLES['express_middleware_chains']
+
+# Frontend API calls (cross-boundary flow tracking)
+FRONTEND_API_CALLS = TABLES['frontend_api_calls']
 
 # -------------------------
 # INFRASTRUCTURE TABLES (18 tables from schemas/infrastructure_schema.py)

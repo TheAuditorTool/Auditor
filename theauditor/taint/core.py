@@ -383,6 +383,39 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
     # CRITICAL: Cache is MANDATORY (ZERO FALLBACK POLICY)
     # Database is regenerated fresh every run - if cache fails, pipeline is broken
     if cache is None:
+        # SCHEMA VALIDATION: Check if generated code is stale
+        from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
+        from theauditor.utils.exit_codes import ExitCodes
+
+        # Get current schema hash
+        current_hash = SchemaCodeGenerator.get_schema_hash()
+
+        # Check generated cache file for its hash
+        cache_file = Path(__file__).parent.parent / 'indexer' / 'schemas' / 'generated_cache.py'
+        built_hash = None
+
+        if cache_file.exists():
+            with open(cache_file, 'r') as f:
+                lines = f.readlines()
+                if len(lines) >= 2 and 'SCHEMA_HASH:' in lines[1]:
+                    built_hash = lines[1].split('SCHEMA_HASH:')[1].strip()
+
+        # Validate hashes match
+        if current_hash != built_hash:
+            print("[SCHEMA STALE] Schema files have changed but generated code is out of date!", file=sys.stderr)
+            print("[SCHEMA STALE] Regenerating code automatically...", file=sys.stderr)
+
+            try:
+                # Auto-regenerate the schema files
+                output_dir = Path(__file__).parent.parent / 'indexer' / 'schemas'
+                SchemaCodeGenerator.write_generated_code(output_dir)
+                print("[SCHEMA FIX] Generated code updated successfully", file=sys.stderr)
+                print("[SCHEMA FIX] Please re-run the command", file=sys.stderr)
+                sys.exit(ExitCodes.SCHEMA_STALE)
+            except Exception as e:
+                print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
+                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}")
+
         from theauditor.indexer.schemas.generated_cache import SchemaMemoryCache
         from .schema_cache_adapter import SchemaMemoryCacheAdapter
         print("[TAINT] Creating SchemaMemoryCache (mandatory for discovery)", file=sys.stderr)

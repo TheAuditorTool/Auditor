@@ -208,6 +208,29 @@ class NodeDatabaseMixin:
                 self.generic_batches['import_style_names'].append((file_path, line, imported_name))
 
     # ========================================================
+    # FRONTEND API CALLS BATCH METHODS
+    # ========================================================
+
+    def add_frontend_api_call(self, file: str, line: int, method: str, url_literal: str,
+                              body_variable: Optional[str] = None, function_name: Optional[str] = None):
+        """Add a frontend API call record to the batch.
+
+        Tracks fetch() and axios calls from frontend code to backend APIs.
+        Used for cross-boundary taint flow analysis (frontend -> backend).
+
+        Args:
+            file: Frontend file making the API call
+            line: Line number of the call
+            method: HTTP method (GET, POST, PUT, DELETE, PATCH)
+            url_literal: Static API path (e.g., '/api/users')
+            body_variable: Variable name sent as body (e.g., 'userData')
+            function_name: Function containing the API call
+        """
+        self.generic_batches['frontend_api_calls'].append((
+            file, line, method, url_literal, body_variable, function_name
+        ))
+
+    # ========================================================
     # FRAMEWORK DETECTION BATCH METHODS
     # ========================================================
 
