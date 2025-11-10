@@ -364,87 +364,53 @@ class IFDSTaintAnalyzer:
     def _get_predecessors(self, ap: AccessPath) -> List[Tuple[AccessPath, str, Dict]]:
         """Get all access paths that flow into this access path.
 
-        CRITICAL CHANGE (Phase 3): Now uses dynamic flow functions per Algorithm 1.
+        SIMPLIFIED ARCHITECTURE (Phase 4): Now reads pre-computed graph from graphs.db.
 
-        Instead of just querying static graphs.db edges, this method:
-        1. Queries repo_index.db to find what defines this variable
-        2. Dynamically computes predecessors based on statement type
-        3. Falls back to graphs.db for backward compatibility
+        All complex flow logic has been moved to dfg_builder.py which pre-computes:
+        - Assignment edges (x = y)
+        - Return edges (return x)
+        - Parameter binding edges (func(x) -> param)
+        - Cross-boundary edges (frontend -> backend API)
+        - Express middleware edges (chain execution order)
 
-        This solves the directional mismatch from Phase 2.
+        This method now just performs a single database lookup.
 
         Returns:
             List of (predecessor_access_path, edge_type, metadata) tuples
         """
         predecessors = []
 
-        # PHASE 3: Dynamic flow functions (PRIMARY PATH)
-        # Query repo_index.db to find defining statement
-        defining_stmt = self._get_defining_statement(ap)
+        # Single query to graphs.db for all predecessors
+        self.graph_cursor.execute("""
+            SELECT source, type, metadata
+            FROM edges
+            WHERE target = ? AND graph_type = 'data_flow'
+        """, (ap.node_id,))
 
-        if defining_stmt:
-            stmt_type = defining_stmt.get('type')
+        for row in self.graph_cursor.fetchall():
+            source_id = row['source']
+            edge_type = row['type']
+            metadata = {}
 
-            if self.debug:
-                print(f"[IFDS] {ap.node_id} defined by {stmt_type}", file=sys.stderr)
+            # Parse metadata if present
+            if row['metadata']:
+                try:
+                    import json
+                    metadata = json.loads(row['metadata'])
+                except (json.JSONDecodeError, TypeError):
+                    metadata = {}
 
-            # Dispatch to appropriate flow function
-            if stmt_type == 'PARAMETER':
-                # THE CRITICAL FIX: Query function_call_args backward
-                dynamic_preds = self._flow_function_parameter(ap)
-                predecessors.extend(dynamic_preds)
+            # Parse source node ID back to AccessPath
+            source_ap = AccessPath.parse(source_id)
+            if source_ap:
+                predecessors.append((source_ap, edge_type, metadata))
 
-            elif stmt_type == 'ASSIGNMENT':
-                # Simple variable flow
-                dynamic_preds = self._flow_function_assignment(ap, defining_stmt)
-                predecessors.extend(dynamic_preds)
-
-            elif stmt_type == 'FIELD_LOAD':
-                # Field-sensitive flow
-                dynamic_preds = self._flow_function_field_load(ap, defining_stmt)
-                predecessors.extend(dynamic_preds)
-
-            elif stmt_type == 'CALL_ASSIGNMENT':
-                # PHASE 4.1: Return-to-caller flow (x = func())
-                dynamic_preds = self._flow_function_return_to_caller(ap, defining_stmt)
-                predecessors.extend(dynamic_preds)
-
-            elif stmt_type == 'FIELD_STORE':
-                # PHASE 4.2: Field store taint-kill (x.f = y)
-                dynamic_preds = self._flow_function_field_store(ap, defining_stmt)
-                predecessors.extend(dynamic_preds)
-
-        # PHASE 5: Check if we're at a controller entry point in Express middleware chain
-        # This runs regardless of defining_stmt (controllers may not have defining statements)
-        if ap.function:  # Has function context
-            express_preds = self._flow_function_express_controller_entry(ap)
-            if express_preds:
-                predecessors.extend(express_preds)
                 if self.debug:
-                    for pred_ap, flow_type, meta in express_preds:
-                        print(f"[IFDS] Express middleware chain: {ap.file}:{ap.function} → {pred_ap.file} (route {meta['route']})", file=sys.stderr)
+                    print(f"[IFDS] Edge: {source_id} -> {ap.node_id} ({edge_type})", file=sys.stderr)
 
-        # PHASE 6.1: FALLBACK DELETED per ZERO FALLBACK POLICY (CLAUDE.md:159-248)
-        # If dynamic flow functions don't find predecessors, path terminates (CORRECT).
-        # Empty predecessors means we've reached the limit of what we know.
-        # This is NOT a failure - it's the natural termination of backward trace.
-        # OLD CODE (CANCER):
-        #   if not predecessors:
-        #       query graphs.db for backward compatibility
-        # WHY DELETED:
-        #   - Database is FRESH every run (no backward compatibility needed)
-        #   - Fallback hides bugs in dynamic flow functions
-        #   - Graceful degradation creates inconsistent behavior
-        #   - If flow function doesn't handle a type, FIX THE FLOW FUNCTION
-
-        # PART 3: Cross-boundary flow (Frontend → Backend)
-        # Check if we can jump from backend API source to frontend API call
-        cross_boundary_preds = self._flow_function_cross_boundary_bridge(ap)
-        if cross_boundary_preds:
-            predecessors.extend(cross_boundary_preds)
-            if self.debug:
-                for pred_ap, flow_type, meta in cross_boundary_preds:
-                    print(f"[IFDS] Cross-boundary flow: {pred_ap.file} (frontend) → {ap.file} (backend)", file=sys.stderr)
+        # Log if no predecessors found (natural termination point)
+        if not predecessors and self.debug:
+            print(f"[IFDS] No predecessors for {ap.node_id} (termination point)", file=sys.stderr)
 
         return predecessors
 
