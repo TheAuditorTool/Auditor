@@ -26,7 +26,10 @@ IS_WINDOWS = platform.system() == "Windows"
               help="Use in-memory caching for 5-10x performance (enabled by default)")
 @click.option("--memory-limit", default=None, type=int,
               help="Memory limit for cache in MB (auto-detected based on system RAM if not set)")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory, memory_limit):
+@click.option("--mode", default="backward",
+              type=click.Choice(["backward", "forward", "complete"]),
+              help="Analysis mode: backward (IFDS), forward (entry->exit), complete (all flows)")
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory, memory_limit, mode):
     """Trace data flow from untrusted sources to dangerous sinks to detect injection vulnerabilities.
 
     Performs inter-procedural data flow analysis to identify security vulnerabilities where untrusted
@@ -351,13 +354,17 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
         # STAGE 4: Run enriched taint analysis with registry
         click.echo("Performing data-flow taint analysis...")
         # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
-        click.echo(f"  Using IFDS mode (graphs.db)")
+        if mode == "backward":
+            click.echo(f"  Using IFDS mode (graphs.db)")
+        else:
+            click.echo(f"  Using {mode} flow resolution mode")
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
             registry=registry,
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
+            memory_limit_mb=memory_limit,  # Now uses auto-detected or user-specified limit
+            mode=mode
         )
         
         # Extract taint paths
@@ -402,7 +409,10 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
         # Original taint analysis without orchestrator
         click.echo("Performing taint analysis (rules disabled)...")
         # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
-        click.echo(f"  Using IFDS mode (graphs.db)")
+        if mode == "backward":
+            click.echo(f"  Using IFDS mode (graphs.db)")
+        else:
+            click.echo(f"  Using {mode} flow resolution mode")
 
         # Create empty registry (NO patterns - discovery.py uses registry for patterns)
         # With empty registry, discovery returns ZERO sources/sinks (finds nothing)
@@ -413,7 +423,8 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
             max_depth=max_depth,
             registry=registry,
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
+            memory_limit_mb=memory_limit,  # Now uses auto-detected or user-specified limit
+            mode=mode
         )
 
     # Normalize paths (factual transformation only, no insights)

@@ -586,14 +586,40 @@ class DFGBuilder:
                 else:
                     req_field = 'req.params'  # Could also be req.query
 
+                # Find the first middleware in the chain for this route
+                # The middleware chains are stored with router-relative paths
+                # So we need to match on the backend file and method
+                # Try to find middleware chain in the route file
+                cursor.execute("""
+                    SELECT file, handler_function, handler_expr, execution_order
+                    FROM express_middleware_chains
+                    WHERE file = ?
+                      AND route_method = ?
+                      AND handler_type IN ('middleware', 'controller')
+                    ORDER BY execution_order
+                    LIMIT 1
+                """, (match['be_file'], method))
+
+                first_middleware = cursor.fetchone()
+
+                if first_middleware:
+                    # Target the first middleware/handler in the chain
+                    middleware_func = first_middleware['handler_function'] or first_middleware['handler_expr']
+                    target_file = first_middleware['file']
+                    target_id = f"{target_file}::{middleware_func}::{req_field}"
+                else:
+                    # No middleware chain found, use controller directly (fallback)
+                    target_id = f"{controller_file}::{controller_func}::{req_field}"
+                    target_file = controller_file
+                    middleware_func = controller_func
+
                 # Create backend node (target)
-                target_id = f"{controller_file}::{controller_func}::{req_field}"
                 if target_id not in nodes:
                     nodes[target_id] = DFGNode(
                         id=target_id,
-                        file=controller_file,
+                        file=target_file,
                         variable_name=req_field,
-                        scope=controller_func,
+                        scope=middleware_func,
                         type="parameter",
                         metadata={"is_api_source": True, "method": method}
                     )
@@ -609,7 +635,7 @@ class DFGBuilder:
                     function=fe_func,
                     metadata={
                         "frontend_file": fe_file,
-                        "backend_file": controller_file,
+                        "backend_file": target_file,
                         "api_method": method,
                         "api_route": match['full_path'],
                         "body_variable": fe_body,
@@ -660,19 +686,20 @@ class DFGBuilder:
             'unique_nodes': 0
         }
 
-        # Query middleware chains ordered by route and execution order
+        # Query middleware chains ordered by file, route and execution order
         cursor.execute("""
             SELECT file, route_path, route_method, execution_order,
                    handler_expr, handler_type, handler_function
             FROM express_middleware_chains
             WHERE handler_type IN ('middleware', 'controller')
-            ORDER BY route_path, route_method, execution_order
+            ORDER BY file, route_path, route_method, execution_order
         """)
 
-        # Group by route
+        # Group by file AND route (to avoid cross-file edges)
         routes: Dict[str, List] = defaultdict(list)
         for row in cursor.fetchall():
-            key = f"{row['route_method']} {row['route_path']}"
+            # Include file in the key to prevent cross-file grouping
+            key = f"{row['file']}::{row['route_method']} {row['route_path']}"
             routes[key].append(row)
             stats['total_middleware'] += 1
 
@@ -693,6 +720,11 @@ class DFGBuilder:
                 for i in range(len(handlers) - 1):
                     curr_handler = handlers[i]
                     next_handler = handlers[i + 1]
+
+                    # Skip if current handler is a controller (controllers are endpoints, not middleware)
+                    # Controllers don't pass control to the next handler
+                    if curr_handler['handler_type'] == 'controller':
+                        continue
 
                     # Extract handler identifiers
                     curr_func = curr_handler['handler_function'] or curr_handler['handler_expr']
@@ -807,6 +839,256 @@ class DFGBuilder:
         # Just return the full expression (may include dots for access paths)
         return arg_expr
 
+    def build_controller_implementation_edges(self, root: str = ".") -> Dict[str, Any]:
+        """Build edges connecting route handlers to controller implementations.
+
+        This bridges the gap between Express route handlers and their actual
+        controller method implementations by:
+        1. Finding handler expressions like 'handler(controller.create)'
+        2. Resolving controller imports to actual file paths
+        3. Finding controller methods in symbols table
+        4. Creating edges from handlers to implementations
+
+        Args:
+            root: Project root directory
+
+        Returns:
+            Graph with controller implementation edges
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        nodes = {}
+        edges = []
+
+        stats = {
+            'handlers_processed': 0,
+            'controllers_resolved': 0,
+            'edges_created': 0,
+            'failed_resolutions': 0
+        }
+
+        # Get all controller handlers from express_middleware_chains
+        cursor.execute("""
+            SELECT DISTINCT
+                file,
+                route_path,
+                route_method,
+                handler_expr
+            FROM express_middleware_chains
+            WHERE handler_type = 'controller'
+              AND handler_expr IS NOT NULL
+        """)
+
+        handlers = cursor.fetchall()
+        stats['handlers_processed'] = len(handlers)
+
+        for handler in handlers:
+            route_file = handler['file']
+            handler_expr = handler['handler_expr']
+
+            # Parse the handler expression to extract object and method
+            object_name = None
+            method_name = None
+
+            # Pattern 1: handler(controller.method) or fileHandler(controller.method)
+            if '(' in handler_expr and ')' in handler_expr:
+                # Extract content between parentheses
+                start = handler_expr.index('(') + 1
+                end = handler_expr.rindex(')')
+                inner = handler_expr[start:end]
+
+                if '.' in inner:
+                    object_name, method_name = inner.split('.', 1)
+
+            # Pattern 2: controller.method (direct reference)
+            elif '.' in handler_expr:
+                object_name, method_name = handler_expr.split('.', 1)
+
+            # Pattern 3: Single identifiers like 'userId' - skip these
+            else:
+                continue
+
+            if not object_name or not method_name:
+                continue
+
+            # Resolve the controller import
+            # First try alias_name (default imports like: import controller from ...)
+            cursor.execute("""
+                SELECT package
+                FROM import_styles
+                WHERE file = ?
+                  AND alias_name = ?
+            """, (route_file, object_name))
+
+            import_result = cursor.fetchone()
+
+            # If not found, try named imports (import { categoryController } from ...)
+            if not import_result:
+                # Check if it's a named import
+                cursor.execute("""
+                    SELECT ist.package
+                    FROM import_style_names isn
+                    JOIN import_styles ist ON isn.import_file = ist.file
+                        AND isn.import_line = ist.line
+                    WHERE isn.import_file = ?
+                      AND isn.imported_name = ?
+                      AND ist.package LIKE '%controller%'
+                """, (route_file, object_name))
+
+                import_result = cursor.fetchone()
+
+            if not import_result:
+                stats['failed_resolutions'] += 1
+                continue
+
+            import_path = import_result['package']
+
+            # Resolve TypeScript path alias to actual file
+            resolved_path = self._resolve_ts_path(import_path)
+
+            # Find the controller class
+            cursor.execute("""
+                SELECT name
+                FROM symbols
+                WHERE path = ?
+                  AND type = 'class'
+            """, (resolved_path,))
+
+            class_result = cursor.fetchone()
+            if not class_result:
+                # Some controllers might export functions directly without a class
+                # Try to find the method directly
+                cursor.execute("""
+                    SELECT name
+                    FROM symbols
+                    WHERE path = ?
+                      AND name = ?
+                      AND type = 'function'
+                """, (resolved_path, method_name))
+
+                method_result = cursor.fetchone()
+                if method_result:
+                    full_method_name = method_result['name']
+                else:
+                    stats['failed_resolutions'] += 1
+                    continue
+            else:
+                class_name = class_result['name']
+                full_method_name = f'{class_name}.{method_name}'
+
+                # Find the actual method
+                cursor.execute("""
+                    SELECT name
+                    FROM symbols
+                    WHERE path = ?
+                      AND name = ?
+                      AND type = 'function'
+                """, (resolved_path, full_method_name))
+
+                method_result = cursor.fetchone()
+                if not method_result:
+                    stats['failed_resolutions'] += 1
+                    continue
+
+            stats['controllers_resolved'] += 1
+
+            # Create nodes and edges for all variable suffixes
+            for suffix in ['req', 'req.body', 'req.params', 'req.query', 'res']:
+                # Source node (handler in route)
+                source_id = f"{route_file}::{handler_expr}::{suffix}"
+                if source_id not in nodes:
+                    nodes[source_id] = DFGNode(
+                        id=source_id,
+                        file=route_file,
+                        variable_name=suffix,
+                        scope=handler_expr,
+                        type="parameter",
+                        metadata={"handler": True}
+                    )
+
+                # Target node (controller method)
+                target_id = f"{resolved_path}::{full_method_name}::{suffix}"
+                if target_id not in nodes:
+                    nodes[target_id] = DFGNode(
+                        id=target_id,
+                        file=resolved_path,
+                        variable_name=suffix,
+                        scope=full_method_name,
+                        type="parameter",
+                        metadata={"controller": True}
+                    )
+
+                # Create edge
+                edge = DFGEdge(
+                    source=source_id,
+                    target=target_id,
+                    file=route_file,
+                    line=0,  # We don't have line numbers for these
+                    type="controller_implementation",
+                    expression=f"{handler_expr} -> {full_method_name}",
+                    function=handler_expr,
+                    metadata={
+                        "route_path": handler['route_path'],
+                        "route_method": handler['route_method']
+                    }
+                )
+                edges.append(edge)
+                stats['edges_created'] += 1
+
+        conn.close()
+
+        return {
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
+            "metadata": {
+                "type": "controller_implementation_flow",
+                "root": root,
+                "stats": stats
+            }
+        }
+
+    def _resolve_ts_path(self, import_path: str) -> str:
+        """Resolve TypeScript path aliases to actual file paths.
+
+        Based on tsconfig.json mappings:
+        @controllers/* -> backend/src/controllers/*
+        @services/* -> backend/src/services/*
+        etc.
+
+        Args:
+            import_path: Import path potentially containing TypeScript alias
+
+        Returns:
+            Resolved file path with .ts extension
+        """
+        # Map of TypeScript aliases to actual paths
+        # This could be read from tsconfig.json, but hardcoding for stability
+        alias_map = {
+            '@controllers/': 'backend/src/controllers/',
+            '@services/': 'backend/src/services/',
+            '@middleware/': 'backend/src/middleware/',
+            '@utils/': 'backend/src/utils/',
+            '@models/': 'backend/src/models/',
+            '@validation/': 'backend/src/validation/',
+            '@config/': 'backend/src/config/',
+            '@schemas/': 'backend/src/schemas/',
+            '@routes/': 'backend/src/routes/',
+        }
+
+        for alias, base_path in alias_map.items():
+            if import_path.startswith(alias):
+                # Replace alias with actual path and add .ts extension
+                module_name = import_path[len(alias):]
+                return f"{base_path}{module_name}.ts"
+
+        # If no alias, check if it needs .ts extension
+        if not import_path.endswith('.ts') and not import_path.endswith('.js'):
+            return f"{import_path}.ts"
+
+        return import_path
+
     def build_unified_flow_graph(self, root: str = ".") -> Dict[str, Any]:
         """Build unified data flow graph combining all edge types.
 
@@ -839,10 +1121,13 @@ class DFGBuilder:
         print("Building Express middleware chain edges...")
         middleware_graph = self.build_express_middleware_edges(root)
 
+        print("Building controller implementation edges...")
+        controller_impl_graph = self.build_controller_implementation_edges(root)
+
         # Merge nodes (dedup by id)
         nodes = {}
         for graph in [assignment_graph, return_graph, parameter_graph,
-                      cross_boundary_graph, middleware_graph]:
+                      cross_boundary_graph, middleware_graph, controller_impl_graph]:
             for node in graph["nodes"]:
                 nodes[node["id"]] = node
 
@@ -851,7 +1136,8 @@ class DFGBuilder:
                 return_graph["edges"] +
                 parameter_graph["edges"] +
                 cross_boundary_graph["edges"] +
-                middleware_graph["edges"])
+                middleware_graph["edges"] +
+                controller_impl_graph["edges"])
 
         # Merge stats
         stats = {
@@ -860,6 +1146,7 @@ class DFGBuilder:
             "parameter_stats": parameter_graph["metadata"]["stats"],
             "cross_boundary_stats": cross_boundary_graph["metadata"]["stats"],
             "middleware_stats": middleware_graph["metadata"]["stats"],
+            "controller_implementation_stats": controller_impl_graph["metadata"]["stats"],
             "total_nodes": len(nodes),
             "total_edges": len(edges)
         }
