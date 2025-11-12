@@ -643,7 +643,7 @@ def register_taint_patterns(taint_registry):
     ])
 
     for pattern in EXPRESS_INPUT_SOURCES:
-        taint_registry.register_source(pattern, 'user_input', 'javascript')
+        taint_registry.register_source(pattern, 'http_request', 'javascript')
 
     # Express.js response sinks (XSS/injection targets)
     EXPRESS_RESPONSE_SINKS = frozenset([

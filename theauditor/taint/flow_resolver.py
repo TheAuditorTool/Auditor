@@ -20,6 +20,7 @@ from typing import Dict, List, Set, Optional, Tuple
 from collections import deque
 
 from theauditor.utils.logger import setup_logger
+from .sanitizer_util import SanitizerRegistry
 
 logger = setup_logger(__name__)
 
@@ -48,9 +49,8 @@ class FlowResolver:
         self.max_depth = 20  # Maximum hop chain length
         self.max_flows = 1_000_000  # Safety limit for total flows
 
-        # Load sanitizers from database (same as IFDS analyzer)
-        self._load_safe_sinks()
-        self._load_validation_sanitizers()
+        # Initialize shared sanitizer registry
+        self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=None)
 
     def resolve_all_flows(self) -> int:
         """Complete forward flow resolution to generate atomic truth.
@@ -95,8 +95,8 @@ class FlowResolver:
         """Get all entry points from the unified graph.
 
         Entry points include:
+            - Express middleware chain roots (req.body, req.params, req.query)
             - API endpoints (cross_boundary edge targets)
-            - Express middleware chain roots
             - Environment variable accesses
             - Main/index file exports
 
@@ -106,8 +106,34 @@ class FlowResolver:
         cursor = self.graph_conn.cursor()
         entry_nodes = []
 
-        # API endpoints - these are TARGETS of cross_boundary edges ONLY
-        # Don't include express_middleware_chain targets as those are intermediate nodes
+        # Express middleware chains - the REAL entry points for backend taint analysis
+        # These are where user input enters the backend (req.body, req.params, req.query)
+        repo_cursor = self.repo_conn.cursor()
+        repo_cursor.execute("""
+            SELECT DISTINCT file, handler_function
+            FROM express_middleware_chains
+            WHERE handler_type IN ('middleware', 'controller')
+              AND execution_order = 0
+        """)
+
+        for file, handler_func in repo_cursor.fetchall():
+            # Create entry nodes for common request fields
+            for req_field in ['req.body', 'req.params', 'req.query', 'req']:
+                node_id = f"{file}::{handler_func}::{req_field}"
+
+                # Verify this node exists in the graph
+                cursor.execute("""
+                    SELECT 1 FROM nodes
+                    WHERE graph_type = 'data_flow'
+                      AND id = ?
+                    LIMIT 1
+                """, (node_id,))
+
+                if cursor.fetchone():
+                    entry_nodes.append(node_id)
+
+        # API endpoints - these are TARGETS of cross_boundary edges
+        # Keep for completeness but middleware chains are primary
         cursor.execute("""
             SELECT DISTINCT target
             FROM edges
@@ -187,14 +213,24 @@ class FlowResolver:
         repo_cursor = self.repo_conn.cursor()
         graph_cursor = self.graph_conn.cursor()
 
-        # SQL query executions - find the argument variables
+        # Database operations through service methods (Prisma, Sequelize, etc.)
         repo_cursor.execute("""
-            SELECT DISTINCT fca.file, fca.line, fca.caller_function, fca.argument_expr
-            FROM function_call_args fca
-            JOIN sql_queries sq ON
-                fca.file = sq.file_path
-                AND fca.line = sq.line_number
-            WHERE fca.argument_expr IS NOT NULL
+            SELECT DISTINCT file, line, caller_function, argument_expr
+            FROM function_call_args
+            WHERE (
+                callee_function LIKE '%.create%'
+                OR callee_function LIKE '%.update%'
+                OR callee_function LIKE '%.delete%'
+                OR callee_function LIKE '%.findOne%'
+                OR callee_function LIKE '%.findMany%'
+                OR callee_function LIKE '%.save%'
+                OR callee_function LIKE '%.destroy%'
+                OR callee_function LIKE '%.upsert%'
+                OR callee_function LIKE 'prisma.%'
+                OR callee_function LIKE 'sequelize.query%'
+            )
+            AND argument_expr IS NOT NULL
+            AND file LIKE 'backend%'
         """)
 
         for file, line, func, arg_expr in repo_cursor.fetchall():
@@ -208,6 +244,39 @@ class FlowResolver:
                 node_id = f"{file}::{func}::{var_name}"
 
                 # Verify it exists in the graph
+                graph_cursor.execute("""
+                    SELECT 1 FROM nodes
+                    WHERE graph_type = 'data_flow'
+                      AND id = ?
+                    LIMIT 1
+                """, (node_id,))
+
+                if graph_cursor.fetchone():
+                    exit_nodes.add(node_id)
+
+        # SQL query executions (raw queries, not in migrations)
+        repo_cursor.execute("""
+            SELECT DISTINCT file, line, caller_function, argument_expr
+            FROM function_call_args
+            WHERE (
+                callee_function LIKE '%.query'
+                OR callee_function LIKE '%.execute'
+                OR callee_function LIKE '%.exec'
+                OR callee_function LIKE '%.run'
+            )
+            AND argument_expr IS NOT NULL
+            AND file LIKE 'backend%'
+            AND file NOT LIKE '%migration%'
+        """)
+
+        for file, line, func, arg_expr in repo_cursor.fetchall():
+            if not func:
+                func = "global"
+
+            var_name = self._parse_argument_variable(arg_expr)
+            if var_name:
+                node_id = f"{file}::{func}::{var_name}"
+
                 graph_cursor.execute("""
                     SELECT 1 FROM nodes
                     WHERE graph_type = 'data_flow'
@@ -303,11 +372,11 @@ class FlowResolver:
             exit_nodes: Set of exit node IDs to trace to
         """
         # BFS with path tracking
-        worklist = deque([(entry_id, [entry_id])])
-        visited_edges = set()
+        # Use visited set to prevent infinite loops, but allow revisiting nodes via different paths
+        worklist = deque([(entry_id, [entry_id], set())])  # (current_node, path, visited_in_this_path)
 
         while worklist and self.flows_resolved < self.max_flows:
-            current_id, path = worklist.popleft()
+            current_id, path, visited = worklist.popleft()
 
             # Check depth limit
             if len(path) > self.max_depth:
@@ -320,17 +389,19 @@ class FlowResolver:
             if current_id in exit_nodes:
                 status, sanitizer_meta = self._classify_flow(path)
                 self._record_flow(entry_id, current_id, path, status, sanitizer_meta)
-                continue
+                # BUG FIX: Removed 'continue' to allow finding ALL paths, not just shortest
+                # This enables discovery of longer paths through validation middleware
 
             # Get successors from unified graph
             successors = self._get_successors(current_id)
 
             for successor_id in successors:
-                edge = (current_id, successor_id)
-                if edge not in visited_edges:
-                    visited_edges.add(edge)
+                # Prevent cycles within this specific path
+                if successor_id not in visited:
+                    new_visited = visited.copy()
+                    new_visited.add(successor_id)
                     new_path = path + [successor_id]
-                    worklist.append((successor_id, new_path))
+                    worklist.append((successor_id, new_path, new_visited))
 
     def _get_successors(self, node_id: str) -> List[str]:
         """Get successor nodes from the unified data flow graph.
@@ -371,7 +442,7 @@ class FlowResolver:
             - sanitizer_metadata: Dict with sanitizer details or None
         """
         # Check if path goes through any sanitizer
-        sanitizer_meta = self._path_goes_through_sanitizer(path)
+        sanitizer_meta = self.sanitizer_registry._path_goes_through_sanitizer(path)
 
         if sanitizer_meta:
             return ("SANITIZED", sanitizer_meta)
@@ -542,156 +613,9 @@ class FlowResolver:
         # Just return the full expression (may include dots for access paths)
         return arg_expr
 
-    def _load_safe_sinks(self):
-        """Load sanitizers from framework_safe_sinks table."""
-        self.safe_sinks: Set[str] = set()
-        try:
-            self.repo_cursor.execute("SELECT sink_pattern FROM framework_safe_sinks")
-            rows = self.repo_cursor.fetchall()
 
-            for row in rows:
-                pattern = row['sink_pattern']
-                self.safe_sinks.add(pattern)
-        except sqlite3.OperationalError:
-            # Table doesn't exist - no sanitizers loaded
-            pass
 
-    def _load_validation_sanitizers(self):
-        """Load validation framework sanitizers from validation_framework_usage table.
 
-        This captures location-based sanitizers like Zod middleware that must be
-        matched by file:line, not just function name pattern.
-        """
-        self.validation_sanitizers: List[Dict] = []
-        try:
-            self.repo_cursor.execute("""
-                SELECT file_path, line, framework, method, argument_expr, is_validator
-                FROM validation_framework_usage
-                WHERE is_validator = 1
-            """)
-            rows = self.repo_cursor.fetchall()
-
-            for row in rows:
-                sanitizer = {
-                    'file': row['file_path'],
-                    'line': row['line'],
-                    'framework': row['framework'],
-                    'method': row['method'],
-                    'argument': row['argument_expr']
-                }
-                self.validation_sanitizers.append(sanitizer)
-        except sqlite3.OperationalError:
-            # Table doesn't exist - no validation sanitizers loaded
-            pass
-
-    def _path_goes_through_sanitizer(self, path: List[str]) -> Optional[Dict]:
-        """Check if a flow path goes through a sanitizer.
-
-        Checks THREE types of sanitizers:
-        1. Validation middleware calls (validateBody, validateParams, validateQuery)
-        2. Validation framework sanitizers (location-based: file:line match)
-        3. Safe sink patterns (name-based: function name pattern match)
-
-        Args:
-            path: List of node IDs in the flow path
-
-        Returns:
-            Dict with sanitizer metadata if path is sanitized, None otherwise
-        """
-        # The path is just a list of node IDs, not hops
-        # Each node ID is in format: file::function::variable
-        for i, node_id in enumerate(path):
-            # Parse node ID: file::function::variable
-            parts = node_id.split('::')
-            if len(parts) < 2:
-                continue
-
-            file = parts[0]
-            func = parts[1] if len(parts) > 1 else None
-
-            # CHECK 0: Validation middleware functions (validateBody, validateParams, validateQuery)
-            # These appear in route files as function names in the middleware chain
-            if func and any(validator in func for validator in ['validateBody', 'validateParams', 'validateQuery', 'validateRequest']):
-                # This is a validation middleware call - it's a sanitizer!
-                return {
-                    'file': file,
-                    'line': 0,  # We don't have exact line in node ID
-                    'method': func
-                }
-
-            # Get line number for this node if available
-            # Query assignments table to find line number
-            if func:
-                self.repo_cursor.execute("""
-                    SELECT MIN(line) as line FROM assignments
-                    WHERE file = ? AND in_function = ?
-                    LIMIT 1
-                """, (file, func))
-            else:
-                self.repo_cursor.execute("""
-                    SELECT MIN(line) as line FROM assignments
-                    WHERE file = ?
-                    LIMIT 1
-                """, (file,))
-
-            result = self.repo_cursor.fetchone()
-            line = result['line'] if result and result['line'] else 0
-
-            if not line:
-                continue
-
-            # CHECK 1: Validation Framework Sanitizers (Location-Based)
-            for san in self.validation_sanitizers:
-                # Match by file path (handle both absolute and relative paths)
-                file_match = (
-                    file == san['file'] or
-                    file.endswith(san['file']) or
-                    san['file'].endswith(file)
-                )
-
-                if file_match and line == san['line']:
-                    # Found validation sanitizer match
-                    return {
-                        'file': san['file'],
-                        'line': san['line'],
-                        'method': f"{san['framework']}.{san['method']}"
-                    }
-
-            # CHECK 2: Safe Sink Patterns (Function Name-Based)
-            # Query function calls at this location
-            self.repo_cursor.execute("""
-                SELECT callee_function FROM function_call_args
-                WHERE file = ? AND line = ?
-                LIMIT 10
-            """, (file, line))
-
-            callees = [row['callee_function'] for row in self.repo_cursor.fetchall()]
-
-            for callee in callees:
-                if self._is_sanitizer(callee):
-                    return {
-                        'file': file,
-                        'line': line,
-                        'method': callee
-                    }
-
-        return None  # No sanitizer found
-
-    def _is_sanitizer(self, function_name: str) -> bool:
-        """Check if a function is a sanitizer.
-
-        Checks database safe_sinks for pattern matches.
-        """
-        # Check database safe sinks (exact match)
-        if function_name in self.safe_sinks:
-            return True
-
-        # Check any pattern that partially matches
-        for safe_sink in self.safe_sinks:
-            if safe_sink in function_name or function_name in safe_sink:
-                return True
-
-        return False
 
     def close(self):
         """Clean up database connections."""
