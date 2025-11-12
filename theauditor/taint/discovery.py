@@ -79,16 +79,20 @@ class TaintDiscovery:
         # HTTP Request Sources: Use variable_usage table to find actual variable accesses
         # CRITICAL: IFDS needs variable references (req.query.x), NOT HTTP metadata (GET /api/x)
         # ZERO FALLBACK POLICY: Use sources_dict from registry, no hardcoded patterns
+        # FIX: Check BOTH 'http_request' and 'user_input' categories since rules use both
         http_request_patterns = sources_dict.get('http_request', [])
+        user_input_patterns = sources_dict.get('user_input', [])
+        combined_patterns = http_request_patterns + user_input_patterns
+
         seen_vars = set()
+
+        # 1. Check Variable Usage (e.g. "const body = req.body")
         for var_usage in self.cache.variable_usage:
             var_name = var_usage.get('variable_name', '')
-
-            # Match user input patterns from registry
-            if http_request_patterns and any(pattern in var_name.lower() for pattern in http_request_patterns):
+            # Strict prefix match to avoid 'require' matching 'req'
+            if combined_patterns and any(var_name == p or var_name.startswith(p + '.') for p in combined_patterns):
                 if var_name not in seen_vars:
                     seen_vars.add(var_name)
-
                     sources.append({
                         'type': 'http_request',
                         'name': var_name,
@@ -100,48 +104,33 @@ class TaintDiscovery:
                         'metadata': var_usage
                     })
 
-        # User Input Sources: Property access patterns that indicate user input
-        # ZERO FALLBACK POLICY: Use sources_dict from registry, no hardcoded patterns
-        input_patterns = sources_dict.get('user_input', [])
+        # 2. CRITICAL FIX: Check Property Symbols for BOTH categories (e.g. "req.body", "req.query")
+        # Discovery was previously blind to these because they live in the symbols table
         for symbol in self.cache.symbols_by_type.get('property', []):
-                name = symbol.get('name', '')
-                if input_patterns and any(pattern in name.lower() for pattern in input_patterns):
+            name = symbol.get('name', '')
+            # Check both HTTP and user_input patterns against properties
+            if combined_patterns and any(name == p or name.startswith(p + '.') for p in combined_patterns):
+                if name not in seen_vars:
+                    seen_vars.add(name)
                     sources.append({
-                        'type': 'user_input',
+                        'type': 'http_request',
                         'name': name,
                         'file': symbol.get('path', ''),
                         'line': symbol.get('line', 0),
                         'pattern': name,
-                        'category': 'user_input',
+                        'category': 'http_request',
                         'risk': 'high',
                         'metadata': symbol
                     })
 
-        # Function Parameter Sources: Parse parameters from function symbols
-        # These are often derived from user input (req.body, req.params, etc.)
-        import json
-        for symbol in self.cache.symbols_by_type.get('function', []):
-                params_json = symbol.get('parameters', '[]')
-                if params_json:
-                    try:
-                        params = json.loads(params_json) if isinstance(params_json, str) else params_json
-                        for param in params:
-                            param_name = param.get('name', '')
-                            # Skip internal/framework parameters
-                            if param_name not in ['req', 'res', 'next', 'transaction', 'options', 'callback', 'this']:
-                                sources.append({
-                                    'type': 'parameter',
-                                    'name': param_name,
-                                    'file': symbol.get('path', ''),
-                                    'line': symbol.get('line', 0),
-                                    'pattern': param_name,
-                                    'category': 'user_input',
-                                    'risk': 'medium',
-                                    'function': symbol.get('name', ''),
-                                    'metadata': symbol
-                                })
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
+        # REMOVED: Function parameter fallback - ZERO FALLBACK POLICY violation
+        # This section was adding generic parameters like 'data', 'value' as sources
+        # when pattern matching failed. This is CANCER and violates the most important
+        # rule in the codebase. If pattern matching fails, FIX THE PATTERNS, don't
+        # add fallback logic that creates wrong sources.
+        #
+        # Previous bug: This code added 'data' parameter from BaseController.sendSuccess
+        # as a source, creating wrong taint paths that bypassed middleware validation.
 
         # REMOVED: File Read Sources
         # Reason: File operations (open, readFile) are SINKS (path traversal), not SOURCES
@@ -252,6 +241,11 @@ class TaintDiscovery:
 
         # SQL Injection Sinks: Raw SQL functions from registry
         # ZERO FALLBACK POLICY: Use sinks_dict from registry, no hardcoded patterns
+        # Open connection for querying assignments
+        conn2 = sqlite3.connect(self.cache.db_path)
+        conn2.row_factory = sqlite3.Row
+        cursor2 = conn2.cursor()
+
         raw_sql_funcs = sinks_dict.get('sql', [])
         sql_query_count = 0
         for call in self.cache.function_call_args:
@@ -267,12 +261,31 @@ class TaintDiscovery:
                 has_interpolation = '${' in arg_expr
                 risk = 'critical' if has_interpolation else 'high'
 
+                # Query assignments table to find variable assigned the query result
+                file_path = call.get('file', '')
+                line_number = call.get('line', 0)
+
+                cursor2.execute("""
+                    SELECT target_var, in_function
+                    FROM assignments
+                    WHERE file = ? AND line = ?
+                    LIMIT 1
+                """, (file_path, line_number))
+
+                result_row = cursor2.fetchone()
+                if result_row:
+                    # Use the target variable as the pattern
+                    pattern = result_row['target_var']
+                else:
+                    # If no assignment, this might be a void call - use func_name
+                    pattern = func_name
+
                 sinks.append({
                     'type': 'sql',
                     'name': func_name,
-                    'file': call.get('file', ''),
-                    'line': call.get('line', 0),
-                    'pattern': arg_expr,  # FIXED: Don't truncate - taint matching needs full pattern
+                    'file': file_path,
+                    'line': line_number,
+                    'pattern': pattern,  # Use target var if assigned, else func_name
                     'category': 'sql',
                     'risk': risk,
                     'is_parameterized': False,
@@ -283,21 +296,17 @@ class TaintDiscovery:
 
         # ORM Query Methods as SQL Sinks
         # Query sequelize_models and python_orm_models tables to determine if caller is a model
-        conn = sqlite3.connect(self.cache.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        # Use conn2/cursor2 which is already open from SQL sinks section
 
         # Build set of known model names
         model_names = set()
-        cursor.execute("SELECT model_name FROM sequelize_models")
-        for row in cursor.fetchall():
+        cursor2.execute("SELECT model_name FROM sequelize_models")
+        for row in cursor2.fetchall():
             model_names.add(row['model_name'])
 
-        cursor.execute("SELECT model_name FROM python_orm_models")
-        for row in cursor.fetchall():
+        cursor2.execute("SELECT model_name FROM python_orm_models")
+        for row in cursor2.fetchall():
             model_names.add(row['model_name'])
-
-        conn.close()
 
         # ORM method patterns
         orm_patterns = [
@@ -348,18 +357,42 @@ class TaintDiscovery:
                 has_interpolation = '${' in arg_expr or '+' in arg_expr
                 risk = 'high' if has_interpolation else 'medium'
 
+                # Query assignments table to find variable assigned the ORM result
+                # This is critical - the pattern must be the target variable, not the function name
+                file_path = call.get('file', '')
+                line_number = call.get('line', 0)
+
+                cursor2.execute("""
+                    SELECT target_var, in_function
+                    FROM assignments
+                    WHERE file = ? AND line = ?
+                    LIMIT 1
+                """, (file_path, line_number))
+
+                result_row = cursor2.fetchone()
+                if result_row:
+                    # Use the target variable as the pattern (e.g., "account" not "Account.create")
+                    pattern = result_row['target_var']
+                else:
+                    # If no assignment found, use the function name as fallback
+                    # This handles cases like User.create(...).then(...) with no assignment
+                    pattern = func_name
+
                 sinks.append({
                     'type': 'sql',  # ORM methods are SQL sinks
                     'name': func_name,
-                    'file': call.get('file', ''),
-                    'line': call.get('line', 0),
-                    'pattern': arg_expr,
+                    'file': file_path,
+                    'line': line_number,
+                    'pattern': pattern,  # Use target variable from assignments table
                     'category': 'orm',  # Subcategory to distinguish from raw SQL
                     'risk': risk,
                     'is_parameterized': not has_interpolation,  # ORM usually parameterized unless concatenation
                     'has_interpolation': has_interpolation,
                     'metadata': call
                 })
+
+        # Close connection used for SQL/ORM sinks
+        conn2.close()
 
         # NoSQL Injection Sinks (optional - language-specific)
         for query in getattr(self.cache, 'nosql_queries', []):
@@ -437,7 +470,7 @@ class TaintDiscovery:
                     'name': func_name,
                     'file': call.get('file', ''),
                     'line': call.get('line', 0),
-                    'pattern': arg_expr,  # FIXED: Don't truncate - taint matching needs full pattern
+                    'pattern': func_name,  # FIX: Use func_name to ensure parsing consistency
                     'category': 'xss',
                     'risk': risk,
                     'has_interpolation': has_interpolation,
@@ -461,7 +494,7 @@ class TaintDiscovery:
                         'name': func_name,
                         'file': file_path,
                         'line': call.get('line', 0),
-                        'pattern': arg,  # Use actual argument as pattern for matching
+                        'pattern': func_name,  # FIX: Use func_name. Complex path args (e.g. path.join(...)) can break parsing
                         'category': 'path',
                         'risk': 'medium',
                         'metadata': call

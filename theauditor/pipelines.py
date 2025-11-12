@@ -1039,18 +1039,32 @@ def run_full_pipeline(
 
                             # STAGE 4: Run enriched taint analysis with registry
                             print(f"[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
-                            # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
+                            # ARCHITECTURAL FIX: Use "complete" mode to run BOTH engines
+                            # - FlowResolver (forward): Resolves ALL flows (100k+) to populate resolved_flow_audit
+                            # - IFDS (backward): Finds vulnerabilities using pattern-driven analysis
+                            graph_db_path = Path(root) / ".pf" / "graphs.db"
                             result = trace_taint(
                                 db_path=str(db_path),
                                 max_depth=10,  # IFDS supports deeper analysis
                                 registry=registry,  # FIXED: Re-enabled - feeds XSS/NoSQL/LDAP patterns from 200 rules
                                 use_memory_cache=True,
-                                memory_limit_mb=memory_limit
+                                memory_limit_mb=memory_limit,
+                                graph_db_path=str(graph_db_path),  # Required for complete mode
+                                mode="complete"  # ARCHITECTURAL FIX: Run BOTH FlowResolver + IFDS
                             )
                             
-                            # Extract taint paths
+                            # Extract taint paths (IFDS results)
                             taint_paths = result.get("taint_paths", result.get("paths", []))
-                            print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
+
+                            # ARCHITECTURAL FIX: Report results from BOTH engines
+                            if result.get("mode") == "complete":
+                                print(f"[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
+                                print(f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths", file=sys.stderr)
+                                print(f"[TAINT]   FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows", file=sys.stderr)
+                                print(f"[TAINT]   Database audit table: {result.get('flow_resolver_vulnerable', 0)} vulnerable, {result.get('flow_resolver_sanitized', 0)} sanitized", file=sys.stderr)
+                            else:
+                                # Backward mode only
+                                print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
 
                             # STAGE 5: Run taint-dependent rules
                             print(f"[TAINT] Running advanced security analysis...", file=sys.stderr)
@@ -1160,12 +1174,24 @@ def run_full_pipeline(
                                 f"  Framework patterns: {len(discovery_findings)}",
                                 f"  Taint sources: {result.get('sources_found', 0)}",
                                 f"  Security sinks: {result.get('sinks_found', 0)}",
-                                f"  Taint paths: {len(taint_paths)}",
+                                f"  Taint paths (IFDS): {len(taint_paths)}",
                                 f"  Advanced security issues: {len(advanced_findings)}",
+                            ]
+
+                            # ARCHITECTURAL FIX: Add complete mode stats if available
+                            if result.get("mode") == "complete":
+                                output_lines.extend([
+                                    f"  --- COMPLETE MODE (Both Engines) ---",
+                                    f"  FlowResolver flows: {result.get('total_flows_resolved', 0)}",
+                                    f"  Audit table vulnerable: {result.get('flow_resolver_vulnerable', 0)}",
+                                    f"  Audit table sanitized: {result.get('flow_resolver_sanitized', 0)}",
+                                ])
+
+                            output_lines.extend([
                                 f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
                                 f"  Results saved to .pf/raw/taint_analysis.json",
                                 f"  Wrote {db_findings_count} findings to database for FCE"
-                            ]
+                            ])
                             
                             print(f"[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]", file=sys.stderr)
                             

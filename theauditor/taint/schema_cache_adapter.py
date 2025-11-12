@@ -49,6 +49,17 @@ class SchemaMemoryCacheAdapter:
         if hasattr(self._cache, 'object_literals'):
             self.object_literals = self._cache.object_literals
 
+        # CRITICAL: Tables required by discovery.py (discovery.py:87, 117)
+        # WITHOUT these, discovery finds 0 sources (kills taint analysis)
+        if hasattr(self._cache, 'variable_usage'):
+            self.variable_usage = self._cache.variable_usage
+        if hasattr(self._cache, 'env_var_usage'):
+            self.env_var_usage = self._cache.env_var_usage
+        if hasattr(self._cache, 'express_middleware_chains'):
+            self.express_middleware_chains = self._cache.express_middleware_chains
+        if hasattr(self._cache, 'import_styles'):
+            self.import_styles = self._cache.import_styles
+
         # Indexed attributes
         if hasattr(self._cache, 'symbols_by_path'):
             self.symbols_by_file = self._cache.symbols_by_path

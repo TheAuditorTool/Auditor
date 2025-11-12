@@ -333,9 +333,9 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
 
     # ARCHITECTURAL FIX: Database-first architecture
 
-    # Forward/Complete Mode: Use FlowResolver for complete flow resolution
-    if mode in ["forward", "complete"]:
-        print(f"[TAINT] Using {mode} flow resolution mode", file=sys.stderr)
+    # Forward-Only Mode: Use FlowResolver for complete flow resolution (no vulnerability detection)
+    if mode == "forward":
+        print(f"[TAINT] Using forward-only flow resolution mode", file=sys.stderr)
 
         # Ensure graphs.db exists
         if graph_db_path is None:
@@ -380,6 +380,48 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                 "low_count": 0
             }
         }
+
+    # Complete Mode: Run BOTH engines and merge results
+    # ARCHITECTURAL FIX: Connects IFDS (backward) + FlowResolver (forward)
+    if mode == "complete":
+        print(f"[TAINT] Using complete mode: IFDS (backward) + FlowResolver (forward)", file=sys.stderr)
+
+        # STEP 1: Run FlowResolver (forward flow resolution)
+        print(f"[TAINT] STEP 1/2: Running FlowResolver (forward analysis)", file=sys.stderr)
+
+        # Ensure graphs.db exists
+        if graph_db_path is None:
+            db_dir = Path(db_path).parent
+            graph_db_path = str(db_dir / "graphs.db")
+
+        if not Path(graph_db_path).exists():
+            raise FileNotFoundError(
+                f"graphs.db not found at {graph_db_path}. "
+                f"Run 'aud graph build' to create it. "
+                f"NO FALLBACKS - Flow resolution requires pre-computed graphs."
+            )
+
+        from .flow_resolver import FlowResolver
+
+        resolver = FlowResolver(db_path, graph_db_path)
+        total_flows = resolver.resolve_all_flows()
+        resolver.close()
+
+        print(f"[TAINT] FlowResolver complete: {total_flows} flows resolved", file=sys.stderr)
+
+        # STEP 2: Run IFDS (backward vulnerability detection)
+        # Registry is MANDATORY for this step
+        if registry is None:
+            raise ValueError(
+                "Registry is MANDATORY for complete mode (includes IFDS). "
+                "Run with orchestrator.collect_rule_patterns(registry) first. "
+                "NO FALLBACKS ALLOWED."
+            )
+
+        print(f"[TAINT] STEP 2/2: Running IFDS (backward vulnerability analysis)", file=sys.stderr)
+
+        # Fall through to backward mode logic below (lines 384+)
+        # DO NOT return early - let the backward mode code run and merge with FlowResolver results
 
     # BACKWARD MODE (existing IFDS analysis)
     # ZERO FALLBACK POLICY: Registry is MANDATORY for backward mode
@@ -725,7 +767,8 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
             "low_count": 0
         }
 
-        return {
+        # ARCHITECTURAL FIX: Include FlowResolver data if in complete mode
+        result = {
             "success": True,
             "taint_paths": path_dicts,  # Keep original key for backward compatibility
             "vulnerabilities": path_dicts,  # Expected key for pipeline
@@ -737,6 +780,30 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
             "vulnerabilities_by_type": dict(vulnerabilities_by_type),
             "summary": summary
         }
+
+        # ARCHITECTURAL FIX: If complete mode, add FlowResolver data
+        if mode == "complete":
+            # Query resolved_flow_audit to get FlowResolver results count
+            conn_temp = sqlite3.connect(db_path)
+            cursor_temp = conn_temp.cursor()
+            cursor_temp.execute("SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'VULNERABLE'")
+            flow_resolver_vulnerable = cursor_temp.fetchone()[0]
+            cursor_temp.execute("SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'SANITIZED'")
+            flow_resolver_sanitized = cursor_temp.fetchone()[0]
+            conn_temp.close()
+
+            result["flow_resolver_vulnerable"] = flow_resolver_vulnerable
+            result["flow_resolver_sanitized"] = flow_resolver_sanitized
+            result["total_flows_resolved"] = total_flows  # From FlowResolver run above
+            result["mode"] = "complete"
+            result["engines_used"] = ["IFDS (backward)", "FlowResolver (forward)"]
+
+            print(f"[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
+            print(f"[TAINT]   IFDS found: {len(unique_paths)} vulnerable paths", file=sys.stderr)
+            print(f"[TAINT]   FlowResolver resolved: {total_flows} total flows", file=sys.stderr)
+            print(f"[TAINT]   resolved_flow_audit table: {flow_resolver_vulnerable} vulnerable, {flow_resolver_sanitized} sanitized", file=sys.stderr)
+
+        return result
         
     except sqlite3.OperationalError as e:
         if "no such table" in str(e):

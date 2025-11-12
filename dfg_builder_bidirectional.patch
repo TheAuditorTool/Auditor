@@ -1,0 +1,216 @@
+--- a/theauditor/graph/dfg_builder.py
++++ b/theauditor/graph/dfg_builder.py
+@@ -65,6 +65,48 @@ class DFGBuilder:
+             raise FileNotFoundError(f"Database not found: {db_path}")
+
++    def _create_bidirectional_edges(self, source: str, target: str, edge_type: str,
++                                   file: str, line: int, expression: str,
++                                   function: str, metadata: Dict[str, Any] = None) -> List[DFGEdge]:
++        """
++        Helper to create both a FORWARD edge and a REVERSE edge.
++
++        Forward: Source -> Target (type)
++        Reverse: Target -> Source (type_reverse)
++
++        This enables backward traversal algorithms (IFDS) to navigate the graph
++        by querying outgoing edges from a sink.
++
++        Args:
++            source: Source node ID
++            target: Target node ID
++            edge_type: Type of edge (assignment, return, etc.)
++            file: File containing this edge
++            line: Line number
++            expression: Expression for this edge
++            function: Function context
++            metadata: Additional metadata dict
++
++        Returns:
++            List containing both forward and reverse edges
++        """
++        if metadata is None:
++            metadata = {}
++
++        edges = []
++
++        # 1. Forward Edge (Standard)
++        forward = DFGEdge(
++            source=source, target=target, type=edge_type,
++            file=file, line=line, expression=expression,
++            function=function, metadata=metadata
++        )
++        edges.append(forward)
++
++        # 2. Reverse Edge (Back-pointer)
++        reverse_meta = metadata.copy()
++        reverse_meta['is_reverse'] = True
++        reverse_meta['original_type'] = edge_type
++
++        reverse = DFGEdge(
++            source=target, target=source,  # Swapped
++            type=f"{edge_type}_reverse",
++            file=file, line=line,
++            expression=f"REV: {expression[:190]}" if expression else "REVERSE",
++            function=function, metadata=reverse_meta
++        )
++        edges.append(reverse)
++
++        return edges
++
+     def build_assignment_flow_graph(self, root: str = ".") -> Dict[str, Any]:
+
+@@ -168,15 +210,11 @@ class DFGBuilder:
+
+                     # Create edge: source_var -> target_var
+-                    edge = DFGEdge(
+-                        source=source_id,
+-                        target=target_id,
+-                        type="assignment",
+-                        file=file,
+-                        line=line,
+-                        expression=source_expr[:200] if source_expr else "",  # Truncate long expressions
+-                        function=in_function if in_function else "global",
+-                        metadata={}
++                    new_edges = self._create_bidirectional_edges(
++                        source=source_id, target=target_id, edge_type="assignment",
++                        file=file, line=line,
++                        expression=source_expr[:200] if source_expr else "",
++                        function=in_function if in_function else "global"
+                     )
+-                    edges.append(edge)
+-                    stats['edges_created'] += 1
++                    edges.extend(new_edges)
++                    stats['edges_created'] += len(new_edges)
+
+@@ -266,15 +304,11 @@ class DFGBuilder:
+                     return_id = f"{file}::{function_name}::return"
+
+                     # Create edge: variable -> return_value
+-                    edge = DFGEdge(
+-                        source=var_id,
+-                        target=return_id,
+-                        type="return",
+-                        file=file,
+-                        line=line,
+-                        expression=return_expr[:200] if return_expr else "",
+-                        function=function_name,
+-                        metadata={}
++                    new_edges = self._create_bidirectional_edges(
++                        source=var_id, target=return_id, edge_type="return",
++                        file=file, line=line,
++                        expression=return_expr[:200] if return_expr else "",
++                        function=function_name
+                     )
+-                    edges.append(edge)
+-                    stats['edges_created'] += 1
++                    edges.extend(new_edges)
++                    stats['edges_created'] += len(new_edges)
+
+@@ -449,18 +483,14 @@ class DFGBuilder:
+                         continue
+
+                     # Create edge: argument -> parameter
+-                    edge = DFGEdge(
+-                        source=source_id,
+-                        target=target_id,
+-                        type="parameter_binding",
+-                        file=caller_file,
+-                        line=line,
+-                        expression=f"{callee_function}({argument_expr})",
+-                        function=caller_function,
+-                        metadata={
+-                            "callee": callee_function,
+-                            "param_name": param_name,
+-                            "arg_expr": argument_expr
+-                        }
++                    new_edges = self._create_bidirectional_edges(
++                        source=source_id, target=target_id, edge_type="parameter_binding",
++                        file=caller_file, line=line,
++                        expression=f"{callee_function}({argument_expr})",
++                        function=caller_function,
++                        metadata={"callee": callee_function,
++                                "param_name": param_name,
++                                "arg_expr": argument_expr}
+                     )
+-                    edges.append(edge)
+-                    stats['edges_created'] += 1
++                    edges.extend(new_edges)
++                    stats['edges_created'] += len(new_edges)
+
+@@ -625,19 +655,15 @@ class DFGBuilder:
+
+                     # Create edge from frontend to backend
+-                    edge = DFGEdge(
+-                        source=source_id,
+-                        target=target_id,
+-                        type="cross_boundary",
+-                        file=fe_file,
+-                        line=match['fe_line'],
++                    new_edges = self._create_bidirectional_edges(
++                        source=source_id, target=target_id, edge_type="cross_boundary",
++                        file=fe_file, line=match['fe_line'],
+                         expression=f"{method} {match['url_literal']}",
+                         function=fe_func,
+                         metadata={
+                             "frontend_file": fe_file,
+                             "backend_file": target_file,
+                             "api_method": method,
+                             "api_route": match['full_path'],
+                             "body_variable": fe_body,
+                             "request_field": req_field
+                         }
+                     )
+-                    edges.append(edge)
+-                    stats['edges_created'] += 1
++                    edges.extend(new_edges)
++                    stats['edges_created'] += len(new_edges)
+
+@@ -815,17 +841,13 @@ class DFGBuilder:
+
+                     # Create edge
+-                    edge = DFGEdge(
+-                        source=source_id,
+-                        target=target_id,
+-                        type="express_middleware_chain",
+-                        file=curr_handler['file'],
+-                        line=0,  # Middleware chains don't have specific line numbers
++                    new_edges = self._create_bidirectional_edges(
++                        source=source_id, target=target_id, edge_type="express_middleware_chain",
++                        file=curr_handler['file'], line=0,
+                         expression=f"{curr_func} -> {next_func}",
+                         function=curr_func,
+                         metadata={
+                             "route": route_key,
+                             "execution_order": curr_handler['execution_order'],
+                             "next_order": next_handler['execution_order']
+                         }
+                     )
+-                    edges.append(edge)
+-                    stats['edges_created'] += 1
++                    edges.extend(new_edges)
++                    stats['edges_created'] += len(new_edges)
+
+@@ -965,16 +987,12 @@ class DFGBuilder:
+
+                     # Create edge: controller_method -> implementation_method
+-                    edge = DFGEdge(
+-                        source=source_id,
+-                        target=target_id,
+-                        type="controller_implementation",
+-                        file=controller_file,
+-                        line=0,  # No specific line
++                    new_edges = self._create_bidirectional_edges(
++                        source=source_id, target=target_id, edge_type="controller_implementation",
++                        file=controller_file, line=0,
+                         expression=f"{controller_method} -> {service_method}",
+                         function=controller_method,
+                         metadata={
+                             "controller": controller_name,
+                             "service": service_name,
+                             "service_file": service_file
+                         }
+                     )
+-                    edges.append(edge)
+-                    stats['edges_created'] += 1
++                    edges.extend(new_edges)
++                    stats['edges_created'] += len(new_edges)
