@@ -107,6 +107,10 @@ class PythonStorage(BaseStorage):
 
             # Causal Learning Patterns (Week 1 - State Mutations)
             'python_instance_mutations': self._store_python_instance_mutations,
+            'python_class_mutations': self._store_python_class_mutations,
+            'python_global_mutations': self._store_python_global_mutations,
+            'python_argument_mutations': self._store_python_argument_mutations,
+            'python_augmented_assignments': self._store_python_augmented_assignments,
         }
 
     def _store_python_orm_models(self, file_path: str, python_orm_models: List, jsx_pass: bool):
@@ -914,6 +918,66 @@ class PythonStorage(BaseStorage):
             if 'python_instance_mutations' not in self.counts:
                 self.counts['python_instance_mutations'] = 0
             self.counts['python_instance_mutations'] += 1
+
+    def _store_python_class_mutations(self, file_path: str, python_class_mutations: List, jsx_pass: bool):
+        """Store Python class attribute mutations (Causal Learning - Week 1)."""
+        for mutation in python_class_mutations:
+            self.db_manager.add_python_class_mutation(
+                file_path,
+                mutation.get('line', 0),
+                mutation.get('class_name', ''),
+                mutation.get('attribute', ''),
+                mutation.get('operation', ''),
+                mutation.get('in_function', 'global'),
+                mutation.get('is_classmethod', False)
+            )
+            if 'python_class_mutations' not in self.counts:
+                self.counts['python_class_mutations'] = 0
+            self.counts['python_class_mutations'] += 1
+
+    def _store_python_global_mutations(self, file_path: str, python_global_mutations: List, jsx_pass: bool):
+        """Store Python global variable mutations (Causal Learning - Week 1)."""
+        for mutation in python_global_mutations:
+            self.db_manager.add_python_global_mutation(
+                file_path,
+                mutation.get('line', 0),
+                mutation.get('global_name', ''),
+                mutation.get('operation', ''),
+                mutation.get('in_function', 'global')
+            )
+            if 'python_global_mutations' not in self.counts:
+                self.counts['python_global_mutations'] = 0
+            self.counts['python_global_mutations'] += 1
+
+    def _store_python_argument_mutations(self, file_path: str, python_argument_mutations: List, jsx_pass: bool):
+        """Store Python argument mutations (Causal Learning - Week 1)."""
+        for mutation in python_argument_mutations:
+            self.db_manager.add_python_argument_mutation(
+                file_path,
+                mutation.get('line', 0),
+                mutation.get('parameter_name', ''),
+                mutation.get('mutation_type', ''),
+                mutation.get('mutation_detail', ''),
+                mutation.get('in_function', 'global')
+            )
+            if 'python_argument_mutations' not in self.counts:
+                self.counts['python_argument_mutations'] = 0
+            self.counts['python_argument_mutations'] += 1
+
+    def _store_python_augmented_assignments(self, file_path: str, python_augmented_assignments: List, jsx_pass: bool):
+        """Store Python augmented assignments (Causal Learning - Week 1)."""
+        for assignment in python_augmented_assignments:
+            self.db_manager.add_python_augmented_assignment(
+                file_path,
+                assignment.get('line', 0),
+                assignment.get('target', ''),
+                assignment.get('operator', ''),
+                assignment.get('target_type', ''),
+                assignment.get('in_function', 'global')
+            )
+            if 'python_augmented_assignments' not in self.counts:
+                self.counts['python_augmented_assignments'] = 0
+            self.counts['python_augmented_assignments'] += 1
 
     def _store_python_pytest_fixtures(self, file_path: str, python_pytest_fixtures: List, jsx_pass: bool):
         """Store Python pytest fixtures."""

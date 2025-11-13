@@ -110,6 +110,55 @@ class PythonDatabaseMixin:
             1 if is_dunder_method else 0
         ))
 
+    def add_python_class_mutation(self, file_path: str, line: int, class_name: str,
+                                   attribute: str, operation: str, in_function: str,
+                                   is_classmethod: bool):
+        """Add Python class attribute mutation (Causal Learning - Week 1)."""
+        self.generic_batches['python_class_mutations'].append((
+            file_path,
+            line,
+            class_name,
+            attribute,
+            operation,
+            in_function,
+            1 if is_classmethod else 0
+        ))
+
+    def add_python_global_mutation(self, file_path: str, line: int, global_name: str,
+                                    operation: str, in_function: str):
+        """Add Python global variable mutation (Causal Learning - Week 1)."""
+        self.generic_batches['python_global_mutations'].append((
+            file_path,
+            line,
+            global_name,
+            operation,
+            in_function
+        ))
+
+    def add_python_argument_mutation(self, file_path: str, line: int, parameter_name: str,
+                                      mutation_type: str, mutation_detail: str, in_function: str):
+        """Add Python argument mutation (Causal Learning - Week 1)."""
+        self.generic_batches['python_argument_mutations'].append((
+            file_path,
+            line,
+            parameter_name,
+            mutation_type,
+            mutation_detail,
+            in_function
+        ))
+
+    def add_python_augmented_assignment(self, file_path: str, line: int, target: str,
+                                         operator: str, target_type: str, in_function: str):
+        """Add Python augmented assignment (Causal Learning - Week 1)."""
+        self.generic_batches['python_augmented_assignments'].append((
+            file_path,
+            line,
+            target,
+            operator,
+            target_type,
+            in_function
+        ))
+
     def add_python_context_manager(self, file_path: str, line: int, context_type: str,
                                    context_expr: Optional[str], as_name: Optional[str],
                                    is_async: bool, is_custom: bool):

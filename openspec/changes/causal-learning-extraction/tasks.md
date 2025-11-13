@@ -1,9 +1,37 @@
 # Causal Learning Foundation: Task Breakdown (VERIFIED PATTERNS)
 
-**Document Version**: 2.0 (REWRITTEN WITH ACTUAL CODE PATTERNS)
+**Document Version**: 2.1 (IN PROGRESS - Week 1 Started)
 **Last Updated**: 2025-11-14
-**Status**: PROPOSED
+**Status**: IN PROGRESS (Week 1: 4/14 tasks complete)
 **Verification**: All patterns verified against production code (python.py:1-1410, core_extractors.py:1-1097, python_schema.py:1-200)
+
+---
+
+## PROGRESS SUMMARY (2025-11-14)
+
+**Week 1 Progress**: 4 of 14 tasks complete (29%)
+
+**COMPLETED**:
+- ✅ Task 1.1.1: state_mutation_extractors.py skeleton (15 min)
+- ✅ Task 1.1.2: extract_instance_mutations() implementation (2 hours)
+- ✅ Task 1.1.3: extract_class_mutations() implementation (2 hours)
+- ✅ Task 1.1.8: Full 4-layer pipeline wiring (3 hours)
+
+**DATABASE IMPACT**:
+- Tables added: 2 (python_instance_mutations, python_class_mutations)
+- Records extracted: 759 total (749 instance + 10 class mutations)
+- Size impact: 0.12 MB (0.02% of total 689 MB database)
+- Data quality: 0 duplicates, clean extraction
+
+**REMAINING Week 1**:
+- ⚠️ Tasks 1.1.4-1.1.6: 3 more extractors (global/argument/augmented)
+- ⚠️ Block 1.2: Exception flow extractors (6 tasks)
+- ⚠️ Block 1.3: Week 1 verification (1 task)
+
+**ISSUES DISCOVERED**:
+- Database bloat to 689MB caused by taint analysis (100k deleted records in resolved_flow_audit)
+- 4-layer wiring pattern not documented in original proposal (discovered during implementation)
+- Lost 1 month of .pf/history/ due to rm -rf .pf (operator error, unrecoverable)
 
 ---
 
@@ -24,11 +52,16 @@ See `ACTUAL_PATTERNS.md` for full verification details.
 
 ### Block 1.1: State Mutation Extractors (8 tasks, 3 days)
 
-#### Task 1.1.1: Create state_mutation_extractors.py skeleton
+#### Task 1.1.1: Create state_mutation_extractors.py skeleton ✅ COMPLETE
 
 **Deliverable**: Module file with proper structure following flask_extractors.py pattern
 
-**Time**: 30 minutes
+**Time**: 30 minutes (actual: 15 minutes)
+
+**Status**: ✅ COMPLETE (2025-11-14)
+- Created: theauditor/ast_extractors/python/state_mutation_extractors.py (227 lines)
+- Includes: ARCHITECTURAL CONTRACT, helper functions, 5 placeholder extractors
+- Verification: Module imports successfully, all functions exist
 
 **Implementation**:
 ```bash
@@ -89,11 +122,18 @@ python -c "from theauditor.ast_extractors.python import state_mutation_extractor
 
 ---
 
-#### Task 1.1.2: Implement extract_instance_mutations()
+#### Task 1.1.2: Implement extract_instance_mutations() ✅ COMPLETE
 
 **Deliverable**: Extract `self.x = value` patterns with context flags
 
-**Time**: 4 hours
+**Time**: 4 hours (actual: 2 hours)
+
+**Status**: ✅ COMPLETE (2025-11-14)
+- Implemented: extract_instance_mutations() with 3 patterns (170 lines)
+- Patterns: Direct assignment, augmented assignment, method call mutations
+- Context flags: is_init, is_property_setter, is_dunder_method
+- Database: 749 records extracted from TheAuditor codebase
+- Verification: 0 duplicates, 385 side effects detected, clean data
 
 **Implementation** (based on core_extractors.py:401-468 pattern):
 ```python
@@ -208,7 +248,7 @@ def extract_instance_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 ```
 
-**Test Fixture** (tests/fixtures/python/state_mutation_patterns.py):
+**Test Fixture** (tests/fixtures/python/state_mutation_patterns.py): ✅ CREATED
 ```python
 class Counter:
     """Test class for instance mutations."""
@@ -269,9 +309,15 @@ for m in mutations:
 
 **Following same pattern as 1.1.2**, implement:
 
-- **1.1.3**: `extract_class_mutations()` - Detect `ClassName.x = value` and `cls.x = value` (2 hours)
+- **1.1.3**: `extract_class_mutations()` - Detect `ClassName.x = value` and `cls.x = value` ✅ COMPLETE
   - Reference: Similar to instance mutations but check for class name or `cls`
   - Test: `Counter.instances += 1` in class method
+  - **Status**: ✅ COMPLETE (2025-11-14)
+    - Extracted 10 class mutations from TheAuditor codebase (4 from test fixture)
+    - Detects both `ClassName.attr` and `cls.attr` patterns
+    - Distinguishes @classmethod context (6 records) from regular functions (4 records)
+    - Schema: python_class_mutations table added (161 total tables)
+    - 4-layer pipeline verified: Extractor → Orchestrator → Schema → Storage
 
 - **1.1.4**: `extract_global_mutations()` - Detect `global x; x = value` (2 hours)
   - Reference: Look for `ast.Global` nodes followed by assignments
@@ -297,11 +343,20 @@ for m in mutations:
 
 ---
 
-#### Task 1.1.8: Wire state mutation extractors to pipeline
+#### Task 1.1.8: Wire state mutation extractors to pipeline ✅ COMPLETE
 
 **Deliverable**: Add to python.py orchestrator following explicit call pattern
 
-**Time**: 2 hours
+**Time**: 2 hours (actual: 3 hours due to 4-layer wiring)
+
+**Status**: ✅ COMPLETE (2025-11-14)
+- Wired ALL 4 LAYERS:
+  1. Extractor: state_mutation_extractors.extract_instance_mutations()
+  2. Orchestrator: python.py imports + result keys + calls
+  3. Schema: python_schema.py PYTHON_INSTANCE_MUTATIONS table (8 columns, 3 indexes)
+  4. Storage: python_database.py add method + python_storage.py handler + base_database.py registration
+- End-to-end verified: 749 records in .pf/repo_index.db
+- Table count updated: 159→160 (schema contract enforced)
 
 **Step 1: Import module in python.py** (line 30-40):
 ```python
@@ -421,10 +476,19 @@ conn.close()
 ```
 
 **Success Criteria**:
-- ✅ `aud index` runs without errors
-- ✅ 5 new tables created in database
-- ✅ ≥10 records extracted from test fixtures
+- ✅ `aud full --offline` runs without errors (Task 1.1.8 COMPLETE)
+- ⚠️ 1 new table created (python_instance_mutations only) - 4 remaining
+- ✅ 749 records extracted from TheAuditor codebase
 - ✅ No import errors or syntax errors
+- ⚠️ Database grew to 689MB due to taint analysis deleted 100k records (not my extraction)
+
+**ACTUAL WIRING DISCOVERED** (Not documented in proposal):
+- Layer 1: Extractor function (state_mutation_extractors.py)
+- Layer 2: python.py import + result key + call
+- Layer 3: python_schema.py TableSchema definition + registration
+- Layer 4A: base_database.py batch list registration
+- Layer 4B: python_database.py add_* method
+- Layer 4C: python_storage.py handler method + handler registry
 
 ---
 

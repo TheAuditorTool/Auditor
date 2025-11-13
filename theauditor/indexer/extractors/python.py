@@ -29,11 +29,15 @@ from theauditor.ast_extractors import python as python_impl
 from theauditor.ast_extractors.base import get_node_name
 from theauditor.ast_extractors.python import (
     async_extractors,
+    behavioral_extractors,
     cdk_extractor,
     core_extractors,
+    data_flow_extractors,
     django_advanced_extractors,
+    exception_flow_extractors,
     flask_extractors,
     framework_extractors,
+    performance_extractors,
     security_extractors,
     state_mutation_extractors,
     testing_extractors,
@@ -147,6 +151,29 @@ class PythonExtractor(BaseExtractor):
             'python_django_querysets': [],  # Django QuerySet definitions
             # Causal Learning Patterns (Week 1 - State Mutations)
             'python_instance_mutations': [],  # self.x = value patterns (side effect detection)
+            'python_class_mutations': [],  # ClassName.x = value, cls.x = value patterns
+            'python_global_mutations': [],  # global x; x = value patterns
+            'python_argument_mutations': [],  # def foo(lst): lst.append(x) patterns
+            'python_augmented_assignments': [],  # x += 1 patterns (all target types)
+            # Causal Learning Patterns (Week 1 - Exception Flow)
+            'python_exception_raises': [],  # raise ValueError("msg") patterns
+            'python_exception_catches': [],  # except ValueError as e: ... patterns
+            'python_finally_blocks': [],  # finally: cleanup() patterns
+            'python_context_managers_enhanced': [],  # with open(...) as f: ... patterns (enhanced)
+            # Causal Learning Patterns (Week 2 - Data Flow)
+            'python_io_operations': [],  # File/DB/Network/Process/Env I/O operations
+            'python_parameter_return_flow': [],  # Parameter → return value flow tracking
+            'python_closure_captures': [],  # Closure variable captures from outer scope
+            'python_nonlocal_access': [],  # nonlocal variable modifications
+            # Causal Learning Patterns (Week 3 - Behavioral)
+            'python_recursion_patterns': [],  # Recursion detection (direct, tail, mutual)
+            'python_generator_yields': [],  # Generator yield patterns (enhanced)
+            'python_property_patterns': [],  # Property getters/setters with computation/validation
+            'python_dynamic_attributes': [],  # __getattr__, __setattr__, etc.
+            # Causal Learning Patterns (Week 4 - Performance)
+            'python_loop_complexity': [],  # Loop nesting levels and complexity estimation
+            'python_resource_usage': [],  # Large allocations, file handles, etc.
+            'python_memoization_patterns': [],  # Caching patterns and opportunities
         }
         seen_symbols = set()
         
@@ -440,6 +467,86 @@ class PythonExtractor(BaseExtractor):
                 instance_mutations = state_mutation_extractors.extract_instance_mutations(tree, self.ast_parser)
                 if instance_mutations:
                     result['python_instance_mutations'].extend(instance_mutations)
+
+                class_mutations = state_mutation_extractors.extract_class_mutations(tree, self.ast_parser)
+                if class_mutations:
+                    result['python_class_mutations'].extend(class_mutations)
+
+                global_mutations = state_mutation_extractors.extract_global_mutations(tree, self.ast_parser)
+                if global_mutations:
+                    result['python_global_mutations'].extend(global_mutations)
+
+                argument_mutations = state_mutation_extractors.extract_argument_mutations(tree, self.ast_parser)
+                if argument_mutations:
+                    result['python_argument_mutations'].extend(argument_mutations)
+
+                augmented_assignments = state_mutation_extractors.extract_augmented_assignments(tree, self.ast_parser)
+                if augmented_assignments:
+                    result['python_augmented_assignments'].extend(augmented_assignments)
+
+                # Exception flow patterns (Priority 1 - Causal Learning Week 1)
+                exception_raises = exception_flow_extractors.extract_exception_raises(tree, self.ast_parser)
+                if exception_raises:
+                    result['python_exception_raises'].extend(exception_raises)
+
+                exception_catches = exception_flow_extractors.extract_exception_catches(tree, self.ast_parser)
+                if exception_catches:
+                    result['python_exception_catches'].extend(exception_catches)
+
+                finally_blocks = exception_flow_extractors.extract_finally_blocks(tree, self.ast_parser)
+                if finally_blocks:
+                    result['python_finally_blocks'].extend(finally_blocks)
+
+                context_managers_enhanced = exception_flow_extractors.extract_context_managers(tree, self.ast_parser)
+                if context_managers_enhanced:
+                    result['python_context_managers_enhanced'].extend(context_managers_enhanced)
+
+                # Data flow patterns (Priority 3 - Causal Learning Week 2)
+                io_operations = data_flow_extractors.extract_io_operations(tree, self.ast_parser)
+                if io_operations:
+                    result['python_io_operations'].extend(io_operations)
+
+                parameter_return_flow = data_flow_extractors.extract_parameter_return_flow(tree, self.ast_parser)
+                if parameter_return_flow:
+                    result['python_parameter_return_flow'].extend(parameter_return_flow)
+
+                closure_captures = data_flow_extractors.extract_closure_captures(tree, self.ast_parser)
+                if closure_captures:
+                    result['python_closure_captures'].extend(closure_captures)
+
+                nonlocal_access = data_flow_extractors.extract_nonlocal_access(tree, self.ast_parser)
+                if nonlocal_access:
+                    result['python_nonlocal_access'].extend(nonlocal_access)
+
+                # Behavioral patterns (Priority 5 - Causal Learning Week 3)
+                recursion_patterns = behavioral_extractors.extract_recursion_patterns(tree, self.ast_parser)
+                if recursion_patterns:
+                    result['python_recursion_patterns'].extend(recursion_patterns)
+
+                generator_yields = behavioral_extractors.extract_generator_yields(tree, self.ast_parser)
+                if generator_yields:
+                    result['python_generator_yields'].extend(generator_yields)
+
+                property_patterns = behavioral_extractors.extract_property_patterns(tree, self.ast_parser)
+                if property_patterns:
+                    result['python_property_patterns'].extend(property_patterns)
+
+                dynamic_attributes = behavioral_extractors.extract_dynamic_attributes(tree, self.ast_parser)
+                if dynamic_attributes:
+                    result['python_dynamic_attributes'].extend(dynamic_attributes)
+
+                # Performance patterns (Priority 7 - Causal Learning Week 4)
+                loop_complexity = performance_extractors.extract_loop_complexity(tree, self.ast_parser)
+                if loop_complexity:
+                    result['python_loop_complexity'].extend(loop_complexity)
+
+                resource_usage = performance_extractors.extract_resource_usage(tree, self.ast_parser)
+                if resource_usage:
+                    result['python_resource_usage'].extend(resource_usage)
+
+                memoization_patterns = performance_extractors.extract_memoization_patterns(tree, self.ast_parser)
+                if memoization_patterns:
+                    result['python_memoization_patterns'].extend(memoization_patterns)
 
                 # AWS CDK Infrastructure-as-Code constructs
                 cdk_constructs = cdk_extractor.extract_python_cdk_constructs(tree, self.ast_parser)
