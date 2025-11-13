@@ -1086,6 +1086,384 @@ PYTHON_INSTANCE_MUTATIONS = TableSchema(
     ]
 )
 
+PYTHON_CLASS_MUTATIONS = TableSchema(
+    name="python_class_mutations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),  # 'Counter' or 'cls'
+        Column("attribute", "TEXT", nullable=False),  # 'instances', 'call_count'
+        Column("operation", "TEXT", nullable=False),  # 'assignment' | 'augmented_assignment'
+        Column("in_function", "TEXT", nullable=False),
+        Column("is_classmethod", "BOOLEAN", default="0"),  # True if in @classmethod
+    ],
+    primary_key=["file", "line", "class_name", "attribute"],
+    indexes=[
+        ("idx_python_class_mutations_file", ["file"]),
+        ("idx_python_class_mutations_class", ["class_name"]),
+        ("idx_python_class_mutations_function", ["in_function"]),
+    ]
+)
+
+PYTHON_GLOBAL_MUTATIONS = TableSchema(
+    name="python_global_mutations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("global_name", "TEXT", nullable=False),  # '_cache', '_global_counter'
+        Column("operation", "TEXT", nullable=False),  # 'assignment' | 'augmented_assignment' | 'item_assignment' | 'attr_assignment'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    primary_key=["file", "line", "global_name"],
+    indexes=[
+        ("idx_python_global_mutations_file", ["file"]),
+        ("idx_python_global_mutations_name", ["global_name"]),
+        ("idx_python_global_mutations_function", ["in_function"]),
+    ]
+)
+
+PYTHON_ARGUMENT_MUTATIONS = TableSchema(
+    name="python_argument_mutations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("parameter_name", "TEXT", nullable=False),  # 'items', 'data', 'elements'
+        Column("mutation_type", "TEXT", nullable=False),  # 'method_call' | 'item_assignment' | 'attr_assignment' | 'assignment' | 'augmented_assignment'
+        Column("mutation_detail", "TEXT", nullable=False),  # Method name or operation type
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    primary_key=["file", "line", "parameter_name"],
+    indexes=[
+        ("idx_python_argument_mutations_file", ["file"]),
+        ("idx_python_argument_mutations_param", ["parameter_name"]),
+        ("idx_python_argument_mutations_function", ["in_function"]),
+        ("idx_python_argument_mutations_type", ["mutation_type"]),
+    ]
+)
+
+PYTHON_AUGMENTED_ASSIGNMENTS = TableSchema(
+    name="python_augmented_assignments",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("target", "TEXT", nullable=False),  # 'self.counter', 'Counter.instances', 'x'
+        Column("operator", "TEXT", nullable=False),  # '+=' | '-=' | '*=' | '/=' | '//=' | '%=' | '**=' | '&=' | '|=' | '^=' | '>>=' | '<<='
+        Column("target_type", "TEXT", nullable=False),  # 'instance' | 'class' | 'global' | 'local' | 'argument' | 'subscript'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    primary_key=["file", "line", "target"],
+    indexes=[
+        ("idx_python_augmented_assignments_file", ["file"]),
+        ("idx_python_augmented_assignments_target_type", ["target_type"]),
+        ("idx_python_augmented_assignments_operator", ["operator"]),
+        ("idx_python_augmented_assignments_function", ["in_function"]),
+    ]
+)
+
+# ============================================================================
+# CAUSAL LEARNING: EXCEPTION FLOW PATTERNS (Week 1, Block 1.2)
+# ============================================================================
+
+PYTHON_EXCEPTION_RAISES = TableSchema(
+    name="python_exception_raises",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("exception_type", "TEXT"),  # 'ValueError' or None for bare raise
+        Column("message", "TEXT"),  # Static message if extractable
+        Column("from_exception", "TEXT"),  # Exception chaining (raise X from Y)
+        Column("in_function", "TEXT", nullable=False),
+        Column("condition", "TEXT"),  # Conditional raises (if x < 0: raise ...)
+        Column("is_re_raise", "BOOLEAN", default="0"),  # True for bare 'raise'
+    ],
+    primary_key=["file", "line"],
+    indexes=[
+        ("idx_python_exception_raises_file", ["file"]),
+        ("idx_python_exception_raises_type", ["exception_type"]),
+        ("idx_python_exception_raises_function", ["in_function"]),
+        ("idx_python_exception_raises_re_raise", ["is_re_raise"]),
+    ]
+)
+
+PYTHON_EXCEPTION_CATCHES = TableSchema(
+    name="python_exception_catches",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("exception_types", "TEXT", nullable=False),  # Comma-separated for multiple types
+        Column("variable_name", "TEXT"),  # 'e' in 'as e'
+        Column("handling_strategy", "TEXT", nullable=False),  # 'return_none' | 're_raise' | 'log_and_continue' | etc.
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    primary_key=["file", "line"],
+    indexes=[
+        ("idx_python_exception_catches_file", ["file"]),
+        ("idx_python_exception_catches_types", ["exception_types"]),
+        ("idx_python_exception_catches_strategy", ["handling_strategy"]),
+        ("idx_python_exception_catches_function", ["in_function"]),
+    ]
+)
+
+PYTHON_FINALLY_BLOCKS = TableSchema(
+    name="python_finally_blocks",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("cleanup_calls", "TEXT"),  # Comma-separated function names called in finally
+        Column("has_cleanup", "BOOLEAN", default="0"),  # True if contains cleanup logic
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    primary_key=["file", "line"],
+    indexes=[
+        ("idx_python_finally_blocks_file", ["file"]),
+        ("idx_python_finally_blocks_function", ["in_function"]),
+        ("idx_python_finally_blocks_has_cleanup", ["has_cleanup"]),
+    ]
+)
+
+PYTHON_CONTEXT_MANAGERS_ENHANCED = TableSchema(
+    name="python_context_managers_enhanced",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("context_expr", "TEXT", nullable=False),  # 'open(file)' or 'lock'
+        Column("variable_name", "TEXT"),  # 'f' in 'as f'
+        Column("in_function", "TEXT", nullable=False),
+        Column("is_async", "BOOLEAN", default="0"),
+        Column("resource_type", "TEXT"),  # 'file' | 'lock' | 'database' | 'network' | None
+    ],
+    primary_key=["file", "line", "context_expr"],
+    indexes=[
+        ("idx_python_context_managers_enhanced_file", ["file"]),
+        ("idx_python_context_managers_enhanced_function", ["in_function"]),
+        ("idx_python_context_managers_enhanced_resource", ["resource_type"]),
+        ("idx_python_context_managers_enhanced_async", ["is_async"]),
+    ]
+)
+
+# ============================================================================
+# CAUSAL LEARNING: DATA FLOW PATTERNS (Week 2, Block 2.1)
+# ============================================================================
+
+PYTHON_IO_OPERATIONS = TableSchema(
+    name="python_io_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("io_type", "TEXT", nullable=False),  # 'FILE_WRITE' | 'FILE_READ' | 'DB_COMMIT' | 'DB_QUERY' | 'NETWORK' | 'PROCESS' | 'ENV_MODIFY'
+        Column("operation", "TEXT", nullable=False),  # 'open' | 'requests.post' | 'subprocess.run' | etc.
+        Column("target", "TEXT"),  # Filename, URL, command, etc. (if static)
+        Column("is_static", "BOOLEAN", default="0"),  # True if target is statically known
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    primary_key=["file", "line", "io_type", "operation"],
+    indexes=[
+        ("idx_python_io_operations_file", ["file"]),
+        ("idx_python_io_operations_type", ["io_type"]),
+        ("idx_python_io_operations_function", ["in_function"]),
+        ("idx_python_io_operations_static", ["is_static"]),
+    ]
+)
+
+PYTHON_PARAMETER_RETURN_FLOW = TableSchema(
+    name="python_parameter_return_flow",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("parameter_name", "TEXT", nullable=False),  # Parameter referenced in return
+        Column("return_expr", "TEXT", nullable=False),  # Full return expression
+        Column("flow_type", "TEXT", nullable=False),  # 'direct' | 'transformed' | 'conditional' | 'other'
+        Column("is_async", "BOOLEAN", default="0"),
+    ],
+    primary_key=["file", "line", "function_name", "parameter_name"],
+    indexes=[
+        ("idx_python_parameter_return_flow_file", ["file"]),
+        ("idx_python_parameter_return_flow_function", ["function_name"]),
+        ("idx_python_parameter_return_flow_type", ["flow_type"]),
+    ]
+)
+
+PYTHON_CLOSURE_CAPTURES = TableSchema(
+    name="python_closure_captures",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("inner_function", "TEXT", nullable=False),  # Nested function name
+        Column("captured_variable", "TEXT", nullable=False),  # Variable from outer scope
+        Column("outer_function", "TEXT", nullable=False),  # Enclosing function name
+        Column("is_lambda", "BOOLEAN", default="0"),  # True if inner function is lambda
+    ],
+    primary_key=["file", "line", "inner_function", "captured_variable"],
+    indexes=[
+        ("idx_python_closure_captures_file", ["file"]),
+        ("idx_python_closure_captures_inner", ["inner_function"]),
+        ("idx_python_closure_captures_outer", ["outer_function"]),
+        ("idx_python_closure_captures_variable", ["captured_variable"]),
+    ]
+)
+
+PYTHON_NONLOCAL_ACCESS = TableSchema(
+    name="python_nonlocal_access",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("variable_name", "TEXT", nullable=False),  # Nonlocal variable name
+        Column("access_type", "TEXT", nullable=False),  # 'read' | 'write'
+        Column("in_function", "TEXT", nullable=False),  # Function containing nonlocal declaration
+    ],
+    primary_key=["file", "line", "variable_name", "access_type"],
+    indexes=[
+        ("idx_python_nonlocal_access_file", ["file"]),
+        ("idx_python_nonlocal_access_variable", ["variable_name"]),
+        ("idx_python_nonlocal_access_type", ["access_type"]),
+        ("idx_python_nonlocal_access_function", ["in_function"]),
+    ]
+)
+
+# ============================================================================
+# CAUSAL LEARNING: BEHAVIORAL PATTERNS (Week 3, Block 3.1)
+# ============================================================================
+
+PYTHON_RECURSION_PATTERNS = TableSchema(
+    name="python_recursion_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("recursion_type", "TEXT", nullable=False),  # 'direct' | 'tail' | 'mutual'
+        Column("calls_function", "TEXT", nullable=False),  # Function being called
+        Column("base_case_line", "INTEGER"),  # Line number of base case condition
+        Column("is_async", "BOOLEAN", default="0"),
+    ],
+    primary_key=["file", "line", "function_name", "calls_function"],
+    indexes=[
+        ("idx_python_recursion_patterns_file", ["file"]),
+        ("idx_python_recursion_patterns_function", ["function_name"]),
+        ("idx_python_recursion_patterns_type", ["recursion_type"]),
+    ]
+)
+
+PYTHON_GENERATOR_YIELDS = TableSchema(
+    name="python_generator_yields",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("generator_function", "TEXT", nullable=False),
+        Column("yield_type", "TEXT", nullable=False),  # 'yield' | 'yield_from'
+        Column("yield_expr", "TEXT"),  # Expression being yielded
+        Column("condition", "TEXT"),  # Condition if inside if statement
+        Column("in_loop", "BOOLEAN", default="0"),  # True if yield is inside a loop
+    ],
+    primary_key=["file", "line", "generator_function"],
+    indexes=[
+        ("idx_python_generator_yields_file", ["file"]),
+        ("idx_python_generator_yields_function", ["generator_function"]),
+        ("idx_python_generator_yields_type", ["yield_type"]),
+        ("idx_python_generator_yields_in_loop", ["in_loop"]),
+    ]
+)
+
+PYTHON_PROPERTY_PATTERNS = TableSchema(
+    name="python_property_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("property_name", "TEXT", nullable=False),
+        Column("access_type", "TEXT", nullable=False),  # 'getter' | 'setter' | 'deleter'
+        Column("in_class", "TEXT", nullable=False),  # Class name containing property
+        Column("has_computation", "BOOLEAN", default="0"),  # True if getter has computation
+        Column("has_validation", "BOOLEAN", default="0"),  # True if setter has validation
+    ],
+    primary_key=["file", "line", "property_name", "access_type"],
+    indexes=[
+        ("idx_python_property_patterns_file", ["file"]),
+        ("idx_python_property_patterns_property", ["property_name"]),
+        ("idx_python_property_patterns_class", ["in_class"]),
+        ("idx_python_property_patterns_type", ["access_type"]),
+    ]
+)
+
+PYTHON_DYNAMIC_ATTRIBUTES = TableSchema(
+    name="python_dynamic_attributes",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("method_name", "TEXT", nullable=False),  # '__getattr__' | '__setattr__' | '__getattribute__' | '__delattr__'
+        Column("in_class", "TEXT", nullable=False),  # Class name containing method
+        Column("has_delegation", "BOOLEAN", default="0"),  # True if method delegates to another object
+        Column("has_validation", "BOOLEAN", default="0"),  # True if method validates
+    ],
+    primary_key=["file", "line", "method_name", "in_class"],
+    indexes=[
+        ("idx_python_dynamic_attributes_file", ["file"]),
+        ("idx_python_dynamic_attributes_method", ["method_name"]),
+        ("idx_python_dynamic_attributes_class", ["in_class"]),
+    ]
+)
+
+# ============================================================================
+# CAUSAL LEARNING: PERFORMANCE INDICATORS (Week 4, Block 4.1)
+# ============================================================================
+
+PYTHON_LOOP_COMPLEXITY = TableSchema(
+    name="python_loop_complexity",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("loop_type", "TEXT", nullable=False),  # 'for' | 'while' | 'comprehension'
+        Column("nesting_level", "INTEGER", nullable=False),  # 1, 2, 3, 4+
+        Column("has_growing_operation", "BOOLEAN", default="0"),  # True if contains append/extend/+=
+        Column("in_function", "TEXT", nullable=False),
+        Column("estimated_complexity", "TEXT", nullable=False),  # 'O(n)' | 'O(n^2)' | 'O(n^3)' | etc.
+    ],
+    primary_key=["file", "line", "loop_type"],
+    indexes=[
+        ("idx_python_loop_complexity_file", ["file"]),
+        ("idx_python_loop_complexity_function", ["in_function"]),
+        ("idx_python_loop_complexity_nesting", ["nesting_level"]),
+        ("idx_python_loop_complexity_complexity", ["estimated_complexity"]),
+    ]
+)
+
+PYTHON_RESOURCE_USAGE = TableSchema(
+    name="python_resource_usage",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("resource_type", "TEXT", nullable=False),  # 'large_list' | 'large_dict' | 'file_handle' | 'db_connection' | 'string_concat'
+        Column("allocation_expr", "TEXT", nullable=False),  # Expression that allocates resource
+        Column("in_function", "TEXT", nullable=False),
+        Column("has_cleanup", "BOOLEAN", default="0"),  # True if resource cleanup is present
+    ],
+    primary_key=["file", "line", "resource_type"],
+    indexes=[
+        ("idx_python_resource_usage_file", ["file"]),
+        ("idx_python_resource_usage_type", ["resource_type"]),
+        ("idx_python_resource_usage_function", ["in_function"]),
+    ]
+)
+
+PYTHON_MEMOIZATION_PATTERNS = TableSchema(
+    name="python_memoization_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function_name", "TEXT", nullable=False),
+        Column("has_memoization", "BOOLEAN", default="0"),  # True if memoization present
+        Column("memoization_type", "TEXT", nullable=False),  # 'lru_cache' | 'cache' | 'manual' | 'none'
+        Column("is_recursive", "BOOLEAN", default="0"),  # True if function is recursive
+        Column("cache_size", "INTEGER"),  # LRU cache size if specified
+    ],
+    primary_key=["file", "line", "function_name"],
+    indexes=[
+        ("idx_python_memoization_patterns_file", ["file"]),
+        ("idx_python_memoization_patterns_function", ["function_name"]),
+        ("idx_python_memoization_patterns_has_memo", ["has_memoization"]),
+        ("idx_python_memoization_patterns_recursive", ["is_recursive"]),
+    ]
+)
+
 # ============================================================================
 # PYTHON TABLES REGISTRY
 # ============================================================================
@@ -1160,4 +1538,27 @@ PYTHON_TABLES: Dict[str, TableSchema] = {
     "python_flask_cache": PYTHON_FLASK_CACHE,
     # Causal Learning Patterns (Week 1 - Side Effect Detection)
     "python_instance_mutations": PYTHON_INSTANCE_MUTATIONS,
+    "python_class_mutations": PYTHON_CLASS_MUTATIONS,
+    "python_global_mutations": PYTHON_GLOBAL_MUTATIONS,
+    "python_argument_mutations": PYTHON_ARGUMENT_MUTATIONS,
+    "python_augmented_assignments": PYTHON_AUGMENTED_ASSIGNMENTS,
+    # Causal Learning Patterns (Week 1 - Exception Flow)
+    "python_exception_raises": PYTHON_EXCEPTION_RAISES,
+    "python_exception_catches": PYTHON_EXCEPTION_CATCHES,
+    "python_finally_blocks": PYTHON_FINALLY_BLOCKS,
+    "python_context_managers_enhanced": PYTHON_CONTEXT_MANAGERS_ENHANCED,
+    # Causal Learning Patterns (Week 2 - Data Flow)
+    "python_io_operations": PYTHON_IO_OPERATIONS,
+    "python_parameter_return_flow": PYTHON_PARAMETER_RETURN_FLOW,
+    "python_closure_captures": PYTHON_CLOSURE_CAPTURES,
+    "python_nonlocal_access": PYTHON_NONLOCAL_ACCESS,
+    # Causal Learning Patterns (Week 3 - Behavioral)
+    "python_recursion_patterns": PYTHON_RECURSION_PATTERNS,
+    "python_generator_yields": PYTHON_GENERATOR_YIELDS,
+    "python_property_patterns": PYTHON_PROPERTY_PATTERNS,
+    "python_dynamic_attributes": PYTHON_DYNAMIC_ATTRIBUTES,
+    # Causal Learning Patterns (Week 4 - Performance)
+    "python_loop_complexity": PYTHON_LOOP_COMPLEXITY,
+    "python_resource_usage": PYTHON_RESOURCE_USAGE,
+    "python_memoization_patterns": PYTHON_MEMOIZATION_PATTERNS,
 }
