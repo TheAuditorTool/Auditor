@@ -3077,6 +3077,31 @@ class PythonHypothesisStrategiesTable:
         return [dict(zip(['file', 'line', 'test_name', 'strategy_count', 'strategies'], row)) for row in cursor.fetchall()]
 
 
+class PythonInstanceMutationsTable:
+    """Accessor class for python_instance_mutations table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> List[Dict[str, Any]]:
+        """Get all rows from python_instance_mutations."""
+        query = build_query('python_instance_mutations', ['file', 'line', 'target', 'operation', 'in_function', 'is_init', 'is_property_setter', 'is_dunder_method'])
+        cursor.execute(query)
+        return [dict(zip(['file', 'line', 'target', 'operation', 'in_function', 'is_init', 'is_property_setter', 'is_dunder_method'], row)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file(cursor: sqlite3.Cursor, file: str) -> List[Dict[str, Any]]:
+        """Get rows by file."""
+        query = build_query('python_instance_mutations', ['file', 'line', 'target', 'operation', 'in_function', 'is_init', 'is_property_setter', 'is_dunder_method'], where="file = ?")
+        cursor.execute(query, (file,))
+        return [dict(zip(['file', 'line', 'target', 'operation', 'in_function', 'is_init', 'is_property_setter', 'is_dunder_method'], row)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_in_function(cursor: sqlite3.Cursor, in_function: str) -> List[Dict[str, Any]]:
+        """Get rows by in_function."""
+        query = build_query('python_instance_mutations', ['file', 'line', 'target', 'operation', 'in_function', 'is_init', 'is_property_setter', 'is_dunder_method'], where="in_function = ?")
+        cursor.execute(query, (in_function,))
+        return [dict(zip(['file', 'line', 'target', 'operation', 'in_function', 'is_init', 'is_property_setter', 'is_dunder_method'], row)) for row in cursor.fetchall()]
+
+
 class PythonJwtOperationsTable:
     """Accessor class for python_jwt_operations table."""
 

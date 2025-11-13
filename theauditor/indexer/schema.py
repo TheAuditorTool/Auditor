@@ -80,7 +80,7 @@ TABLES: Dict[str, TableSchema] = {
 # Total: 159 tables (Added frontend_api_calls for cross-boundary flow tracking)
 
 # Verify table count at module load time
-assert len(TABLES) == 159, f"Schema contract violation: Expected 159 tables, got {len(TABLES)}"
+assert len(TABLES) == 160, f"Schema contract violation: Expected 160 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 

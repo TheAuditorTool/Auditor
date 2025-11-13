@@ -35,6 +35,7 @@ from theauditor.ast_extractors.python import (
     flask_extractors,
     framework_extractors,
     security_extractors,
+    state_mutation_extractors,
     testing_extractors,
     type_extractors
 )
@@ -144,6 +145,8 @@ class PythonExtractor(BaseExtractor):
             'python_django_receivers': [],  # Django @receiver decorators
             'python_django_managers': [],  # Django custom managers
             'python_django_querysets': [],  # Django QuerySet definitions
+            # Causal Learning Patterns (Week 1 - State Mutations)
+            'python_instance_mutations': [],  # self.x = value patterns (side effect detection)
         }
         seen_symbols = set()
         
@@ -432,6 +435,11 @@ class PythonExtractor(BaseExtractor):
                 django_querysets = django_advanced_extractors.extract_django_querysets(tree, self.ast_parser)
                 if django_querysets:
                     result['python_django_querysets'].extend(django_querysets)
+
+                # Causal Learning Patterns (Week 1 - Side Effect Detection)
+                instance_mutations = state_mutation_extractors.extract_instance_mutations(tree, self.ast_parser)
+                if instance_mutations:
+                    result['python_instance_mutations'].extend(instance_mutations)
 
                 # AWS CDK Infrastructure-as-Code constructs
                 cdk_constructs = cdk_extractor.extract_python_cdk_constructs(tree, self.ast_parser)
