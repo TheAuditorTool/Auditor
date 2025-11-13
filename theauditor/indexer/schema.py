@@ -77,10 +77,10 @@ TABLES: Dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 179 tables (164 + 4 Week 1 exception flow + 4 Week 2 data flow + 4 Week 3 behavioral + 3 Week 4 performance = Causal Learning COMPLETE)
+# Total: 180 tables (164 + 4 Week 1 exception flow + 5 Week 2 data flow + 4 Week 3 behavioral + 3 Week 4 performance = Causal Learning COMPLETE)
 
 # Verify table count at module load time
-assert len(TABLES) == 179, f"Schema contract violation: Expected 179 tables, got {len(TABLES)}"
+assert len(TABLES) == 180, f"Schema contract violation: Expected 180 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 

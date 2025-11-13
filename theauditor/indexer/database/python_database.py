@@ -840,3 +840,231 @@ class PythonDatabaseMixin:
             1 if has_as_manager else 0,
             method_chain  # nullable
         ))
+
+    # ============================================================================
+    # CAUSAL LEARNING: EXCEPTION FLOW PATTERNS (Week 1, Block 1.2)
+    # ============================================================================
+
+    def add_python_exception_raise(self, file_path: str, line: int, exception_type: Optional[str],
+                                    message: Optional[str], from_exception: Optional[str],
+                                    in_function: str, condition: Optional[str], is_re_raise: bool):
+        """Add a Python exception raise pattern to the batch."""
+        self.generic_batches['python_exception_raises'].append((
+            file_path,
+            line,
+            exception_type,
+            message,
+            from_exception,
+            in_function,
+            condition,
+            1 if is_re_raise else 0
+        ))
+
+    def add_python_exception_catch(self, file_path: str, line: int, exception_types: str,
+                                    variable_name: Optional[str], handling_strategy: str,
+                                    in_function: str):
+        """Add a Python exception catch pattern to the batch."""
+        self.generic_batches['python_exception_catches'].append((
+            file_path,
+            line,
+            exception_types,
+            variable_name,
+            handling_strategy,
+            in_function
+        ))
+
+    def add_python_finally_block(self, file_path: str, line: int, cleanup_calls: Optional[str],
+                                  has_cleanup: bool, in_function: str):
+        """Add a Python finally block pattern to the batch."""
+        self.generic_batches['python_finally_blocks'].append((
+            file_path,
+            line,
+            cleanup_calls,
+            1 if has_cleanup else 0,
+            in_function
+        ))
+
+    def add_python_context_manager_enhanced(self, file_path: str, line: int, context_expr: str,
+                                             variable_name: Optional[str], in_function: str,
+                                             is_async: bool, resource_type: Optional[str]):
+        """Add a Python context manager enhanced pattern to the batch."""
+        self.generic_batches['python_context_managers_enhanced'].append((
+            file_path,
+            line,
+            context_expr,
+            variable_name,
+            in_function,
+            1 if is_async else 0,
+            resource_type
+        ))
+
+    # ============================================================================
+    # CAUSAL LEARNING: DATA FLOW PATTERNS (Week 2, Block 2.1)
+    # ============================================================================
+
+    def add_python_io_operation(self, file_path: str, line: int, io_type: str,
+                                 operation: str, target: Optional[str],
+                                 is_static: bool, in_function: str):
+        """Add a Python I/O operation pattern to the batch."""
+        self.generic_batches['python_io_operations'].append((
+            file_path,
+            line,
+            io_type,
+            operation,
+            target,
+            1 if is_static else 0,
+            in_function
+        ))
+
+    def add_python_parameter_return_flow(self, file_path: str, line: int, function_name: str,
+                                          parameter_name: str, return_expr: str,
+                                          flow_type: str, is_async: bool):
+        """Add a Python parameter-to-return flow pattern to the batch."""
+        self.generic_batches['python_parameter_return_flow'].append((
+            file_path,
+            line,
+            function_name,
+            parameter_name,
+            return_expr,
+            flow_type,
+            1 if is_async else 0
+        ))
+
+    def add_python_closure_capture(self, file_path: str, line: int, inner_function: str,
+                                    captured_variable: str, outer_function: str, is_lambda: bool):
+        """Add a Python closure capture pattern to the batch."""
+        self.generic_batches['python_closure_captures'].append((
+            file_path,
+            line,
+            inner_function,
+            captured_variable,
+            outer_function,
+            1 if is_lambda else 0
+        ))
+
+    def add_python_nonlocal_access(self, file_path: str, line: int, variable_name: str,
+                                    access_type: str, in_function: str):
+        """Add a Python nonlocal access pattern to the batch."""
+        self.generic_batches['python_nonlocal_access'].append((
+            file_path,
+            line,
+            variable_name,
+            access_type,
+            in_function
+        ))
+
+    def add_python_conditional_call(self, file_path: str, line: int, function_call: str,
+                                     condition_expr: Optional[str], condition_type: str,
+                                     in_function: str, nesting_level: int):
+        """Add a Python conditional call pattern to the batch."""
+        self.generic_batches['python_conditional_calls'].append((
+            file_path,
+            line,
+            function_call,
+            condition_expr,
+            condition_type,
+            in_function,
+            nesting_level
+        ))
+
+    # ============================================================================
+    # CAUSAL LEARNING: BEHAVIORAL PATTERNS (Week 3, Block 3.1)
+    # ============================================================================
+
+    def add_python_recursion_pattern(self, file_path: str, line: int, function_name: str,
+                                      recursion_type: str, calls_function: str,
+                                      base_case_line: Optional[int], is_async: bool):
+        """Add a Python recursion pattern to the batch."""
+        self.generic_batches['python_recursion_patterns'].append((
+            file_path,
+            line,
+            function_name,
+            recursion_type,
+            calls_function,
+            base_case_line,
+            1 if is_async else 0
+        ))
+
+    def add_python_generator_yield(self, file_path: str, line: int, generator_function: str,
+                                    yield_type: str, yield_expr: Optional[str],
+                                    condition: Optional[str], in_loop: bool):
+        """Add a Python generator yield pattern to the batch."""
+        self.generic_batches['python_generator_yields'].append((
+            file_path,
+            line,
+            generator_function,
+            yield_type,
+            yield_expr,
+            condition,
+            1 if in_loop else 0
+        ))
+
+    def add_python_property_pattern(self, file_path: str, line: int, property_name: str,
+                                     access_type: str, in_class: str,
+                                     has_computation: bool, has_validation: bool):
+        """Add a Python property pattern to the batch."""
+        self.generic_batches['python_property_patterns'].append((
+            file_path,
+            line,
+            property_name,
+            access_type,
+            in_class,
+            1 if has_computation else 0,
+            1 if has_validation else 0
+        ))
+
+    def add_python_dynamic_attribute(self, file_path: str, line: int, method_name: str,
+                                      in_class: str, has_delegation: bool, has_validation: bool):
+        """Add a Python dynamic attribute pattern to the batch."""
+        self.generic_batches['python_dynamic_attributes'].append((
+            file_path,
+            line,
+            method_name,
+            in_class,
+            1 if has_delegation else 0,
+            1 if has_validation else 0
+        ))
+
+    # ============================================================================
+    # CAUSAL LEARNING: PERFORMANCE INDICATORS (Week 4, Block 4.1)
+    # ============================================================================
+
+    def add_python_loop_complexity(self, file_path: str, line: int, loop_type: str,
+                                    nesting_level: int, has_growing_operation: bool,
+                                    in_function: str, estimated_complexity: str):
+        """Add a Python loop complexity pattern to the batch."""
+        self.generic_batches['python_loop_complexity'].append((
+            file_path,
+            line,
+            loop_type,
+            nesting_level,
+            1 if has_growing_operation else 0,
+            in_function,
+            estimated_complexity
+        ))
+
+    def add_python_resource_usage(self, file_path: str, line: int, resource_type: str,
+                                   allocation_expr: str, in_function: str, has_cleanup: bool):
+        """Add a Python resource usage pattern to the batch."""
+        self.generic_batches['python_resource_usage'].append((
+            file_path,
+            line,
+            resource_type,
+            allocation_expr,
+            in_function,
+            1 if has_cleanup else 0
+        ))
+
+    def add_python_memoization_pattern(self, file_path: str, line: int, function_name: str,
+                                        has_memoization: bool, memoization_type: str,
+                                        is_recursive: bool, cache_size: Optional[int]):
+        """Add a Python memoization pattern to the batch."""
+        self.generic_batches['python_memoization_patterns'].append((
+            file_path,
+            line,
+            function_name,
+            1 if has_memoization else 0,
+            memoization_type,
+            1 if is_recursive else 0,
+            cache_size
+        ))

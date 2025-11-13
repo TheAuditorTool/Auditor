@@ -1321,6 +1321,27 @@ PYTHON_NONLOCAL_ACCESS = TableSchema(
     ]
 )
 
+PYTHON_CONDITIONAL_CALLS = TableSchema(
+    name="python_conditional_calls",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function_call", "TEXT", nullable=False),  # Function being called conditionally
+        Column("condition_expr", "TEXT"),  # Condition expression (if extractable)
+        Column("condition_type", "TEXT", nullable=False),  # 'if' | 'elif' | 'else' | 'guard' | 'exception'
+        Column("in_function", "TEXT", nullable=False),  # Containing function
+        Column("nesting_level", "INTEGER", nullable=False),  # Depth of conditional nesting
+    ],
+    primary_key=["file", "line", "function_call"],
+    indexes=[
+        ("idx_python_conditional_calls_file", ["file"]),
+        ("idx_python_conditional_calls_function", ["function_call"]),
+        ("idx_python_conditional_calls_type", ["condition_type"]),
+        ("idx_python_conditional_calls_containing", ["in_function"]),
+        ("idx_python_conditional_calls_nesting", ["nesting_level"]),
+    ]
+)
+
 # ============================================================================
 # CAUSAL LEARNING: BEHAVIORAL PATTERNS (Week 3, Block 3.1)
 # ============================================================================
@@ -1552,6 +1573,7 @@ PYTHON_TABLES: Dict[str, TableSchema] = {
     "python_parameter_return_flow": PYTHON_PARAMETER_RETURN_FLOW,
     "python_closure_captures": PYTHON_CLOSURE_CAPTURES,
     "python_nonlocal_access": PYTHON_NONLOCAL_ACCESS,
+    "python_conditional_calls": PYTHON_CONDITIONAL_CALLS,
     # Causal Learning Patterns (Week 3 - Behavioral)
     "python_recursion_patterns": PYTHON_RECURSION_PATTERNS,
     "python_generator_yields": PYTHON_GENERATOR_YIELDS,

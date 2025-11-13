@@ -111,6 +111,30 @@ class PythonStorage(BaseStorage):
             'python_global_mutations': self._store_python_global_mutations,
             'python_argument_mutations': self._store_python_argument_mutations,
             'python_augmented_assignments': self._store_python_augmented_assignments,
+
+            # Causal Learning - Week 1: Exception Flow (4)
+            'python_exception_raises': self._store_python_exception_raises,
+            'python_exception_catches': self._store_python_exception_catches,
+            'python_finally_blocks': self._store_python_finally_blocks,
+            'python_context_managers_enhanced': self._store_python_context_managers_enhanced,
+
+            # Causal Learning - Week 2: Data Flow (4)
+            'python_io_operations': self._store_python_io_operations,
+            'python_parameter_return_flow': self._store_python_parameter_return_flow,
+            'python_closure_captures': self._store_python_closure_captures,
+            'python_nonlocal_access': self._store_python_nonlocal_access,
+            'python_conditional_calls': self._store_python_conditional_calls,
+
+            # Causal Learning - Week 3: Behavioral (4)
+            'python_recursion_patterns': self._store_python_recursion_patterns,
+            'python_generator_yields': self._store_python_generator_yields,
+            'python_property_patterns': self._store_python_property_patterns,
+            'python_dynamic_attributes': self._store_python_dynamic_attributes,
+
+            # Causal Learning - Week 4: Performance (3)
+            'python_loop_complexity': self._store_python_loop_complexity,
+            'python_resource_usage': self._store_python_resource_usage,
+            'python_memoization_patterns': self._store_python_memoization_patterns,
         }
 
     def _store_python_orm_models(self, file_path: str, python_orm_models: List, jsx_pass: bool):
@@ -1062,6 +1086,259 @@ class PythonStorage(BaseStorage):
             if 'python_protocols' not in self.counts:
                 self.counts['python_protocols'] = 0
             self.counts['python_protocols'] += 1
+
+    # ========================================================================
+    # Causal Learning Storage Handlers (Week 1-4: 15 new handlers)
+    # ========================================================================
+
+    def _store_python_exception_raises(self, file_path: str, python_exception_raises: List, jsx_pass: bool):
+        """Store exception raise patterns (Week 1 Exception Flow)."""
+        for item in python_exception_raises:
+            self.db_manager.add_python_exception_raise(
+                file_path,
+                item.get('line', 0),
+                item.get('exception_type'),
+                item.get('message'),
+                item.get('from_exception'),
+                item.get('in_function', 'global'),
+                item.get('condition'),
+                item.get('is_re_raise', False)
+            )
+            if 'python_exception_raises' not in self.counts:
+                self.counts['python_exception_raises'] = 0
+            self.counts['python_exception_raises'] += 1
+
+    def _store_python_exception_catches(self, file_path: str, python_exception_catches: List, jsx_pass: bool):
+        """Store exception catch patterns (Week 1 Exception Flow)."""
+        for item in python_exception_catches:
+            self.db_manager.add_python_exception_catch(
+                file_path,
+                item.get('line', 0),
+                item.get('exception_types', ''),
+                item.get('variable_name'),
+                item.get('handling_strategy', ''),
+                item.get('in_function', 'global')
+            )
+            if 'python_exception_catches' not in self.counts:
+                self.counts['python_exception_catches'] = 0
+            self.counts['python_exception_catches'] += 1
+
+    def _store_python_finally_blocks(self, file_path: str, python_finally_blocks: List, jsx_pass: bool):
+        """Store finally block patterns (Week 1 Exception Flow)."""
+        for item in python_finally_blocks:
+            self.db_manager.add_python_finally_block(
+                file_path,
+                item.get('line', 0),
+                item.get('cleanup_calls'),
+                item.get('has_cleanup', False),
+                item.get('in_function', 'global')
+            )
+            if 'python_finally_blocks' not in self.counts:
+                self.counts['python_finally_blocks'] = 0
+            self.counts['python_finally_blocks'] += 1
+
+    def _store_python_context_managers_enhanced(self, file_path: str, python_context_managers_enhanced: List, jsx_pass: bool):
+        """Store enhanced context manager patterns (Week 1 Exception Flow)."""
+        for item in python_context_managers_enhanced:
+            self.db_manager.add_python_context_manager_enhanced(
+                file_path,
+                item.get('line', 0),
+                item.get('context_expr', ''),
+                item.get('variable_name'),
+                item.get('in_function', 'global'),
+                item.get('is_async', False),
+                item.get('resource_type')
+            )
+            if 'python_context_managers_enhanced' not in self.counts:
+                self.counts['python_context_managers_enhanced'] = 0
+            self.counts['python_context_managers_enhanced'] += 1
+
+    def _store_python_io_operations(self, file_path: str, python_io_operations: List, jsx_pass: bool):
+        """Store I/O operation patterns (Week 2 Data Flow)."""
+        for item in python_io_operations:
+            self.db_manager.add_python_io_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('io_type', ''),
+                item.get('operation', ''),
+                item.get('target'),
+                item.get('is_static', False),
+                item.get('in_function', 'global')
+            )
+            if 'python_io_operations' not in self.counts:
+                self.counts['python_io_operations'] = 0
+            self.counts['python_io_operations'] += 1
+
+    def _store_python_parameter_return_flow(self, file_path: str, python_parameter_return_flow: List, jsx_pass: bool):
+        """Store parameter return flow patterns (Week 2 Data Flow)."""
+        for item in python_parameter_return_flow:
+            self.db_manager.add_python_parameter_return_flow(
+                file_path,
+                item.get('line', 0),
+                item.get('function_name', ''),
+                item.get('parameter_name', ''),
+                item.get('return_expr', ''),
+                item.get('flow_type', ''),
+                item.get('is_async', False)
+            )
+            if 'python_parameter_return_flow' not in self.counts:
+                self.counts['python_parameter_return_flow'] = 0
+            self.counts['python_parameter_return_flow'] += 1
+
+    def _store_python_closure_captures(self, file_path: str, python_closure_captures: List, jsx_pass: bool):
+        """Store closure capture patterns (Week 2 Data Flow)."""
+        for item in python_closure_captures:
+            self.db_manager.add_python_closure_capture(
+                file_path,
+                item.get('line', 0),
+                item.get('inner_function', ''),
+                item.get('captured_variable', ''),
+                item.get('outer_function', ''),
+                item.get('is_lambda', False)
+            )
+            if 'python_closure_captures' not in self.counts:
+                self.counts['python_closure_captures'] = 0
+            self.counts['python_closure_captures'] += 1
+
+    def _store_python_nonlocal_access(self, file_path: str, python_nonlocal_access: List, jsx_pass: bool):
+        """Store nonlocal access patterns (Week 2 Data Flow)."""
+        for item in python_nonlocal_access:
+            self.db_manager.add_python_nonlocal_access(
+                file_path,
+                item.get('line', 0),
+                item.get('variable_name', ''),
+                item.get('access_type', ''),
+                item.get('in_function', 'global')
+            )
+            if 'python_nonlocal_access' not in self.counts:
+                self.counts['python_nonlocal_access'] = 0
+            self.counts['python_nonlocal_access'] += 1
+
+    def _store_python_conditional_calls(self, file_path: str, python_conditional_calls: List, jsx_pass: bool):
+        """Store conditional call patterns (Week 2 Data Flow)."""
+        for item in python_conditional_calls:
+            self.db_manager.add_python_conditional_call(
+                file_path,
+                item.get('line', 0),
+                item.get('function_call', ''),
+                item.get('condition_expr'),
+                item.get('condition_type', ''),
+                item.get('in_function', 'global'),
+                item.get('nesting_level', 1)
+            )
+            if 'python_conditional_calls' not in self.counts:
+                self.counts['python_conditional_calls'] = 0
+            self.counts['python_conditional_calls'] += 1
+
+    def _store_python_recursion_patterns(self, file_path: str, python_recursion_patterns: List, jsx_pass: bool):
+        """Store recursion patterns (Week 3 Behavioral)."""
+        for item in python_recursion_patterns:
+            self.db_manager.add_python_recursion_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('function_name', ''),
+                item.get('recursion_type', ''),
+                item.get('calls_function', ''),
+                item.get('base_case_line'),
+                item.get('is_async', False)
+            )
+            if 'python_recursion_patterns' not in self.counts:
+                self.counts['python_recursion_patterns'] = 0
+            self.counts['python_recursion_patterns'] += 1
+
+    def _store_python_generator_yields(self, file_path: str, python_generator_yields: List, jsx_pass: bool):
+        """Store generator yield patterns (Week 3 Behavioral)."""
+        for item in python_generator_yields:
+            self.db_manager.add_python_generator_yield(
+                file_path,
+                item.get('line', 0),
+                item.get('generator_function', ''),
+                item.get('yield_type', ''),
+                item.get('yield_expr'),
+                item.get('condition'),
+                item.get('in_loop', False)
+            )
+            if 'python_generator_yields' not in self.counts:
+                self.counts['python_generator_yields'] = 0
+            self.counts['python_generator_yields'] += 1
+
+    def _store_python_property_patterns(self, file_path: str, python_property_patterns: List, jsx_pass: bool):
+        """Store property patterns (Week 3 Behavioral)."""
+        for item in python_property_patterns:
+            self.db_manager.add_python_property_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('property_name', ''),
+                item.get('access_type', ''),
+                item.get('in_class', ''),
+                item.get('has_computation', False),
+                item.get('has_validation', False)
+            )
+            if 'python_property_patterns' not in self.counts:
+                self.counts['python_property_patterns'] = 0
+            self.counts['python_property_patterns'] += 1
+
+    def _store_python_dynamic_attributes(self, file_path: str, python_dynamic_attributes: List, jsx_pass: bool):
+        """Store dynamic attribute patterns (Week 3 Behavioral)."""
+        for item in python_dynamic_attributes:
+            self.db_manager.add_python_dynamic_attribute(
+                file_path,
+                item.get('line', 0),
+                item.get('method_name', ''),
+                item.get('in_class', ''),
+                item.get('has_delegation', False),
+                item.get('has_validation', False)
+            )
+            if 'python_dynamic_attributes' not in self.counts:
+                self.counts['python_dynamic_attributes'] = 0
+            self.counts['python_dynamic_attributes'] += 1
+
+    def _store_python_loop_complexity(self, file_path: str, python_loop_complexity: List, jsx_pass: bool):
+        """Store loop complexity patterns (Week 4 Performance)."""
+        for item in python_loop_complexity:
+            self.db_manager.add_python_loop_complexity(
+                file_path,
+                item.get('line', 0),
+                item.get('loop_type', ''),
+                item.get('nesting_level', 1),
+                item.get('has_growing_operation', False),
+                item.get('in_function', 'global'),
+                item.get('estimated_complexity', '')
+            )
+            if 'python_loop_complexity' not in self.counts:
+                self.counts['python_loop_complexity'] = 0
+            self.counts['python_loop_complexity'] += 1
+
+    def _store_python_resource_usage(self, file_path: str, python_resource_usage: List, jsx_pass: bool):
+        """Store resource usage patterns (Week 4 Performance)."""
+        for item in python_resource_usage:
+            self.db_manager.add_python_resource_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('resource_type', ''),
+                item.get('allocation_expr', ''),
+                item.get('in_function', 'global'),
+                item.get('has_cleanup', False)
+            )
+            if 'python_resource_usage' not in self.counts:
+                self.counts['python_resource_usage'] = 0
+            self.counts['python_resource_usage'] += 1
+
+    def _store_python_memoization_patterns(self, file_path: str, python_memoization_patterns: List, jsx_pass: bool):
+        """Store memoization patterns (Week 4 Performance)."""
+        for item in python_memoization_patterns:
+            self.db_manager.add_python_memoization_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('function_name', ''),
+                item.get('has_memoization', False),
+                item.get('memoization_type', ''),
+                item.get('is_recursive', False),
+                item.get('cache_size')
+            )
+            if 'python_memoization_patterns' not in self.counts:
+                self.counts['python_memoization_patterns'] = 0
+            self.counts['python_memoization_patterns'] += 1
 
     def _store_python_generics(self, file_path: str, python_generics: List, jsx_pass: bool):
         """Store Python generics."""
