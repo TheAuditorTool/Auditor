@@ -1063,6 +1063,30 @@ PYTHON_FLASK_CACHE = TableSchema(
 )
 
 # ============================================================================
+# CAUSAL LEARNING PATTERNS (Week 1 - Side Effect Detection)
+# ============================================================================
+
+PYTHON_INSTANCE_MUTATIONS = TableSchema(
+    name="python_instance_mutations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("target", "TEXT", nullable=False),  # 'self.counter', 'self.config.debug'
+        Column("operation", "TEXT", nullable=False),  # 'assignment' | 'augmented_assignment' | 'method_call'
+        Column("in_function", "TEXT", nullable=False),
+        Column("is_init", "BOOLEAN", default="0"),  # True if in __init__ (expected mutation)
+        Column("is_property_setter", "BOOLEAN", default="0"),  # True if in @property.setter
+        Column("is_dunder_method", "BOOLEAN", default="0"),  # True if in __setitem__, __enter__, etc.
+    ],
+    primary_key=["file", "line", "target"],
+    indexes=[
+        ("idx_python_instance_mutations_file", ["file"]),
+        ("idx_python_instance_mutations_function", ["in_function"]),
+        ("idx_python_instance_mutations_side_effects", ["is_init", "is_property_setter", "is_dunder_method"]),
+    ]
+)
+
+# ============================================================================
 # PYTHON TABLES REGISTRY
 # ============================================================================
 
@@ -1134,4 +1158,6 @@ PYTHON_TABLES: Dict[str, TableSchema] = {
     "python_flask_cors": PYTHON_FLASK_CORS,
     "python_flask_rate_limits": PYTHON_FLASK_RATE_LIMITS,
     "python_flask_cache": PYTHON_FLASK_CACHE,
+    # Causal Learning Patterns (Week 1 - Side Effect Detection)
+    "python_instance_mutations": PYTHON_INSTANCE_MUTATIONS,
 }

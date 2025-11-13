@@ -324,6 +324,9 @@ class BaseDatabaseManager:
                 ('python_literals', 'INSERT'),
                 ('python_overloads', 'INSERT'),
 
+                # Causal Learning Patterns (Week 1 - State Mutations)
+                ('python_instance_mutations', 'INSERT'),
+
                 # SQL query tables (before junction table)
                 ('sql_query_tables', 'INSERT'),  # Junction table
 

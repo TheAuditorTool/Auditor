@@ -103,7 +103,10 @@ class PythonStorage(BaseStorage):
             'python_context_managers': self._store_python_context_managers,
             'python_async_functions': self._store_python_async_functions,
             'python_await_expressions': self._store_python_await_expressions,
-            'python_async_generators': self._store_python_async_generators
+            'python_async_generators': self._store_python_async_generators,
+
+            # Causal Learning Patterns (Week 1 - State Mutations)
+            'python_instance_mutations': self._store_python_instance_mutations,
         }
 
     def _store_python_orm_models(self, file_path: str, python_orm_models: List, jsx_pass: bool):
@@ -894,6 +897,23 @@ class PythonStorage(BaseStorage):
             if 'python_async_generators' not in self.counts:
                 self.counts['python_async_generators'] = 0
             self.counts['python_async_generators'] += 1
+
+    def _store_python_instance_mutations(self, file_path: str, python_instance_mutations: List, jsx_pass: bool):
+        """Store Python instance attribute mutations (Causal Learning - Week 1)."""
+        for mutation in python_instance_mutations:
+            self.db_manager.add_python_instance_mutation(
+                file_path,
+                mutation.get('line', 0),
+                mutation.get('target', ''),
+                mutation.get('operation', ''),
+                mutation.get('in_function', 'global'),
+                mutation.get('is_init', False),
+                mutation.get('is_property_setter', False),
+                mutation.get('is_dunder_method', False)
+            )
+            if 'python_instance_mutations' not in self.counts:
+                self.counts['python_instance_mutations'] = 0
+            self.counts['python_instance_mutations'] += 1
 
     def _store_python_pytest_fixtures(self, file_path: str, python_pytest_fixtures: List, jsx_pass: bool):
         """Store Python pytest fixtures."""

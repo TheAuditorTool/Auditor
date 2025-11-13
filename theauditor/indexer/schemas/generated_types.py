@@ -1044,6 +1044,17 @@ class PythonHypothesisStrategiesRow(TypedDict):
     strategy_count: Optional[int]
     strategies: Optional[str]
 
+class PythonInstanceMutationsRow(TypedDict):
+    """Row type for python_instance_mutations table."""
+    file: str
+    line: int
+    target: str
+    operation: str
+    in_function: str
+    is_init: Optional[bool]
+    is_property_setter: Optional[bool]
+    is_dunder_method: Optional[bool]
+
 class PythonJwtOperationsRow(TypedDict):
     """Row type for python_jwt_operations table."""
     file: str

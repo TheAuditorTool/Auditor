@@ -95,6 +95,21 @@ class PythonDatabaseMixin:
             1 if is_async else 0
         ))
 
+    def add_python_instance_mutation(self, file_path: str, line: int, target: str,
+                                     operation: str, in_function: str, is_init: bool,
+                                     is_property_setter: bool, is_dunder_method: bool):
+        """Add Python instance attribute mutation (Causal Learning - Week 1)."""
+        self.generic_batches['python_instance_mutations'].append((
+            file_path,
+            line,
+            target,
+            operation,
+            in_function,
+            1 if is_init else 0,
+            1 if is_property_setter else 0,
+            1 if is_dunder_method else 0
+        ))
+
     def add_python_context_manager(self, file_path: str, line: int, context_type: str,
                                    context_expr: Optional[str], as_name: Optional[str],
                                    is_async: bool, is_custom: bool):
