@@ -165,6 +165,7 @@ class PythonExtractor(BaseExtractor):
             'python_parameter_return_flow': [],  # Parameter → return value flow tracking
             'python_closure_captures': [],  # Closure variable captures from outer scope
             'python_nonlocal_access': [],  # nonlocal variable modifications
+            'python_conditional_calls': [],  # Function calls under conditional execution
             # Causal Learning Patterns (Week 3 - Behavioral)
             'python_recursion_patterns': [],  # Recursion detection (direct, tail, mutual)
             'python_generator_yields': [],  # Generator yield patterns (enhanced)
@@ -517,6 +518,10 @@ class PythonExtractor(BaseExtractor):
                 nonlocal_access = data_flow_extractors.extract_nonlocal_access(tree, self.ast_parser)
                 if nonlocal_access:
                     result['python_nonlocal_access'].extend(nonlocal_access)
+
+                conditional_calls = data_flow_extractors.extract_conditional_calls(tree, self.ast_parser)
+                if conditional_calls:
+                    result['python_conditional_calls'].extend(conditional_calls)
 
                 # Behavioral patterns (Priority 5 - Causal Learning Week 3)
                 recursion_patterns = behavioral_extractors.extract_recursion_patterns(tree, self.ast_parser)
