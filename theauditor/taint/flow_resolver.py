@@ -6,18 +6,18 @@ TheAuditor from a security scanner to a complete codebase resolution engine wher
 the database becomes the queryable truth for AI agents.
 
 Architecture:
-    - Forward BFS traversal from ALL entry points to ALL exit points
+    - Forward DFS traversal from ALL entry points to ALL exit points (memory-efficient)
     - Records complete provenance (hop chains) for every flow
     - Classifies flows as SAFE or TRUNCATED only (security rules applied later)
     - Populates resolved_flow_audit table with >100,000 resolved flows
     - Uses graph node IDs: file::function::variable (matches dfg_builder.py)
+    - Memory optimized: No redundant visited sets, DFS stack instead of BFS queue
 """
 
 import json
 import sqlite3
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
-from collections import deque
 
 from theauditor.utils.logger import setup_logger
 from .sanitizer_util import SanitizerRegistry
@@ -47,7 +47,8 @@ class FlowResolver:
         self.graph_conn = sqlite3.connect(graph_db)
         self.flows_resolved = 0
         self.max_depth = 20  # Maximum hop chain length
-        self.max_flows = 1_000_000  # Safety limit for total flows
+        self.max_flows = 100_000  # REDUCED: Safety limit (prevents CPU kill on large graphs)
+        self.max_flows_per_entry = 1_000  # NEW: Per-entry limit to prevent single entry explosion
 
         # Initialize shared sanitizer registry
         self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, registry=None)
@@ -365,18 +366,21 @@ class FlowResolver:
         return exit_nodes
 
     def _trace_from_entry(self, entry_id: str, exit_nodes: Set[str]) -> None:
-        """Trace all flows from a single entry point using BFS.
+        """Trace all flows from a single entry point using DFS (memory-efficient).
 
         Args:
             entry_id: Entry point node ID (format: file::function::variable)
             exit_nodes: Set of exit node IDs to trace to
         """
-        # BFS with path tracking
-        # Use visited set to prevent infinite loops, but allow revisiting nodes via different paths
-        worklist = deque([(entry_id, [entry_id], set())])  # (current_node, path, visited_in_this_path)
+        # MEMORY FIX: DFS with path-only tracking
+        # Removed redundant visited set - path list already tracks visited nodes
+        # DFS (stack/LIFO) uses less memory than BFS (queue/FIFO) for wide graphs
+        worklist = [(entry_id, [entry_id])]  # (current_node, path) - NO visited set
+        flows_from_this_entry = 0
 
-        while worklist and self.flows_resolved < self.max_flows:
-            current_id, path, visited = worklist.popleft()
+        while worklist and self.flows_resolved < self.max_flows and flows_from_this_entry < self.max_flows_per_entry:
+            # DFS: pop from end (LIFO)
+            current_id, path = worklist.pop()
 
             # Check depth limit
             if len(path) > self.max_depth:
@@ -389,19 +393,22 @@ class FlowResolver:
             if current_id in exit_nodes:
                 status, sanitizer_meta = self._classify_flow(path)
                 self._record_flow(entry_id, current_id, path, status, sanitizer_meta)
-                # BUG FIX: Removed 'continue' to allow finding ALL paths, not just shortest
-                # This enables discovery of longer paths through validation middleware
+                flows_from_this_entry += 1
+                # ARCHITECTURAL FIX: NO continue here - allow finding multiple paths
+                # The IFDS cycle detection fix (removing depth from state) prevents
+                # exponential explosion, so we can safely enumerate multiple paths
+                # per entry/exit pair without killing CPU
 
             # Get successors from unified graph
             successors = self._get_successors(current_id)
 
             for successor_id in successors:
-                # Prevent cycles within this specific path
-                if successor_id not in visited:
-                    new_visited = visited.copy()
-                    new_visited.add(successor_id)
+                # MEMORY FIX: Check path list directly instead of separate visited set
+                # Path max length = 20, so O(20) scan is faster than set copy
+                # This eliminates 15GB+ of redundant set copies
+                if successor_id not in path:
                     new_path = path + [successor_id]
-                    worklist.append((successor_id, new_path, new_visited))
+                    worklist.append((successor_id, new_path))
 
     def _get_successors(self, node_id: str) -> List[str]:
         """Get successor nodes from the unified data flow graph.

@@ -178,7 +178,7 @@ class IFDSTaintAnalyzer:
         # Worklist: (current_ap, depth, hop_chain, matched_source)
         # PHASE 6.1: Added matched_source to track which source (if any) this path reached
         worklist = deque([(sink_ap, 0, [], None)])
-        visited_states: Set[Tuple[str, int]] = set()
+        visited_states: Set[str] = set()  # ARCHITECTURAL FIX: Only node_id, no depth
         iteration = 0
 
         while worklist and (len(vulnerable_paths) + len(sanitized_paths)) < self.max_paths_per_sink:
@@ -190,11 +190,19 @@ class IFDSTaintAnalyzer:
 
             current_ap, depth, hop_chain, matched_source = worklist.popleft()
 
-            # Cycle detection
-            state = (current_ap.node_id, depth)
+            # Cycle detection - ARCHITECTURAL FIX: Remove depth from state
+            # Including depth allows loops to be traversed 10x (once per depth level)
+            # causing exponential path explosion. We only need to visit each node once.
+            state = current_ap.node_id
             if state in visited_states:
                 continue
             visited_states.add(state)
+
+            # Prevent loops within CURRENT path (immediate cycle detection)
+            path_nodes = {hop.get('from') for hop in hop_chain if isinstance(hop, dict) and hop.get('from')}
+            path_nodes.update({hop.get('to') for hop in hop_chain if isinstance(hop, dict) and hop.get('to')})
+            if current_ap.node_id in path_nodes:
+                continue  # Loop detected in current path - skip
 
             # PHASE 6.1: Check if current node is a TRUE ENTRY POINT (not just pattern match)
             # This prevents false positives from local variables named 'query' or 'data'

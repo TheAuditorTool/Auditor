@@ -34,9 +34,16 @@ class SanitizerRegistry:
         self.safe_sinks: Set[str] = set()
         self.validation_sanitizers: List[Dict] = []
 
+        # ARCHITECTURAL FIX: Pre-load DB data to eliminate DB-in-loop bottleneck
+        # These caches convert O(paths × hops) SQL queries to O(1) memory lookups
+        self.call_args_cache: Dict[tuple, List[str]] = {}  # (file, line) -> [callees]
+        self.middleware_cache: Dict[str, str] = {}  # controller_func -> validation_middleware
+
         # Load data from database
         self._load_safe_sinks()
         self._load_validation_sanitizers()
+        self._preload_call_args()
+        self._preload_middleware_chains()
 
     def _load_safe_sinks(self):
         """Load safe sink patterns from framework_safe_sinks table.
@@ -98,6 +105,67 @@ class SanitizerRegistry:
             if self.debug:
                 print(f"[SanitizerRegistry] Failed to load validation sanitizers: {e}", file=sys.stderr)
             # NO FALLBACK - if table doesn't exist, database is broken
+
+    def _preload_call_args(self):
+        """Pre-load function_call_args into memory to eliminate DB queries in hot loop.
+
+        ARCHITECTURAL FIX: Converts O(paths × hops) SQL queries to O(1) hash lookups.
+        For 10k paths × 8 hops = 80k queries eliminated.
+        """
+        try:
+            self.repo_cursor.execute("""
+                SELECT file, line, callee_function
+                FROM function_call_args
+                WHERE callee_function IS NOT NULL
+            """)
+
+            for row in self.repo_cursor.fetchall():
+                key = (row['file'], row['line'])
+                if key not in self.call_args_cache:
+                    self.call_args_cache[key] = []
+                self.call_args_cache[key].append(row['callee_function'])
+
+            if self.debug:
+                print(f"[SanitizerRegistry] Pre-loaded {len(self.call_args_cache)} file:line locations with {sum(len(v) for v in self.call_args_cache.values())} function calls", file=sys.stderr)
+        except Exception as e:
+            if self.debug:
+                print(f"[SanitizerRegistry] Failed to preload call args: {e}", file=sys.stderr)
+            # NO FALLBACK - continue with empty cache
+
+    def _preload_middleware_chains(self):
+        """Pre-load express_middleware_chains for controller validation checks.
+
+        ARCHITECTURAL FIX: Eliminates expensive EXISTS subqueries in hot loop.
+        """
+        try:
+            # Build a map of controller function -> validation middleware
+            # This captures routes that have validation middleware before the controller
+            self.repo_cursor.execute("""
+                SELECT DISTINCT
+                    emc2.handler_expr as controller,
+                    emc1.handler_expr as validation
+                FROM express_middleware_chains emc1
+                JOIN express_middleware_chains emc2
+                  ON emc2.route_path = emc1.route_path
+                 AND emc2.route_method = emc1.route_method
+                WHERE emc1.handler_expr LIKE '%validate%'
+                  AND emc2.handler_expr LIKE '%Controller%'
+            """)
+
+            for row in self.repo_cursor.fetchall():
+                controller = row['controller']
+                validation = row['validation']
+                # Extract function name from controller expression
+                if '.' in controller:
+                    func_name = controller.split('.')[-1]
+                    self.middleware_cache[func_name] = validation
+
+            if self.debug:
+                print(f"[SanitizerRegistry] Pre-loaded {len(self.middleware_cache)} controller->validation mappings", file=sys.stderr)
+        except Exception as e:
+            if self.debug:
+                print(f"[SanitizerRegistry] Failed to preload middleware chains: {e}", file=sys.stderr)
+            # NO FALLBACK - continue with empty cache
 
     def _is_sanitizer(self, function_name: str) -> bool:
         """Check if a function name matches any safe sink pattern.
@@ -220,14 +288,9 @@ class SanitizerRegistry:
                             }
 
             # CHECK 3: Query function_call_args for safe sink patterns
-            if hop_line > 0:  # Only query if we have a line number
-                self.repo_cursor.execute("""
-                    SELECT callee_function FROM function_call_args
-                    WHERE file = ? AND line = ?
-                    LIMIT 10
-                """, (hop_file, hop_line))
-
-                callees = [row['callee_function'] for row in self.repo_cursor.fetchall()]
+            # ARCHITECTURAL FIX: Use pre-loaded cache instead of SQL query
+            if hop_line > 0:  # Only check if we have a line number
+                callees = self.call_args_cache.get((hop_file, hop_line), [])
 
                 if self.debug and callees:
                     print(f"[SanitizerRegistry] Found {len(callees)} function calls at {hop_file}:{hop_line}", file=sys.stderr)
@@ -261,30 +324,18 @@ class SanitizerRegistry:
                     if self.debug:
                         print(f"[SanitizerRegistry] Checking middleware for controller: {controller_func}", file=sys.stderr)
 
-                    # Query for validation middleware on routes using this controller
-                    # Look for validateBody/validateParams that execute BEFORE the controller
-                    self.repo_cursor.execute("""
-                        SELECT DISTINCT handler_expr
-                        FROM express_middleware_chains emc1
-                        WHERE EXISTS (
-                            SELECT 1 FROM express_middleware_chains emc2
-                            WHERE emc2.route_path = emc1.route_path
-                              AND emc2.route_method = emc1.route_method
-                              AND (emc2.handler_expr LIKE '%' || ? || '%'
-                                   OR emc2.handler_expr LIKE '%controller.' || ? || '%')
-                        )
-                        AND emc1.handler_expr LIKE '%validate%'
-                        LIMIT 1
-                    """, (controller_func, controller_func.split('.')[-1] if '.' in controller_func else controller_func))
+                    # ARCHITECTURAL FIX: Use pre-loaded cache instead of SQL EXISTS query
+                    # Extract function name (handle both "create" and "WorkerController.create")
+                    func_name = controller_func.split('.')[-1] if '.' in controller_func else controller_func
 
-                    validation_middleware = self.repo_cursor.fetchone()
+                    validation_middleware = self.middleware_cache.get(func_name)
                     if validation_middleware:
                         if self.debug:
-                            print(f"[SanitizerRegistry] Found validation middleware: {validation_middleware[0]}", file=sys.stderr)
+                            print(f"[SanitizerRegistry] Found validation middleware: {validation_middleware}", file=sys.stderr)
                         return {
                             'file': parts[0] if parts else "",
                             'line': 0,
-                            'method': f"middleware:{validation_middleware[0]}"
+                            'method': f"middleware:{validation_middleware}"
                         }
 
         if self.debug:
