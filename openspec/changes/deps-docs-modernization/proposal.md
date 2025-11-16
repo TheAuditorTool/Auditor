@@ -248,6 +248,16 @@ def _crawl_docs_site(base_url, version, max_pages=10):
     # docs/py/flask@3.1.0/api.md
 ```
 
+**New CLI Flags for docs command**:
+```python
+# In theauditor/commands/docs.py
+@click.option("--max-pages", default=10, help="Max pages to crawl per package")
+@click.option("--version-aware", is_flag=True, help="Use version-specific URLs")
+@click.option("--extract-syntax", is_flag=True, help="Generate AI extraction prompts")
+def docs_fetch_command(..., max_pages, version_aware, extract_syntax):
+    # Pass options to fetch functions
+```
+
 ### Week 4: AI-Powered Extraction
 
 **Extraction Prompt Generation**:
