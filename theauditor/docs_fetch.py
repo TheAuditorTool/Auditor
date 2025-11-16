@@ -10,14 +10,36 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from theauditor.security import sanitize_path, sanitize_url_component, validate_package_name, SecurityError
 
+try:
+    from bs4 import BeautifulSoup
+    from markdownify import markdownify as md
+    BEAUTIFULSOUP_AVAILABLE = True
+except ImportError:
+    BEAUTIFULSOUP_AVAILABLE = False
 
-# Default allowlist for registries
+
+# Default allowlist for registries and documentation sites
 DEFAULT_ALLOWLIST = [
+    # Package registries
     "https://registry.npmjs.org/",
-    "https://pypi.org/",  # Allow both API and web scraping
+    "https://pypi.org/",
     "https://raw.githubusercontent.com/",
+    # Documentation hosting platforms
     "https://readthedocs.io/",
     "https://readthedocs.org/",
+    "https://docs.python.org/",
+    # Common documentation site patterns
+    "https://flask.palletsprojects.com/",
+    "https://docs.sqlalchemy.org/",
+    "https://numpy.org/doc/",
+    "https://pandas.pydata.org/",
+    "https://scikit-learn.org/",
+    "https://pytorch.org/docs/",
+    "https://www.tensorflow.org/",
+    "https://fastapi.tiangolo.com/",
+    "https://django.readthedocs.io/",
+    "https://www.django-rest-framework.org/",
+    # Generic GitHub Pages pattern (will be extended per-package)
 ]
 
 # Rate limiting configuration - optimized for minimal runtime
@@ -428,42 +450,115 @@ def _fetch_pypi_docs(
             # If description is too short, enhance it
             description = _enhance_pypi_description(info, description, summary)
 
-        # Write documentation
-        with open(doc_file, "w", encoding="utf-8") as f:
-            f.write(f"# {name}@{version}\n\n")
-            f.write(f"**Package**: [{name}](https://pypi.org/project/{name}/)\n")
-            f.write(f"**Version**: {version}\n")
+        # Try to crawl documentation site if available
+        crawled_docs = {}
+        doc_site_url = None
 
-            # Add project URLs if available
-            if project_urls:
-                f.write("\n**Links**:\n")
-                for key, url in list(project_urls.items())[:5]:  # Limit to 5
-                    if url:
-                        f.write(f"- {key}: {url}\n")
+        # Look for ReadTheDocs or other doc sites in project URLs
+        for key, proj_url in project_urls.items():
+            if proj_url and ("readthedocs" in proj_url.lower() or "docs" in key.lower()):
+                # Found a documentation site - try to crawl it
+                doc_site_url = proj_url
+                try:
+                    # Add common doc sites to allowlist
+                    extended_allowlist = allowlist + [
+                        "https://docs.python.org/",
+                        f"https://{name}.readthedocs.io/",
+                        f"https://{name}.readthedocs.org/",
+                        f"https://{name}.github.io/",
+                        f"https://www.{name}.org/",
+                    ]
+                    crawled_docs = _crawl_docs_site(
+                        proj_url.rstrip("/"),
+                        name,
+                        version,
+                        max_pages=5,  # Limit to 5 pages for PyPI
+                        allowlist=extended_allowlist
+                    )
+                    if crawled_docs:
+                        break  # Successfully crawled
+                except Exception:
+                    pass  # Crawling failed, fall back to README only
 
-            f.write("\n---\n\n")
+        # Write documentation - multiple files if crawled, single file otherwise
+        source_urls = {}
 
-            # Add summary if different from description
-            if summary and summary not in description:
-                f.write(f"**Summary**: {summary}\n\n")
+        if crawled_docs:
+            # Multi-file storage: README.md + crawled pages
+            # Write README.md
+            readme_file = pkg_dir / "README.md"
+            with open(readme_file, "w", encoding="utf-8") as f:
+                f.write(f"# {name}@{version}\n\n")
+                f.write(f"**Package**: [{name}](https://pypi.org/project/{name}/)\n")
+                f.write(f"**Version**: {version}\n")
 
-            f.write(description)
+                if project_urls:
+                    f.write("\n**Links**:\n")
+                    for key, proj_url in list(project_urls.items())[:5]:
+                        if proj_url:
+                            f.write(f"- {key}: {proj_url}\n")
 
-            # Add installation instructions if not in description
-            if "pip install" not in description.lower():
-                f.write(f"\n\n## Installation\n\n```bash\npip install {name}\n```\n")
+                f.write("\n---\n\n")
 
-            # Add basic usage if really minimal docs
-            if len(description) < 200:
-                f.write(f"\n\n## Basic Usage\n\n```python\nimport {name.replace('-', '_')}\n```\n")
+                if summary and summary not in description:
+                    f.write(f"**Summary**: {summary}\n\n")
+
+                f.write(description)
+
+                if "pip install" not in description.lower():
+                    f.write(f"\n\n## Installation\n\n```bash\npip install {name}\n```\n")
+
+            source_urls["README"] = url  # PyPI API URL
+
+            # Write crawled documentation pages
+            for page_name, content in crawled_docs.items():
+                page_file = pkg_dir / f"{page_name}.md"
+                with open(page_file, "w", encoding="utf-8") as f:
+                    f.write(f"# {name}@{version} - {page_name.replace('_', ' ').title()}\n\n")
+                    f.write(content)
+                source_urls[page_name] = doc_site_url or "crawled"
+
+        else:
+            # Single-file storage (legacy format for backward compatibility)
+            with open(doc_file, "w", encoding="utf-8") as f:
+                f.write(f"# {name}@{version}\n\n")
+                f.write(f"**Package**: [{name}](https://pypi.org/project/{name}/)\n")
+                f.write(f"**Version**: {version}\n")
+
+                if project_urls:
+                    f.write("\n**Links**:\n")
+                    for key, proj_url in list(project_urls.items())[:5]:
+                        if proj_url:
+                            f.write(f"- {key}: {proj_url}\n")
+
+                f.write("\n---\n\n")
+
+                if summary and summary not in description:
+                    f.write(f"**Summary**: {summary}\n\n")
+
+                f.write(description)
+
+                if "pip install" not in description.lower():
+                    f.write(f"\n\n## Installation\n\n```bash\npip install {name}\n```\n")
+
+                if len(description) < 200:
+                    f.write(f"\n\n## Basic Usage\n\n```python\nimport {name.replace('-', '_')}\n```\n")
+
+            source_urls["doc"] = url
 
         # Write metadata
         meta = {
+            "package": name,
+            "version": version,
+            "ecosystem": "py",
             "source_url": url,
+            "source_urls": source_urls,
+            "file_count": len(source_urls),
             "last_checked": datetime.now().isoformat(),
             "etag": response.headers.get("ETag"),
             "project_urls": project_urls,
-            "from_github": github_fetched
+            "from_github": github_fetched,
+            "crawled": len(crawled_docs) > 0
         }
         with open(meta_file, "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
@@ -565,6 +660,209 @@ def _enhance_npm_readme(data: Dict[str, Any], readme: str) -> str:
             enhanced += f"- {dep}: {ver}\n"
 
     return enhanced
+
+
+def _fetch_and_convert_html(url: str, allowlist: List[str], timeout: int = 10) -> Optional[str]:
+    """
+    Fetch HTML from URL and convert to clean markdown using BeautifulSoup.
+
+    This replaces the old regex-based HTML parsing with proper DOM parsing.
+    Falls back to regex if BeautifulSoup is not available.
+
+    Args:
+        url: URL to fetch
+        allowlist: List of allowed URL prefixes
+        timeout: Request timeout in seconds
+
+    Returns:
+        Cleaned markdown content or None on error
+    """
+    if not url or not _is_url_allowed(url, allowlist):
+        return None
+
+    try:
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; TheAuditor/1.0)'
+        })
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            html_content = response.read().decode("utf-8", errors="ignore")
+
+        if not BEAUTIFULSOUP_AVAILABLE:
+            # Fallback to old regex method if BeautifulSoup not installed
+            return _convert_html_regex(html_content)
+
+        # Parse HTML with BeautifulSoup
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Remove unwanted elements
+        for element in soup(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form']):
+            element.decompose()
+
+        # Try to find main content area (common selectors)
+        main_content = None
+        content_selectors = [
+            'article',
+            'main',
+            '[role="main"]',
+            '.document',  # ReadTheDocs
+            '.rst-content',  # ReadTheDocs
+            '.project-description',  # PyPI
+            '.content',
+            '.main-content',
+            '#content',
+            '#main'
+        ]
+
+        for selector in content_selectors:
+            main_content = soup.select_one(selector)
+            if main_content:
+                break
+
+        # If no main content found, use body
+        if not main_content:
+            main_content = soup.find('body')
+
+        if not main_content:
+            return None
+
+        # Convert to markdown using markdownify
+        markdown = md(
+            str(main_content),
+            heading_style="ATX",  # Use # style headings
+            bullets="-",  # Use - for lists
+            code_language_callback=lambda el: el.get('class', [''])[0] if el.get('class') else '',
+            strip=['a']  # Remove link formatting but keep text
+        )
+
+        # Clean up excessive whitespace
+        markdown = re.sub(r'\n{3,}', '\n\n', markdown)
+        markdown = markdown.strip()
+
+        return markdown if len(markdown) > 100 else None
+
+    except Exception:
+        return None
+
+
+def _convert_html_regex(html_content: str) -> str:
+    """
+    Fallback regex-based HTML to markdown conversion.
+    Used when BeautifulSoup is not available.
+    """
+    # Remove script and style tags
+    html_content = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL)
+    html_content = re.sub(r'<style[^>]*>.*?</style>', '', html_content, flags=re.DOTALL)
+
+    # Convert basic HTML tags to markdown
+    html_content = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```', html_content, flags=re.DOTALL | re.IGNORECASE)
+    html_content = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)', html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r'<[^>]+>', '', html_content)
+
+    # Clean up whitespace
+    html_content = re.sub(r'\n{3,}', '\n\n', html_content)
+
+    return html_content.strip()
+
+
+def _crawl_docs_site(
+    base_url: str,
+    package_name: str,
+    version: str,
+    max_pages: int = 10,
+    allowlist: Optional[List[str]] = None
+) -> Dict[str, str]:
+    """
+    Crawl documentation site for multiple pages.
+
+    Fetches priority pages (quickstart, API, examples, etc.) in order,
+    trying multiple version-specific URL patterns for each.
+
+    Args:
+        base_url: Base documentation URL (e.g., https://flask.palletsprojects.com)
+        package_name: Package name (e.g., "flask")
+        version: Semantic version (e.g., "3.1.0")
+        max_pages: Maximum pages to fetch (default 10)
+        allowlist: List of allowed URL prefixes (uses DEFAULT_ALLOWLIST if None)
+
+    Returns:
+        Dict mapping page names to markdown content:
+        {
+            "README": "...",
+            "quickstart": "...",
+            "api_reference": "..."
+        }
+    """
+    if allowlist is None:
+        allowlist = DEFAULT_ALLOWLIST
+
+    results: Dict[str, str] = {}
+    pages_fetched = 0
+
+    # Priority pages to fetch (in order of importance)
+    priority_pages = [
+        ("quickstart", ["quickstart", "getting-started", "tutorial", "getting_started"]),
+        ("api_reference", ["api", "api-reference", "reference", "api_reference"]),
+        ("guide", ["guide", "user-guide", "userguide", "user_guide"]),
+        ("examples", ["examples", "example", "cookbook"]),
+        ("migration", ["migration", "upgrading", "changelog", "changes", "whatsnew"]),
+    ]
+
+    # Extract version components for URL patterns
+    version_parts = version.split(".")
+    major = version_parts[0] if len(version_parts) > 0 else "1"
+    major_minor = ".".join(version_parts[:2]) if len(version_parts) >= 2 else version
+
+    for page_canonical_name, page_variants in priority_pages:
+        if pages_fetched >= max_pages:
+            break
+
+        # Try each variant of the page name
+        for page_name in page_variants:
+            if pages_fetched >= max_pages:
+                break
+
+            # Try multiple URL patterns for this page
+            url_patterns = [
+                f"{base_url}/en/{version}/{page_name}/",       # /en/3.1.0/quickstart/
+                f"{base_url}/en/{major_minor}/{page_name}/",   # /en/3.1/quickstart/
+                f"{base_url}/en/{major_minor}.x/{page_name}/", # /en/3.1.x/quickstart/ (Flask style)
+                f"{base_url}/en/{major}.x/{page_name}/",       # /en/3.x/quickstart/
+                f"{base_url}/{version}/{page_name}/",          # /3.1.0/quickstart/
+                f"{base_url}/{major_minor}/{page_name}/",      # /3.1/quickstart/
+                f"{base_url}/v{version}/{page_name}/",         # /v3.1.0/quickstart/
+                f"{base_url}/v{major_minor}/{page_name}/",     # /v3.1/quickstart/
+                f"{base_url}/docs/{page_name}/",               # /docs/quickstart/
+                f"{base_url}/user/{page_name}/",               # /user/quickstart/
+                f"{base_url}/{page_name}.html",                # /quickstart.html
+                f"{base_url}/docs/{page_name}.html",           # /docs/quickstart.html
+            ]
+
+            for url in url_patterns:
+                if not _is_url_allowed(url, allowlist):
+                    continue
+
+                # Try to fetch and convert this URL
+                markdown = _fetch_and_convert_html(url, allowlist, timeout=10)
+
+                if markdown and len(markdown) > 200:  # Only accept substantial content
+                    # Store under canonical name
+                    results[page_canonical_name] = markdown
+                    pages_fetched += 1
+
+                    # Rate limiting - be server-friendly
+                    time.sleep(0.5)
+                    break  # Found working URL for this page, move to next page
+
+            # If we found this page variant, stop trying other variants
+            if page_canonical_name in results:
+                break
+
+    return results
 
 
 def _fetch_readthedocs(url: str, allowlist: List[str]) -> Optional[str]:

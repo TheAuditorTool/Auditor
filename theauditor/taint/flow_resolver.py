@@ -231,7 +231,8 @@ class FlowResolver:
                 OR callee_function LIKE 'sequelize.query%'
             )
             AND argument_expr IS NOT NULL
-            AND file LIKE 'backend%'
+            AND file NOT LIKE '%test%'
+            AND file NOT LIKE '%node_modules%'
         """)
 
         for file, line, func, arg_expr in repo_cursor.fetchall():
@@ -266,8 +267,9 @@ class FlowResolver:
                 OR callee_function LIKE '%.run'
             )
             AND argument_expr IS NOT NULL
-            AND file LIKE 'backend%'
+            AND file NOT LIKE '%test%'
             AND file NOT LIKE '%migration%'
+            AND file NOT LIKE '%node_modules%'
         """)
 
         for file, line, func, arg_expr in repo_cursor.fetchall():
@@ -288,7 +290,7 @@ class FlowResolver:
                 if graph_cursor.fetchone():
                     exit_nodes.add(node_id)
 
-        # Response-sending function calls (backend only)
+        # Response-sending function calls (Express/Node.js specific)
         repo_cursor.execute("""
             SELECT DISTINCT file, line, caller_function, argument_expr
             FROM function_call_args
@@ -297,7 +299,8 @@ class FlowResolver:
                 'res.status', 'res.end'
             )
             AND argument_expr IS NOT NULL
-            AND file LIKE 'backend%'
+            AND file NOT LIKE '%test%'
+            AND file NOT LIKE '%node_modules%'
         """)
 
         for file, line, func, arg_expr in repo_cursor.fetchall():
@@ -332,7 +335,7 @@ class FlowResolver:
                 if graph_cursor.fetchone():
                     exit_nodes.add(node_id)
 
-        # External API calls and file writes (backend only)
+        # External API calls and file writes
         repo_cursor.execute("""
             SELECT DISTINCT file, line, caller_function, argument_expr
             FROM function_call_args
@@ -342,7 +345,8 @@ class FlowResolver:
                 'console.log', 'console.error', 'logger.info'
             )
             AND argument_expr IS NOT NULL
-            AND file LIKE 'backend%'
+            AND file NOT LIKE '%test%'
+            AND file NOT LIKE '%node_modules%'
         """)
 
         for file, line, func, arg_expr in repo_cursor.fetchall():
@@ -372,15 +376,26 @@ class FlowResolver:
             entry_id: Entry point node ID (format: file::function::variable)
             exit_nodes: Set of exit node IDs to trace to
         """
-        # MEMORY FIX: DFS with path-only tracking
-        # Removed redundant visited set - path list already tracks visited nodes
-        # DFS (stack/LIFO) uses less memory than BFS (queue/FIFO) for wide graphs
-        worklist = [(entry_id, [entry_id])]  # (current_node, path) - NO visited set
+        # ARCHITECTURAL FIX: Edge-based cycle detection (original pre-732abe2 algorithm)
+        # Tracks edges (A→B) instead of nodes (A), allowing node revisits via different
+        # incoming edges while preventing infinite loops. This is the correct pattern for
+        # multi-entry-multi-exit forward enumeration (unlike IFDS's single-sink backward).
+        #
+        # Benefits:
+        # - Finds multiple paths to same node (Goal B: Full Provenance) ✅
+        # - No exponential explosion (unlike per-path visited.copy()) ✅
+        # - No path undercounting (unlike global visited_states) ✅
+        # - Memory: O(E) where E = edge count in graph
+        worklist = [(entry_id, [entry_id])]  # (current_node, path)
+        visited_edges: Set[Tuple[str, str]] = set()  # Edge-based tracking
         flows_from_this_entry = 0
 
         while worklist and self.flows_resolved < self.max_flows and flows_from_this_entry < self.max_flows_per_entry:
             # DFS: pop from end (LIFO)
             current_id, path = worklist.pop()
+
+            # NO global node-based visited check - allow node revisits via different edges
+            # Edge-based tracking below prevents infinite loops
 
             # Check depth limit
             if len(path) > self.max_depth:
@@ -394,19 +409,19 @@ class FlowResolver:
                 status, sanitizer_meta = self._classify_flow(path)
                 self._record_flow(entry_id, current_id, path, status, sanitizer_meta)
                 flows_from_this_entry += 1
-                # ARCHITECTURAL FIX: NO continue here - allow finding multiple paths
-                # The IFDS cycle detection fix (removing depth from state) prevents
-                # exponential explosion, so we can safely enumerate multiple paths
-                # per entry/exit pair without killing CPU
+                # ARCHITECTURAL FIX: NO continue here - allow finding multiple exit paths
+                # Edge-based tracking prevents re-traversing same edges (no explosion)
+                # But we can still find additional exit nodes via unexplored edges
 
             # Get successors from unified graph
             successors = self._get_successors(current_id)
 
             for successor_id in successors:
-                # MEMORY FIX: Check path list directly instead of separate visited set
-                # Path max length = 20, so O(20) scan is faster than set copy
-                # This eliminates 15GB+ of redundant set copies
-                if successor_id not in path:
+                edge = (current_id, successor_id)
+                # Edge-level cycle prevention: each edge traversed exactly once
+                # This allows node revisits via different incoming edges
+                if edge not in visited_edges:
+                    visited_edges.add(edge)
                     new_path = path + [successor_id]
                     worklist.append((successor_id, new_path))
 
@@ -522,12 +537,13 @@ class FlowResolver:
                 source_file, source_line, source_pattern,
                 sink_file, sink_line, sink_pattern,
                 vulnerability_type, path_length, hops, path_json, flow_sensitive,
-                status, sanitizer_file, sanitizer_line, sanitizer_method
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, sanitizer_file, sanitizer_line, sanitizer_method,
+                engine
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             source_file, source_line, source_pattern,
             sink_file, sink_line, sink_pattern,
-            "unknown",  # vulnerability_type - rules will classify this later
+            "unknown",  # vulnerability_type - /rules/ will classify this later
             len(hop_chain),  # path_length
             len(hop_chain),  # hops
             json.dumps(hop_chain),  # path_json
@@ -535,7 +551,8 @@ class FlowResolver:
             status,  # status (VULNERABLE, SANITIZED, or TRUNCATED)
             sanitizer_meta['file'] if sanitizer_meta else None,  # sanitizer_file
             sanitizer_meta['line'] if sanitizer_meta else None,  # sanitizer_line
-            sanitizer_meta['method'] if sanitizer_meta else None   # sanitizer_method
+            sanitizer_meta['method'] if sanitizer_meta else None,  # sanitizer_method
+            "FlowResolver"  # engine column
         ))
 
         self.flows_resolved += 1

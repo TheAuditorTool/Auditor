@@ -79,6 +79,31 @@ class PythonDatabaseMixin:
             validator_type
         ))
 
+    def add_python_package_config(self, file_path: str, file_type: str,
+                                   project_name: Optional[str], project_version: Optional[str],
+                                   dependencies: str, optional_dependencies: str,
+                                   build_system: Optional[str]):
+        """Add a Python package configuration (pyproject.toml/requirements.txt) to the batch.
+
+        Args:
+            file_path: Path to the dependency file
+            file_type: 'pyproject' or 'requirements'
+            project_name: Package name (from pyproject.toml)
+            project_version: Package version (from pyproject.toml)
+            dependencies: JSON array of dependency dicts
+            optional_dependencies: JSON object with optional dependency groups
+            build_system: JSON object with build system info
+        """
+        self.generic_batches['python_package_configs'].append((
+            file_path,
+            file_type,
+            project_name,
+            project_version,
+            dependencies,
+            optional_dependencies,
+            build_system
+        ))
+
     # Phase 2.2: Advanced Python pattern add_* methods
 
     def add_python_decorator(self, file_path: str, line: int, decorator_name: str,

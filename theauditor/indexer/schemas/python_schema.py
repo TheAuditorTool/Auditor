@@ -107,6 +107,26 @@ PYTHON_VALIDATORS = TableSchema(
     ]
 )
 
+PYTHON_PACKAGE_CONFIGS = TableSchema(
+    name="python_package_configs",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("file_type", "TEXT", nullable=False),  # 'pyproject' | 'requirements'
+        Column("project_name", "TEXT"),
+        Column("project_version", "TEXT"),
+        Column("dependencies", "TEXT"),  # JSON array of dependency dicts
+        Column("optional_dependencies", "TEXT"),  # JSON object {group: [deps]}
+        Column("build_system", "TEXT"),  # JSON object with build-backend info
+        Column("indexed_at", "TIMESTAMP", default="CURRENT_TIMESTAMP"),
+    ],
+    primary_key=["file_path"],
+    indexes=[
+        ("idx_python_package_configs_file", ["file_path"]),
+        ("idx_python_package_configs_type", ["file_type"]),
+        ("idx_python_package_configs_project", ["project_name"]),
+    ]
+)
+
 # Phase 2.2: Advanced Python patterns (decorators, async, testing, types)
 
 PYTHON_DECORATORS = TableSchema(
@@ -2607,6 +2627,7 @@ PYTHON_TABLES: Dict[str, TableSchema] = {
     "python_routes": PYTHON_ROUTES,
     "python_blueprints": PYTHON_BLUEPRINTS,
     "python_validators": PYTHON_VALIDATORS,
+    "python_package_configs": PYTHON_PACKAGE_CONFIGS,
 
     # Advanced Python (Phase 2.2)
     "python_decorators": PYTHON_DECORATORS,

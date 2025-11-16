@@ -289,7 +289,7 @@ def compute_workset(
     except FileNotFoundError:
         # Check if user is in wrong directory
         cwd = Path.cwd()
-        helpful_msg = f"Manifest not found at {manifest_path}. Run 'aud index' first."
+        helpful_msg = f"Manifest not found at {manifest_path}. Run 'aud full' first."
         if cwd.name in ["Desktop", "Documents", "Downloads"]:
             helpful_msg += f"\n\nAre you in the right directory? You're in: {cwd}"
             helpful_msg += "\nTry: cd <your-project-folder> then run this command again"
@@ -297,7 +297,7 @@ def compute_workset(
 
     # Connect to database
     if not Path(db_path).exists():
-        raise RuntimeError(f"Database not found at {db_path}. Run 'aud index' first.")
+        raise RuntimeError(f"Database not found at {db_path}. Run 'aud full' first.")
 
     conn = sqlite3.connect(db_path)
 
