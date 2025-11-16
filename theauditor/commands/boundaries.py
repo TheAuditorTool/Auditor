@@ -184,7 +184,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
 
     if not db.exists():
         click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud index' first to populate the database", err=True)
+        click.echo("Run 'aud full' first to populate the database", err=True)
         sys.exit(1)
 
     # Analyze boundaries based on type

@@ -188,7 +188,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: Database not found. Run 'aud index' first.", err=True)
+        click.echo("Error: Database not found. Run 'aud full' first.", err=True)
         raise click.ClickException("Database not found")
 
     try:

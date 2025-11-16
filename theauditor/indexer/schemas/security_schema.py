@@ -205,6 +205,9 @@ RESOLVED_FLOW_AUDIT = TableSchema(
         Column("sanitizer_file", "TEXT", nullable=True),  # e.g., "backend/src/middleware/validate.ts"
         Column("sanitizer_line", "INTEGER", nullable=True),  # e.g., 19
         Column("sanitizer_method", "TEXT", nullable=True),  # e.g., "zod.parseAsync"
+
+        # NEW: Engine that discovered this flow (FlowResolver vs IFDS)
+        Column("engine", "TEXT", nullable=False, default="'IFDS'", check="engine IN ('FlowResolver', 'IFDS')"),
     ],
     indexes=[
         # Existing indexes from taint_flows (for backward compatibility)
@@ -217,6 +220,9 @@ RESOLVED_FLOW_AUDIT = TableSchema(
         ("idx_resolved_flow_status", ["status"]),  # Fast filter for VULNERABLE vs SANITIZED
         ("idx_resolved_flow_sanitizer", ["sanitizer_file", "sanitizer_line"]),  # Sanitizer effectiveness
         ("idx_resolved_flow_sanitizer_method", ["sanitizer_method"]),  # Group by framework (zod, joi, etc.)
+
+        # NEW: Index for engine filtering (FlowResolver vs IFDS)
+        ("idx_resolved_flow_engine", ["engine"]),  # Fast filter for forward vs backward flows
     ]
 )
 

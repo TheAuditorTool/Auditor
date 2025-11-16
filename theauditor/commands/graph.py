@@ -243,7 +243,7 @@ def graph_build_dfg(root, db, repo_db):
         # Check that repo_index.db exists
         repo_db_path = Path(repo_db)
         if not repo_db_path.exists():
-            click.echo(f"ERROR: {repo_db} not found. Run 'aud index' first.", err=True)
+            click.echo(f"ERROR: {repo_db} not found. Run 'aud full' first.", err=True)
             raise click.Abort()
 
         # Initialize builder and store

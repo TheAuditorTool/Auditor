@@ -200,7 +200,7 @@ def refactor(
     db_path = pf_dir / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: No index found. Run 'aud index' first.", err=True)
+        click.echo("Error: No index found. Run 'aud full' first.", err=True)
         raise click.Abort()
 
     click.echo("\n" + "=" * 70)

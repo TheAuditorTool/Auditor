@@ -122,7 +122,7 @@ def analyze(root, db, severity, output_format, output):
 
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud index' first to extract CDK constructs.", err=True)
+        click.echo("Run 'aud full' first to extract CDK constructs.", err=True)
         raise SystemExit(3)
 
     try:

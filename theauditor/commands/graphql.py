@@ -116,7 +116,7 @@ def graphql_build(root, db, verbose):
     db_path = Path(root) / db
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud index' first to extract GraphQL schemas", err=True)
+        click.echo("Run 'aud full' first to extract GraphQL schemas", err=True)
         return 1
 
     logger.info(f"Building GraphQL resolver mappings from {db_path}")

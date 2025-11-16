@@ -281,7 +281,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
     db_path = Path(db)
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud index' first to build the repository index", err=True)
+        click.echo("Run 'aud full' first to build the repository index", err=True)
         raise click.ClickException(f"Database not found: {db}")
 
     # SCHEMA CONTRACT: Pre-flight validation before expensive analysis

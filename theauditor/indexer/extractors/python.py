@@ -28,18 +28,26 @@ from .sql import parse_sql_query
 from theauditor.ast_extractors import python as python_impl
 from theauditor.ast_extractors.base import get_node_name
 from theauditor.ast_extractors.python import (
+    advanced_extractors,  # Python Coverage V2 - Advanced
     async_extractors,
     behavioral_extractors,
     cdk_extractor,
+    class_feature_extractors,  # Python Coverage V2 - Week 4
+    collection_extractors,  # Python Coverage V2 - Week 3
+    control_flow_extractors,  # Python Coverage V2 - Week 5
     core_extractors,
     data_flow_extractors,
     django_advanced_extractors,
     exception_flow_extractors,
     flask_extractors,
     framework_extractors,
+    fundamental_extractors,  # Python Coverage V2 - Week 1
+    operator_extractors,  # Python Coverage V2 - Week 2
     performance_extractors,
+    protocol_extractors,  # Python Coverage V2 - Week 6
     security_extractors,
     state_mutation_extractors,
+    stdlib_pattern_extractors,  # Python Coverage V2 - Week 4
     testing_extractors,
     type_extractors
 )
@@ -175,6 +183,83 @@ class PythonExtractor(BaseExtractor):
             'python_loop_complexity': [],  # Loop nesting levels and complexity estimation
             'python_resource_usage': [],  # Large allocations, file handles, etc.
             'python_memoization_patterns': [],  # Caching patterns and opportunities
+            # Python Coverage V2 (Week 1 - Fundamentals)
+            'python_comprehensions': [],  # List/dict/set/generator comprehensions
+            'python_lambda_functions': [],  # Lambda expressions with closure detection
+            'python_slice_operations': [],  # Slice notation patterns (start:stop:step)
+            'python_tuple_operations': [],  # Tuple pack/unpack operations
+            'python_unpacking_patterns': [],  # Extended unpacking (a, *rest, b = ...)
+            'python_none_patterns': [],  # None handling (is None vs == None)
+            'python_truthiness_patterns': [],  # Implicit bool conversion patterns
+            'python_string_formatting': [],  # String formatting (f-strings, %, format())
+            # Python Coverage V2 (Week 2 - Operators)
+            'python_operators': [],  # All operators (arithmetic, comparison, logical, bitwise)
+            'python_membership_tests': [],  # in/not in operators
+            'python_chained_comparisons': [],  # 1 < x < 10
+            'python_ternary_expressions': [],  # x if y else z
+            'python_walrus_operators': [],  # := assignment expressions
+            'python_matrix_multiplication': [],  # @ operator
+            # Python Coverage V2 (Week 3 - Collections)
+            'python_dict_operations': [],  # Dict methods (keys, values, items, get, etc.)
+            'python_list_mutations': [],  # List methods (append, extend, sort, etc.)
+            'python_set_operations': [],  # Set operations (union, intersection, etc.)
+            'python_string_methods': [],  # String methods (split, join, strip, etc.)
+            'python_builtin_usage': [],  # Builtin functions (len, sum, max, sorted, etc.)
+            'python_itertools_usage': [],  # Itertools functions
+            'python_functools_usage': [],  # Functools functions
+            'python_collections_usage': [],  # Collections module (defaultdict, Counter, etc.)
+            # Python Coverage V2 (Week 4 - Advanced Class Features)
+            'python_metaclasses': [],  # Metaclass definitions and usage
+            'python_descriptors': [],  # Descriptor protocol (__get__, __set__, __delete__)
+            'python_dataclasses': [],  # @dataclass decorator usage
+            'python_enums': [],  # Enum class definitions
+            'python_slots': [],  # __slots__ usage
+            'python_abstract_classes': [],  # ABC and @abstractmethod
+            'python_method_types': [],  # @classmethod, @staticmethod, instance methods
+            'python_multiple_inheritance': [],  # Classes with multiple base classes
+            'python_dunder_methods': [],  # Magic methods (__init__, __str__, etc.)
+            'python_visibility_conventions': [],  # _private, __name_mangling
+            # Python Coverage V2 (Week 4 - Stdlib Patterns)
+            'python_regex_patterns': [],  # re module usage
+            'python_json_operations': [],  # json.dumps/loads
+            'python_datetime_operations': [],  # datetime module usage
+            'python_path_operations': [],  # pathlib and os.path usage
+            'python_logging_patterns': [],  # logger.debug/info/error
+            'python_threading_patterns': [],  # Thread, Lock, Queue, etc.
+            'python_contextlib_patterns': [],  # @contextmanager, closing(), etc.
+            'python_type_checking': [],  # isinstance(), issubclass(), type()
+            # Python Coverage V2 (Week 5 - Control Flow)
+            'python_for_loops': [],  # for loops with enumerate/zip detection
+            'python_while_loops': [],  # while loops with infinite loop detection
+            'python_async_for_loops': [],  # async for loops
+            'python_if_statements': [],  # if/elif/else chains
+            'python_match_statements': [],  # match/case (Python 3.10+)
+            'python_break_continue_pass': [],  # Loop control flow
+            'python_assert_statements': [],  # assert statements
+            'python_del_statements': [],  # del statements
+            'python_import_statements': [],  # import/from statements (enhanced)
+            'python_with_statements': [],  # with/async with statements
+            # Python Coverage V2 (Week 6 - Protocols)
+            'python_iterator_protocol': [],  # __iter__, __next__ implementations
+            'python_container_protocol': [],  # __len__, __getitem__, etc.
+            'python_callable_protocol': [],  # __call__ implementations
+            'python_comparison_protocol': [],  # Rich comparison methods
+            'python_arithmetic_protocol': [],  # Arithmetic dunder methods
+            'python_pickle_protocol': [],  # __getstate__, __setstate__, etc.
+            'python_weakref_usage': [],  # weakref module usage
+            'python_contextvar_usage': [],  # contextvars module usage
+            'python_module_attributes': [],  # __name__, __file__, etc.
+            'python_class_decorators': [],  # Class-level decorators
+
+            # Python Coverage V2 - Advanced patterns (8)
+            'python_namespace_packages': [],  # pkgutil.extend_path usage
+            'python_cached_property': [],  # @cached_property decorator
+            'python_descriptor_protocol': [],  # __get__, __set__, __delete__
+            'python_attribute_access_protocol': [],  # __getattr__, __setattr__, etc.
+            'python_copy_protocol': [],  # __copy__, __deepcopy__
+            'python_ellipsis_usage': [],  # Ellipsis (...) usage
+            'python_bytes_operations': [],  # bytes/bytearray operations
+            'python_exec_eval_compile': [],  # exec/eval/compile usage
         }
         seen_symbols = set()
         
@@ -552,6 +637,286 @@ class PythonExtractor(BaseExtractor):
                 memoization_patterns = performance_extractors.extract_memoization_patterns(tree, self.ast_parser)
                 if memoization_patterns:
                     result['python_memoization_patterns'].extend(memoization_patterns)
+
+                # Python Coverage V2 - Week 1: Fundamental patterns
+                comprehensions = fundamental_extractors.extract_comprehensions(tree, self.ast_parser)
+                if comprehensions:
+                    result['python_comprehensions'].extend(comprehensions)
+
+                lambda_functions = fundamental_extractors.extract_lambda_functions(tree, self.ast_parser)
+                if lambda_functions:
+                    result['python_lambda_functions'].extend(lambda_functions)
+
+                slice_operations = fundamental_extractors.extract_slice_operations(tree, self.ast_parser)
+                if slice_operations:
+                    result['python_slice_operations'].extend(slice_operations)
+
+                tuple_operations = fundamental_extractors.extract_tuple_operations(tree, self.ast_parser)
+                if tuple_operations:
+                    result['python_tuple_operations'].extend(tuple_operations)
+
+                unpacking_patterns = fundamental_extractors.extract_unpacking_patterns(tree, self.ast_parser)
+                if unpacking_patterns:
+                    result['python_unpacking_patterns'].extend(unpacking_patterns)
+
+                none_patterns = fundamental_extractors.extract_none_patterns(tree, self.ast_parser)
+                if none_patterns:
+                    result['python_none_patterns'].extend(none_patterns)
+
+                truthiness_patterns = fundamental_extractors.extract_truthiness_patterns(tree, self.ast_parser)
+                if truthiness_patterns:
+                    result['python_truthiness_patterns'].extend(truthiness_patterns)
+
+                string_formatting = fundamental_extractors.extract_string_formatting(tree, self.ast_parser)
+                if string_formatting:
+                    result['python_string_formatting'].extend(string_formatting)
+
+                # Python Coverage V2 - Week 2: Operators and expressions
+                operators = operator_extractors.extract_operators(tree, self.ast_parser)
+                if operators:
+                    result['python_operators'].extend(operators)
+
+                membership_tests = operator_extractors.extract_membership_tests(tree, self.ast_parser)
+                if membership_tests:
+                    result['python_membership_tests'].extend(membership_tests)
+
+                chained_comparisons = operator_extractors.extract_chained_comparisons(tree, self.ast_parser)
+                if chained_comparisons:
+                    result['python_chained_comparisons'].extend(chained_comparisons)
+
+                ternary_expressions = operator_extractors.extract_ternary_expressions(tree, self.ast_parser)
+                if ternary_expressions:
+                    result['python_ternary_expressions'].extend(ternary_expressions)
+
+                walrus_operators = operator_extractors.extract_walrus_operators(tree, self.ast_parser)
+                if walrus_operators:
+                    result['python_walrus_operators'].extend(walrus_operators)
+
+                matrix_multiplication = operator_extractors.extract_matrix_multiplication(tree, self.ast_parser)
+                if matrix_multiplication:
+                    result['python_matrix_multiplication'].extend(matrix_multiplication)
+
+                # Python Coverage V2 - Week 3: Collections and methods
+                dict_operations = collection_extractors.extract_dict_operations(tree, self.ast_parser)
+                if dict_operations:
+                    result['python_dict_operations'].extend(dict_operations)
+
+                list_mutations = collection_extractors.extract_list_mutations(tree, self.ast_parser)
+                if list_mutations:
+                    result['python_list_mutations'].extend(list_mutations)
+
+                set_operations = collection_extractors.extract_set_operations(tree, self.ast_parser)
+                if set_operations:
+                    result['python_set_operations'].extend(set_operations)
+
+                string_methods = collection_extractors.extract_string_methods(tree, self.ast_parser)
+                if string_methods:
+                    result['python_string_methods'].extend(string_methods)
+
+                builtin_usage = collection_extractors.extract_builtin_usage(tree, self.ast_parser)
+                if builtin_usage:
+                    result['python_builtin_usage'].extend(builtin_usage)
+
+                itertools_usage = collection_extractors.extract_itertools_usage(tree, self.ast_parser)
+                if itertools_usage:
+                    result['python_itertools_usage'].extend(itertools_usage)
+
+                functools_usage = collection_extractors.extract_functools_usage(tree, self.ast_parser)
+                if functools_usage:
+                    result['python_functools_usage'].extend(functools_usage)
+
+                collections_usage = collection_extractors.extract_collections_usage(tree, self.ast_parser)
+                if collections_usage:
+                    result['python_collections_usage'].extend(collections_usage)
+
+                # Python Coverage V2 - Week 4: Advanced class features
+                metaclasses = class_feature_extractors.extract_metaclasses(tree, self.ast_parser)
+                if metaclasses:
+                    result['python_metaclasses'].extend(metaclasses)
+
+                descriptors = class_feature_extractors.extract_descriptors(tree, self.ast_parser)
+                if descriptors:
+                    result['python_descriptors'].extend(descriptors)
+
+                dataclasses = class_feature_extractors.extract_dataclasses(tree, self.ast_parser)
+                if dataclasses:
+                    result['python_dataclasses'].extend(dataclasses)
+
+                enums = class_feature_extractors.extract_enums(tree, self.ast_parser)
+                if enums:
+                    result['python_enums'].extend(enums)
+
+                slots = class_feature_extractors.extract_slots(tree, self.ast_parser)
+                if slots:
+                    result['python_slots'].extend(slots)
+
+                abstract_classes = class_feature_extractors.extract_abstract_classes(tree, self.ast_parser)
+                if abstract_classes:
+                    result['python_abstract_classes'].extend(abstract_classes)
+
+                method_types = class_feature_extractors.extract_method_types(tree, self.ast_parser)
+                if method_types:
+                    result['python_method_types'].extend(method_types)
+
+                multiple_inheritance = class_feature_extractors.extract_multiple_inheritance(tree, self.ast_parser)
+                if multiple_inheritance:
+                    result['python_multiple_inheritance'].extend(multiple_inheritance)
+
+                dunder_methods = class_feature_extractors.extract_dunder_methods(tree, self.ast_parser)
+                if dunder_methods:
+                    result['python_dunder_methods'].extend(dunder_methods)
+
+                visibility_conventions = class_feature_extractors.extract_visibility_conventions(tree, self.ast_parser)
+                if visibility_conventions:
+                    result['python_visibility_conventions'].extend(visibility_conventions)
+
+                # Python Coverage V2 - Week 4: Stdlib patterns
+                regex_patterns = stdlib_pattern_extractors.extract_regex_patterns(tree, self.ast_parser)
+                if regex_patterns:
+                    result['python_regex_patterns'].extend(regex_patterns)
+
+                json_operations = stdlib_pattern_extractors.extract_json_operations(tree, self.ast_parser)
+                if json_operations:
+                    result['python_json_operations'].extend(json_operations)
+
+                datetime_operations = stdlib_pattern_extractors.extract_datetime_operations(tree, self.ast_parser)
+                if datetime_operations:
+                    result['python_datetime_operations'].extend(datetime_operations)
+
+                path_operations = stdlib_pattern_extractors.extract_path_operations(tree, self.ast_parser)
+                if path_operations:
+                    result['python_path_operations'].extend(path_operations)
+
+                logging_patterns = stdlib_pattern_extractors.extract_logging_patterns(tree, self.ast_parser)
+                if logging_patterns:
+                    result['python_logging_patterns'].extend(logging_patterns)
+
+                threading_patterns = stdlib_pattern_extractors.extract_threading_patterns(tree, self.ast_parser)
+                if threading_patterns:
+                    result['python_threading_patterns'].extend(threading_patterns)
+
+                contextlib_patterns = stdlib_pattern_extractors.extract_contextlib_patterns(tree, self.ast_parser)
+                if contextlib_patterns:
+                    result['python_contextlib_patterns'].extend(contextlib_patterns)
+
+                type_checking = stdlib_pattern_extractors.extract_type_checking(tree, self.ast_parser)
+                if type_checking:
+                    result['python_type_checking'].extend(type_checking)
+
+                # Python Coverage V2 - Week 5: Control flow patterns
+                for_loops = control_flow_extractors.extract_for_loops(tree, self.ast_parser)
+                if for_loops:
+                    result['python_for_loops'].extend(for_loops)
+
+                while_loops = control_flow_extractors.extract_while_loops(tree, self.ast_parser)
+                if while_loops:
+                    result['python_while_loops'].extend(while_loops)
+
+                async_for_loops = control_flow_extractors.extract_async_for_loops(tree, self.ast_parser)
+                if async_for_loops:
+                    result['python_async_for_loops'].extend(async_for_loops)
+
+                if_statements = control_flow_extractors.extract_if_statements(tree, self.ast_parser)
+                if if_statements:
+                    result['python_if_statements'].extend(if_statements)
+
+                match_statements = control_flow_extractors.extract_match_statements(tree, self.ast_parser)
+                if match_statements:
+                    result['python_match_statements'].extend(match_statements)
+
+                break_continue_pass = control_flow_extractors.extract_break_continue_pass(tree, self.ast_parser)
+                if break_continue_pass:
+                    result['python_break_continue_pass'].extend(break_continue_pass)
+
+                assert_statements = control_flow_extractors.extract_assert_statements(tree, self.ast_parser)
+                if assert_statements:
+                    result['python_assert_statements'].extend(assert_statements)
+
+                del_statements = control_flow_extractors.extract_del_statements(tree, self.ast_parser)
+                if del_statements:
+                    result['python_del_statements'].extend(del_statements)
+
+                import_statements = control_flow_extractors.extract_import_statements(tree, self.ast_parser)
+                if import_statements:
+                    result['python_import_statements'].extend(import_statements)
+
+                with_statements = control_flow_extractors.extract_with_statements(tree, self.ast_parser)
+                if with_statements:
+                    result['python_with_statements'].extend(with_statements)
+
+                # Python Coverage V2 - Week 6: Protocol patterns
+                iterator_protocol = protocol_extractors.extract_iterator_protocol(tree, self.ast_parser)
+                if iterator_protocol:
+                    result['python_iterator_protocol'].extend(iterator_protocol)
+
+                container_protocol = protocol_extractors.extract_container_protocol(tree, self.ast_parser)
+                if container_protocol:
+                    result['python_container_protocol'].extend(container_protocol)
+
+                callable_protocol = protocol_extractors.extract_callable_protocol(tree, self.ast_parser)
+                if callable_protocol:
+                    result['python_callable_protocol'].extend(callable_protocol)
+
+                comparison_protocol = protocol_extractors.extract_comparison_protocol(tree, self.ast_parser)
+                if comparison_protocol:
+                    result['python_comparison_protocol'].extend(comparison_protocol)
+
+                arithmetic_protocol = protocol_extractors.extract_arithmetic_protocol(tree, self.ast_parser)
+                if arithmetic_protocol:
+                    result['python_arithmetic_protocol'].extend(arithmetic_protocol)
+
+                pickle_protocol = protocol_extractors.extract_pickle_protocol(tree, self.ast_parser)
+                if pickle_protocol:
+                    result['python_pickle_protocol'].extend(pickle_protocol)
+
+                weakref_usage = protocol_extractors.extract_weakref_usage(tree, self.ast_parser)
+                if weakref_usage:
+                    result['python_weakref_usage'].extend(weakref_usage)
+
+                contextvar_usage = protocol_extractors.extract_contextvar_usage(tree, self.ast_parser)
+                if contextvar_usage:
+                    result['python_contextvar_usage'].extend(contextvar_usage)
+
+                module_attributes = protocol_extractors.extract_module_attributes(tree, self.ast_parser)
+                if module_attributes:
+                    result['python_module_attributes'].extend(module_attributes)
+
+                class_decorators = protocol_extractors.extract_class_decorators(tree, self.ast_parser)
+                if class_decorators:
+                    result['python_class_decorators'].extend(class_decorators)
+
+                # Python Coverage V2 - Advanced patterns (8)
+                namespace_packages = advanced_extractors.extract_namespace_packages(tree, self.ast_parser)
+                if namespace_packages:
+                    result['python_namespace_packages'].extend(namespace_packages)
+
+                cached_property = advanced_extractors.extract_cached_property(tree, self.ast_parser)
+                if cached_property:
+                    result['python_cached_property'].extend(cached_property)
+
+                descriptor_protocol = advanced_extractors.extract_descriptor_protocol(tree, self.ast_parser)
+                if descriptor_protocol:
+                    result['python_descriptor_protocol'].extend(descriptor_protocol)
+
+                attribute_access_protocol = advanced_extractors.extract_attribute_access_protocol(tree, self.ast_parser)
+                if attribute_access_protocol:
+                    result['python_attribute_access_protocol'].extend(attribute_access_protocol)
+
+                copy_protocol = advanced_extractors.extract_copy_protocol(tree, self.ast_parser)
+                if copy_protocol:
+                    result['python_copy_protocol'].extend(copy_protocol)
+
+                ellipsis_usage = advanced_extractors.extract_ellipsis_usage(tree, self.ast_parser)
+                if ellipsis_usage:
+                    result['python_ellipsis_usage'].extend(ellipsis_usage)
+
+                bytes_operations = advanced_extractors.extract_bytes_operations(tree, self.ast_parser)
+                if bytes_operations:
+                    result['python_bytes_operations'].extend(bytes_operations)
+
+                exec_eval_compile = advanced_extractors.extract_exec_eval_compile(tree, self.ast_parser)
+                if exec_eval_compile:
+                    result['python_exec_eval_compile'].extend(exec_eval_compile)
 
                 # AWS CDK Infrastructure-as-Code constructs
                 cdk_constructs = cdk_extractor.extract_python_cdk_constructs(tree, self.ast_parser)

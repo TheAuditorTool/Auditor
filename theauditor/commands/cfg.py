@@ -115,7 +115,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         # Check if database exists
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Database not found: {db}. Run 'aud index' first.")
+            click.echo(f"Database not found: {db}. Run 'aud full' first.")
             return
         
         # Initialize CFG builder
@@ -289,7 +289,7 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         # Check if database exists
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Database not found: {db}. Run 'aud index' first.")
+            click.echo(f"Database not found: {db}. Run 'aud full' first.")
             return
         
         # Initialize CFG builder
@@ -301,7 +301,7 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         
         if not cfg['blocks']:
             click.echo(f"No CFG data found for {function} in {file}")
-            click.echo("Make sure the function was indexed with 'aud index'")
+            click.echo("Make sure the function was indexed with 'aud full'")
             return
         
         click.echo(f"Found {len(cfg['blocks'])} blocks and {len(cfg['edges'])} edges")

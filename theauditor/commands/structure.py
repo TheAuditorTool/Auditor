@@ -118,7 +118,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
     if monoliths:
         db_path_obj = Path(db_path)
         if not db_path_obj.exists():
-            click.echo("Error: Database not found. Run 'aud index' first.", err=True)
+            click.echo("Error: Database not found. Run 'aud full' first.", err=True)
             return ExitCodes.TASK_INCOMPLETE
 
         return _find_monoliths(db_path, threshold, format)
@@ -130,7 +130,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
     
     if not manifest_exists and not db_exists:
         click.echo("Warning: Neither manifest.json nor repo_index.db found", err=True)
-        click.echo("Run 'aud index' first for complete statistics", err=True)
+        click.echo("Run 'aud full' first for complete statistics", err=True)
         click.echo("Generating basic structure report...\n")
     elif not manifest_exists:
         click.echo("Warning: manifest.json not found, statistics will be limited", err=True)

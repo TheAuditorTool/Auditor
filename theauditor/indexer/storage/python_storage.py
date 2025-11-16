@@ -135,6 +135,90 @@ class PythonStorage(BaseStorage):
             'python_loop_complexity': self._store_python_loop_complexity,
             'python_resource_usage': self._store_python_resource_usage,
             'python_memoization_patterns': self._store_python_memoization_patterns,
+
+            # Python Coverage V2 - Week 1: Fundamentals (8)
+            'python_comprehensions': self._store_python_comprehensions,
+            'python_lambda_functions': self._store_python_lambda_functions,
+            'python_slice_operations': self._store_python_slice_operations,
+            'python_tuple_operations': self._store_python_tuple_operations,
+            'python_unpacking_patterns': self._store_python_unpacking_patterns,
+            'python_none_patterns': self._store_python_none_patterns,
+            'python_truthiness_patterns': self._store_python_truthiness_patterns,
+            'python_string_formatting': self._store_python_string_formatting,
+
+            # Python Coverage V2 - Week 2: Operators (6)
+            'python_operators': self._store_python_operators,
+            'python_membership_tests': self._store_python_membership_tests,
+            'python_chained_comparisons': self._store_python_chained_comparisons,
+            'python_ternary_expressions': self._store_python_ternary_expressions,
+            'python_walrus_operators': self._store_python_walrus_operators,
+            'python_matrix_multiplication': self._store_python_matrix_multiplication,
+
+            # Python Coverage V2 - Week 3: Collections (8)
+            'python_dict_operations': self._store_python_dict_operations,
+            'python_list_mutations': self._store_python_list_mutations,
+            'python_set_operations': self._store_python_set_operations,
+            'python_string_methods': self._store_python_string_methods,
+            'python_builtin_usage': self._store_python_builtin_usage,
+            'python_itertools_usage': self._store_python_itertools_usage,
+            'python_functools_usage': self._store_python_functools_usage,
+            'python_collections_usage': self._store_python_collections_usage,
+
+            # Python Coverage V2 - Week 4: Class Features (10)
+            'python_metaclasses': self._store_python_metaclasses,
+            'python_descriptors': self._store_python_descriptors,
+            'python_dataclasses': self._store_python_dataclasses,
+            'python_enums': self._store_python_enums,
+            'python_slots': self._store_python_slots,
+            'python_abstract_classes': self._store_python_abstract_classes,
+            'python_method_types': self._store_python_method_types,
+            'python_multiple_inheritance': self._store_python_multiple_inheritance,
+            'python_dunder_methods': self._store_python_dunder_methods,
+            'python_visibility_conventions': self._store_python_visibility_conventions,
+
+            # Python Coverage V2 - Week 4: Stdlib Patterns (8)
+            'python_regex_patterns': self._store_python_regex_patterns,
+            'python_json_operations': self._store_python_json_operations,
+            'python_datetime_operations': self._store_python_datetime_operations,
+            'python_path_operations': self._store_python_path_operations,
+            'python_logging_patterns': self._store_python_logging_patterns,
+            'python_threading_patterns': self._store_python_threading_patterns,
+            'python_contextlib_patterns': self._store_python_contextlib_patterns,
+            'python_type_checking': self._store_python_type_checking,
+
+            # Python Coverage V2 - Week 5: Control Flow (10)
+            'python_for_loops': self._store_python_for_loops,
+            'python_while_loops': self._store_python_while_loops,
+            'python_async_for_loops': self._store_python_async_for_loops,
+            'python_if_statements': self._store_python_if_statements,
+            'python_match_statements': self._store_python_match_statements,
+            'python_break_continue_pass': self._store_python_break_continue_pass,
+            'python_assert_statements': self._store_python_assert_statements,
+            'python_del_statements': self._store_python_del_statements,
+            'python_import_statements': self._store_python_import_statements,
+            'python_with_statements': self._store_python_with_statements,
+
+            # Python Coverage V2 - Week 6: Protocol Patterns (10)
+            'python_iterator_protocol': self._store_python_iterator_protocol,
+            'python_container_protocol': self._store_python_container_protocol,
+            'python_callable_protocol': self._store_python_callable_protocol,
+            'python_comparison_protocol': self._store_python_comparison_protocol,
+            'python_arithmetic_protocol': self._store_python_arithmetic_protocol,
+            'python_pickle_protocol': self._store_python_pickle_protocol,
+            'python_weakref_usage': self._store_python_weakref_usage,
+            'python_contextvar_usage': self._store_python_contextvar_usage,
+            'python_module_attributes': self._store_python_module_attributes,
+            'python_class_decorators': self._store_python_class_decorators,
+
+            # Python Coverage V2 - Advanced Patterns (8)
+            'python_namespace_packages': self._store_python_namespace_packages,
+            'python_cached_property': self._store_python_cached_property,
+            'python_descriptor_protocol': self._store_python_descriptor_protocol,
+            'python_attribute_access_protocol': self._store_python_attribute_access_protocol,
+            'python_copy_protocol': self._store_python_copy_protocol,
+            'python_ellipsis_usage': self._store_python_ellipsis_usage,
+            'python_bytes_operations': self._store_python_bytes_operations,
+            'python_exec_eval_compile': self._store_python_exec_eval_compile,
         }
 
     def _store_python_orm_models(self, file_path: str, python_orm_models: List, jsx_pass: bool):
@@ -1406,3 +1490,996 @@ class PythonStorage(BaseStorage):
             if 'python_overloads' not in self.counts:
                 self.counts['python_overloads'] = 0
             self.counts['python_overloads'] += 1
+
+    # ================================================================
+    # Python Coverage V2 Storage Handlers (40 handlers)
+    # ================================================================
+
+    def _store_python_comprehensions(self, file_path: str, python_comprehensions: List, jsx_pass: bool):
+        """Store python comprehensions."""
+        for item in python_comprehensions:
+            self.db_manager.add_python_comprehension(
+                file_path,
+                item.get('line', 0),
+                item.get('comp_type', ''),
+                item.get('result_expr', ''),
+                item.get('iteration_var', ''),
+                item.get('iteration_source', ''),
+                item.get('has_filter', False),
+                item.get('filter_expr', ''),
+                item.get('nesting_level', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_comprehensions' not in self.counts:
+                self.counts['python_comprehensions'] = 0
+            self.counts['python_comprehensions'] += 1
+
+    def _store_python_lambda_functions(self, file_path: str, python_lambda_functions: List, jsx_pass: bool):
+        """Store python lambda functions."""
+        for item in python_lambda_functions:
+            self.db_manager.add_python_lambda_function(
+                file_path,
+                item.get('line', 0),
+                item.get('parameter_count', ''),
+                item.get('body', ''),
+                item.get('captures_closure', False),
+                item.get('used_in', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_lambda_functions' not in self.counts:
+                self.counts['python_lambda_functions'] = 0
+            self.counts['python_lambda_functions'] += 1
+
+    def _store_python_slice_operations(self, file_path: str, python_slice_operations: List, jsx_pass: bool):
+        """Store python slice operations."""
+        for item in python_slice_operations:
+            self.db_manager.add_python_slice_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('target', ''),
+                item.get('has_start', False),
+                item.get('has_stop', False),
+                item.get('has_step', False),
+                item.get('is_assignment', False),
+                item.get('in_function', ''),
+            )
+            if 'python_slice_operations' not in self.counts:
+                self.counts['python_slice_operations'] = 0
+            self.counts['python_slice_operations'] += 1
+
+    def _store_python_tuple_operations(self, file_path: str, python_tuple_operations: List, jsx_pass: bool):
+        """Store python tuple operations."""
+        for item in python_tuple_operations:
+            self.db_manager.add_python_tuple_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('element_count', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_tuple_operations' not in self.counts:
+                self.counts['python_tuple_operations'] = 0
+            self.counts['python_tuple_operations'] += 1
+
+    def _store_python_unpacking_patterns(self, file_path: str, python_unpacking_patterns: List, jsx_pass: bool):
+        """Store python unpacking patterns."""
+        for item in python_unpacking_patterns:
+            self.db_manager.add_python_unpacking_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('unpack_type', ''),
+                item.get('target_count', ''),
+                item.get('has_rest', False),
+                item.get('in_function', ''),
+            )
+            if 'python_unpacking_patterns' not in self.counts:
+                self.counts['python_unpacking_patterns'] = 0
+            self.counts['python_unpacking_patterns'] += 1
+
+    def _store_python_none_patterns(self, file_path: str, python_none_patterns: List, jsx_pass: bool):
+        """Store python none patterns."""
+        for item in python_none_patterns:
+            self.db_manager.add_python_none_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('pattern', ''),
+                item.get('uses_is', False),
+                item.get('in_function', ''),
+            )
+            if 'python_none_patterns' not in self.counts:
+                self.counts['python_none_patterns'] = 0
+            self.counts['python_none_patterns'] += 1
+
+    def _store_python_truthiness_patterns(self, file_path: str, python_truthiness_patterns: List, jsx_pass: bool):
+        """Store python truthiness patterns."""
+        for item in python_truthiness_patterns:
+            self.db_manager.add_python_truthiness_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('pattern', ''),
+                item.get('expression', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_truthiness_patterns' not in self.counts:
+                self.counts['python_truthiness_patterns'] = 0
+            self.counts['python_truthiness_patterns'] += 1
+
+    def _store_python_string_formatting(self, file_path: str, python_string_formatting: List, jsx_pass: bool):
+        """Store python string formatting."""
+        for item in python_string_formatting:
+            self.db_manager.add_python_string_formatting(
+                file_path,
+                item.get('line', 0),
+                item.get('format_type', ''),
+                item.get('has_expressions', False),
+                item.get('var_count', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_string_formatting' not in self.counts:
+                self.counts['python_string_formatting'] = 0
+            self.counts['python_string_formatting'] += 1
+
+    def _store_python_operators(self, file_path: str, python_operators: List, jsx_pass: bool):
+        """Store python operators."""
+        for item in python_operators:
+            self.db_manager.add_python_operator(
+                file_path,
+                item.get('line', 0),
+                item.get('operator_type', ''),
+                item.get('operator', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_operators' not in self.counts:
+                self.counts['python_operators'] = 0
+            self.counts['python_operators'] += 1
+
+    def _store_python_membership_tests(self, file_path: str, python_membership_tests: List, jsx_pass: bool):
+        """Store python membership tests."""
+        for item in python_membership_tests:
+            self.db_manager.add_python_membership_test(
+                file_path,
+                item.get('line', 0),
+                item.get('operator', ''),
+                item.get('container_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_membership_tests' not in self.counts:
+                self.counts['python_membership_tests'] = 0
+            self.counts['python_membership_tests'] += 1
+
+    def _store_python_chained_comparisons(self, file_path: str, python_chained_comparisons: List, jsx_pass: bool):
+        """Store python chained comparisons."""
+        for item in python_chained_comparisons:
+            self.db_manager.add_python_chained_comparison(
+                file_path,
+                item.get('line', 0),
+                item.get('chain_length', 0),
+                item.get('operators', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_chained_comparisons' not in self.counts:
+                self.counts['python_chained_comparisons'] = 0
+            self.counts['python_chained_comparisons'] += 1
+
+    def _store_python_ternary_expressions(self, file_path: str, python_ternary_expressions: List, jsx_pass: bool):
+        """Store python ternary expressions."""
+        for item in python_ternary_expressions:
+            self.db_manager.add_python_ternary_expression(
+                file_path,
+                item.get('line', 0),
+                item.get('has_complex_condition', False),
+                item.get('in_function', ''),
+            )
+            if 'python_ternary_expressions' not in self.counts:
+                self.counts['python_ternary_expressions'] = 0
+            self.counts['python_ternary_expressions'] += 1
+
+    def _store_python_walrus_operators(self, file_path: str, python_walrus_operators: List, jsx_pass: bool):
+        """Store python walrus operators."""
+        for item in python_walrus_operators:
+            self.db_manager.add_python_walrus_operator(
+                file_path,
+                item.get('line', 0),
+                item.get('variable', ''),
+                item.get('used_in', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_walrus_operators' not in self.counts:
+                self.counts['python_walrus_operators'] = 0
+            self.counts['python_walrus_operators'] += 1
+
+    def _store_python_matrix_multiplication(self, file_path: str, python_matrix_multiplication: List, jsx_pass: bool):
+        """Store python matrix multiplication."""
+        for item in python_matrix_multiplication:
+            self.db_manager.add_python_matrix_multiplication(
+                file_path,
+                item.get('line', 0),
+                item.get('in_function', ''),
+            )
+            if 'python_matrix_multiplication' not in self.counts:
+                self.counts['python_matrix_multiplication'] = 0
+            self.counts['python_matrix_multiplication'] += 1
+
+    def _store_python_dict_operations(self, file_path: str, python_dict_operations: List, jsx_pass: bool):
+        """Store python dict operations."""
+        for item in python_dict_operations:
+            self.db_manager.add_python_dict_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('has_default', False),
+                item.get('in_function', ''),
+            )
+            if 'python_dict_operations' not in self.counts:
+                self.counts['python_dict_operations'] = 0
+            self.counts['python_dict_operations'] += 1
+
+    def _store_python_list_mutations(self, file_path: str, python_list_mutations: List, jsx_pass: bool):
+        """Store python list mutations."""
+        for item in python_list_mutations:
+            self.db_manager.add_python_list_mutation(
+                file_path,
+                item.get('line', 0),
+                item.get('method', ''),
+                item.get('mutates_in_place', False),
+                item.get('in_function', ''),
+            )
+            if 'python_list_mutations' not in self.counts:
+                self.counts['python_list_mutations'] = 0
+            self.counts['python_list_mutations'] += 1
+
+    def _store_python_set_operations(self, file_path: str, python_set_operations: List, jsx_pass: bool):
+        """Store python set operations."""
+        for item in python_set_operations:
+            self.db_manager.add_python_set_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_set_operations' not in self.counts:
+                self.counts['python_set_operations'] = 0
+            self.counts['python_set_operations'] += 1
+
+    def _store_python_string_methods(self, file_path: str, python_string_methods: List, jsx_pass: bool):
+        """Store python string methods."""
+        for item in python_string_methods:
+            self.db_manager.add_python_string_method(
+                file_path,
+                item.get('line', 0),
+                item.get('method', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_string_methods' not in self.counts:
+                self.counts['python_string_methods'] = 0
+            self.counts['python_string_methods'] += 1
+
+    def _store_python_builtin_usage(self, file_path: str, python_builtin_usage: List, jsx_pass: bool):
+        """Store python builtin usage."""
+        for item in python_builtin_usage:
+            self.db_manager.add_python_builtin_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('builtin', ''),
+                item.get('has_key', False),
+                item.get('in_function', ''),
+            )
+            if 'python_builtin_usage' not in self.counts:
+                self.counts['python_builtin_usage'] = 0
+            self.counts['python_builtin_usage'] += 1
+
+    def _store_python_itertools_usage(self, file_path: str, python_itertools_usage: List, jsx_pass: bool):
+        """Store python itertools usage."""
+        for item in python_itertools_usage:
+            self.db_manager.add_python_itertools_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('function', ''),
+                item.get('is_infinite', False),
+                item.get('in_function', ''),
+            )
+            if 'python_itertools_usage' not in self.counts:
+                self.counts['python_itertools_usage'] = 0
+            self.counts['python_itertools_usage'] += 1
+
+    def _store_python_functools_usage(self, file_path: str, python_functools_usage: List, jsx_pass: bool):
+        """Store python functools usage."""
+        for item in python_functools_usage:
+            self.db_manager.add_python_functools_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('function', ''),
+                item.get('is_decorator', False),
+                item.get('in_function', ''),
+            )
+            if 'python_functools_usage' not in self.counts:
+                self.counts['python_functools_usage'] = 0
+            self.counts['python_functools_usage'] += 1
+
+    def _store_python_collections_usage(self, file_path: str, python_collections_usage: List, jsx_pass: bool):
+        """Store python collections usage."""
+        for item in python_collections_usage:
+            self.db_manager.add_python_collections_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('collection_type', ''),
+                item.get('default_factory', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_collections_usage' not in self.counts:
+                self.counts['python_collections_usage'] = 0
+            self.counts['python_collections_usage'] += 1
+
+    def _store_python_metaclasses(self, file_path: str, python_metaclasses: List, jsx_pass: bool):
+        """Store python metaclasses."""
+        for item in python_metaclasses:
+            self.db_manager.add_python_metaclasse(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('metaclass_name', ''),
+                item.get('is_definition', False),
+            )
+            if 'python_metaclasses' not in self.counts:
+                self.counts['python_metaclasses'] = 0
+            self.counts['python_metaclasses'] += 1
+
+    def _store_python_descriptors(self, file_path: str, python_descriptors: List, jsx_pass: bool):
+        """Store python descriptors."""
+        for item in python_descriptors:
+            self.db_manager.add_python_descriptor(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('has_get', False),
+                item.get('has_set', False),
+                item.get('has_delete', False),
+                item.get('descriptor_type', ''),
+            )
+            if 'python_descriptors' not in self.counts:
+                self.counts['python_descriptors'] = 0
+            self.counts['python_descriptors'] += 1
+
+    def _store_python_dataclasses(self, file_path: str, python_dataclasses: List, jsx_pass: bool):
+        """Store python dataclasses."""
+        for item in python_dataclasses:
+            self.db_manager.add_python_dataclasse(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('frozen', False),
+                item.get('field_count', ''),
+            )
+            if 'python_dataclasses' not in self.counts:
+                self.counts['python_dataclasses'] = 0
+            self.counts['python_dataclasses'] += 1
+
+    def _store_python_enums(self, file_path: str, python_enums: List, jsx_pass: bool):
+        """Store python enums."""
+        for item in python_enums:
+            self.db_manager.add_python_enum(
+                file_path,
+                item.get('line', 0),
+                item.get('enum_name', ''),
+                item.get('enum_type', ''),
+                item.get('member_count', ''),
+            )
+            if 'python_enums' not in self.counts:
+                self.counts['python_enums'] = 0
+            self.counts['python_enums'] += 1
+
+    def _store_python_slots(self, file_path: str, python_slots: List, jsx_pass: bool):
+        """Store python slots."""
+        for item in python_slots:
+            self.db_manager.add_python_slot(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('slot_count', ''),
+            )
+            if 'python_slots' not in self.counts:
+                self.counts['python_slots'] = 0
+            self.counts['python_slots'] += 1
+
+    def _store_python_abstract_classes(self, file_path: str, python_abstract_classes: List, jsx_pass: bool):
+        """Store python abstract classes."""
+        for item in python_abstract_classes:
+            self.db_manager.add_python_abstract_classe(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('abstract_method_count', ''),
+            )
+            if 'python_abstract_classes' not in self.counts:
+                self.counts['python_abstract_classes'] = 0
+            self.counts['python_abstract_classes'] += 1
+
+    def _store_python_method_types(self, file_path: str, python_method_types: List, jsx_pass: bool):
+        """Store python method types."""
+        for item in python_method_types:
+            self.db_manager.add_python_method_type(
+                file_path,
+                item.get('line', 0),
+                item.get('method_name', ''),
+                item.get('method_type', ''),
+                item.get('in_class', ''),
+            )
+            if 'python_method_types' not in self.counts:
+                self.counts['python_method_types'] = 0
+            self.counts['python_method_types'] += 1
+
+    def _store_python_multiple_inheritance(self, file_path: str, python_multiple_inheritance: List, jsx_pass: bool):
+        """Store python multiple inheritance."""
+        for item in python_multiple_inheritance:
+            self.db_manager.add_python_multiple_inheritance(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('base_count', 0),
+                item.get('base_classes', ''),
+            )
+            if 'python_multiple_inheritance' not in self.counts:
+                self.counts['python_multiple_inheritance'] = 0
+            self.counts['python_multiple_inheritance'] += 1
+
+    def _store_python_dunder_methods(self, file_path: str, python_dunder_methods: List, jsx_pass: bool):
+        """Store python dunder methods."""
+        for item in python_dunder_methods:
+            self.db_manager.add_python_dunder_method(
+                file_path,
+                item.get('line', 0),
+                item.get('method_name', ''),
+                item.get('category', ''),
+                item.get('in_class', ''),
+            )
+            if 'python_dunder_methods' not in self.counts:
+                self.counts['python_dunder_methods'] = 0
+            self.counts['python_dunder_methods'] += 1
+
+    def _store_python_visibility_conventions(self, file_path: str, python_visibility_conventions: List, jsx_pass: bool):
+        """Store python visibility conventions."""
+        for item in python_visibility_conventions:
+            self.db_manager.add_python_visibility_convention(
+                file_path,
+                item.get('line', 0),
+                item.get('name', ''),
+                item.get('visibility', ''),
+                item.get('is_name_mangled', False),
+                item.get('in_class', ''),
+            )
+            if 'python_visibility_conventions' not in self.counts:
+                self.counts['python_visibility_conventions'] = 0
+            self.counts['python_visibility_conventions'] += 1
+
+    def _store_python_regex_patterns(self, file_path: str, python_regex_patterns: List, jsx_pass: bool):
+        """Store python regex patterns."""
+        for item in python_regex_patterns:
+            self.db_manager.add_python_regex_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('has_flags', False),
+                item.get('in_function', ''),
+            )
+            if 'python_regex_patterns' not in self.counts:
+                self.counts['python_regex_patterns'] = 0
+            self.counts['python_regex_patterns'] += 1
+
+    def _store_python_json_operations(self, file_path: str, python_json_operations: List, jsx_pass: bool):
+        """Store python json operations."""
+        for item in python_json_operations:
+            self.db_manager.add_python_json_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('direction', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_json_operations' not in self.counts:
+                self.counts['python_json_operations'] = 0
+            self.counts['python_json_operations'] += 1
+
+    def _store_python_datetime_operations(self, file_path: str, python_datetime_operations: List, jsx_pass: bool):
+        """Store python datetime operations."""
+        for item in python_datetime_operations:
+            self.db_manager.add_python_datetime_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('datetime_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_datetime_operations' not in self.counts:
+                self.counts['python_datetime_operations'] = 0
+            self.counts['python_datetime_operations'] += 1
+
+    def _store_python_path_operations(self, file_path: str, python_path_operations: List, jsx_pass: bool):
+        """Store python path operations."""
+        for item in python_path_operations:
+            self.db_manager.add_python_path_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('path_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_path_operations' not in self.counts:
+                self.counts['python_path_operations'] = 0
+            self.counts['python_path_operations'] += 1
+
+    def _store_python_logging_patterns(self, file_path: str, python_logging_patterns: List, jsx_pass: bool):
+        """Store python logging patterns."""
+        for item in python_logging_patterns:
+            self.db_manager.add_python_logging_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('log_level', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_logging_patterns' not in self.counts:
+                self.counts['python_logging_patterns'] = 0
+            self.counts['python_logging_patterns'] += 1
+
+    def _store_python_threading_patterns(self, file_path: str, python_threading_patterns: List, jsx_pass: bool):
+        """Store python threading patterns."""
+        for item in python_threading_patterns:
+            self.db_manager.add_python_threading_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('threading_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_threading_patterns' not in self.counts:
+                self.counts['python_threading_patterns'] = 0
+            self.counts['python_threading_patterns'] += 1
+
+    def _store_python_contextlib_patterns(self, file_path: str, python_contextlib_patterns: List, jsx_pass: bool):
+        """Store python contextlib patterns."""
+        for item in python_contextlib_patterns:
+            self.db_manager.add_python_contextlib_pattern(
+                file_path,
+                item.get('line', 0),
+                item.get('pattern', ''),
+                item.get('is_decorator', False),
+                item.get('in_function', ''),
+            )
+            if 'python_contextlib_patterns' not in self.counts:
+                self.counts['python_contextlib_patterns'] = 0
+            self.counts['python_contextlib_patterns'] += 1
+
+    def _store_python_type_checking(self, file_path: str, python_type_checking: List, jsx_pass: bool):
+        """Store python type checking."""
+        for item in python_type_checking:
+            self.db_manager.add_python_type_checking(
+                file_path,
+                item.get('line', 0),
+                item.get('check_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_type_checking' not in self.counts:
+                self.counts['python_type_checking'] = 0
+            self.counts['python_type_checking'] += 1
+
+    # Python Coverage V2 - Week 5: Control Flow (10)
+
+    def _store_python_for_loops(self, file_path: str, python_for_loops: List, jsx_pass: bool):
+        """Store python for loops."""
+        for item in python_for_loops:
+            self.db_manager.add_python_for_loop(
+                file_path,
+                item.get('line', 0),
+                item.get('loop_type', ''),
+                item.get('has_else', False),
+                item.get('nesting_level', 0),
+                item.get('target_count', 0),
+                item.get('in_function', ''),
+            )
+            if 'python_for_loops' not in self.counts:
+                self.counts['python_for_loops'] = 0
+            self.counts['python_for_loops'] += 1
+
+    def _store_python_while_loops(self, file_path: str, python_while_loops: List, jsx_pass: bool):
+        """Store python while loops."""
+        for item in python_while_loops:
+            self.db_manager.add_python_while_loop(
+                file_path,
+                item.get('line', 0),
+                item.get('has_else', False),
+                item.get('is_infinite', False),
+                item.get('nesting_level', 0),
+                item.get('in_function', ''),
+            )
+            if 'python_while_loops' not in self.counts:
+                self.counts['python_while_loops'] = 0
+            self.counts['python_while_loops'] += 1
+
+    def _store_python_async_for_loops(self, file_path: str, python_async_for_loops: List, jsx_pass: bool):
+        """Store python async for loops."""
+        for item in python_async_for_loops:
+            self.db_manager.add_python_async_for_loop(
+                file_path,
+                item.get('line', 0),
+                item.get('has_else', False),
+                item.get('target_count', 0),
+                item.get('in_function', ''),
+            )
+            if 'python_async_for_loops' not in self.counts:
+                self.counts['python_async_for_loops'] = 0
+            self.counts['python_async_for_loops'] += 1
+
+    def _store_python_if_statements(self, file_path: str, python_if_statements: List, jsx_pass: bool):
+        """Store python if statements."""
+        for item in python_if_statements:
+            self.db_manager.add_python_if_statement(
+                file_path,
+                item.get('line', 0),
+                item.get('has_elif', False),
+                item.get('has_else', False),
+                item.get('chain_length', 0),
+                item.get('nesting_level', 0),
+                item.get('has_complex_condition', False),
+                item.get('in_function', ''),
+            )
+            if 'python_if_statements' not in self.counts:
+                self.counts['python_if_statements'] = 0
+            self.counts['python_if_statements'] += 1
+
+    def _store_python_match_statements(self, file_path: str, python_match_statements: List, jsx_pass: bool):
+        """Store python match statements."""
+        for item in python_match_statements:
+            self.db_manager.add_python_match_statement(
+                file_path,
+                item.get('line', 0),
+                item.get('case_count', 0),
+                item.get('has_wildcard', False),
+                item.get('has_guards', False),
+                item.get('pattern_types', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_match_statements' not in self.counts:
+                self.counts['python_match_statements'] = 0
+            self.counts['python_match_statements'] += 1
+
+    def _store_python_break_continue_pass(self, file_path: str, python_break_continue_pass: List, jsx_pass: bool):
+        """Store python break/continue/pass statements."""
+        for item in python_break_continue_pass:
+            self.db_manager.add_python_break_continue_pass(
+                file_path,
+                item.get('line', 0),
+                item.get('statement_type', ''),
+                item.get('loop_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_break_continue_pass' not in self.counts:
+                self.counts['python_break_continue_pass'] = 0
+            self.counts['python_break_continue_pass'] += 1
+
+    def _store_python_assert_statements(self, file_path: str, python_assert_statements: List, jsx_pass: bool):
+        """Store python assert statements."""
+        for item in python_assert_statements:
+            self.db_manager.add_python_assert_statement(
+                file_path,
+                item.get('line', 0),
+                item.get('has_message', False),
+                item.get('condition_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_assert_statements' not in self.counts:
+                self.counts['python_assert_statements'] = 0
+            self.counts['python_assert_statements'] += 1
+
+    def _store_python_del_statements(self, file_path: str, python_del_statements: List, jsx_pass: bool):
+        """Store python del statements."""
+        for item in python_del_statements:
+            self.db_manager.add_python_del_statement(
+                file_path,
+                item.get('line', 0),
+                item.get('target_type', ''),
+                item.get('target_count', 0),
+                item.get('in_function', ''),
+            )
+            if 'python_del_statements' not in self.counts:
+                self.counts['python_del_statements'] = 0
+            self.counts['python_del_statements'] += 1
+
+    def _store_python_import_statements(self, file_path: str, python_import_statements: List, jsx_pass: bool):
+        """Store python import statements."""
+        for item in python_import_statements:
+            self.db_manager.add_python_import_statement(
+                file_path,
+                item.get('line', 0),
+                item.get('import_type', ''),
+                item.get('module', ''),
+                item.get('has_alias', False),
+                item.get('is_wildcard', False),
+                item.get('relative_level', 0),
+                item.get('imported_names', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_import_statements' not in self.counts:
+                self.counts['python_import_statements'] = 0
+            self.counts['python_import_statements'] += 1
+
+    def _store_python_with_statements(self, file_path: str, python_with_statements: List, jsx_pass: bool):
+        """Store python with statements."""
+        for item in python_with_statements:
+            self.db_manager.add_python_with_statement(
+                file_path,
+                item.get('line', 0),
+                item.get('is_async', False),
+                item.get('context_count', 0),
+                item.get('has_alias', False),
+                item.get('in_function', ''),
+            )
+            if 'python_with_statements' not in self.counts:
+                self.counts['python_with_statements'] = 0
+            self.counts['python_with_statements'] += 1
+
+    # Python Coverage V2 - Week 6: Protocol Patterns (10)
+
+    def _store_python_iterator_protocol(self, file_path: str, python_iterator_protocol: List, jsx_pass: bool):
+        """Store python iterator protocol."""
+        for item in python_iterator_protocol:
+            self.db_manager.add_python_iterator_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('has_iter', False),
+                item.get('has_next', False),
+                item.get('raises_stopiteration', False),
+                item.get('is_generator', False),
+            )
+            if 'python_iterator_protocol' not in self.counts:
+                self.counts['python_iterator_protocol'] = 0
+            self.counts['python_iterator_protocol'] += 1
+
+    def _store_python_container_protocol(self, file_path: str, python_container_protocol: List, jsx_pass: bool):
+        """Store python container protocol."""
+        for item in python_container_protocol:
+            self.db_manager.add_python_container_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('has_len', False),
+                item.get('has_getitem', False),
+                item.get('has_setitem', False),
+                item.get('has_delitem', False),
+                item.get('has_contains', False),
+                item.get('is_sequence', False),
+                item.get('is_mapping', False),
+            )
+            if 'python_container_protocol' not in self.counts:
+                self.counts['python_container_protocol'] = 0
+            self.counts['python_container_protocol'] += 1
+
+    def _store_python_callable_protocol(self, file_path: str, python_callable_protocol: List, jsx_pass: bool):
+        """Store python callable protocol."""
+        for item in python_callable_protocol:
+            self.db_manager.add_python_callable_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('param_count', 0),
+                item.get('has_args', False),
+                item.get('has_kwargs', False),
+            )
+            if 'python_callable_protocol' not in self.counts:
+                self.counts['python_callable_protocol'] = 0
+            self.counts['python_callable_protocol'] += 1
+
+    def _store_python_comparison_protocol(self, file_path: str, python_comparison_protocol: List, jsx_pass: bool):
+        """Store python comparison protocol."""
+        for item in python_comparison_protocol:
+            self.db_manager.add_python_comparison_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('methods', ''),
+                item.get('is_total_ordering', False),
+                item.get('has_all_rich', False),
+            )
+            if 'python_comparison_protocol' not in self.counts:
+                self.counts['python_comparison_protocol'] = 0
+            self.counts['python_comparison_protocol'] += 1
+
+    def _store_python_arithmetic_protocol(self, file_path: str, python_arithmetic_protocol: List, jsx_pass: bool):
+        """Store python arithmetic protocol."""
+        for item in python_arithmetic_protocol:
+            self.db_manager.add_python_arithmetic_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('methods', ''),
+                item.get('has_reflected', False),
+                item.get('has_inplace', False),
+            )
+            if 'python_arithmetic_protocol' not in self.counts:
+                self.counts['python_arithmetic_protocol'] = 0
+            self.counts['python_arithmetic_protocol'] += 1
+
+    def _store_python_pickle_protocol(self, file_path: str, python_pickle_protocol: List, jsx_pass: bool):
+        """Store python pickle protocol."""
+        for item in python_pickle_protocol:
+            self.db_manager.add_python_pickle_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('has_getstate', False),
+                item.get('has_setstate', False),
+                item.get('has_reduce', False),
+                item.get('has_reduce_ex', False),
+            )
+            if 'python_pickle_protocol' not in self.counts:
+                self.counts['python_pickle_protocol'] = 0
+            self.counts['python_pickle_protocol'] += 1
+
+    def _store_python_weakref_usage(self, file_path: str, python_weakref_usage: List, jsx_pass: bool):
+        """Store python weakref usage."""
+        for item in python_weakref_usage:
+            self.db_manager.add_python_weakref_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('usage_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_weakref_usage' not in self.counts:
+                self.counts['python_weakref_usage'] = 0
+            self.counts['python_weakref_usage'] += 1
+
+    def _store_python_contextvar_usage(self, file_path: str, python_contextvar_usage: List, jsx_pass: bool):
+        """Store python contextvar usage."""
+        for item in python_contextvar_usage:
+            self.db_manager.add_python_contextvar_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_contextvar_usage' not in self.counts:
+                self.counts['python_contextvar_usage'] = 0
+            self.counts['python_contextvar_usage'] += 1
+
+    def _store_python_module_attributes(self, file_path: str, python_module_attributes: List, jsx_pass: bool):
+        """Store python module attributes."""
+        for item in python_module_attributes:
+            self.db_manager.add_python_module_attribute(
+                file_path,
+                item.get('line', 0),
+                item.get('attribute', ''),
+                item.get('usage_type', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_module_attributes' not in self.counts:
+                self.counts['python_module_attributes'] = 0
+            self.counts['python_module_attributes'] += 1
+
+    def _store_python_class_decorators(self, file_path: str, python_class_decorators: List, jsx_pass: bool):
+        """Store python class decorators."""
+        for item in python_class_decorators:
+            self.db_manager.add_python_class_decorator(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('decorator', ''),
+                item.get('decorator_type', ''),
+                item.get('has_arguments', False),
+            )
+            if 'python_class_decorators' not in self.counts:
+                self.counts['python_class_decorators'] = 0
+            self.counts['python_class_decorators'] += 1
+
+    # Python Coverage V2 - Advanced Patterns (8)
+
+    def _store_python_namespace_packages(self, file_path: str, python_namespace_packages: List, jsx_pass: bool):
+        """Store python namespace packages."""
+        for item in python_namespace_packages:
+            self.db_manager.add_python_namespace_package(
+                file_path,
+                item.get('line', 0),
+                item.get('pattern', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_namespace_packages' not in self.counts:
+                self.counts['python_namespace_packages'] = 0
+            self.counts['python_namespace_packages'] += 1
+
+    def _store_python_cached_property(self, file_path: str, python_cached_property: List, jsx_pass: bool):
+        """Store python cached property."""
+        for item in python_cached_property:
+            self.db_manager.add_python_cached_property(
+                file_path,
+                item.get('line', 0),
+                item.get('method_name', ''),
+                item.get('in_class', ''),
+                item.get('is_functools', False),
+            )
+            if 'python_cached_property' not in self.counts:
+                self.counts['python_cached_property'] = 0
+            self.counts['python_cached_property'] += 1
+
+    def _store_python_descriptor_protocol(self, file_path: str, python_descriptor_protocol: List, jsx_pass: bool):
+        """Store python descriptor protocol."""
+        for item in python_descriptor_protocol:
+            self.db_manager.add_python_descriptor_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('has_get', False),
+                item.get('has_set', False),
+                item.get('has_delete', False),
+                item.get('is_data_descriptor', False),
+            )
+            if 'python_descriptor_protocol' not in self.counts:
+                self.counts['python_descriptor_protocol'] = 0
+            self.counts['python_descriptor_protocol'] += 1
+
+    def _store_python_attribute_access_protocol(self, file_path: str, python_attribute_access_protocol: List, jsx_pass: bool):
+        """Store python attribute access protocol."""
+        for item in python_attribute_access_protocol:
+            self.db_manager.add_python_attribute_access_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('has_getattr', False),
+                item.get('has_setattr', False),
+                item.get('has_delattr', False),
+                item.get('has_getattribute', False),
+            )
+            if 'python_attribute_access_protocol' not in self.counts:
+                self.counts['python_attribute_access_protocol'] = 0
+            self.counts['python_attribute_access_protocol'] += 1
+
+    def _store_python_copy_protocol(self, file_path: str, python_copy_protocol: List, jsx_pass: bool):
+        """Store python copy protocol."""
+        for item in python_copy_protocol:
+            self.db_manager.add_python_copy_protocol(
+                file_path,
+                item.get('line', 0),
+                item.get('class_name', ''),
+                item.get('has_copy', False),
+                item.get('has_deepcopy', False),
+            )
+            if 'python_copy_protocol' not in self.counts:
+                self.counts['python_copy_protocol'] = 0
+            self.counts['python_copy_protocol'] += 1
+
+    def _store_python_ellipsis_usage(self, file_path: str, python_ellipsis_usage: List, jsx_pass: bool):
+        """Store python ellipsis usage."""
+        for item in python_ellipsis_usage:
+            self.db_manager.add_python_ellipsis_usage(
+                file_path,
+                item.get('line', 0),
+                item.get('context', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_ellipsis_usage' not in self.counts:
+                self.counts['python_ellipsis_usage'] = 0
+            self.counts['python_ellipsis_usage'] += 1
+
+    def _store_python_bytes_operations(self, file_path: str, python_bytes_operations: List, jsx_pass: bool):
+        """Store python bytes operations."""
+        for item in python_bytes_operations:
+            self.db_manager.add_python_bytes_operation(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('in_function', ''),
+            )
+            if 'python_bytes_operations' not in self.counts:
+                self.counts['python_bytes_operations'] = 0
+            self.counts['python_bytes_operations'] += 1
+
+    def _store_python_exec_eval_compile(self, file_path: str, python_exec_eval_compile: List, jsx_pass: bool):
+        """Store python exec/eval/compile usage."""
+        for item in python_exec_eval_compile:
+            self.db_manager.add_python_exec_eval_compile(
+                file_path,
+                item.get('line', 0),
+                item.get('operation', ''),
+                item.get('has_globals', False),
+                item.get('has_locals', False),
+                item.get('in_function', ''),
+            )
+            if 'python_exec_eval_compile' not in self.counts:
+                self.counts['python_exec_eval_compile'] = 0
+            self.counts['python_exec_eval_compile'] += 1
+

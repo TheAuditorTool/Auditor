@@ -489,8 +489,8 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
     TROUBLESHOOTING:
 
         ERROR: "No .pf directory found"
-        CAUSE: Haven't run aud index yet
-        FIX: Run: aud index
+        CAUSE: Haven't run aud full yet
+        FIX: Run: aud full
         EXPLANATION: Query engine needs indexed database to work
 
         ERROR: "Graph database not found"
@@ -960,7 +960,7 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
         click.echo("="*60, err=True)
         click.echo("\nContext queries require indexed data.", err=True)
         click.echo("\nPlease run:", err=True)
-        click.echo("    aud index", err=True)
+        click.echo("    aud full", err=True)
         click.echo("\nThen try again:", err=True)
         if symbol:
             click.echo(f"    aud query --symbol {symbol} --show-callers\n", err=True)
