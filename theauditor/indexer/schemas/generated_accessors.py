@@ -5060,6 +5060,38 @@ class PythonOverloadsTable:
         return [dict(zip(['file', 'function_name', 'overload_count', 'variants'], row)) for row in cursor.fetchall()]
 
 
+class PythonPackageConfigsTable:
+    """Accessor class for python_package_configs table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> List[Dict[str, Any]]:
+        """Get all rows from python_package_configs."""
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> List[Dict[str, Any]]:
+        """Get rows by file_path."""
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], where="file_path = ?")
+        cursor.execute(query, (file_path,))
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_type(cursor: sqlite3.Cursor, file_type: str) -> List[Dict[str, Any]]:
+        """Get rows by file_type."""
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], where="file_type = ?")
+        cursor.execute(query, (file_type,))
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_project_name(cursor: sqlite3.Cursor, project_name: str) -> List[Dict[str, Any]]:
+        """Get rows by project_name."""
+        query = build_query('python_package_configs', ['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], where="project_name = ?")
+        cursor.execute(query, (project_name,))
+        return [dict(zip(['file_path', 'file_type', 'project_name', 'project_version', 'dependencies', 'optional_dependencies', 'build_system', 'indexed_at'], row)) for row in cursor.fetchall()]
+
+
 class PythonParameterReturnFlowTable:
     """Accessor class for python_parameter_return_flow table."""
 

@@ -15,11 +15,12 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--root", default=".", help="Root directory")
 @click.option("--check-latest", is_flag=True, help="Check for latest versions from registries")
 @click.option("--upgrade-all", is_flag=True, help="YOLO mode: Update ALL packages to latest versions")
+@click.option("--allow-prerelease", is_flag=True, help="Allow alpha/beta/rc versions (default: stable only)")
 @click.option("--offline", is_flag=True, help="Force offline mode (no network)")
 @click.option("--out", default="./.pf/raw/deps.json", help="Output dependencies file")
 @click.option("--print-stats", is_flag=True, help="Print dependency statistics")
 @click.option("--vuln-scan", is_flag=True, help="Scan dependencies for known vulnerabilities")
-def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
+def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_stats, vuln_scan):
     """Analyze dependencies for vulnerabilities and updates.
 
     Comprehensive dependency analysis supporting Python (pip/poetry) and
@@ -119,9 +120,11 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
     if upgrade_all and not offline:
         click.echo("[YOLO MODE] Upgrading ALL packages to latest versions...")
         click.echo("  [WARN] This may break things. That's the point!")
-        
+        if allow_prerelease:
+            click.echo("  [WARN] Including alpha/beta/RC versions (--allow-prerelease)")
+
         # Get latest versions
-        latest_info = check_latest_versions(deps_list, allow_net=True, offline=offline)
+        latest_info = check_latest_versions(deps_list, allow_net=True, offline=offline, allow_prerelease=allow_prerelease)
         if not latest_info:
             click.echo("  [FAIL] Failed to fetch latest versions")
             return
@@ -192,8 +195,19 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
         
         click.echo(f"Checking {len(deps_list)} dependencies for updates...")
         click.echo(f"  Unique packages to check: {len(unique_packages)}")
-        click.echo("  Connecting to: npm registry and PyPI")
-        latest_info = check_latest_versions(deps_list, allow_net=True, offline=offline)
+
+        # Show which registries we're connecting to
+        registries = []
+        if any(d['manager'] == 'npm' for d in deps_list):
+            registries.append("npm registry")
+        if any(d['manager'] == 'py' for d in deps_list):
+            registries.append("PyPI")
+        if any(d['manager'] == 'docker' for d in deps_list):
+            registries.append("Docker Hub")
+
+        if registries:
+            click.echo(f"  Connecting to: {', '.join(registries)}")
+        latest_info = check_latest_versions(deps_list, allow_net=True, offline=offline, allow_prerelease=allow_prerelease)
         if latest_info:
             write_deps_latest_json(latest_info, output_path=out.replace("deps.json", "deps_latest.json"))
             
@@ -217,12 +231,18 @@ def deps(root, check_latest, upgrade_all, offline, out, print_stats, vuln_scan):
     # Count by manager
     npm_count = sum(1 for d in deps_list if d["manager"] == "npm")
     py_count = sum(1 for d in deps_list if d["manager"] == "py")
-    
+    docker_count = sum(1 for d in deps_list if d["manager"] == "docker")
+    cargo_count = sum(1 for d in deps_list if d["manager"] == "cargo")
+
     click.echo(f"  Total: {len(deps_list)} dependencies")
     if npm_count > 0:
         click.echo(f"  Node/npm: {npm_count}")
     if py_count > 0:
         click.echo(f"  Python: {py_count}")
+    if docker_count > 0:
+        click.echo(f"  Docker: {docker_count}")
+    if cargo_count > 0:
+        click.echo(f"  Cargo/Rust: {cargo_count}")
     
     if latest_info:
         # Count how many of the TOTAL deps are outdated (only if successfully checked)

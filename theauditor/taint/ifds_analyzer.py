@@ -199,8 +199,10 @@ class IFDSTaintAnalyzer:
             visited_states.add(state)
 
             # Prevent loops within CURRENT path (immediate cycle detection)
-            path_nodes = {hop.get('from') for hop in hop_chain if isinstance(hop, dict) and hop.get('from')}
-            path_nodes.update({hop.get('to') for hop in hop_chain if isinstance(hop, dict) and hop.get('to')})
+            # CRITICAL FIX: Only check 'to' nodes (destinations), not 'from' nodes (sources)
+            # The 'from' node is the predecessor we're currently visiting - it's SUPPOSED to be in hop_chain!
+            # We only want to detect if we're revisiting a node that was already a destination.
+            path_nodes = {hop.get('to') for hop in hop_chain if isinstance(hop, dict) and hop.get('to')}
             if current_ap.node_id in path_nodes:
                 continue  # Loop detected in current path - skip
 

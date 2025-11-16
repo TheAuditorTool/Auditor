@@ -36,7 +36,6 @@ def initialize_project(
     from theauditor.workset import compute_workset
     from theauditor.deps import parse_dependencies, check_latest_versions
     from theauditor.docs_fetch import fetch_docs
-    from theauditor.docs_summarize import summarize_docs
     from theauditor.config_runtime import load_runtime_config
     
     # Load configuration
@@ -164,20 +163,17 @@ def initialize_project(
                 fetched = fetch_result.get('fetched', 0)
                 cached = fetch_result.get('cached', 0)
                 errors = fetch_result.get('errors', [])
-                
-                # Summarize
-                summarize_result = summarize_docs()
+
                 stats["docs"] = {
                     "fetched": fetched,
                     "cached": cached,
-                    "capsules": summarize_result.get('capsules_created', 0),
                     "success": True,
                     "errors": errors
                 }
                 if progress_callback:
-                    progress_callback(f"  ✓ Fetched {fetched} docs, created {stats['docs']['capsules']} capsules")
+                    progress_callback(f"  ✓ Fetched {fetched} docs ({cached} from cache)")
             else:
-                stats["docs"] = {"success": True, "fetched": 0, "capsules": 0}
+                stats["docs"] = {"success": True, "fetched": 0}
                 if progress_callback:
                     progress_callback("  ✓ No dependencies to document")
         except KeyboardInterrupt:

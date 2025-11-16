@@ -121,52 +121,76 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
             except SecurityError as e:
                 if debug:
                     print(f"Debug: Security error with {pkg_file}: {e}")
-    
-    # Parse Python dependencies
-    try:
-        pyproject = sanitize_path("pyproject.toml", root_path)
-        if pyproject.exists():
-            if debug:
-                print(f"Debug: Found {pyproject}")
-            deps.extend(_parse_pyproject_toml(pyproject))
-    except SecurityError as e:
+
+    # =========================================================================
+    # DATABASE-FIRST: Try to read Python dependencies from python_package_configs table
+    # =========================================================================
+    python_deps_from_db = []
+
+    if db_path.exists():
         if debug:
-            print(f"Debug: Security error checking pyproject.toml: {e}")
-    
-    # Parse requirements files (including in subdirectories for monorepos)
-    # Check root first
-    req_files = list(root.glob("requirements*.txt"))
-    # Also check common Python monorepo patterns
-    req_files.extend(root.glob("*/requirements*.txt"))  # backend/requirements.txt
-    req_files.extend(root.glob("services/*/requirements*.txt"))  # services/api/requirements.txt
-    req_files.extend(root.glob("apps/*/requirements*.txt"))  # apps/web/requirements.txt
-    
-    # Also check for pyproject.toml in subdirectories (Python monorepos)
-    pyproject_files = list(root.glob("*/pyproject.toml"))  # backend/pyproject.toml
-    pyproject_files.extend(root.glob("services/*/pyproject.toml"))
-    pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
-    
-    # Process all pyproject.toml files found
-    for pyproject_file in pyproject_files:
-        try:
-            safe_pyproject = sanitize_path(str(pyproject_file), root_path)
+            print(f"Debug: Reading Python dependencies from database: {db_path}")
+
+        python_deps_from_db = _read_python_deps_from_database(db_path, root, debug)
+
+        if python_deps_from_db:
             if debug:
-                print(f"Debug: Found {safe_pyproject}")
-            deps.extend(_parse_pyproject_toml(safe_pyproject))
+                print(f"Debug: Loaded {len(python_deps_from_db)} Python dependencies from database")
+            deps.extend(python_deps_from_db)
+        elif debug:
+            print("Debug: python_package_configs table empty, falling back to file parsing for Python")
+    elif debug:
+        print("Debug: Database not found, parsing Python dependencies from files")
+
+    # =========================================================================
+    # FALLBACK: Parse Python dependencies from files if database didn't have them
+    # =========================================================================
+    if not python_deps_from_db:
+        # Parse Python dependencies
+        try:
+            pyproject = sanitize_path("pyproject.toml", root_path)
+            if pyproject.exists():
+                if debug:
+                    print(f"Debug: Found {pyproject}")
+                deps.extend(_parse_pyproject_toml(pyproject))
         except SecurityError as e:
             if debug:
-                print(f"Debug: Security error with {pyproject_file}: {e}")
-    
-    if debug and req_files:
-        print(f"Debug: Found requirements files: {req_files}")
-    for req_file in req_files:
-        try:
-            # Validate the path is within project root
-            safe_req_file = sanitize_path(str(req_file), root_path)
-            deps.extend(_parse_requirements_txt(safe_req_file))
-        except SecurityError as e:
-            if debug:
-                print(f"Debug: Security error with {req_file}: {e}")
+                print(f"Debug: Security error checking pyproject.toml: {e}")
+
+        # Parse requirements files (including in subdirectories for monorepos)
+        # Check root first
+        req_files = list(root.glob("requirements*.txt"))
+        # Also check common Python monorepo patterns
+        req_files.extend(root.glob("*/requirements*.txt"))  # backend/requirements.txt
+        req_files.extend(root.glob("services/*/requirements*.txt"))  # services/api/requirements.txt
+        req_files.extend(root.glob("apps/*/requirements*.txt"))  # apps/web/requirements.txt
+
+        # Also check for pyproject.toml in subdirectories (Python monorepos)
+        pyproject_files = list(root.glob("*/pyproject.toml"))  # backend/pyproject.toml
+        pyproject_files.extend(root.glob("services/*/pyproject.toml"))
+        pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
+
+        # Process all pyproject.toml files found
+        for pyproject_file in pyproject_files:
+            try:
+                safe_pyproject = sanitize_path(str(pyproject_file), root_path)
+                if debug:
+                    print(f"Debug: Found {safe_pyproject}")
+                deps.extend(_parse_pyproject_toml(safe_pyproject))
+            except SecurityError as e:
+                if debug:
+                    print(f"Debug: Security error with {pyproject_file}: {e}")
+
+        if debug and req_files:
+            print(f"Debug: Found requirements files: {req_files}")
+        for req_file in req_files:
+            try:
+                # Validate the path is within project root
+                safe_req_file = sanitize_path(str(req_file), root_path)
+                deps.extend(_parse_requirements_txt(safe_req_file))
+            except SecurityError as e:
+                if debug:
+                    print(f"Debug: Security error with {req_file}: {e}")
     
     # Parse Docker Compose files
     docker_compose_files = list(root.glob("docker-compose*.yml")) + list(root.glob("docker-compose*.yaml"))
@@ -293,6 +317,104 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> List
     except (sqlite3.Error, Exception) as e:
         if debug:
             print(f"Debug: Database read error: {e}")
+        return []
+
+
+def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> List[Dict[str, Any]]:
+    """Read Python dependencies from python_package_configs table.
+
+    Args:
+        db_path: Path to repo_index.db
+        root: Project root path
+        debug: Debug mode flag
+
+    Returns:
+        List of dependency dictionaries in deps.py format
+    """
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check if python_package_configs table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='python_package_configs'
+        """)
+
+        if not cursor.fetchone():
+            conn.close()
+            return []
+
+        # Read all Python dependency files from database
+        cursor.execute("""
+            SELECT file_path, file_type, project_name, project_version,
+                   dependencies, optional_dependencies
+            FROM python_package_configs
+        """)
+
+        deps = []
+
+        for file_path, file_type, proj_name, proj_version, deps_json, optional_deps_json in cursor.fetchall():
+            if not deps_json:
+                continue
+
+            try:
+                dependencies = json.loads(deps_json)
+                optional_dependencies = json.loads(optional_deps_json) if optional_deps_json else {}
+
+                # Convert to deps.py format (maintains compatibility with downstream code)
+                for dep_info in dependencies:
+                    dep_obj = {
+                        "name": dep_info.get('name', ''),
+                        "version": dep_info.get('version', ''),
+                        "manager": "py",
+                        "files": [],  # TODO: Could join with refs table for actual usage
+                        "source": file_path
+                    }
+
+                    # Add extras if present
+                    if dep_info.get('extras'):
+                        dep_obj['extras'] = dep_info['extras']
+
+                    # Add git URL if present
+                    if dep_info.get('git_url'):
+                        dep_obj['git_url'] = dep_info['git_url']
+
+                    deps.append(dep_obj)
+
+                # Include optional dependencies (marked with group name)
+                for group_name, group_deps in optional_dependencies.items():
+                    for dep_info in group_deps:
+                        dep_obj = {
+                            "name": dep_info.get('name', ''),
+                            "version": dep_info.get('version', ''),
+                            "manager": "py",
+                            "files": [],
+                            "source": file_path,
+                            "optional_group": group_name
+                        }
+
+                        if dep_info.get('extras'):
+                            dep_obj['extras'] = dep_info['extras']
+
+                        if dep_info.get('git_url'):
+                            dep_obj['git_url'] = dep_info['git_url']
+
+                        deps.append(dep_obj)
+
+            except json.JSONDecodeError:
+                if debug:
+                    print(f"Debug: Failed to parse Python dependencies JSON from {file_path}")
+                continue
+
+        conn.close()
+        return deps
+
+    except (sqlite3.Error, Exception) as e:
+        if debug:
+            print(f"Debug: Python database read error: {e}")
         return []
 
 
@@ -833,14 +955,22 @@ def write_deps_json(deps: List[Dict[str, Any]], output_path: str = "./.pf/deps.j
 
 
 def check_latest_versions(
-    deps: List[Dict[str, Any]], 
+    deps: List[Dict[str, Any]],
     allow_net: bool = True,
     offline: bool = False,
-    cache_file: str = "./.pf/deps_cache.json"
+    cache_file: str = "./.pf/deps_cache.json",
+    allow_prerelease: bool = False
 ) -> Dict[str, Dict[str, Any]]:
     """
     Check latest versions from registries with caching.
-    
+
+    Args:
+        deps: List of dependency objects
+        allow_net: Whether network access is allowed
+        offline: Force offline mode
+        cache_file: Path to cache file
+        allow_prerelease: Allow alpha/beta/rc versions (default: stable only)
+
     Returns dict keyed by "manager:name" with:
     {
         "locked": str,
@@ -856,7 +986,11 @@ def check_latest_versions(
         if cached_data:
             # Update locked versions from current deps
             for dep in deps:
-                key = f"{dep['manager']}:{dep['name']}"
+                # For Docker, include version in key
+                if dep['manager'] == 'docker':
+                    key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+                else:
+                    key = f"{dep['manager']}:{dep['name']}"
                 if key in cached_data:
                     cached_data[key]["locked"] = dep["version"]
                     cached_data[key]["is_outdated"] = cached_data[key]["latest"] != dep["version"]
@@ -870,10 +1004,15 @@ def check_latest_versions(
     
     # FIRST PASS: Check what's in cache and still valid
     for dep in deps:
-        key = f"{dep['manager']}:{dep['name']}"
+        # For Docker, include version in key since different tags need different checks
+        if dep['manager'] == 'docker':
+            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+        else:
+            key = f"{dep['manager']}:{dep['name']}"
+
         if key in latest_info:
             continue  # Already processed
-        
+
         # Check if we have valid cached data (24 hours for deps)
         if key in cache and _is_cache_valid(cache[key], hours=24):
             # Update locked version from current deps
@@ -894,7 +1033,12 @@ def check_latest_versions(
     docker_rate_limited_until = 0
     
     for dep in needs_check:
-        key = f"{dep['manager']}:{dep['name']}"
+        # For Docker, include version in key since different tags have different upgrade paths
+        # (e.g., python:3.11-slim vs python:3.12-alpine need separate checks)
+        if dep['manager'] == 'docker':
+            key = f"{dep['manager']}:{dep['name']}:{dep.get('version', '')}"
+        else:
+            key = f"{dep['manager']}:{dep['name']}"
         current_time = time.time()
         
         # Skip if this service is rate limited
@@ -916,9 +1060,12 @@ def check_latest_versions(
             if dep["manager"] == "npm":
                 latest = _check_npm_latest(dep["name"])
             elif dep["manager"] == "py":
-                latest = _check_pypi_latest(dep["name"])
+                # Pass allow_prerelease flag for pre-release filtering
+                latest = _check_pypi_latest(dep["name"], allow_prerelease)
             elif dep["manager"] == "docker":
-                latest = _check_dockerhub_latest(dep["name"])
+                # Pass current tag for base image matching and allow_prerelease flag
+                current_tag = dep.get("version", "")
+                latest = _check_dockerhub_latest(dep["name"], current_tag, allow_prerelease)
             else:
                 continue
             
@@ -1047,15 +1194,93 @@ def _check_npm_latest(package_name: str) -> Optional[str]:
         return None
 
 
-def _check_pypi_latest(package_name: str) -> Optional[str]:
-    """Fetch latest version from PyPI."""
+def _is_prerelease_version(version: str) -> bool:
+    """
+    Detect if a version string is a pre-release.
+
+    Checks for common pre-release markers:
+    - alpha: 1.0a1, 1.0.0a1, 1.0-alpha1
+    - beta: 1.0b1, 1.0.0b1, 1.0-beta1
+    - rc: 1.0rc1, 1.0.0rc1, 1.0-rc1
+    - dev: 1.0.dev0, 1.0-dev
+
+    Args:
+        version: Version string to check
+
+    Returns:
+        True if pre-release, False if stable
+    """
+    version_lower = version.lower()
+
+    # PEP 440 pre-release markers
+    prerelease_markers = [
+        'a', 'alpha',   # Alpha
+        'b', 'beta',    # Beta
+        'rc', 'c',      # Release candidate
+        'dev',          # Development
+        'pre',          # Pre-release
+    ]
+
+    for marker in prerelease_markers:
+        # Check for marker followed by a digit (e.g., "a1", "rc2")
+        if re.search(rf'[.-]?{marker}\d', version_lower):
+            return True
+        # Check for standalone marker at end (e.g., "1.0-dev")
+        if version_lower.endswith(f'-{marker}') or version_lower.endswith(f'.{marker}'):
+            return True
+
+    return False
+
+
+def _parse_pypi_version(version_str: str) -> tuple:
+    """
+    Parse PyPI version string into comparable tuple for semantic versioning.
+
+    Handles standard formats: X.Y.Z, X.Y, X
+    Handles date-based versions: YYYYMMDD, YYYY.MM.DD
+
+    Args:
+        version_str: Version string from PyPI
+
+    Returns:
+        Tuple of integers for comparison, e.g., (1, 18, 2)
+
+    Examples:
+        "1.18.2" -> (1, 18, 2)
+        "25.11.0" -> (25, 11, 0)
+        "2.9" -> (2, 9, 0)
+        "4" -> (4, 0, 0)
+    """
+    # Extract numeric parts only (ignore suffixes like .post1, etc.)
+    # Match up to 4 numeric parts (major.minor.patch.micro)
+    match = re.match(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.(\d+))?', version_str)
+    if match:
+        parts = match.groups()
+        # Convert to integers, default to 0 for missing parts
+        return tuple(int(p) if p else 0 for p in parts)
+
+    # Fallback: return (0, 0, 0, 0) for unparseable versions
+    return (0, 0, 0, 0)
+
+
+def _check_pypi_latest(package_name: str, allow_prerelease: bool = False) -> Optional[str]:
+    """
+    Fetch latest stable version from PyPI using semantic version comparison.
+
+    Args:
+        package_name: Package name
+        allow_prerelease: If True, allow pre-release versions
+
+    Returns:
+        Latest version string, or None if unavailable
+    """
     import urllib.request
     import urllib.error
-    
+
     # Validate package name
     if not validate_package_name(package_name, "py"):
         return None
-    
+
     # Normalize package name for PyPI (replace underscores with hyphens)
     normalized_name = package_name.replace('_', '-')
     # Sanitize for URL
@@ -1064,16 +1289,151 @@ def _check_pypi_latest(package_name: str) -> Optional[str]:
     try:
         with urllib.request.urlopen(url, timeout=10) as response:
             data = json.loads(response.read())
-            return data.get("info", {}).get("version")
+
+            # If allow_prerelease, just return the latest version
+            if allow_prerelease:
+                return data.get("info", {}).get("version")
+
+            # Otherwise, filter to stable versions only
+            # Get all releases
+            releases = data.get("releases", {})
+            if not releases:
+                # Fallback to info.version if no releases list
+                version = data.get("info", {}).get("version")
+                # Check if it's stable
+                if version and not _is_prerelease_version(version):
+                    return version
+                return None
+
+            # Filter to stable versions only
+            stable_versions = []
+            for version_str in releases.keys():
+                if not _is_prerelease_version(version_str):
+                    stable_versions.append(version_str)
+
+            if not stable_versions:
+                # No stable versions found, return None
+                return None
+
+            # Return the highest stable version using SEMANTIC COMPARISON
+            # Sort by parsed version tuple, not string comparison
+            stable_versions.sort(key=_parse_pypi_version, reverse=True)
+            return stable_versions[0]
+
     except (urllib.error.URLError, http.client.RemoteDisconnected, json.JSONDecodeError, KeyError):
         return None
 
 
-def _check_dockerhub_latest(image_name: str) -> Optional[str]:
-    """Fetch latest version from Docker Hub."""
+def _parse_docker_tag(tag: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse Docker tag into semantic components for proper version comparison.
+
+    Args:
+        tag: Docker tag string (e.g., "17-alpine3.21", "3.15.0a1-windowsservercore")
+
+    Returns:
+        Dict with version tuple, variant, and stability, or None if unparseable
+        {
+            'tag': str,              # Original tag
+            'version': tuple,        # (major, minor, patch) for semantic comparison
+            'variant': str,          # Base image variant (alpine, bookworm, etc)
+            'stability': str         # 'stable', 'alpha', 'beta', 'rc', 'dev'
+        }
+    """
+    # Skip meta tags
+    if tag in ["latest", "alpine", "slim", "bullseye", "bookworm", "main", "master"]:
+        return None
+
+    # Extract semantic version (major.minor.patch) FIRST
+    # Matches: "17", "17.2", "17.2.1", "3.15.0a1", etc.
+    match = re.match(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?', tag)
+    if not match:
+        return None
+
+    major = int(match.group(1))
+    minor = int(match.group(2) or 0)
+    patch = int(match.group(3) or 0)
+
+    # Extract variant (everything after version)
+    variant = tag[match.end():].lstrip('-')
+    variant_lower = variant.lower()
+
+    # Detect stability markers ONLY in the variant/suffix (NOT the whole tag)
+    # This prevents "alpine" from triggering "a" marker
+    stability = 'stable'
+
+    # Check for pre-release markers (CRITICAL for production safety)
+    # Only check the variant portion to avoid false positives like "alpine"
+    if variant_lower.startswith('a') or any(marker in variant_lower for marker in ['alpha', 'a1', 'a2', 'a3']):
+        # Check if it's actually "alpine" (which is stable, not alpha)
+        if not variant_lower.startswith('alpine'):
+            stability = 'alpha'
+    elif variant_lower.startswith('b') or any(marker in variant_lower for marker in ['beta', 'b1', 'b2']):
+        # Check if it's "bookworm" or "bullseye" (stable debian releases)
+        if not (variant_lower.startswith('bookworm') or variant_lower.startswith('bullseye') or variant_lower.startswith('buster')):
+            stability = 'beta'
+    elif 'rc' in variant_lower or any(marker in variant_lower for marker in ['rc1', 'rc2', 'rc3']):
+        stability = 'rc'
+    elif any(marker in variant_lower for marker in ['nightly', 'dev', 'snapshot', 'edge']):
+        stability = 'dev'
+
+    return {
+        'tag': tag,
+        'version': (major, minor, patch),
+        'variant': variant,
+        'stability': stability
+    }
+
+
+def _extract_base_preference(current_tag: str) -> str:
+    """
+    Extract base image preference from current tag.
+
+    Args:
+        current_tag: Current Docker tag (e.g., "17-alpine3.21")
+
+    Returns:
+        Base type: 'alpine', 'bookworm', 'bullseye', 'windowsservercore', etc.
+        Empty string if no recognizable base.
+    """
+    tag_lower = current_tag.lower()
+
+    # Check for base image types (order matters - most specific first)
+    base_types = [
+        'windowsservercore', 'nanoserver',       # Windows bases
+        'alpine', 'slim', 'distroless',          # Linux lightweight
+        'bookworm', 'bullseye', 'buster',        # Debian bases
+        'jammy', 'focal', 'bionic',              # Ubuntu bases
+        'trixie', 'sid',                         # Debian unstable
+    ]
+
+    for base in base_types:
+        if base in tag_lower:
+            return base
+
+    return ''  # No recognizable base
+
+
+def _check_dockerhub_latest(image_name: str, current_tag: str = "", allow_prerelease: bool = False) -> Optional[str]:
+    """
+    Fetch latest stable version from Docker Hub with semantic version comparison.
+
+    CRITICAL: This function prevents production disasters by:
+    1. Using semantic version comparison (not string sort)
+    2. Filtering pre-release versions (alpha/beta/rc)
+    3. Preserving base image consistency (alpine stays alpine)
+
+    Args:
+        image_name: Docker image name (e.g., "postgres", "python")
+        current_tag: Current tag to extract base preference (e.g., "17-alpine3.21")
+        allow_prerelease: If True, allow alpha/beta/rc versions
+
+    Returns:
+        Best matching tag, or None if unavailable
+    """
     import urllib.request
     import urllib.error
-    
+
     # Validate image name
     if not validate_package_name(image_name, "docker"):
         return None
@@ -1081,50 +1441,76 @@ def _check_dockerhub_latest(image_name: str) -> Optional[str]:
     # For official images, use library/ prefix
     if "/" not in image_name:
         image_name = f"library/{image_name}"
-    
+
     # Sanitize image name for URL
     safe_image_name = sanitize_url_component(image_name)
-    
-    # Docker Hub API endpoint for tags
-    url = f"https://hub.docker.com/v2/repositories/{safe_image_name}/tags"
-    
+
+    # Docker Hub API endpoint for tags (fetch 100 tags to ensure we get latest versions)
+    url = f"https://hub.docker.com/v2/repositories/{safe_image_name}/tags?page_size=100"
+
     try:
         # Create request with proper headers
         req = urllib.request.Request(url)
         req.add_header('User-Agent', f'TheAuditor/{__version__}')
-        
+
         with urllib.request.urlopen(req, timeout=10) as response:
             data = json.loads(response.read())
-            
+
             # Parse the results to find latest stable version
             tags = data.get("results", [])
             if not tags:
                 return None
-            
-            # Filter and sort tags to find the best "latest" version
-            version_tags = []
+
+            # Parse all tags with semantic version parser
+            parsed_tags = []
             for tag in tags:
                 tag_name = tag.get("name", "")
-                # Skip non-version tags
-                if tag_name in ["latest", "alpine", "slim", "bullseye", "bookworm"]:
-                    continue
-                # Look for semantic version-like tags
-                if re.match(r'^\d+(\.\d+)*', tag_name):
-                    version_tags.append(tag_name)
-            
-            if version_tags:
-                # Sort versions (simple string sort for now)
-                # More sophisticated version comparison could be added
-                version_tags.sort(reverse=True)
-                return version_tags[0]
-            
-            # Fallback to "latest" if no version tags found
-            for tag in tags:
-                if tag.get("name") == "latest":
-                    return "latest"
-            
-            return None
-            
+                parsed = _parse_docker_tag(tag_name)
+                if parsed:
+                    parsed_tags.append(parsed)
+
+            if not parsed_tags:
+                # No parseable version tags found, fallback to "latest"
+                for tag in tags:
+                    if tag.get("name") == "latest":
+                        return "latest"
+                return None
+
+            # Filter by stability (CRITICAL for production safety)
+            if allow_prerelease:
+                # Allow all stability levels
+                candidates = parsed_tags
+            else:
+                # Filter to stable only
+                stable = [t for t in parsed_tags if t['stability'] == 'stable']
+                if not stable:
+                    # No stable versions, allow RC with warning (better than nothing)
+                    stable = [t for t in parsed_tags if t['stability'] in ['stable', 'rc']]
+                    if not stable:
+                        # Last resort: use any version (shouldn't happen for official images)
+                        stable = parsed_tags
+                candidates = stable
+
+            # Extract base image preference from current tag
+            if current_tag:
+                base_preference = _extract_base_preference(current_tag)
+                if base_preference:
+                    # Filter to matching base images
+                    matching_base = [t for t in candidates if base_preference in t['variant'].lower()]
+                    if matching_base:
+                        candidates = matching_base
+                    else:
+                        # No matching base found - don't suggest upgrade with different base
+                        # This prevents alpine -> bookworm drift
+                        return None
+
+            # Sort by semantic version tuple (FIXED: no more string sort!)
+            # Sort order: (major DESC, minor DESC, patch DESC)
+            candidates.sort(key=lambda x: x['version'], reverse=True)
+
+            # Return best match
+            return candidates[0]['tag']
+
     except (urllib.error.URLError, http.client.RemoteDisconnected, json.JSONDecodeError, KeyError) as e:
         # Docker Hub API might require auth or have rate limits
         return None
@@ -1134,29 +1520,45 @@ def _calculate_version_delta(locked: str, latest: str) -> str:
     """
     Calculate semantic version delta.
     Returns: "major", "minor", "patch", "equal", or "unknown"
+
+    Handles both simple versions (1.2.3) and Docker tags (17-alpine3.21).
     """
-    try:
-        locked_parts = [int(x) for x in locked.split(".")[:3]]
-        latest_parts = [int(x) for x in latest.split(".")[:3]]
-        
-        # Pad with zeros if needed
-        while len(locked_parts) < 3:
-            locked_parts.append(0)
-        while len(latest_parts) < 3:
-            latest_parts.append(0)
-        
-        if locked_parts == latest_parts:
-            return "equal"
-        elif latest_parts[0] > locked_parts[0]:
-            return "major"
-        elif latest_parts[1] > locked_parts[1]:
-            return "minor"
-        elif latest_parts[2] > locked_parts[2]:
-            return "patch"
-        else:
-            return "unknown"  # locked is newer than latest?
-    except (ValueError, IndexError):
-        return "unknown"
+    # Try Docker tag parsing first (handles "17-alpine3.21" format)
+    locked_parsed = _parse_docker_tag(locked)
+    latest_parsed = _parse_docker_tag(latest)
+
+    if locked_parsed and latest_parsed:
+        # Use parsed Docker tag versions
+        locked_parts = list(locked_parsed['version'])
+        latest_parts = list(latest_parsed['version'])
+    else:
+        # Fall back to simple version parsing
+        try:
+            # Extract just the numeric parts before any hyphen (for Docker tags)
+            locked_clean = locked.split('-')[0]
+            latest_clean = latest.split('-')[0]
+
+            locked_parts = [int(x) for x in locked_clean.split(".")[:3]]
+            latest_parts = [int(x) for x in latest_clean.split(".")[:3]]
+        except (ValueError, IndexError):
+            return "unknown"
+
+    # Pad with zeros if needed
+    while len(locked_parts) < 3:
+        locked_parts.append(0)
+    while len(latest_parts) < 3:
+        latest_parts.append(0)
+
+    if locked_parts == latest_parts:
+        return "equal"
+    elif latest_parts[0] > locked_parts[0]:
+        return "major"
+    elif latest_parts[1] > locked_parts[1]:
+        return "minor"
+    elif latest_parts[2] > locked_parts[2]:
+        return "patch"
+    else:
+        return "unknown"  # locked is newer than latest?
 
 
 def write_deps_latest_json(
@@ -1288,7 +1690,7 @@ def upgrade_all_deps(
     all_pyproject_files.extend(root.glob("*/pyproject.toml"))
     all_pyproject_files.extend(root.glob("services/*/pyproject.toml"))
     all_pyproject_files.extend(root.glob("apps/*/pyproject.toml"))
-    
+
     for pyproject_file in all_pyproject_files:
         # Use relative path as key
         try:
@@ -1296,7 +1698,7 @@ def upgrade_all_deps(
             source_key = str(rel_path).replace("\\", "/")
         except ValueError:
             source_key = "pyproject.toml"
-        
+
         if source_key in deps_by_source:
             count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source[source_key])
             upgraded["pyproject.toml"] += count
@@ -1304,7 +1706,51 @@ def upgrade_all_deps(
             # Backward compatibility for root pyproject.toml
             count = _upgrade_pyproject_toml(pyproject_file, latest_info, deps_by_source["pyproject.toml"])
             upgraded["pyproject.toml"] += count
-    
+
+    # Upgrade Docker Compose files
+    docker_compose_files = list(root.glob("docker-compose*.yml")) + list(root.glob("docker-compose*.yaml"))
+    upgraded["docker-compose"] = 0
+
+    for compose_file in docker_compose_files:
+        # Use relative path as key
+        try:
+            rel_path = compose_file.relative_to(root)
+            source_key = str(rel_path).replace("\\", "/")
+        except ValueError:
+            source_key = compose_file.name
+
+        # Collect all Docker deps from this file
+        docker_deps = []
+        for source_key_check in [source_key, compose_file.name]:
+            if source_key_check in deps_by_source:
+                docker_deps = [d for d in deps_by_source[source_key_check] if d.get("manager") == "docker"]
+                break
+
+        if docker_deps:
+            count = _upgrade_docker_compose(compose_file, latest_info, docker_deps)
+            upgraded["docker-compose"] += count
+
+    # Upgrade Dockerfiles
+    dockerfiles = list(root.glob("**/Dockerfile"))
+    upgraded["dockerfile"] = 0
+
+    for dockerfile in dockerfiles:
+        # Use relative path as key
+        try:
+            rel_path = dockerfile.relative_to(root)
+            source_key = str(rel_path).replace("\\", "/")
+        except ValueError:
+            source_key = str(dockerfile)
+
+        # Collect Docker deps from this file
+        docker_deps = []
+        if source_key in deps_by_source:
+            docker_deps = [d for d in deps_by_source[source_key] if d.get("manager") == "docker"]
+
+        if docker_deps:
+            count = _upgrade_dockerfile(dockerfile, latest_info, docker_deps)
+            upgraded["dockerfile"] += count
+
     return upgraded
 
 
@@ -1488,3 +1934,198 @@ def _upgrade_pyproject_toml(
     
     # Return total occurrences updated, not just unique packages
     return total_occurrences
+
+
+def _upgrade_docker_compose(
+    path: Path,
+    latest_info: Dict[str, Dict[str, Any]],
+    deps: List[Dict[str, Any]]
+) -> int:
+    """Upgrade docker-compose.yml to latest Docker image versions."""
+    # Sanitize path
+    try:
+        safe_path = sanitize_path(str(path), ".")
+    except SecurityError:
+        return 0  # Skip files outside project root
+
+    # Create versioned backup
+    backup_path = _create_versioned_backup(safe_path)
+
+    # Read current file
+    with open(safe_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # Build image name to latest version map
+    latest_versions = {}
+    for dep in deps:
+        # Docker images use "docker:name:version" as key
+        key = f"docker:{dep['name']}:{dep.get('version', '')}"
+        if key in latest_info:
+            latest_versions[dep['name']] = latest_info[key]['latest']
+
+    # Rewrite lines with latest versions
+    updated_lines = []
+    count = 0
+    updated_images = {}  # Track what was updated: image -> (old_tag, new_tag)
+
+    for line in lines:
+        original_line = line
+        stripped = line.strip()
+
+        # Look for image: lines
+        if stripped.startswith("image:"):
+            # Extract image spec
+            image_spec = stripped[6:].strip()
+
+            # Parse image:tag format
+            if ":" in image_spec:
+                # Handle registry prefixes (e.g., docker.io/library/postgres:17)
+                name_part, tag = image_spec.rsplit(":", 1)
+
+                # Extract base image name (last part of path)
+                if "/" in name_part:
+                    name_parts = name_part.split("/")
+                    if len(name_parts) >= 2 and name_parts[-2] == "library":
+                        base_name = name_parts[-1]
+                    else:
+                        base_name = "/".join(name_parts[-2:])
+                else:
+                    base_name = name_part
+
+                # Check if we have a latest version for this image
+                if base_name in latest_versions:
+                    new_tag = latest_versions[base_name]
+                    old_tag = tag
+                    if old_tag != new_tag:
+                        # Track the update
+                        updated_images[base_name] = (old_tag, new_tag)
+                        # Replace with new tag, preserving indentation and registry prefix
+                        new_image_spec = f"{name_part}:{new_tag}"
+                        indent = len(line) - len(line.lstrip())
+                        updated_lines.append(" " * indent + f"image: {new_image_spec}\n")
+                        count += 1
+                    else:
+                        updated_lines.append(original_line)
+                else:
+                    updated_lines.append(original_line)
+            else:
+                updated_lines.append(original_line)
+        else:
+            updated_lines.append(original_line)
+
+    # Write updated file
+    with open(safe_path, "w", encoding="utf-8") as f:
+        f.writelines(updated_lines)
+
+    # Print what was updated
+    check_mark = "[OK]" if IS_WINDOWS else "✓"
+    arrow = "->" if IS_WINDOWS else "→"
+    for image, (old_tag, new_tag) in updated_images.items():
+        print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}")
+
+    return count
+
+
+def _upgrade_dockerfile(
+    path: Path,
+    latest_info: Dict[str, Dict[str, Any]],
+    deps: List[Dict[str, Any]]
+) -> int:
+    """Upgrade Dockerfile to latest Docker base image versions."""
+    # Sanitize path
+    try:
+        safe_path = sanitize_path(str(path), ".")
+    except SecurityError:
+        return 0  # Skip files outside project root
+
+    # Create versioned backup
+    backup_path = _create_versioned_backup(safe_path)
+
+    # Read current file
+    with open(safe_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    # Build image name to latest version map
+    latest_versions = {}
+    for dep in deps:
+        # Docker images use "docker:name:version" as key
+        key = f"docker:{dep['name']}:{dep.get('version', '')}"
+        if key in latest_info:
+            latest_versions[dep['name']] = latest_info[key]['latest']
+
+    # Rewrite lines with latest versions
+    updated_lines = []
+    count = 0
+    updated_images = {}  # Track what was updated: image -> (old_tag, new_tag)
+
+    for line in lines:
+        original_line = line
+        stripped = line.strip().upper()
+
+        # Look for FROM instructions
+        if stripped.startswith("FROM "):
+            # Extract image spec after FROM
+            image_spec = line[5:].strip()
+
+            # Handle multi-stage builds (FROM image AS stage)
+            if " AS " in image_spec.upper():
+                image_part, as_part = image_spec.split(" AS ", 1)
+                image_spec = image_part.strip()
+                as_clause = f" AS {as_part}"
+            elif " as " in image_spec:
+                image_part, as_part = image_spec.split(" as ", 1)
+                image_spec = image_part.strip()
+                as_clause = f" as {as_part}"
+            else:
+                as_clause = ""
+
+            # Skip scratch and build stages
+            if image_spec.lower() in ["scratch", "builder"]:
+                updated_lines.append(original_line)
+                continue
+
+            # Parse image:tag format
+            if ":" in image_spec:
+                name_part, tag = image_spec.rsplit(":", 1)
+
+                # Extract base image name
+                if "/" in name_part:
+                    name_parts = name_part.split("/")
+                    if len(name_parts) >= 2 and name_parts[-2] == "library":
+                        base_name = name_parts[-1]
+                    else:
+                        base_name = "/".join(name_parts[-2:])
+                else:
+                    base_name = name_part
+
+                # Check if we have a latest version for this image
+                if base_name in latest_versions:
+                    new_tag = latest_versions[base_name]
+                    old_tag = tag
+                    if old_tag != new_tag:
+                        # Track the update
+                        updated_images[base_name] = (old_tag, new_tag)
+                        # Replace with new tag, preserving registry prefix
+                        new_image_spec = f"{name_part}:{new_tag}"
+                        updated_lines.append(f"FROM {new_image_spec}{as_clause}\n")
+                        count += 1
+                    else:
+                        updated_lines.append(original_line)
+                else:
+                    updated_lines.append(original_line)
+            else:
+                updated_lines.append(original_line)
+        else:
+            updated_lines.append(original_line)
+
+    # Write updated file
+    with open(safe_path, "w", encoding="utf-8") as f:
+        f.writelines(updated_lines)
+
+    # Print what was updated
+    check_mark = "[OK]" if IS_WINDOWS else "✓"
+    arrow = "->" if IS_WINDOWS else "→"
+    for image, (old_tag, new_tag) in updated_images.items():
+        print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}")
+
+    return count

@@ -648,8 +648,8 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Clear existing flows from both tables
-        cursor.execute("DELETE FROM resolved_flow_audit")
+        # Clear existing IFDS flows only (preserve FlowResolver flows from complete mode)
+        cursor.execute("DELETE FROM resolved_flow_audit WHERE engine = 'IFDS'")
         cursor.execute("DELETE FROM taint_flows")  # Keep for backward compatibility
 
         # PHASE 6: Insert ALL resolved flows (vulnerable + sanitized) into resolved_flow_audit
@@ -662,8 +662,9 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                     source_file, source_line, source_pattern,
                     sink_file, sink_line, sink_pattern,
                     vulnerability_type, path_length, hops, path_json, flow_sensitive,
-                    status, sanitizer_file, sanitizer_line, sanitizer_method
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, sanitizer_file, sanitizer_line, sanitizer_method,
+                    engine
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 path.source.get('file', ''),
                 path.source.get('line', 0),
@@ -679,7 +680,8 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                 'VULNERABLE',  # status
                 None,  # sanitizer_file
                 None,  # sanitizer_line
-                None   # sanitizer_method
+                None,  # sanitizer_method
+                'IFDS'  # engine column
             ))
             total_inserted += 1
 
@@ -690,8 +692,9 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                     source_file, source_line, source_pattern,
                     sink_file, sink_line, sink_pattern,
                     vulnerability_type, path_length, hops, path_json, flow_sensitive,
-                    status, sanitizer_file, sanitizer_line, sanitizer_method
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    status, sanitizer_file, sanitizer_line, sanitizer_method,
+                    engine
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 path.source.get('file', ''),
                 path.source.get('line', 0),
@@ -707,7 +710,8 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                 'SANITIZED',  # status
                 path.sanitizer_file,
                 path.sanitizer_line,
-                path.sanitizer_method
+                path.sanitizer_method,
+                'IFDS'  # engine column
             ))
             total_inserted += 1
 
@@ -784,11 +788,12 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         # ARCHITECTURAL FIX: If complete mode, add FlowResolver data
         if mode == "complete":
             # Query resolved_flow_audit to get FlowResolver results count
+            # Filter by engine='FlowResolver' to separate from IFDS flows
             conn_temp = sqlite3.connect(db_path)
             cursor_temp = conn_temp.cursor()
-            cursor_temp.execute("SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'VULNERABLE'")
+            cursor_temp.execute("SELECT COUNT(*) FROM resolved_flow_audit WHERE engine = 'FlowResolver' AND status = 'VULNERABLE'")
             flow_resolver_vulnerable = cursor_temp.fetchone()[0]
-            cursor_temp.execute("SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'SANITIZED'")
+            cursor_temp.execute("SELECT COUNT(*) FROM resolved_flow_audit WHERE engine = 'FlowResolver' AND status = 'SANITIZED'")
             flow_resolver_sanitized = cursor_temp.fetchone()[0]
             conn_temp.close()
 

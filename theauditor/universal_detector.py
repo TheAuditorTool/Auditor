@@ -105,7 +105,7 @@ class UniversalPatternDetector:
         # Check database exists
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud index' first.")
+            print("Error: Database not found. Run 'aud full' first.")
             return []
         
         # Query files from database
@@ -177,7 +177,7 @@ class UniversalPatternDetector:
         # Query database for file info
         db_path = self.project_path / ".pf" / "repo_index.db"
         if not db_path.exists():
-            print("Error: Database not found. Run 'aud index' first.")
+            print("Error: Database not found. Run 'aud full' first.")
             return []
         
         # Get file info from database

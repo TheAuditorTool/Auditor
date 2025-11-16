@@ -1721,6 +1721,17 @@ class PythonOverloadsRow(TypedDict):
     overload_count: int
     variants: str
 
+class PythonPackageConfigsRow(TypedDict):
+    """Row type for python_package_configs table."""
+    file_path: str
+    file_type: str
+    project_name: Optional[str]
+    project_version: Optional[str]
+    dependencies: Optional[str]
+    optional_dependencies: Optional[str]
+    build_system: Optional[str]
+    indexed_at: Optional[Any]
+
 class PythonParameterReturnFlowRow(TypedDict):
     """Row type for python_parameter_return_flow table."""
     file: str
