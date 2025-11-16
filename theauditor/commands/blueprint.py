@@ -111,7 +111,7 @@ def blueprint(structure, graph, security, taint, all, output_format):
 
     if not pf_dir.exists() or not repo_db.exists():
         click.echo("\nERROR: No indexed database found", err=True)
-        click.echo("Run: aud index", err=True)
+        click.echo("Run: aud full", err=True)
         raise click.Abort()
 
     # Connect to database

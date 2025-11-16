@@ -140,7 +140,7 @@ class CodeQueryEngine:
         if not repo_db_path.exists():
             raise FileNotFoundError(
                 f"Database not found: {repo_db_path}\n"
-                "Run 'aud index' first to build the database."
+                "Run 'aud full' first to build the database."
             )
 
         # Connect to repo_index.db (required)

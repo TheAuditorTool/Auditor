@@ -115,7 +115,7 @@ def provision(root, workset, output, db, graphs_db):
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud index' first to extract Terraform resources.", err=True)
+            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
             raise click.Abort()
 
         # Load workset if requested
@@ -232,7 +232,7 @@ def analyze(root, severity, categories, output, db):
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud index' first to extract Terraform resources.", err=True)
+            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
             raise click.Abort()
 
         # Run analyzer

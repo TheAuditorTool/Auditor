@@ -191,7 +191,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
     # Check if database exists
     if not Path(db_path).exists():
         click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud index' first to create the database", err=True)
+        click.echo("Run 'aud full' first to create the database", err=True)
         return ExitCodes.TASK_INCOMPLETE
     
     # Run analysis

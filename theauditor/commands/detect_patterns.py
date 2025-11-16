@@ -146,7 +146,7 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
                 click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
                 click.echo("[DB] JSON output will still be generated for AI consumption")
         else:
-            click.echo(f"[DB] Database not found - run 'aud index' first for optimal FCE performance")
+            click.echo(f"[DB] Database not found - run 'aud full' first for optimal FCE performance")
         # ===== END DUAL-WRITE =====
 
         # Write results to JSON

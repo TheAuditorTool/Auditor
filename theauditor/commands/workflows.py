@@ -104,7 +104,7 @@ def analyze(root, workset, severity, output, db, chunk_size):
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud index' first to extract GitHub Actions workflows.", err=True)
+            click.echo("Run 'aud full' first to extract GitHub Actions workflows.", err=True)
             raise click.Abort()
 
         # Connect to database

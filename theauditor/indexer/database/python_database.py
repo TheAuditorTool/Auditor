@@ -1068,3 +1068,722 @@ class PythonDatabaseMixin:
             1 if is_recursive else 0,
             cache_size
         ))
+    # ================================================================
+    # Python Coverage V2 Database Methods (40 methods)
+    # ================================================================
+
+    def add_python_comprehension(self, file: str, line: int, comp_type: str, result_expr: Optional[str], iteration_var: Optional[str], iteration_source: Optional[str], has_filter: bool, filter_expr: Optional[str], nesting_level: Optional[int], in_function: str):
+        """Add a python comprehensions record to the batch."""
+        self.generic_batches['python_comprehensions'].append((
+            file,
+            line,
+            comp_type,
+            result_expr,
+            iteration_var,
+            iteration_source,
+            1 if has_filter else 0,
+            filter_expr,
+            nesting_level,
+            in_function
+        ))
+
+    def add_python_lambda_function(self, file: str, line: int, parameter_count: Optional[int], body: Optional[str], captures_closure: bool, used_in: Optional[str], in_function: str):
+        """Add a python lambda functions record to the batch."""
+        self.generic_batches['python_lambda_functions'].append((
+            file,
+            line,
+            parameter_count,
+            body,
+            1 if captures_closure else 0,
+            used_in,
+            in_function
+        ))
+
+    def add_python_slice_operation(self, file: str, line: int, target: Optional[str], has_start: bool, has_stop: bool, has_step: bool, is_assignment: bool, in_function: str):
+        """Add a python slice operations record to the batch."""
+        self.generic_batches['python_slice_operations'].append((
+            file,
+            line,
+            target,
+            1 if has_start else 0,
+            1 if has_stop else 0,
+            1 if has_step else 0,
+            1 if is_assignment else 0,
+            in_function
+        ))
+
+    def add_python_tuple_operation(self, file: str, line: int, operation: str, element_count: Optional[int], in_function: str):
+        """Add a python tuple operations record to the batch."""
+        self.generic_batches['python_tuple_operations'].append((
+            file,
+            line,
+            operation,
+            element_count,
+            in_function
+        ))
+
+    def add_python_unpacking_pattern(self, file: str, line: int, unpack_type: str, target_count: Optional[int], has_rest: bool, in_function: str):
+        """Add a python unpacking patterns record to the batch."""
+        self.generic_batches['python_unpacking_patterns'].append((
+            file,
+            line,
+            unpack_type,
+            target_count,
+            1 if has_rest else 0,
+            in_function
+        ))
+
+    def add_python_none_pattern(self, file: str, line: int, pattern: str, uses_is: bool, in_function: str):
+        """Add a python none patterns record to the batch."""
+        self.generic_batches['python_none_patterns'].append((
+            file,
+            line,
+            pattern,
+            1 if uses_is else 0,
+            in_function
+        ))
+
+    def add_python_truthiness_pattern(self, file: str, line: int, pattern: str, expression: Optional[str], in_function: str):
+        """Add a python truthiness patterns record to the batch."""
+        self.generic_batches['python_truthiness_patterns'].append((
+            file,
+            line,
+            pattern,
+            expression,
+            in_function
+        ))
+
+    def add_python_string_formatting(self, file: str, line: int, format_type: str, has_expressions: bool, var_count: Optional[int], in_function: str):
+        """Add a python string formatting record to the batch."""
+        self.generic_batches['python_string_formatting'].append((
+            file,
+            line,
+            format_type,
+            1 if has_expressions else 0,
+            var_count,
+            in_function
+        ))
+
+    def add_python_operator(self, file: str, line: int, operator_type: str, operator: str, in_function: str):
+        """Add a python operators record to the batch."""
+        self.generic_batches['python_operators'].append((
+            file,
+            line,
+            operator_type,
+            operator,
+            in_function
+        ))
+
+    def add_python_membership_test(self, file: str, line: int, operator: str, container_type: Optional[str], in_function: str):
+        """Add a python membership tests record to the batch."""
+        self.generic_batches['python_membership_tests'].append((
+            file,
+            line,
+            operator,
+            container_type,
+            in_function
+        ))
+
+    def add_python_chained_comparison(self, file: str, line: int, chain_length: int, operators: Optional[str], in_function: str):
+        """Add a python chained comparisons record to the batch."""
+        self.generic_batches['python_chained_comparisons'].append((
+            file,
+            line,
+            chain_length,
+            operators,
+            in_function
+        ))
+
+    def add_python_ternary_expression(self, file: str, line: int, has_complex_condition: bool, in_function: str):
+        """Add a python ternary expressions record to the batch."""
+        self.generic_batches['python_ternary_expressions'].append((
+            file,
+            line,
+            1 if has_complex_condition else 0,
+            in_function
+        ))
+
+    def add_python_walrus_operator(self, file: str, line: int, variable: str, used_in: str, in_function: str):
+        """Add a python walrus operators record to the batch."""
+        self.generic_batches['python_walrus_operators'].append((
+            file,
+            line,
+            variable,
+            used_in,
+            in_function
+        ))
+
+    def add_python_matrix_multiplication(self, file: str, line: int, in_function: str):
+        """Add a python matrix multiplication record to the batch."""
+        self.generic_batches['python_matrix_multiplication'].append((
+            file,
+            line,
+            in_function
+        ))
+
+    def add_python_dict_operation(self, file: str, line: int, operation: str, has_default: bool, in_function: str):
+        """Add a python dict operations record to the batch."""
+        self.generic_batches['python_dict_operations'].append((
+            file,
+            line,
+            operation,
+            1 if has_default else 0,
+            in_function
+        ))
+
+    def add_python_list_mutation(self, file: str, line: int, method: str, mutates_in_place: bool, in_function: str):
+        """Add a python list mutations record to the batch."""
+        self.generic_batches['python_list_mutations'].append((
+            file,
+            line,
+            method,
+            1 if mutates_in_place else 0,
+            in_function
+        ))
+
+    def add_python_set_operation(self, file: str, line: int, operation: str, in_function: str):
+        """Add a python set operations record to the batch."""
+        self.generic_batches['python_set_operations'].append((
+            file,
+            line,
+            operation,
+            in_function
+        ))
+
+    def add_python_string_method(self, file: str, line: int, method: str, in_function: str):
+        """Add a python string methods record to the batch."""
+        self.generic_batches['python_string_methods'].append((
+            file,
+            line,
+            method,
+            in_function
+        ))
+
+    def add_python_builtin_usage(self, file: str, line: int, builtin: str, has_key: bool, in_function: str):
+        """Add a python builtin usage record to the batch."""
+        self.generic_batches['python_builtin_usage'].append((
+            file,
+            line,
+            builtin,
+            1 if has_key else 0,
+            in_function
+        ))
+
+    def add_python_itertools_usage(self, file: str, line: int, function: str, is_infinite: bool, in_function: str):
+        """Add a python itertools usage record to the batch."""
+        self.generic_batches['python_itertools_usage'].append((
+            file,
+            line,
+            function,
+            1 if is_infinite else 0,
+            in_function
+        ))
+
+    def add_python_functools_usage(self, file: str, line: int, function: str, is_decorator: bool, in_function: str):
+        """Add a python functools usage record to the batch."""
+        self.generic_batches['python_functools_usage'].append((
+            file,
+            line,
+            function,
+            1 if is_decorator else 0,
+            in_function
+        ))
+
+    def add_python_collections_usage(self, file: str, line: int, collection_type: str, default_factory: Optional[str], in_function: str):
+        """Add a python collections usage record to the batch."""
+        self.generic_batches['python_collections_usage'].append((
+            file,
+            line,
+            collection_type,
+            default_factory,
+            in_function
+        ))
+
+    def add_python_metaclasse(self, file: str, line: int, class_name: str, metaclass_name: str, is_definition: bool):
+        """Add a python metaclasses record to the batch."""
+        self.generic_batches['python_metaclasses'].append((
+            file,
+            line,
+            class_name,
+            metaclass_name,
+            1 if is_definition else 0
+        ))
+
+    def add_python_descriptor(self, file: str, line: int, class_name: str, has_get: bool, has_set: bool, has_delete: bool, descriptor_type: str):
+        """Add a python descriptors record to the batch."""
+        self.generic_batches['python_descriptors'].append((
+            file,
+            line,
+            class_name,
+            1 if has_get else 0,
+            1 if has_set else 0,
+            1 if has_delete else 0,
+            descriptor_type
+        ))
+
+    def add_python_dataclasse(self, file: str, line: int, class_name: str, frozen: bool, field_count: Optional[int]):
+        """Add a python dataclasses record to the batch."""
+        self.generic_batches['python_dataclasses'].append((
+            file,
+            line,
+            class_name,
+            1 if frozen else 0,
+            field_count
+        ))
+
+    def add_python_enum(self, file: str, line: int, enum_name: str, enum_type: str, member_count: Optional[int]):
+        """Add a python enums record to the batch."""
+        self.generic_batches['python_enums'].append((
+            file,
+            line,
+            enum_name,
+            enum_type,
+            member_count
+        ))
+
+    def add_python_slot(self, file: str, line: int, class_name: str, slot_count: Optional[int]):
+        """Add a python slots record to the batch."""
+        self.generic_batches['python_slots'].append((
+            file,
+            line,
+            class_name,
+            slot_count
+        ))
+
+    def add_python_abstract_classe(self, file: str, line: int, class_name: str, abstract_method_count: Optional[int]):
+        """Add a python abstract classes record to the batch."""
+        self.generic_batches['python_abstract_classes'].append((
+            file,
+            line,
+            class_name,
+            abstract_method_count
+        ))
+
+    def add_python_method_type(self, file: str, line: int, method_name: str, method_type: str, in_class: str):
+        """Add a python method types record to the batch."""
+        self.generic_batches['python_method_types'].append((
+            file,
+            line,
+            method_name,
+            method_type,
+            in_class
+        ))
+
+    def add_python_multiple_inheritance(self, file: str, line: int, class_name: str, base_count: int, base_classes: Optional[str]):
+        """Add a python multiple inheritance record to the batch."""
+        self.generic_batches['python_multiple_inheritance'].append((
+            file,
+            line,
+            class_name,
+            base_count,
+            base_classes
+        ))
+
+    def add_python_dunder_method(self, file: str, line: int, method_name: str, category: str, in_class: str):
+        """Add a python dunder methods record to the batch."""
+        self.generic_batches['python_dunder_methods'].append((
+            file,
+            line,
+            method_name,
+            category,
+            in_class
+        ))
+
+    def add_python_visibility_convention(self, file: str, line: int, name: str, visibility: str, is_name_mangled: bool, in_class: str):
+        """Add a python visibility conventions record to the batch."""
+        self.generic_batches['python_visibility_conventions'].append((
+            file,
+            line,
+            name,
+            visibility,
+            1 if is_name_mangled else 0,
+            in_class
+        ))
+
+    def add_python_regex_pattern(self, file: str, line: int, operation: str, has_flags: bool, in_function: str):
+        """Add a python regex patterns record to the batch."""
+        self.generic_batches['python_regex_patterns'].append((
+            file,
+            line,
+            operation,
+            1 if has_flags else 0,
+            in_function
+        ))
+
+    def add_python_json_operation(self, file: str, line: int, operation: str, direction: str, in_function: str):
+        """Add a python json operations record to the batch."""
+        self.generic_batches['python_json_operations'].append((
+            file,
+            line,
+            operation,
+            direction,
+            in_function
+        ))
+
+    def add_python_datetime_operation(self, file: str, line: int, datetime_type: str, in_function: str):
+        """Add a python datetime operations record to the batch."""
+        self.generic_batches['python_datetime_operations'].append((
+            file,
+            line,
+            datetime_type,
+            in_function
+        ))
+
+    def add_python_path_operation(self, file: str, line: int, operation: str, path_type: str, in_function: str):
+        """Add a python path operations record to the batch."""
+        self.generic_batches['python_path_operations'].append((
+            file,
+            line,
+            operation,
+            path_type,
+            in_function
+        ))
+
+    def add_python_logging_pattern(self, file: str, line: int, log_level: str, in_function: str):
+        """Add a python logging patterns record to the batch."""
+        self.generic_batches['python_logging_patterns'].append((
+            file,
+            line,
+            log_level,
+            in_function
+        ))
+
+    def add_python_threading_pattern(self, file: str, line: int, threading_type: str, in_function: str):
+        """Add a python threading patterns record to the batch."""
+        self.generic_batches['python_threading_patterns'].append((
+            file,
+            line,
+            threading_type,
+            in_function
+        ))
+
+    def add_python_contextlib_pattern(self, file: str, line: int, pattern: str, is_decorator: bool, in_function: str):
+        """Add a python contextlib patterns record to the batch."""
+        self.generic_batches['python_contextlib_patterns'].append((
+            file,
+            line,
+            pattern,
+            1 if is_decorator else 0,
+            in_function
+        ))
+
+    def add_python_type_checking(self, file: str, line: int, check_type: str, in_function: str):
+        """Add a python type checking record to the batch."""
+        self.generic_batches['python_type_checking'].append((
+            file,
+            line,
+            check_type,
+            in_function
+        ))
+
+    # Python Coverage V2 - Week 5: Control Flow (10)
+
+    def add_python_for_loop(self, file: str, line: int, loop_type: str, has_else: bool, nesting_level: int, target_count: int, in_function: str):
+        """Add a python for loop record to the batch."""
+        self.generic_batches['python_for_loops'].append((
+            file,
+            line,
+            loop_type,
+            1 if has_else else 0,
+            nesting_level,
+            target_count,
+            in_function
+        ))
+
+    def add_python_while_loop(self, file: str, line: int, has_else: bool, is_infinite: bool, nesting_level: int, in_function: str):
+        """Add a python while loop record to the batch."""
+        self.generic_batches['python_while_loops'].append((
+            file,
+            line,
+            1 if has_else else 0,
+            1 if is_infinite else 0,
+            nesting_level,
+            in_function
+        ))
+
+    def add_python_async_for_loop(self, file: str, line: int, has_else: bool, target_count: int, in_function: str):
+        """Add a python async for loop record to the batch."""
+        self.generic_batches['python_async_for_loops'].append((
+            file,
+            line,
+            1 if has_else else 0,
+            target_count,
+            in_function
+        ))
+
+    def add_python_if_statement(self, file: str, line: int, has_elif: bool, has_else: bool, chain_length: int, nesting_level: int, has_complex_condition: bool, in_function: str):
+        """Add a python if statement record to the batch."""
+        self.generic_batches['python_if_statements'].append((
+            file,
+            line,
+            1 if has_elif else 0,
+            1 if has_else else 0,
+            chain_length,
+            nesting_level,
+            1 if has_complex_condition else 0,
+            in_function
+        ))
+
+    def add_python_match_statement(self, file: str, line: int, case_count: int, has_wildcard: bool, has_guards: bool, pattern_types: str, in_function: str):
+        """Add a python match statement record to the batch."""
+        self.generic_batches['python_match_statements'].append((
+            file,
+            line,
+            case_count,
+            1 if has_wildcard else 0,
+            1 if has_guards else 0,
+            pattern_types,
+            in_function
+        ))
+
+    def add_python_break_continue_pass(self, file: str, line: int, statement_type: str, loop_type: str, in_function: str):
+        """Add a python break/continue/pass record to the batch."""
+        self.generic_batches['python_break_continue_pass'].append((
+            file,
+            line,
+            statement_type,
+            loop_type,
+            in_function
+        ))
+
+    def add_python_assert_statement(self, file: str, line: int, has_message: bool, condition_type: str, in_function: str):
+        """Add a python assert statement record to the batch."""
+        self.generic_batches['python_assert_statements'].append((
+            file,
+            line,
+            1 if has_message else 0,
+            condition_type,
+            in_function
+        ))
+
+    def add_python_del_statement(self, file: str, line: int, target_type: str, target_count: int, in_function: str):
+        """Add a python del statement record to the batch."""
+        self.generic_batches['python_del_statements'].append((
+            file,
+            line,
+            target_type,
+            target_count,
+            in_function
+        ))
+
+    def add_python_import_statement(self, file: str, line: int, import_type: str, module: str, has_alias: bool, is_wildcard: bool, relative_level: int, imported_names: str, in_function: str):
+        """Add a python import statement record to the batch."""
+        self.generic_batches['python_import_statements'].append((
+            file,
+            line,
+            import_type,
+            module,
+            1 if has_alias else 0,
+            1 if is_wildcard else 0,
+            relative_level,
+            imported_names,
+            in_function
+        ))
+
+    def add_python_with_statement(self, file: str, line: int, is_async: bool, context_count: int, has_alias: bool, in_function: str):
+        """Add a python with statement record to the batch."""
+        self.generic_batches['python_with_statements'].append((
+            file,
+            line,
+            1 if is_async else 0,
+            context_count,
+            1 if has_alias else 0,
+            in_function
+        ))
+
+    # Python Coverage V2 - Week 6: Protocol Patterns (10)
+
+    def add_python_iterator_protocol(self, file: str, line: int, class_name: str, has_iter: bool, has_next: bool, raises_stopiteration: bool, is_generator: bool):
+        """Add a python iterator protocol record to the batch."""
+        self.generic_batches['python_iterator_protocol'].append((
+            file,
+            line,
+            class_name,
+            1 if has_iter else 0,
+            1 if has_next else 0,
+            1 if raises_stopiteration else 0,
+            1 if is_generator else 0
+        ))
+
+    def add_python_container_protocol(self, file: str, line: int, class_name: str, has_len: bool, has_getitem: bool, has_setitem: bool, has_delitem: bool, has_contains: bool, is_sequence: bool, is_mapping: bool):
+        """Add a python container protocol record to the batch."""
+        self.generic_batches['python_container_protocol'].append((
+            file,
+            line,
+            class_name,
+            1 if has_len else 0,
+            1 if has_getitem else 0,
+            1 if has_setitem else 0,
+            1 if has_delitem else 0,
+            1 if has_contains else 0,
+            1 if is_sequence else 0,
+            1 if is_mapping else 0
+        ))
+
+    def add_python_callable_protocol(self, file: str, line: int, class_name: str, param_count: int, has_args: bool, has_kwargs: bool):
+        """Add a python callable protocol record to the batch."""
+        self.generic_batches['python_callable_protocol'].append((
+            file,
+            line,
+            class_name,
+            param_count,
+            1 if has_args else 0,
+            1 if has_kwargs else 0
+        ))
+
+    def add_python_comparison_protocol(self, file: str, line: int, class_name: str, methods: str, is_total_ordering: bool, has_all_rich: bool):
+        """Add a python comparison protocol record to the batch."""
+        self.generic_batches['python_comparison_protocol'].append((
+            file,
+            line,
+            class_name,
+            methods,
+            1 if is_total_ordering else 0,
+            1 if has_all_rich else 0
+        ))
+
+    def add_python_arithmetic_protocol(self, file: str, line: int, class_name: str, methods: str, has_reflected: bool, has_inplace: bool):
+        """Add a python arithmetic protocol record to the batch."""
+        self.generic_batches['python_arithmetic_protocol'].append((
+            file,
+            line,
+            class_name,
+            methods,
+            1 if has_reflected else 0,
+            1 if has_inplace else 0
+        ))
+
+    def add_python_pickle_protocol(self, file: str, line: int, class_name: str, has_getstate: bool, has_setstate: bool, has_reduce: bool, has_reduce_ex: bool):
+        """Add a python pickle protocol record to the batch."""
+        self.generic_batches['python_pickle_protocol'].append((
+            file,
+            line,
+            class_name,
+            1 if has_getstate else 0,
+            1 if has_setstate else 0,
+            1 if has_reduce else 0,
+            1 if has_reduce_ex else 0
+        ))
+
+    def add_python_weakref_usage(self, file: str, line: int, usage_type: str, in_function: str):
+        """Add a python weakref usage record to the batch."""
+        self.generic_batches['python_weakref_usage'].append((
+            file,
+            line,
+            usage_type,
+            in_function
+        ))
+
+    def add_python_contextvar_usage(self, file: str, line: int, operation: str, in_function: str):
+        """Add a python contextvar usage record to the batch."""
+        self.generic_batches['python_contextvar_usage'].append((
+            file,
+            line,
+            operation,
+            in_function
+        ))
+
+    def add_python_module_attribute(self, file: str, line: int, attribute: str, usage_type: str, in_function: str):
+        """Add a python module attribute record to the batch."""
+        self.generic_batches['python_module_attributes'].append((
+            file,
+            line,
+            attribute,
+            usage_type,
+            in_function
+        ))
+
+    def add_python_class_decorator(self, file: str, line: int, class_name: str, decorator: str, decorator_type: str, has_arguments: bool):
+        """Add a python class decorator record to the batch."""
+        self.generic_batches['python_class_decorators'].append((
+            file,
+            line,
+            class_name,
+            decorator,
+            decorator_type,
+            1 if has_arguments else 0
+        ))
+
+    # Python Coverage V2 - Advanced patterns (8)
+
+    def add_python_namespace_package(self, file: str, line: int, pattern: str, in_function: str):
+        """Add a python namespace package record to the batch."""
+        self.generic_batches['python_namespace_packages'].append((
+            file,
+            line,
+            pattern,
+            in_function
+        ))
+
+    def add_python_cached_property(self, file: str, line: int, method_name: str, in_class: str, is_functools: bool):
+        """Add a python cached property record to the batch."""
+        self.generic_batches['python_cached_property'].append((
+            file,
+            line,
+            method_name,
+            in_class,
+            1 if is_functools else 0
+        ))
+
+    def add_python_descriptor_protocol(self, file: str, line: int, class_name: str, has_get: bool, has_set: bool, has_delete: bool, is_data_descriptor: bool):
+        """Add a python descriptor protocol record to the batch."""
+        self.generic_batches['python_descriptor_protocol'].append((
+            file,
+            line,
+            class_name,
+            1 if has_get else 0,
+            1 if has_set else 0,
+            1 if has_delete else 0,
+            1 if is_data_descriptor else 0
+        ))
+
+    def add_python_attribute_access_protocol(self, file: str, line: int, class_name: str, has_getattr: bool, has_setattr: bool, has_delattr: bool, has_getattribute: bool):
+        """Add a python attribute access protocol record to the batch."""
+        self.generic_batches['python_attribute_access_protocol'].append((
+            file,
+            line,
+            class_name,
+            1 if has_getattr else 0,
+            1 if has_setattr else 0,
+            1 if has_delattr else 0,
+            1 if has_getattribute else 0
+        ))
+
+    def add_python_copy_protocol(self, file: str, line: int, class_name: str, has_copy: bool, has_deepcopy: bool):
+        """Add a python copy protocol record to the batch."""
+        self.generic_batches['python_copy_protocol'].append((
+            file,
+            line,
+            class_name,
+            1 if has_copy else 0,
+            1 if has_deepcopy else 0
+        ))
+
+    def add_python_ellipsis_usage(self, file: str, line: int, context: str, in_function: str):
+        """Add a python ellipsis usage record to the batch."""
+        self.generic_batches['python_ellipsis_usage'].append((
+            file,
+            line,
+            context,
+            in_function
+        ))
+
+    def add_python_bytes_operation(self, file: str, line: int, operation: str, in_function: str):
+        """Add a python bytes operation record to the batch."""
+        self.generic_batches['python_bytes_operations'].append((
+            file,
+            line,
+            operation,
+            in_function
+        ))
+
+    def add_python_exec_eval_compile(self, file: str, line: int, operation: str, has_globals: bool, has_locals: bool, in_function: str):
+        """Add a python exec/eval/compile record to the batch."""
+        self.generic_batches['python_exec_eval_compile'].append((
+            file,
+            line,
+            operation,
+            1 if has_globals else 0,
+            1 if has_locals else 0,
+            in_function
+        ))

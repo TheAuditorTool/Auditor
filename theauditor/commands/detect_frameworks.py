@@ -145,8 +145,8 @@ def detect_frameworks(project_path, output_json):
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: Database not found. Run 'aud index' first.", err=True)
-        raise click.ClickException("Database not found - run 'aud index' first")
+        click.echo("Error: Database not found. Run 'aud full' first.", err=True)
+        raise click.ClickException("Database not found - run 'aud full' first")
 
     try:
         # Read from database (single source of truth)

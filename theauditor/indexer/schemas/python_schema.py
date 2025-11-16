@@ -1486,6 +1486,1117 @@ PYTHON_MEMOIZATION_PATTERNS = TableSchema(
 )
 
 # ============================================================================
+# PYTHON COVERAGE V2: FUNDAMENTAL PATTERNS (Week 1)
+# ============================================================================
+
+PYTHON_COMPREHENSIONS = TableSchema(
+    name="python_comprehensions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("comp_type", "TEXT", nullable=False),  # 'list' | 'dict' | 'set' | 'generator'
+        Column("result_expr", "TEXT"),  # Expression being collected (e.g., 'x * 2')
+        Column("iteration_var", "TEXT"),  # Iteration variable (e.g., 'x' or 'x, y')
+        Column("iteration_source", "TEXT"),  # Source being iterated (e.g., 'range(10)')
+        Column("has_filter", "BOOLEAN", default="0"),  # True if has 'if' condition
+        Column("filter_expr", "TEXT"),  # Filter condition if present
+        Column("nesting_level", "INTEGER", default="1"),  # 1 for simple, 2+ for nested
+        Column("in_function", "TEXT", nullable=False),  # Containing function
+    ],
+    indexes=[
+        ("idx_python_comp_file", ["file"]),
+        ("idx_python_comp_type", ["comp_type"]),
+        ("idx_python_comp_nesting", ["nesting_level"]),
+        ("idx_python_comp_filter", ["has_filter"]),
+    ]
+)
+
+PYTHON_LAMBDA_FUNCTIONS = TableSchema(
+    name="python_lambda_functions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("parameter_count", "INTEGER", default="0"),  # Number of parameters
+        Column("body", "TEXT"),  # Lambda body expression as text
+        Column("captures_closure", "BOOLEAN", default="0"),  # True if captures outer vars
+        Column("used_in", "TEXT"),  # 'map' | 'filter' | 'sorted_key' | 'assignment' | 'argument'
+        Column("in_function", "TEXT", nullable=False),  # Containing function
+    ],
+    indexes=[
+        ("idx_python_lambda_file", ["file"]),
+        ("idx_python_lambda_captures", ["captures_closure"]),
+        ("idx_python_lambda_usage", ["used_in"]),
+    ]
+)
+
+PYTHON_SLICE_OPERATIONS = TableSchema(
+    name="python_slice_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("target", "TEXT"),  # Variable being sliced
+        Column("has_start", "BOOLEAN", default="0"),  # True if start index present
+        Column("has_stop", "BOOLEAN", default="0"),  # True if stop index present
+        Column("has_step", "BOOLEAN", default="0"),  # True if step present
+        Column("is_assignment", "BOOLEAN", default="0"),  # True if slice assignment
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_slice_file", ["file"]),
+        ("idx_python_slice_assignment", ["is_assignment"]),
+    ]
+)
+
+PYTHON_TUPLE_OPERATIONS = TableSchema(
+    name="python_tuple_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),  # 'pack' | 'unpack' | 'literal'
+        Column("element_count", "INTEGER", default="0"),  # Number of elements
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_tuple_file", ["file"]),
+        ("idx_python_tuple_operation", ["operation"]),
+    ]
+)
+
+PYTHON_UNPACKING_PATTERNS = TableSchema(
+    name="python_unpacking_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("unpack_type", "TEXT", nullable=False),  # 'tuple' | 'list' | 'extended' | 'nested'
+        Column("target_count", "INTEGER", default="0"),  # Number of target variables
+        Column("has_rest", "BOOLEAN", default="0"),  # True if has *rest pattern
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_unpack_file", ["file"]),
+        ("idx_python_unpack_type", ["unpack_type"]),
+        ("idx_python_unpack_rest", ["has_rest"]),
+    ]
+)
+
+PYTHON_NONE_PATTERNS = TableSchema(
+    name="python_none_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("pattern", "TEXT", nullable=False),  # 'is_none_check' | 'none_assignment' | 'none_default' | 'none_return'
+        Column("uses_is", "BOOLEAN", default="0"),  # True if uses 'is None' (correct)
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_none_file", ["file"]),
+        ("idx_python_none_pattern", ["pattern"]),
+        ("idx_python_none_uses_is", ["uses_is"]),
+    ]
+)
+
+PYTHON_TRUTHINESS_PATTERNS = TableSchema(
+    name="python_truthiness_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("pattern", "TEXT", nullable=False),  # 'implicit_bool' | 'explicit_bool' | 'short_circuit'
+        Column("expression", "TEXT"),  # Expression being tested
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_truth_file", ["file"]),
+        ("idx_python_truth_pattern", ["pattern"]),
+    ]
+)
+
+PYTHON_STRING_FORMATTING = TableSchema(
+    name="python_string_formatting",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("format_type", "TEXT", nullable=False),  # 'f_string' | 'percent' | 'format_method' | 'template'
+        Column("has_expressions", "BOOLEAN", default="0"),  # True if has expressions (f"{x + 1}")
+        Column("var_count", "INTEGER", default="0"),  # Number of interpolated variables
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_format_file", ["file"]),
+        ("idx_python_format_type", ["format_type"]),
+    ]
+)
+
+# ============================================================================
+# PYTHON COVERAGE V2: OPERATORS (Week 2)
+# ============================================================================
+
+PYTHON_OPERATORS = TableSchema(
+    name="python_operators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operator_type", "TEXT", nullable=False),  # 'arithmetic' | 'comparison' | 'logical' | 'bitwise' | 'unary'
+        Column("operator", "TEXT", nullable=False),  # Symbol: +, -, *, ==, and, etc.
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_operators_file", ["file"]),
+        ("idx_python_operators_type", ["operator_type"]),
+    ]
+)
+
+PYTHON_MEMBERSHIP_TESTS = TableSchema(
+    name="python_membership_tests",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operator", "TEXT", nullable=False),  # 'in' | 'not in'
+        Column("container_type", "TEXT"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_membership_file", ["file"]),
+    ]
+)
+
+PYTHON_CHAINED_COMPARISONS = TableSchema(
+    name="python_chained_comparisons",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("chain_length", "INTEGER", nullable=False),
+        Column("operators", "TEXT"),  # Comma-separated
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_chained_file", ["file"]),
+    ]
+)
+
+PYTHON_TERNARY_EXPRESSIONS = TableSchema(
+    name="python_ternary_expressions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("has_complex_condition", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_ternary_file", ["file"]),
+    ]
+)
+
+PYTHON_WALRUS_OPERATORS = TableSchema(
+    name="python_walrus_operators",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("variable", "TEXT", nullable=False),
+        Column("used_in", "TEXT", nullable=False),  # 'if' | 'while' | 'comprehension' | 'expression'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_walrus_file", ["file"]),
+    ]
+)
+
+PYTHON_MATRIX_MULTIPLICATION = TableSchema(
+    name="python_matrix_multiplication",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_matmul_file", ["file"]),
+    ]
+)
+
+# ============================================================================
+# PYTHON COVERAGE V2: COLLECTIONS (Week 3)
+# ============================================================================
+
+PYTHON_DICT_OPERATIONS = TableSchema(
+    name="python_dict_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),
+        Column("has_default", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_dict_ops_file", ["file"]),
+        ("idx_python_dict_ops_operation", ["operation"]),
+    ]
+)
+
+PYTHON_LIST_MUTATIONS = TableSchema(
+    name="python_list_mutations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("method", "TEXT", nullable=False),
+        Column("mutates_in_place", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_list_mut_file", ["file"]),
+        ("idx_python_list_mut_method", ["method"]),
+    ]
+)
+
+PYTHON_SET_OPERATIONS = TableSchema(
+    name="python_set_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_set_ops_file", ["file"]),
+    ]
+)
+
+PYTHON_STRING_METHODS = TableSchema(
+    name="python_string_methods",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("method", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_str_methods_file", ["file"]),
+        ("idx_python_str_methods_method", ["method"]),
+    ]
+)
+
+PYTHON_BUILTIN_USAGE = TableSchema(
+    name="python_builtin_usage",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("builtin", "TEXT", nullable=False),
+        Column("has_key", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_builtin_file", ["file"]),
+        ("idx_python_builtin_name", ["builtin"]),
+    ]
+)
+
+PYTHON_ITERTOOLS_USAGE = TableSchema(
+    name="python_itertools_usage",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function", "TEXT", nullable=False),
+        Column("is_infinite", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_itertools_file", ["file"]),
+    ]
+)
+
+PYTHON_FUNCTOOLS_USAGE = TableSchema(
+    name="python_functools_usage",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("function", "TEXT", nullable=False),
+        Column("is_decorator", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_functools_file", ["file"]),
+    ]
+)
+
+PYTHON_COLLECTIONS_USAGE = TableSchema(
+    name="python_collections_usage",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("collection_type", "TEXT", nullable=False),
+        Column("default_factory", "TEXT"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_collections_file", ["file"]),
+        ("idx_python_collections_type", ["collection_type"]),
+    ]
+)
+
+# ============================================================================
+# PYTHON COVERAGE V2: ADVANCED CLASS FEATURES (Week 4)
+# ============================================================================
+
+PYTHON_METACLASSES = TableSchema(
+    name="python_metaclasses",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("metaclass_name", "TEXT", nullable=False),
+        Column("is_definition", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_metaclass_file", ["file"]),
+    ]
+)
+
+PYTHON_DESCRIPTORS = TableSchema(
+    name="python_descriptors",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("has_get", "BOOLEAN", default="0"),
+        Column("has_set", "BOOLEAN", default="0"),
+        Column("has_delete", "BOOLEAN", default="0"),
+        Column("descriptor_type", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_descriptor_file", ["file"]),
+    ]
+)
+
+PYTHON_DATACLASSES = TableSchema(
+    name="python_dataclasses",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("frozen", "BOOLEAN", default="0"),
+        Column("field_count", "INTEGER", default="0"),
+    ],
+    indexes=[
+        ("idx_python_dataclass_file", ["file"]),
+    ]
+)
+
+PYTHON_ENUMS = TableSchema(
+    name="python_enums",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("enum_name", "TEXT", nullable=False),
+        Column("enum_type", "TEXT", nullable=False),
+        Column("member_count", "INTEGER", default="0"),
+    ],
+    indexes=[
+        ("idx_python_enum_file", ["file"]),
+    ]
+)
+
+PYTHON_SLOTS = TableSchema(
+    name="python_slots",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("slot_count", "INTEGER", default="0"),
+    ],
+    indexes=[
+        ("idx_python_slots_file", ["file"]),
+    ]
+)
+
+PYTHON_ABSTRACT_CLASSES = TableSchema(
+    name="python_abstract_classes",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("abstract_method_count", "INTEGER", default="0"),
+    ],
+    indexes=[
+        ("idx_python_abstract_file", ["file"]),
+    ]
+)
+
+PYTHON_METHOD_TYPES = TableSchema(
+    name="python_method_types",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("method_name", "TEXT", nullable=False),
+        Column("method_type", "TEXT", nullable=False),
+        Column("in_class", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_method_types_file", ["file"]),
+        ("idx_python_method_types_type", ["method_type"]),
+    ]
+)
+
+PYTHON_MULTIPLE_INHERITANCE = TableSchema(
+    name="python_multiple_inheritance",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("base_count", "INTEGER", nullable=False),
+        Column("base_classes", "TEXT"),
+    ],
+    indexes=[
+        ("idx_python_multi_inherit_file", ["file"]),
+    ]
+)
+
+PYTHON_DUNDER_METHODS = TableSchema(
+    name="python_dunder_methods",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("method_name", "TEXT", nullable=False),
+        Column("category", "TEXT", nullable=False),
+        Column("in_class", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_dunder_file", ["file"]),
+        ("idx_python_dunder_category", ["category"]),
+    ]
+)
+
+PYTHON_VISIBILITY_CONVENTIONS = TableSchema(
+    name="python_visibility_conventions",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("visibility", "TEXT", nullable=False),
+        Column("is_name_mangled", "BOOLEAN", default="0"),
+        Column("in_class", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_visibility_file", ["file"]),
+        ("idx_python_visibility_type", ["visibility"]),
+    ]
+)
+
+# ============================================================================
+# PYTHON COVERAGE V2: STDLIB PATTERNS (Week 4)
+# ============================================================================
+
+PYTHON_REGEX_PATTERNS = TableSchema(
+    name="python_regex_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),
+        Column("has_flags", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_regex_file", ["file"]),
+    ]
+)
+
+PYTHON_JSON_OPERATIONS = TableSchema(
+    name="python_json_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),
+        Column("direction", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_json_file", ["file"]),
+    ]
+)
+
+PYTHON_DATETIME_OPERATIONS = TableSchema(
+    name="python_datetime_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("datetime_type", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_datetime_file", ["file"]),
+    ]
+)
+
+PYTHON_PATH_OPERATIONS = TableSchema(
+    name="python_path_operations",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),
+        Column("path_type", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_path_file", ["file"]),
+    ]
+)
+
+PYTHON_LOGGING_PATTERNS = TableSchema(
+    name="python_logging_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("log_level", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_logging_file", ["file"]),
+        ("idx_python_logging_level", ["log_level"]),
+    ]
+)
+
+PYTHON_THREADING_PATTERNS = TableSchema(
+    name="python_threading_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("threading_type", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_threading_file", ["file"]),
+    ]
+)
+
+PYTHON_CONTEXTLIB_PATTERNS = TableSchema(
+    name="python_contextlib_patterns",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("pattern", "TEXT", nullable=False),
+        Column("is_decorator", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_contextlib_file", ["file"]),
+    ]
+)
+
+PYTHON_TYPE_CHECKING = TableSchema(
+    name="python_type_checking",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("check_type", "TEXT", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_type_check_file", ["file"]),
+    ]
+)
+
+# ============================================================================
+# PYTHON COVERAGE V2: CONTROL FLOW PATTERNS (Week 5)
+# ============================================================================
+
+PYTHON_FOR_LOOPS = TableSchema(
+    name="python_for_loops",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("loop_type", "TEXT", nullable=False),  # 'enumerate' | 'zip' | 'range' | 'items' | 'values' | 'keys' | 'plain'
+        Column("has_else", "BOOLEAN", default="0"),
+        Column("nesting_level", "INTEGER", nullable=False),
+        Column("target_count", "INTEGER", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_for_loops_file", ["file"]),
+        ("idx_python_for_loops_type", ["loop_type"]),
+        ("idx_python_for_loops_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_WHILE_LOOPS = TableSchema(
+    name="python_while_loops",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("has_else", "BOOLEAN", default="0"),
+        Column("is_infinite", "BOOLEAN", default="0"),
+        Column("nesting_level", "INTEGER", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_while_loops_file", ["file"]),
+        ("idx_python_while_loops_infinite", ["is_infinite"]),
+        ("idx_python_while_loops_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_ASYNC_FOR_LOOPS = TableSchema(
+    name="python_async_for_loops",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("has_else", "BOOLEAN", default="0"),
+        Column("target_count", "INTEGER", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_async_for_file", ["file"]),
+        ("idx_python_async_for_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_IF_STATEMENTS = TableSchema(
+    name="python_if_statements",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("has_elif", "BOOLEAN", default="0"),
+        Column("has_else", "BOOLEAN", default="0"),
+        Column("chain_length", "INTEGER", nullable=False),
+        Column("nesting_level", "INTEGER", nullable=False),
+        Column("has_complex_condition", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_if_file", ["file"]),
+        ("idx_python_if_complex", ["has_complex_condition"]),
+        ("idx_python_if_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_MATCH_STATEMENTS = TableSchema(
+    name="python_match_statements",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("case_count", "INTEGER", nullable=False),
+        Column("has_wildcard", "BOOLEAN", default="0"),
+        Column("has_guards", "BOOLEAN", default="0"),
+        Column("pattern_types", "TEXT", nullable=False),  # Comma-separated
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_match_file", ["file"]),
+        ("idx_python_match_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_BREAK_CONTINUE_PASS = TableSchema(
+    name="python_break_continue_pass",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("statement_type", "TEXT", nullable=False),  # 'break' | 'continue' | 'pass'
+        Column("loop_type", "TEXT", nullable=False),  # 'for' | 'while' | 'none'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_flow_control_file", ["file"]),
+        ("idx_python_flow_control_type", ["statement_type"]),
+        ("idx_python_flow_control_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_ASSERT_STATEMENTS = TableSchema(
+    name="python_assert_statements",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("has_message", "BOOLEAN", default="0"),
+        Column("condition_type", "TEXT", nullable=False),  # 'comparison' | 'isinstance' | 'callable' | 'simple'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_assert_file", ["file"]),
+        ("idx_python_assert_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_DEL_STATEMENTS = TableSchema(
+    name="python_del_statements",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("target_type", "TEXT", nullable=False),  # 'name' | 'subscript' | 'attribute'
+        Column("target_count", "INTEGER", nullable=False),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_del_file", ["file"]),
+        ("idx_python_del_type", ["target_type"]),
+        ("idx_python_del_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_IMPORT_STATEMENTS = TableSchema(
+    name="python_import_statements",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("import_type", "TEXT", nullable=False),  # 'import' | 'from' | 'relative'
+        Column("module", "TEXT", nullable=False),
+        Column("has_alias", "BOOLEAN", default="0"),
+        Column("is_wildcard", "BOOLEAN", default="0"),
+        Column("relative_level", "INTEGER", default="0"),
+        Column("imported_names", "TEXT", nullable=False),  # Comma-separated
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_import_file", ["file"]),
+        ("idx_python_import_module", ["module"]),
+        ("idx_python_import_type", ["import_type"]),
+        ("idx_python_import_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_WITH_STATEMENTS = TableSchema(
+    name="python_with_statements",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("is_async", "BOOLEAN", default="0"),
+        Column("context_count", "INTEGER", nullable=False),
+        Column("has_alias", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_with_file", ["file"]),
+        ("idx_python_with_async", ["is_async"]),
+        ("idx_python_with_file_line", ["file", "line"]),
+    ]
+)
+
+# ============================================================================
+# PYTHON COVERAGE V2: PROTOCOL PATTERNS (Week 6)
+# ============================================================================
+
+PYTHON_ITERATOR_PROTOCOL = TableSchema(
+    name="python_iterator_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("has_iter", "BOOLEAN", default="0"),
+        Column("has_next", "BOOLEAN", default="0"),
+        Column("raises_stopiteration", "BOOLEAN", default="0"),
+        Column("is_generator", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_iterator_file", ["file"]),
+        ("idx_python_iterator_class", ["class_name"]),
+        ("idx_python_iterator_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_CONTAINER_PROTOCOL = TableSchema(
+    name="python_container_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("has_len", "BOOLEAN", default="0"),
+        Column("has_getitem", "BOOLEAN", default="0"),
+        Column("has_setitem", "BOOLEAN", default="0"),
+        Column("has_delitem", "BOOLEAN", default="0"),
+        Column("has_contains", "BOOLEAN", default="0"),
+        Column("is_sequence", "BOOLEAN", default="0"),
+        Column("is_mapping", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_container_file", ["file"]),
+        ("idx_python_container_class", ["class_name"]),
+        ("idx_python_container_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_CALLABLE_PROTOCOL = TableSchema(
+    name="python_callable_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("param_count", "INTEGER", nullable=False),
+        Column("has_args", "BOOLEAN", default="0"),
+        Column("has_kwargs", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_callable_file", ["file"]),
+        ("idx_python_callable_class", ["class_name"]),
+        ("idx_python_callable_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_COMPARISON_PROTOCOL = TableSchema(
+    name="python_comparison_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("methods", "TEXT", nullable=False),  # Comma-separated
+        Column("is_total_ordering", "BOOLEAN", default="0"),
+        Column("has_all_rich", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_comparison_file", ["file"]),
+        ("idx_python_comparison_class", ["class_name"]),
+        ("idx_python_comparison_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_ARITHMETIC_PROTOCOL = TableSchema(
+    name="python_arithmetic_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("methods", "TEXT", nullable=False),  # Comma-separated
+        Column("has_reflected", "BOOLEAN", default="0"),
+        Column("has_inplace", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_arithmetic_file", ["file"]),
+        ("idx_python_arithmetic_class", ["class_name"]),
+        ("idx_python_arithmetic_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_PICKLE_PROTOCOL = TableSchema(
+    name="python_pickle_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("has_getstate", "BOOLEAN", default="0"),
+        Column("has_setstate", "BOOLEAN", default="0"),
+        Column("has_reduce", "BOOLEAN", default="0"),
+        Column("has_reduce_ex", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_pickle_file", ["file"]),
+        ("idx_python_pickle_class", ["class_name"]),
+        ("idx_python_pickle_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_WEAKREF_USAGE = TableSchema(
+    name="python_weakref_usage",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("usage_type", "TEXT", nullable=False),  # 'ref' | 'proxy' | 'WeakValueDictionary' | 'WeakKeyDictionary'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_weakref_file", ["file"]),
+        ("idx_python_weakref_type", ["usage_type"]),
+        ("idx_python_weakref_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_CONTEXTVAR_USAGE = TableSchema(
+    name="python_contextvar_usage",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),  # 'ContextVar' | 'get' | 'set' | 'Token'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_contextvar_file", ["file"]),
+        ("idx_python_contextvar_op", ["operation"]),
+        ("idx_python_contextvar_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_MODULE_ATTRIBUTES = TableSchema(
+    name="python_module_attributes",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("attribute", "TEXT", nullable=False),  # '__name__' | '__file__' | '__doc__' | '__all__'
+        Column("usage_type", "TEXT", nullable=False),  # 'read' | 'write' | 'check'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_module_attr_file", ["file"]),
+        ("idx_python_module_attr_name", ["attribute"]),
+        ("idx_python_module_attr_file_line", ["file", "line"]),
+    ]
+)
+
+PYTHON_CLASS_DECORATORS = TableSchema(
+    name="python_class_decorators",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("decorator", "TEXT", nullable=False),
+        Column("decorator_type", "TEXT", nullable=False),  # 'dataclass' | 'total_ordering' | 'custom'
+        Column("has_arguments", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_class_dec_file", ["file"]),
+        ("idx_python_class_dec_type", ["decorator_type"]),
+        ("idx_python_class_dec_file_line", ["file", "line"]),
+    ]
+)
+
+# ============================================================================
+# PYTHON COVERAGE V2: ADVANCED PATTERNS
+# ============================================================================
+
+PYTHON_NAMESPACE_PACKAGES = TableSchema(
+    name="python_namespace_packages",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("pattern", "TEXT", nullable=False),  # 'extend_path' | 'path_manipulation'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_namespace_file", ["file"]),
+        ("idx_python_namespace_pattern", ["pattern"]),
+    ]
+)
+
+PYTHON_CACHED_PROPERTY = TableSchema(
+    name="python_cached_property",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("method_name", "TEXT", nullable=False),
+        Column("in_class", "TEXT", nullable=False),
+        Column("is_functools", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_cached_prop_file", ["file"]),
+        ("idx_python_cached_prop_class", ["in_class"]),
+    ]
+)
+
+PYTHON_DESCRIPTOR_PROTOCOL = TableSchema(
+    name="python_descriptor_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("has_get", "BOOLEAN", default="0"),
+        Column("has_set", "BOOLEAN", default="0"),
+        Column("has_delete", "BOOLEAN", default="0"),
+        Column("is_data_descriptor", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_descriptor_file", ["file"]),
+        ("idx_python_descriptor_class", ["class_name"]),
+    ]
+)
+
+PYTHON_ATTRIBUTE_ACCESS_PROTOCOL = TableSchema(
+    name="python_attribute_access_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("has_getattr", "BOOLEAN", default="0"),
+        Column("has_setattr", "BOOLEAN", default="0"),
+        Column("has_delattr", "BOOLEAN", default="0"),
+        Column("has_getattribute", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_attr_access_file", ["file"]),
+        ("idx_python_attr_access_class", ["class_name"]),
+    ]
+)
+
+PYTHON_COPY_PROTOCOL = TableSchema(
+    name="python_copy_protocol",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("class_name", "TEXT", nullable=False),
+        Column("has_copy", "BOOLEAN", default="0"),
+        Column("has_deepcopy", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_python_copy_file", ["file"]),
+        ("idx_python_copy_class", ["class_name"]),
+    ]
+)
+
+PYTHON_ELLIPSIS_USAGE = TableSchema(
+    name="python_ellipsis_usage",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("context", "TEXT", nullable=False),  # 'type_hint' | 'slice' | 'expression' | 'pass_placeholder'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_ellipsis_file", ["file"]),
+        ("idx_python_ellipsis_context", ["context"]),
+    ]
+)
+
+PYTHON_BYTES_OPERATIONS = TableSchema(
+    name="python_bytes_operations",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),  # 'bytes' | 'bytearray' | 'encode' | 'decode' | 'literal'
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_bytes_file", ["file"]),
+        ("idx_python_bytes_operation", ["operation"]),
+    ]
+)
+
+PYTHON_EXEC_EVAL_COMPILE = TableSchema(
+    name="python_exec_eval_compile",
+    columns=[
+        Column("id", "INTEGER", primary_key=True, autoincrement=True),
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("operation", "TEXT", nullable=False),  # 'exec' | 'eval' | 'compile'
+        Column("has_globals", "BOOLEAN", default="0"),
+        Column("has_locals", "BOOLEAN", default="0"),
+        Column("in_function", "TEXT", nullable=False),
+    ],
+    indexes=[
+        ("idx_python_exec_file", ["file"]),
+        ("idx_python_exec_operation", ["operation"]),
+    ]
+)
+
+# ============================================================================
 # PYTHON TABLES REGISTRY
 # ============================================================================
 
@@ -1583,4 +2694,80 @@ PYTHON_TABLES: Dict[str, TableSchema] = {
     "python_loop_complexity": PYTHON_LOOP_COMPLEXITY,
     "python_resource_usage": PYTHON_RESOURCE_USAGE,
     "python_memoization_patterns": PYTHON_MEMOIZATION_PATTERNS,
+    # Python Coverage V2 (Week 1 - Fundamentals)
+    "python_comprehensions": PYTHON_COMPREHENSIONS,
+    "python_lambda_functions": PYTHON_LAMBDA_FUNCTIONS,
+    "python_slice_operations": PYTHON_SLICE_OPERATIONS,
+    "python_tuple_operations": PYTHON_TUPLE_OPERATIONS,
+    "python_unpacking_patterns": PYTHON_UNPACKING_PATTERNS,
+    "python_none_patterns": PYTHON_NONE_PATTERNS,
+    "python_truthiness_patterns": PYTHON_TRUTHINESS_PATTERNS,
+    "python_string_formatting": PYTHON_STRING_FORMATTING,
+    # Python Coverage V2 (Week 2 - Operators)
+    "python_operators": PYTHON_OPERATORS,
+    "python_membership_tests": PYTHON_MEMBERSHIP_TESTS,
+    "python_chained_comparisons": PYTHON_CHAINED_COMPARISONS,
+    "python_ternary_expressions": PYTHON_TERNARY_EXPRESSIONS,
+    "python_walrus_operators": PYTHON_WALRUS_OPERATORS,
+    "python_matrix_multiplication": PYTHON_MATRIX_MULTIPLICATION,
+    # Python Coverage V2 (Week 3 - Collections)
+    "python_dict_operations": PYTHON_DICT_OPERATIONS,
+    "python_list_mutations": PYTHON_LIST_MUTATIONS,
+    "python_set_operations": PYTHON_SET_OPERATIONS,
+    "python_string_methods": PYTHON_STRING_METHODS,
+    "python_builtin_usage": PYTHON_BUILTIN_USAGE,
+    "python_itertools_usage": PYTHON_ITERTOOLS_USAGE,
+    "python_functools_usage": PYTHON_FUNCTOOLS_USAGE,
+    "python_collections_usage": PYTHON_COLLECTIONS_USAGE,
+    # Python Coverage V2 (Week 4 - Advanced Class Features)
+    "python_metaclasses": PYTHON_METACLASSES,
+    "python_descriptors": PYTHON_DESCRIPTORS,
+    "python_dataclasses": PYTHON_DATACLASSES,
+    "python_enums": PYTHON_ENUMS,
+    "python_slots": PYTHON_SLOTS,
+    "python_abstract_classes": PYTHON_ABSTRACT_CLASSES,
+    "python_method_types": PYTHON_METHOD_TYPES,
+    "python_multiple_inheritance": PYTHON_MULTIPLE_INHERITANCE,
+    "python_dunder_methods": PYTHON_DUNDER_METHODS,
+    "python_visibility_conventions": PYTHON_VISIBILITY_CONVENTIONS,
+    # Python Coverage V2 (Week 4 - Stdlib Patterns)
+    "python_regex_patterns": PYTHON_REGEX_PATTERNS,
+    "python_json_operations": PYTHON_JSON_OPERATIONS,
+    "python_datetime_operations": PYTHON_DATETIME_OPERATIONS,
+    "python_path_operations": PYTHON_PATH_OPERATIONS,
+    "python_logging_patterns": PYTHON_LOGGING_PATTERNS,
+    "python_threading_patterns": PYTHON_THREADING_PATTERNS,
+    "python_contextlib_patterns": PYTHON_CONTEXTLIB_PATTERNS,
+    "python_type_checking": PYTHON_TYPE_CHECKING,
+    # Python Coverage V2 (Week 5 - Control Flow)
+    "python_for_loops": PYTHON_FOR_LOOPS,
+    "python_while_loops": PYTHON_WHILE_LOOPS,
+    "python_async_for_loops": PYTHON_ASYNC_FOR_LOOPS,
+    "python_if_statements": PYTHON_IF_STATEMENTS,
+    "python_match_statements": PYTHON_MATCH_STATEMENTS,
+    "python_break_continue_pass": PYTHON_BREAK_CONTINUE_PASS,
+    "python_assert_statements": PYTHON_ASSERT_STATEMENTS,
+    "python_del_statements": PYTHON_DEL_STATEMENTS,
+    "python_import_statements": PYTHON_IMPORT_STATEMENTS,
+    "python_with_statements": PYTHON_WITH_STATEMENTS,
+    # Python Coverage V2 (Week 6 - Protocol Patterns)
+    "python_iterator_protocol": PYTHON_ITERATOR_PROTOCOL,
+    "python_container_protocol": PYTHON_CONTAINER_PROTOCOL,
+    "python_callable_protocol": PYTHON_CALLABLE_PROTOCOL,
+    "python_comparison_protocol": PYTHON_COMPARISON_PROTOCOL,
+    "python_arithmetic_protocol": PYTHON_ARITHMETIC_PROTOCOL,
+    "python_pickle_protocol": PYTHON_PICKLE_PROTOCOL,
+    "python_weakref_usage": PYTHON_WEAKREF_USAGE,
+    "python_contextvar_usage": PYTHON_CONTEXTVAR_USAGE,
+    "python_module_attributes": PYTHON_MODULE_ATTRIBUTES,
+    "python_class_decorators": PYTHON_CLASS_DECORATORS,
+    # Python Coverage V2 (Advanced - Rarely Used Patterns)
+    "python_namespace_packages": PYTHON_NAMESPACE_PACKAGES,
+    "python_cached_property": PYTHON_CACHED_PROPERTY,
+    "python_descriptor_protocol": PYTHON_DESCRIPTOR_PROTOCOL,
+    "python_attribute_access_protocol": PYTHON_ATTRIBUTE_ACCESS_PROTOCOL,
+    "python_copy_protocol": PYTHON_COPY_PROTOCOL,
+    "python_ellipsis_usage": PYTHON_ELLIPSIS_USAGE,
+    "python_bytes_operations": PYTHON_BYTES_OPERATIONS,
+    "python_exec_eval_compile": PYTHON_EXEC_EVAL_COMPILE,
 }

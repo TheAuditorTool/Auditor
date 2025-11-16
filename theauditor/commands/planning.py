@@ -540,7 +540,7 @@ def verify_task(plan_id, task_number, verbose, auto_update):
     repo_index_db = Path.cwd() / ".pf" / "repo_index.db"
 
     if not repo_index_db.exists():
-        click.echo("Error: repo_index.db not found. Run 'aud index' first.", err=True)
+        click.echo("Error: repo_index.db not found. Run 'aud full' first.", err=True)
         return
 
     manager = PlanningManager(db_path)
