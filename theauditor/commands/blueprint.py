@@ -102,6 +102,15 @@ def blueprint(structure, graph, security, taint, all, output_format):
         - Import relationships (internal vs external)
         - NO recommendations, NO "should be", NO prescriptive language
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("blueprint", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from pathlib import Path
 
     # Validate database exists

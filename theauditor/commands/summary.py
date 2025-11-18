@@ -100,6 +100,15 @@ def summary(root, raw_dir, out):
       aud full      # Run all analysis first
       aud report    # Generate AI chunks
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("summary", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     start_time = time.time()
     raw_path = Path(raw_dir)
 

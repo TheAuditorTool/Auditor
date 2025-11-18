@@ -69,6 +69,15 @@ def deps(root, check_latest, upgrade_all, allow_prerelease, offline, out, print_
       2 = Critical vulnerabilities found (--vuln-scan)
 
     Note: Respects proxy settings and npm/pip configurations."""
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("deps", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.deps import parse_dependencies, write_deps_json, check_latest_versions, write_deps_latest_json, upgrade_all_deps
     from theauditor.vulnerability_scanner import scan_dependencies, write_vulnerabilities_json, format_vulnerability_report
     import sys

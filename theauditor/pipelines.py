@@ -440,7 +440,6 @@ def run_full_pipeline(
         ("deps", ["--vuln-scan"]),  # Phase 1: Offline vulnerability scanning (Track B)
         ("deps", ["--check-latest"]),  # Phase 2: Network version checks (Track C)
         ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
-        ("docs", ["summarize"]),
         ("workset", ["--all"]),
         ("lint", ["--workset"]),
         ("detect-patterns", []),
@@ -488,8 +487,6 @@ def run_full_pipeline(
                 description = f"{phase_num}. Check dependency versions (network)"
             elif cmd_name == "docs" and "fetch" in extra_args:
                 description = f"{phase_num}. Fetch documentation"
-            elif cmd_name == "docs" and "summarize" in extra_args:
-                description = f"{phase_num}. Summarize documentation"
             elif cmd_name == "workset":
                 description = f"{phase_num}. Create workset (all files)"
             elif cmd_name == "lint":

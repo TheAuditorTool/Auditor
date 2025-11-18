@@ -201,6 +201,15 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
     'aud docs fetch' after dependency updates to refresh. Offline mode uses cache
     only, enabling air-gapped development after initial fetch.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("docs", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.deps import parse_dependencies
     from theauditor.docs_fetch import fetch_docs, DEFAULT_ALLOWLIST
 

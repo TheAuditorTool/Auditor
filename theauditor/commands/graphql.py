@@ -111,6 +111,15 @@ def graphql_build(root, db, verbose):
       Updates graphql_execution_edges table
       Creates execution graph for taint analysis
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("graphql", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.graphql.builder import GraphQLBuilder
 
     db_path = Path(root) / db
@@ -183,6 +192,15 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
       aud graphql query --type Mutation --show-args
       aud graphql query --json > schema.json
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("graphql", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.graphql.querier import GraphQLQuerier
 
     db_path = Path(db)
@@ -226,6 +244,15 @@ def graphql_viz(db, output, format, type_filter):
       aud graphql viz --format png -o schema.png
       aud graphql viz --type Query              # Only Query type
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("graphql", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.graphql.visualizer import GraphQLVisualizer
 
     db_path = Path(db)

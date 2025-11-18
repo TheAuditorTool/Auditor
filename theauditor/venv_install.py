@@ -302,7 +302,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
         "-m", "pip",
         "install",
         "--no-cache-dir",
-        f"-e", f"{theauditor_root}[dev]"
+        # Install with [all] extra to get BOTH runtime AND dev dependencies
+        # This ensures the sandbox has everything needed for analysis + development
+        f"-e", f"{theauditor_root}[all]"
     ]
     
     try:

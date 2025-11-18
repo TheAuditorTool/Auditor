@@ -92,6 +92,15 @@ def tool_versions(out_dir):
     NOTE: This command is idempotent and safe to run multiple times.
     It will overwrite previous version files.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("tool-versions", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.tools import write_tools_report
 
     try:

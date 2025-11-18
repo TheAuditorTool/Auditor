@@ -186,6 +186,15 @@ def docker_analyze(db_path, output, severity, check_vulns):
     NOTE: Base image vulnerability checks require network access and may be rate-limited
     by external APIs. Use --no-check-vulns for air-gapped environments.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("docker-analyze", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.docker_analyzer import analyze_docker_images
     
     # Check if database exists

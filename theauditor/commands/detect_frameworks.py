@@ -141,6 +141,15 @@ def detect_frameworks(project_path, output_json):
     NOTE: This is a read-only database query. It does not modify files or re-parse
     manifests. To refresh framework detection, run 'aud index' again.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("detect-frameworks", sys.argv[2:], root=project_path)
+        sys.exit(exit_code)
+
     project_path = Path(project_path).resolve()
     db_path = project_path / ".pf" / "repo_index.db"
 
