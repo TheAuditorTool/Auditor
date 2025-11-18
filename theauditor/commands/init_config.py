@@ -53,6 +53,15 @@ def init_config(pyproject):
     NOTE: This command does NOT enable strict type checking by default. For
     strict mode, manually edit pyproject.toml and set strict = true.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("init-config", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.config import ensure_mypy_config
 
     try:

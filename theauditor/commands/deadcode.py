@@ -184,6 +184,15 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
     NOTE: This analysis is conservative - it detects modules never imported, not
     functions never called within modules. For function-level analysis, use 'aud graph analyze'.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("deadcode", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     project_path = Path(project_path).resolve()
     db_path = project_path / ".pf" / "repo_index.db"
 

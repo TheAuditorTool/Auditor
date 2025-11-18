@@ -210,6 +210,15 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
     meaningful accuracy. Cold-start mode works with less data but predictions are
     unreliable. Re-train models weekly to incorporate new findings and patterns.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("learn", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.insights.ml import learn as ml_learn
     
     click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")

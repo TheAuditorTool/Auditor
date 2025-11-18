@@ -189,6 +189,15 @@ def refactor(
     NOTE: This command detects syntactic mismatches only, not semantic issues.
     Code may still break if schema change affects data types or constraints.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("refactor", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     # Find repository root
     repo_root = Path.cwd()
     while repo_root != repo_root.parent:

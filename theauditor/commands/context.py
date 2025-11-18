@@ -177,6 +177,15 @@ def context(context_file: str, output: Optional[str], verbose: bool):
     enforcement. "Transitional" findings are still real issues that must be fixed
     eventually - classification just provides temporary exception tracking.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("context", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.insights import SemanticContext
 
     # Find .pf directory

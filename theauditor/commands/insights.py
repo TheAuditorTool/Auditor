@@ -145,7 +145,15 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
     Exit Codes:
       0 - All requested insights generated successfully
       1 - One or more insights failed (see errors)"""
-    
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("insights", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     # Ensure we have raw data to analyze
     pf_dir = Path(".pf")
     raw_dir = pf_dir / "raw"

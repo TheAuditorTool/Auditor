@@ -112,6 +112,15 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         - Symbol count (functions, classes)
         - Refactor recommendation
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("structure", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.project_summary import generate_project_summary, generate_directory_tree
 
     # Handle --monoliths flag (separate mode)

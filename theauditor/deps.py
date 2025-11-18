@@ -760,12 +760,20 @@ def _parse_python_dep_spec(spec: str) -> tuple[str, Optional[str]]:
 def _clean_version(version_spec: str) -> str:
     """
     Clean version specification to get actual version.
-    ^1.2.3 -> 1.2.3
-    ~1.2.3 -> 1.2.3
-    >=1.2.3 -> 1.2.3
+    Handles Python (PEP 440) and npm (semver) operators.
+
+    Examples:
+    ^1.2.3 -> 1.2.3 (npm caret)
+    ~1.2.3 -> 1.2.3 (npm/Python tilde)
+    >=1.2.3 -> 1.2.3 (greater or equal)
+    ==1.2.3 -> 1.2.3 (Python exact)
+    !=1.2.3 -> 1.2.3 (Python not equal)
+    ~=1.2.3 -> 1.2.3 (Python compatible)
+    ===1.2.3 -> 1.2.3 (Python arbitrary)
     """
-    # Remove common prefixes
-    version = re.sub(r'^[~^>=<]+', '', version_spec)
+    # Remove ALL version operators (Python + npm)
+    # Operators: ==, >=, <=, >, <, ~=, !=, ===, ^, ~, =
+    version = re.sub(r'^[><=~!^]+', '', version_spec)
     # Handle ranges (use first version)
     if " " in version:
         version = version.split()[0]
@@ -992,9 +1000,11 @@ def check_latest_versions(
                 else:
                     key = f"{dep['manager']}:{dep['name']}"
                 if key in cached_data:
-                    cached_data[key]["locked"] = dep["version"]
-                    cached_data[key]["is_outdated"] = cached_data[key]["latest"] != dep["version"]
-                    cached_data[key]["delta"] = _calculate_version_delta(dep["version"], cached_data[key]["latest"])
+                    # Clean version to remove operators (==, >=, etc.)
+                    locked_clean = _clean_version(dep["version"])
+                    cached_data[key]["locked"] = locked_clean
+                    cached_data[key]["is_outdated"] = cached_data[key]["latest"] != locked_clean
+                    cached_data[key]["delta"] = _calculate_version_delta(locked_clean, cached_data[key]["latest"])
         return cached_data or {}
     
     # Load existing cache
@@ -1016,9 +1026,11 @@ def check_latest_versions(
         # Check if we have valid cached data (24 hours for deps)
         if key in cache and _is_cache_valid(cache[key], hours=24):
             # Update locked version from current deps
-            cache[key]["locked"] = dep["version"]
-            cache[key]["is_outdated"] = cache[key]["latest"] != dep["version"]
-            cache[key]["delta"] = _calculate_version_delta(dep["version"], cache[key]["latest"])
+            # Clean version to remove operators (==, >=, etc.)
+            locked_clean = _clean_version(dep["version"])
+            cache[key]["locked"] = locked_clean
+            cache[key]["is_outdated"] = cache[key]["latest"] != locked_clean
+            cache[key]["delta"] = _calculate_version_delta(locked_clean, cache[key]["latest"])
             latest_info[key] = cache[key]
         else:
             needs_check.append(dep)
@@ -1070,7 +1082,8 @@ def check_latest_versions(
                 continue
             
             if latest:
-                locked = dep["version"]
+                # Clean version to remove operators (==, >=, etc.)
+                locked = _clean_version(dep["version"])
                 delta = _calculate_version_delta(locked, latest)
                 latest_info[key] = {
                     "locked": locked,
@@ -1106,8 +1119,10 @@ def check_latest_versions(
                 latest_info[key] = cache[key]
                 latest_info[key]["error"] = error_msg
             else:
+                # Clean version to remove operators (==, >=, etc.)
+                locked = _clean_version(dep["version"])
                 latest_info[key] = {
-                    "locked": dep["version"],
+                    "locked": locked,
                     "latest": None,
                     "delta": None,
                     "is_outdated": False,
@@ -1124,38 +1139,127 @@ def check_latest_versions(
 
 def _load_deps_cache(cache_file: str) -> Dict[str, Dict[str, Any]]:
     """
-    Load the dependency cache from disk.
+    Load the dependency cache from runtime database.
+
+    ARCHITECTURE NOTE:
+    Cache is stored in .pf/runtime.db (NOT repo_index.db) to avoid interference
+    with `aud full` which regenerates repo_index.db from scratch.
+
+    Separation of concerns:
+    - .pf/repo_index.db: Indexer-managed, wiped on `aud full`
+    - .pf/graphs.db: Graph-managed, regenerated on graph build
+    - .pf/runtime.db: Runtime-managed, persistent across runs (THIS)
+
     Returns empty dict if cache doesn't exist or is invalid.
     """
+    import sqlite3
+
+    # Use runtime.db instead of JSON file
+    # cache_file is typically "./.pf/deps_cache.json"
+    # Extract .pf directory and use it for runtime.db
+    cache_path = Path(cache_file)
+    pf_dir = cache_path.parent  # ./.pf
+    db_path = pf_dir / "runtime.db"
+
     try:
-        cache_path = Path(cache_file)
-        if cache_path.exists():
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        pass
-    return {}
+        if not db_path.exists():
+            return {}
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Check if table exists
+        cursor.execute("""
+            SELECT name FROM sqlite_master
+            WHERE type='table' AND name='dependency_cache'
+        """)
+
+        if not cursor.fetchone():
+            conn.close()
+            return {}
+
+        # Load all cache entries
+        cursor.execute("""
+            SELECT cache_key, locked, latest, delta, is_outdated, last_checked, error
+            FROM dependency_cache
+        """)
+
+        cache = {}
+        for row in cursor.fetchall():
+            key, locked, latest, delta, is_outdated, last_checked, error = row
+            cache[key] = {
+                "locked": locked,
+                "latest": latest,
+                "delta": delta,
+                "is_outdated": bool(is_outdated),
+                "last_checked": last_checked
+            }
+            if error:
+                cache[key]["error"] = error
+
+        conn.close()
+        return cache
+
+    except (sqlite3.Error, OSError):
+        return {}
 
 
 def _save_deps_cache(latest_info: Dict[str, Dict[str, Any]], cache_file: str) -> None:
     """
-    Save the dependency cache to disk.
+    Save the dependency cache to runtime database.
     Merges with existing cache to preserve data for packages not in current check.
+
+    Uses UPSERT (INSERT OR REPLACE) to handle updates atomically.
     """
+    import sqlite3
+
+    # Use runtime.db instead of JSON file
+    # cache_file is typically "./.pf/deps_cache.json"
+    # Extract .pf directory and use it for runtime.db
+    cache_path = Path(cache_file)
+    pf_dir = cache_path.parent  # ./.pf
+    db_path = pf_dir / "runtime.db"
+
     try:
-        cache_path = Path(cache_file)
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Load existing cache to merge
-        existing = _load_deps_cache(cache_file)
-        
-        # Merge new data into existing (new data takes precedence)
-        existing.update(latest_info)
-        
-        # Write merged cache
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(existing, f, indent=2, sort_keys=True)
-    except OSError:
+        # Ensure .pf directory exists
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        # Create table if not exists (schema)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dependency_cache (
+                cache_key TEXT PRIMARY KEY,
+                locked TEXT NOT NULL,
+                latest TEXT,
+                delta TEXT,
+                is_outdated INTEGER NOT NULL,
+                last_checked TEXT NOT NULL,
+                error TEXT
+            )
+        """)
+
+        # Upsert each entry (merge new data with existing)
+        for key, info in latest_info.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO dependency_cache
+                (cache_key, locked, latest, delta, is_outdated, last_checked, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                key,
+                info.get("locked", ""),
+                info.get("latest"),
+                info.get("delta"),
+                1 if info.get("is_outdated") else 0,
+                info.get("last_checked", ""),
+                info.get("error")
+            ))
+
+        conn.commit()
+        conn.close()
+
+    except (sqlite3.Error, OSError):
         pass  # Fail silently if can't write cache
 
 

@@ -188,7 +188,7 @@ def initialize_project(
         stats["docs"] = {"skipped": True}
     
     # Code capsules feature has been removed - the command was deleted
-    # Doc capsules (for dependency documentation) are handled by 'aud docs summarize'
+    # Multi-file documentation fetched by 'aud docs fetch' and stored in .pf/context/docs/
     
     # Check if initialization was successful
     has_failures = any(
