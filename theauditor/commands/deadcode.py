@@ -6,7 +6,7 @@ Usage: aud deadcode
 import click
 import json
 from pathlib import Path
-from theauditor.context.deadcode import detect_isolated_modules
+from theauditor.context.deadcode import detect_isolated_modules, DEFAULT_EXCLUSIONS
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -16,7 +16,7 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option(
     "--exclude",
     multiple=True,
-    default=['test', '__tests__', 'migrations', 'node_modules', '.venv'],
+    default=DEFAULT_EXCLUSIONS,
     help="Exclude paths matching patterns"
 )
 @click.option(
@@ -27,8 +27,11 @@ from theauditor.utils.error_handler import handle_exceptions
 )
 @click.option("--save", type=click.Path(), help="Save output to file")
 @click.option("--fail-on-dead-code", is_flag=True, help="Exit 1 if dead code found")
+@click.option("--analyze-symbols", is_flag=True, help="Include function/class analysis (slower)")
+@click.option("--export-clusters", type=click.Path(), help="Export zombie clusters to directory")
 @handle_exceptions
-def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code):
+def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code,
+             analyze_symbols, export_clusters):
     """Detect isolated modules, unreachable functions, and never-imported code.
 
     Identifies dead code by analyzing the import graph - any module with symbols (functions, classes)
@@ -195,17 +198,47 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     project_path = Path(project_path).resolve()
     db_path = project_path / ".pf" / "repo_index.db"
+    graphs_db_path = project_path / ".pf" / "graphs.db"
 
+    # Validate databases exist (NO FALLBACK - crash if missing)
     if not db_path.exists():
-        click.echo("Error: Database not found. Run 'aud full' first.", err=True)
-        raise click.ClickException("Database not found")
+        click.echo("Error: repo_index.db not found. Run 'aud full' first.", err=True)
+        raise click.ClickException("repo_index.db not found")
+
+    if not graphs_db_path.exists():
+        click.echo("Error: graphs.db not found. Run 'aud graph build' first.", err=True)
+        raise click.ClickException("graphs.db not found")
+
+    # Use graph-based engine (NO FALLBACK, NO LEGACY MODE)
+    from theauditor.context.deadcode_graph import GraphDeadCodeDetector
 
     try:
-        modules = detect_isolated_modules(
+        detector = GraphDeadCodeDetector(
+            str(graphs_db_path),
             str(db_path),
-            path_filter=path_filter,
-            exclude_patterns=list(exclude)
+            debug=False
         )
+
+        modules = detector.analyze(
+            path_filter=path_filter,
+            exclude_patterns=list(exclude),
+            analyze_symbols=analyze_symbols
+        )
+
+        # Export clusters if requested
+        if export_clusters:
+            export_dir = Path(export_clusters)
+            export_dir.mkdir(parents=True, exist_ok=True)
+
+            cluster_ids = {m.cluster_id for m in modules if m.cluster_id is not None}
+            if cluster_ids:
+                for cluster_id in cluster_ids:
+                    output_path = export_dir / f"cluster_{cluster_id}.dot"
+                    detector.export_cluster_dot(cluster_id, modules, str(output_path))
+                click.echo(f"[OK] Exported {len(cluster_ids)} zombie clusters to {export_dir}")
+            else:
+                click.echo("[INFO] No zombie clusters found (no circular dead code)")
+
 
         # Write deadcode results to JSON
         output_path = project_path / ".pf" / "raw" / "deadcode.json"
@@ -255,30 +288,80 @@ def _format_text(modules) -> str:
         lines.append("[OK] No dead code detected!")
         return "\n".join(lines)
 
-    lines.append("Isolated Modules (never imported):")
-    lines.append("-" * 80)
+    # Group by type
+    by_type = {'module': [], 'function': [], 'method': [], 'class': []}
+    for m in modules:
+        by_type.setdefault(m.type, []).append(m)
 
-    for module in modules:
-        confidence_marker = {
-            'high': '[HIGH]',
-            'medium': '[MED ]',
-            'low': '[LOW ]'
-        }.get(module.confidence, '[????]')
+    # Display modules
+    if by_type.get('module'):
+        lines.append(f"Isolated Modules ({len(by_type['module'])} files never imported):")
+        lines.append("-" * 80)
 
-        lines.append(f"{confidence_marker} {module.path}")
-        lines.append(f"   Symbols: {module.symbol_count}")
-        lines.append(f"   Confidence: {module.confidence.upper()}")
-        lines.append(f"   Reason: {module.reason}")
-        lines.append("")
+        for module in by_type['module']:
+            confidence_marker = {
+                'high': '[HIGH]',
+                'medium': '[MED ]',
+                'low': '[LOW ]'
+            }.get(module.confidence, '[????]')
+
+            cluster_info = f" [Cluster #{module.cluster_id}]" if module.cluster_id is not None else ""
+            lines.append(f"{confidence_marker} {module.path}{cluster_info}")
+            lines.append(f"   Symbols: {module.symbol_count} | Confidence: {module.confidence.upper()}")
+            lines.append(f"   Reason: {module.reason}")
+            lines.append("")
+
+    # Display functions
+    if by_type.get('function') or by_type.get('method'):
+        func_count = len(by_type.get('function', [])) + len(by_type.get('method', []))
+        lines.append(f"\nDead Functions ({func_count} functions never called):")
+        lines.append("-" * 80)
+
+        for func in by_type.get('function', []) + by_type.get('method', []):
+            confidence_marker = {
+                'high': '[HIGH]',
+                'medium': '[MED ]',
+                'low': '[LOW ]'
+            }.get(func.confidence, '[????]')
+
+            lines.append(f"{confidence_marker} {func.path}:{func.line} - {func.name}()")
+            lines.append(f"   Reason: {func.reason}")
+            lines.append("")
+
+    # Display classes
+    if by_type.get('class'):
+        lines.append(f"\nDead Classes ({len(by_type['class'])} classes never instantiated):")
+        lines.append("-" * 80)
+
+        for cls in by_type['class']:
+            confidence_marker = {
+                'high': '[HIGH]',
+                'medium': '[MED ]',
+                'low': '[LOW ]'
+            }.get(cls.confidence, '[????]')
+
+            lines.append(f"{confidence_marker} {cls.path}:{cls.line} - class {cls.name}")
+            lines.append(f"   Reason: {cls.reason}")
+            lines.append("")
 
     return "\n".join(lines)
 
 
 def _format_json(modules) -> str:
     """Format as JSON for CI/CD."""
+    # Count by type
+    by_type = {}
+    for m in modules:
+        by_type[m.type] = by_type.get(m.type, 0) + 1
+
+    # Count zombie clusters
+    clusters = {m.cluster_id for m in modules if m.cluster_id is not None}
+
     data = {
         'summary': {
-            'total_items': len(modules)
+            'total_items': len(modules),
+            'by_type': by_type,
+            'zombie_clusters': len(clusters)
         },
         'findings': [
             {
@@ -288,7 +371,8 @@ def _format_json(modules) -> str:
                 'line': m.line,
                 'symbol_count': m.symbol_count,
                 'confidence': m.confidence,
-                'reason': m.reason
+                'reason': m.reason,
+                'cluster_id': m.cluster_id
             }
             for m in modules
         ]
@@ -302,8 +386,15 @@ def _format_summary(modules) -> str:
     for m in modules:
         by_type[m.type] = by_type.get(m.type, 0) + 1
 
+    # Count zombie clusters
+    clusters = {m.cluster_id for m in modules if m.cluster_id is not None}
+
     lines = ["Dead Code Summary:"]
     lines.append(f"  Total: {len(modules)}")
     for typ, count in sorted(by_type.items()):
         lines.append(f"  {typ}s: {count}")
+
+    if clusters:
+        lines.append(f"  Zombie clusters: {len(clusters)}")
+
     return "\n".join(lines) + "\n"

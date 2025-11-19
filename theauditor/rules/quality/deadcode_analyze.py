@@ -14,7 +14,7 @@ from theauditor.rules.base import (
     Severity,
     RuleMetadata
 )
-from theauditor.context.deadcode import detect_isolated_modules
+from theauditor.context.deadcode import detect_isolated_modules, DEFAULT_EXCLUSIONS
 
 
 METADATA = RuleMetadata(
@@ -54,10 +54,29 @@ def find_dead_code(context: StandardRuleContext) -> List[StandardFinding]:
         return findings
 
     try:
-        # Use context layer for detection
-        modules = detect_isolated_modules(
+        # Use graph-based engine (NO FALLBACK - crash if graphs.db missing)
+        from pathlib import Path
+        from theauditor.context.deadcode_graph import GraphDeadCodeDetector
+
+        graphs_db = Path(context.db_path).parent / "graphs.db"
+
+        if not graphs_db.exists():
+            # Hard fail - no fallback (database regenerated fresh every run)
+            raise FileNotFoundError(
+                f"graphs.db not found: {graphs_db}\n"
+                f"Run 'aud graph build' to create it."
+            )
+
+        detector = GraphDeadCodeDetector(
+            str(graphs_db),
             context.db_path,
-            exclude_patterns=['__init__.py', 'test', 'migration', '__pycache__', 'node_modules', '.venv']
+            debug=False
+        )
+
+        # Module-level only (symbol analysis too slow for aud full)
+        modules = detector.analyze(
+            exclude_patterns=DEFAULT_EXCLUSIONS,
+            analyze_symbols=False
         )
 
         # Create findings (severity=INFO)
@@ -75,7 +94,8 @@ def find_dead_code(context: StandardRuleContext) -> List[StandardFinding]:
                     'symbol_count': module.symbol_count,
                     'lines_estimated': module.lines_estimated,
                     'confidence': module.confidence,
-                    'reason': module.reason
+                    'reason': module.reason,
+                    'cluster_id': module.cluster_id
                 }
             ))
 

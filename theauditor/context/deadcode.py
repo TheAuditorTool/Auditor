@@ -11,8 +11,18 @@ Pattern: Multi-table JOINs like taint tracking (see rules/progress.md).
 
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Set, Tuple
+from typing import List, Dict, Set, Tuple, Optional
 from dataclasses import dataclass
+
+
+# Centralized exclusion patterns (DRY principle)
+DEFAULT_EXCLUSIONS = [
+    '__init__.py',
+    'test', '__tests__', '.test.', '.spec.',
+    'migration', 'migrations',
+    '__pycache__', 'node_modules', '.venv',
+    'dist', 'build', '.next', '.nuxt'
+]
 
 
 @dataclass
@@ -25,6 +35,8 @@ class DeadCode:
     symbol_count: int
     reason: str
     confidence: str  # 'high' | 'medium' | 'low'
+    lines_estimated: int = 0  # For rule compatibility
+    cluster_id: Optional[int] = None  # For zombie cluster tracking
 
 
 def detect_all(
