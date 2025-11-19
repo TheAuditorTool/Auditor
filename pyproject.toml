@@ -38,6 +38,8 @@ runtime = [
     # Documentation fetching
     "beautifulsoup4>=4.12.0",
     "markdownify>=0.11.0",
+    # Graph analysis
+    "networkx==3.5",
 ]
 
 # Development tools (for developing TheAuditor itself)

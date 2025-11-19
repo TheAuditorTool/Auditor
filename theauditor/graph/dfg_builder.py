@@ -533,59 +533,124 @@ class DFGBuilder:
 
         stats = {
             'total_matches': 0,
+            'exact_matches': 0,
+            'suffix_matches': 0,
             'edges_created': 0,
             'unique_nodes': 0,
             'skipped_no_body': 0,
-            'skipped_no_handler': 0
+            'skipped_no_handler': 0,
+            'skipped_no_match': 0
         }
 
-        # DETERMINISTIC JOIN: Match frontend API calls to backend endpoints
-        # Uses full_path (actual route) not pattern (generic template)
-        # Handles trailing slash differences with rtrim()
+        # [FIX] SOFT MATCHING: Decouple fetch and match in memory
+        # SQL JOIN is too rigid for modern apps (template literals, config constants, variables)
+        # Strategy: Fetch separately, match using suffix logic (BASE_URL + '/api/users' matches '/api/users')
+
+        # Step 1: Build backend endpoint lookup organized by HTTP method
+        print("[DFG Builder] Loading backend API endpoints...")
         cursor.execute("""
-            SELECT
-                fe.file AS fe_file,
-                fe.line AS fe_line,
-                fe.method AS method,
-                fe.url_literal AS url_literal,
-                fe.body_variable AS body_variable,
-                fe.function_name AS fe_function,
-                be.file AS be_file,
-                be.full_path AS full_path,
-                be.handler_function AS handler_function
-            FROM frontend_api_calls fe
-            JOIN api_endpoints be ON
-                fe.method = be.method
-                AND rtrim(fe.url_literal, '/') = rtrim(be.full_path, '/')
-            WHERE fe.body_variable IS NOT NULL
-              AND be.handler_function IS NOT NULL
-              AND fe.method IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
+            SELECT file, method, full_path, handler_function
+            FROM api_endpoints
+            WHERE handler_function IS NOT NULL
+              AND method IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
         """)
 
-        matches = cursor.fetchall()
-        stats['total_matches'] = len(matches)
+        backend_routes = defaultdict(list)
+        for row in cursor.fetchall():
+            # Strip trailing slashes - "/users/" and "/users" are the same API
+            clean_path = row['full_path'].rstrip('/')
+            backend_routes[row['method']].append({
+                'path': clean_path,
+                'file': row['file'],
+                'handler_function': row['handler_function'],
+                'full_path': row['full_path']  # Keep original for metadata
+            })
+
+        # Step 2: Fetch frontend API calls (no JOIN constraint)
+        print("[DFG Builder] Loading frontend API calls...")
+        cursor.execute("""
+            SELECT file, line, method, url_literal, body_variable, function_name
+            FROM frontend_api_calls
+            WHERE body_variable IS NOT NULL
+              AND method IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
+        """)
+
+        frontend_calls = cursor.fetchall()
+
+        # Step 3: Soft match frontend calls to backend routes
+        print(f"[DFG Builder] Matching {len(frontend_calls)} frontend calls to backend endpoints...")
 
         with click.progressbar(
-            matches,
+            frontend_calls,
             label="Building cross-boundary edges",
             show_pos=True,
             show_percent=True,
             item_show_func=lambda x: f"{x['url_literal']}" if x else None
-        ) as match_results:
-            for match in match_results:
-                # Skip if no body variable (shouldn't happen due to WHERE clause)
-                if not match['body_variable']:
+        ) as call_results:
+            for call in call_results:
+                # Extract call metadata
+                frontend_url = call['url_literal']
+                method = call['method']
+                fe_file = call['file']
+                fe_line = call['line']
+                fe_body = call['body_variable']
+                fe_func = call['function_name'] if call['function_name'] else 'global'
+
+                # Skip if no body variable
+                if not fe_body:
                     stats['skipped_no_body'] += 1
                     continue
 
-                # Skip if no handler function (shouldn't happen due to WHERE clause)
-                if not match['handler_function']:
+                # Get backend candidates for this HTTP method (optimization)
+                candidates = backend_routes.get(method, [])
+                if not candidates:
+                    stats['skipped_no_match'] += 1
+                    continue
+
+                # Clean frontend URL (strip trailing slash)
+                clean_frontend_url = frontend_url.rstrip('/')
+
+                # Attempt 1: Exact Match (Ideal)
+                backend_match = None
+                match_type = None
+                for route in candidates:
+                    if route['path'] == clean_frontend_url:
+                        backend_match = route
+                        match_type = "exact"
+                        stats['exact_matches'] += 1
+                        break
+
+                # Attempt 2: Suffix Match (The Fix for template literals/constants)
+                # Example: frontend="https://api.example.com/api/users" matches backend="/api/users"
+                if not backend_match:
+                    for route in candidates:
+                        # SAFETY CHECK: Don't match root "/" against everything
+                        # Only suffix match if the route is specific (length > 1)
+                        if len(route['path']) > 1 and clean_frontend_url.endswith(route['path']):
+                            backend_match = route
+                            match_type = "suffix"
+                            stats['suffix_matches'] += 1
+                            break
+
+                # Skip if no match found
+                if not backend_match:
+                    stats['skipped_no_match'] += 1
+                    continue
+
+                stats['total_matches'] += 1
+
+                # Extract backend metadata
+                be_file = backend_match['file']
+                handler_func = backend_match['handler_function']
+                full_path = backend_match['full_path']
+
+                # Skip if no handler function
+                if not handler_func:
                     stats['skipped_no_handler'] += 1
                     continue
 
                 # Extract handler function name
                 # First, remove wrapper if present: "handler(controller.create)" -> "controller.create"
-                handler_func = match['handler_function']
                 if handler_func.startswith('handler(') and handler_func.endswith(')'):
                     handler_func = handler_func[8:-1]  # Remove "handler(" and ")"
 
@@ -594,15 +659,6 @@ class DFGBuilder:
                     controller_func = handler_func.split('.')[-1]
                 else:
                     controller_func = handler_func
-
-                # Frontend variables
-                fe_file = match['fe_file']
-                fe_body = match['body_variable']
-                fe_func = match['fe_function'] if match['fe_function'] else 'global'
-
-                # Backend route file
-                be_file = match['be_file']
-                method = match['method']
 
                 # Query for the actual controller file using the handler function
                 # ZERO FALLBACK: If not found, use the route file as controller file
@@ -650,7 +706,7 @@ class DFGBuilder:
                       AND handler_type IN ('middleware', 'controller')
                     ORDER BY execution_order
                     LIMIT 1
-                """, (match['be_file'], method))
+                """, (be_file, method))
 
                 first_middleware = cursor.fetchone()
 
@@ -679,16 +735,17 @@ class DFGBuilder:
                 # Create cross-boundary edge
                 new_edges = self._create_bidirectional_edges(
                     source=source_id, target=target_id, edge_type="cross_boundary",
-                    file=fe_file, line=match['fe_line'],
-                    expression=f"{method} {match['url_literal']}",
+                    file=fe_file, line=fe_line,
+                    expression=f"{method} {frontend_url}",
                     function=fe_func,
                     metadata={
                         "frontend_file": fe_file,
                         "backend_file": target_file,
                         "api_method": method,
-                        "api_route": match['full_path'],
+                        "api_route": full_path,
                         "body_variable": fe_body,
-                        "request_field": req_field
+                        "request_field": req_field,
+                        "match_type": match_type  # "exact" or "suffix" - for debugging soft match effectiveness
                     }
                 )
                 edges.extend(new_edges)
@@ -935,7 +992,31 @@ class DFGBuilder:
             'failed_resolutions': 0
         }
 
-        # Get all controller handlers from express_middleware_chains
+        # [FIX] BATCH LOADING: Pre-load ALL import_styles and symbols ONCE
+        # This prevents N+1 query problem (100 handlers = 201 queries → 3 queries total)
+        print("[DFG Builder] Pre-loading import_styles and symbols for controller resolution...")
+
+        # Step 1: Load all import_styles into memory (O(1) lookup)
+        import_styles_map = defaultdict(dict)  # {file: {alias_name: package}}
+        cursor.execute("SELECT file, package, alias_name FROM import_styles")
+        for row in cursor.fetchall():
+            import_styles_map[row['file']][row['alias_name']] = row['package']
+
+        # Step 2: Load all symbols into memory (O(1) lookup)
+        symbols_by_name = defaultdict(list)  # {name: [{path, name, type}, ...]}
+        cursor.execute("""
+            SELECT path, name, type
+            FROM symbols
+            WHERE type IN ('function', 'class')
+        """)
+        for row in cursor.fetchall():
+            symbols_by_name[row['name']].append({
+                'path': row['path'],
+                'name': row['name'],
+                'type': row['type']
+            })
+
+        # Step 3: Get all controller handlers from express_middleware_chains
         cursor.execute("""
             SELECT DISTINCT
                 file,
@@ -979,65 +1060,38 @@ class DFGBuilder:
             if not object_name or not method_name:
                 continue
 
+            # [FIX] O(1) lookup instead of SQL query
             # Find the imported package/path for the controller object
-            cursor.execute("""
-                SELECT
-                    ist.package,
-                    ist.alias_name
-                FROM import_styles ist
-                WHERE ist.file = ?
-                  AND (ist.alias_name = ? OR EXISTS (
-                        SELECT 1 FROM import_style_names isn
-                        WHERE isn.import_file = ist.file
-                          AND isn.import_line = ist.line
-                          AND isn.imported_name = ?
-                  ))
-                LIMIT 1
-            """, (route_file, object_name, object_name))
+            import_package = import_styles_map.get(route_file, {}).get(object_name)
 
-            import_result = cursor.fetchone()
-
-            if not import_result:
+            if not import_package:
                 stats['failed_resolutions'] += 1
                 continue
 
-            import_package = import_result['package']
-            # No resolved_path since path_aliases table doesn't exist
-            resolved_import_path = None
-
-            # Determine the controller file path
-            controller_file_path = None
-            if import_package:
-                # It's a relative import, try to find the symbol
-                # This part is complex; for now, we will rely on a direct symbol lookup
-                # as a proxy for the indexer's path resolution.
-                pass # The logic below will handle the symbol lookup
-
+            # [FIX] O(1) lookup instead of SQL query
             # Find the controller file and class/method name from symbols
-            if controller_file_path:
-                # Alias resolved, find the method in that specific file
-                cursor.execute("""
-                    SELECT path, name
-                    FROM symbols
-                    WHERE path = ?
-                      AND (name = ? OR name LIKE ? || '.%')
-                      AND type IN ('function', 'class')
-                    LIMIT 1
-                """, (controller_file_path, method_name, object_name))
-                symbol_result = cursor.fetchone()
-            else:
-                # No alias, search for the method name globally (less precise, but a fallback)
-                cursor.execute("""
-                    SELECT path, name
-                    FROM symbols
-                    WHERE (name = ? OR name LIKE ? || '.%')
-                      AND type IN ('function', 'class')
-                    ORDER BY
-                        CASE WHEN path LIKE '%controller%' THEN 0 ELSE 1 END,
-                        path
-                    LIMIT 1
-                """, (method_name, object_name))
-                symbol_result = cursor.fetchone()
+            # Try to find: method_name OR object_name.method_name
+            symbol_result = None
+
+            # Search for method_name in symbols (exact match)
+            if method_name in symbols_by_name:
+                candidates = symbols_by_name[method_name]
+                # Prefer controller files
+                for sym in candidates:
+                    if 'controller' in sym['path'].lower():
+                        symbol_result = sym
+                        break
+                # Fallback to first match
+                if not symbol_result and candidates:
+                    symbol_result = candidates[0]
+
+            # Search for Class.method pattern
+            if not symbol_result:
+                full_name = f"{object_name}.{method_name}"
+                if full_name in symbols_by_name:
+                    candidates = symbols_by_name[full_name]
+                    if candidates:
+                        symbol_result = candidates[0]
 
             if not symbol_result:
                 stats['failed_resolutions'] += 1
@@ -1056,19 +1110,22 @@ class DFGBuilder:
                 # Fallback
                 full_method_name = f"{symbol_name}.{method_name}"
 
-            # Check if the full method name actually exists
-            cursor.execute("""
-                SELECT 1 FROM symbols
-                WHERE path = ? AND name = ? AND type = 'function'
-                LIMIT 1
-            """, (resolved_path, full_method_name))
+            # [FIX] O(1) validation check instead of SQL query
+            # Check if the full method name actually exists in symbols
+            method_exists = False
+            if full_method_name in symbols_by_name:
+                for sym in symbols_by_name[full_method_name]:
+                    if sym['path'] == resolved_path and sym['type'] == 'function':
+                        method_exists = True
+                        break
 
-            if not cursor.fetchone():
-                if symbol_name == method_name: # It was a direct function export
-                     pass # full_method_name is correct
+            if not method_exists:
+                if symbol_name == method_name:
+                    # It was a direct function export - already validated above
+                    method_exists = True
                 else:
-                     stats['failed_resolutions'] += 1
-                     continue # Method not found in class
+                    stats['failed_resolutions'] += 1
+                    continue  # Method not found in class
 
             stats['controllers_resolved'] += 1
 
