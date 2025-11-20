@@ -7,7 +7,7 @@ name = "theauditor"
 version = "1.4.2-RC1"
 description = "Offline, air-gapped CLI for repo indexing, evidence checking, and task running"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 license = {text = "AGPL-3.0"}
 authors = [
     {name = "TheAuditor Team"}

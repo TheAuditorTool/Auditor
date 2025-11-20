@@ -14,10 +14,9 @@ from typing import Any, Dict, List, Optional
 
 from . import BaseExtractor
 
-try:
-    import tomllib  # Python 3.11+
-except ImportError:
-    import tomli as tomllib  # Fallback for Python 3.10
+# Python 3.11+ is REQUIRED (per pyproject.toml)
+# If tomllib is missing, environment is broken - HARD FAIL (ZERO FALLBACK POLICY)
+import tomllib
 
 
 def _parse_dep_spec(spec: str) -> Dict[str, str]:
