@@ -10,7 +10,6 @@ This module provides ONLY non-interpretive graph algorithms:
 For interpretive metrics like health scores, recommendations, and weighted
 rankings, see the optional graph.insights module.
 """
-from __future__ import annotations
 
 
 from collections import defaultdict, deque

@@ -1,5 +1,4 @@
 """Initialization module for TheAuditor - handles project setup and initialization."""
-from __future__ import annotations
 
 
 from pathlib import Path

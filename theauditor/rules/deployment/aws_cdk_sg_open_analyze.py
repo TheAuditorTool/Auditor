@@ -7,7 +7,6 @@ Checks:
 - Ingress rules from ::/0 IPv6 (CRITICAL)
 - allow_all_outbound=True (LOW - informational)
 """
-from __future__ import annotations
 
 
 

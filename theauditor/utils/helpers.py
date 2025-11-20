@@ -1,5 +1,4 @@
 """Helper utility functions for TheAuditor."""
-from __future__ import annotations
 
 
 import hashlib

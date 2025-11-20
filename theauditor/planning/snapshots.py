@@ -3,7 +3,6 @@ Snapshot management for planning system.
 
 Handles git-based code snapshots and diffs for tracking implementation progress.
 """
-from __future__ import annotations
 
 
 import subprocess

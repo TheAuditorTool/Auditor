@@ -6,7 +6,6 @@ react_hooks, react_components, and variable_usage tables.
 No more broken heuristics - this uses actual parsed dependency arrays,
 cleanup detection, and component boundaries from the database.
 """
-from __future__ import annotations
 
 
 import sqlite3

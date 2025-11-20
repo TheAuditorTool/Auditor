@@ -1,5 +1,4 @@
 """Utilities for Python ORM-aware taint analysis enhancements."""
-from __future__ import annotations
 
 
 
@@ -30,7 +29,7 @@ class PythonOrmContext:
     _assignment_cache: dict[tuple[str, str], list[dict[str, str]]] = field(default_factory=dict)
 
     @classmethod
-    def from_cache(cls, cache: MemoryCache, cursor: sqlite3.Cursor | None) -> PythonOrmContext:
+    def from_cache(cls, cache: MemoryCache, cursor: sqlite3.Cursor | None) -> "PythonOrmContext":
         return cls(
             model_names=set(cache.python_model_names),
             table_to_model=dict(cache.python_table_to_model),
@@ -43,7 +42,7 @@ class PythonOrmContext:
         )
 
     @classmethod
-    def from_database(cls, cursor: sqlite3.Cursor) -> PythonOrmContext:
+    def from_database(cls, cursor: sqlite3.Cursor) -> "PythonOrmContext":
         context = cls(cursor=cursor)
         context._load_models()
         context._load_relationships()

@@ -13,7 +13,6 @@ Follows v1.1+ schema contract compliance for database queries:
 - Proper confidence levels
 - Minimal file I/O (last 5KB only for build artifacts)
 """
-from __future__ import annotations
 
 
 import sqlite3

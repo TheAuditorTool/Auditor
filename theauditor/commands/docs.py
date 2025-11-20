@@ -1,5 +1,4 @@
 """Fetch or summarize documentation for dependencies."""
-from __future__ import annotations
 
 
 import json

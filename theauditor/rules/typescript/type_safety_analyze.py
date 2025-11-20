@@ -13,7 +13,6 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 - Proper frozensets for O(1) pattern matching
 - If type_annotations table missing, rule crashes with clear error (CORRECT behavior)
 """
-from __future__ import annotations
 
 
 import sqlite3

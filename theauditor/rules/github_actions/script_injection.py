@@ -11,7 +11,6 @@ Attack Pattern:
 
 CWE-77: Improper Neutralization of Special Elements used in a Command
 """
-from __future__ import annotations
 
 
 import json

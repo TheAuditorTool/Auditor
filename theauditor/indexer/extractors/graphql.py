@@ -8,7 +8,6 @@ This extractor parses .graphql, .gql, and .graphqls files to extract:
 
 NO FALLBACKS. NO REGEX. Pure AST-based extraction using graphql-core.
 """
-from __future__ import annotations
 
 
 import hashlib

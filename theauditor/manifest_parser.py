@@ -1,5 +1,4 @@
 """Universal parser for all manifest file types used in framework detection."""
-from __future__ import annotations
 
 
 import json

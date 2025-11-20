@@ -7,7 +7,6 @@ Schema Contract:
     All queries use build_query() for schema compliance.
     Table existence is guaranteed by schema contract - no checks needed.
 """
-from __future__ import annotations
 
 
 import os
@@ -55,7 +54,7 @@ class BlockTaintState:
         """Mark a variable as sanitized."""
         self.sanitized_vars.add(var_name)
     
-    def merge(self, other: BlockTaintState) -> BlockTaintState:
+    def merge(self, other: BlockTaintState) -> "BlockTaintState":
         """Merge taint state from another block (for join points)."""
         # Conservative: variable is tainted if tainted in ANY incoming path
         merged = BlockTaintState(self.block_id)
@@ -65,7 +64,7 @@ class BlockTaintState:
         merged.conditions = list(set(self.conditions + other.conditions))
         return merged
     
-    def copy(self) -> BlockTaintState:
+    def copy(self) -> "BlockTaintState":
         """Create a deep copy of this state."""
         return BlockTaintState(
             block_id=self.block_id,
@@ -270,7 +269,7 @@ class PathAnalyzer:
         return is_vulnerable, path_info
     
     def _process_block_for_sanitizers(self, state: BlockTaintState,
-                                     block: dict[str, Any]) -> BlockTaintState:
+                                     block: dict[str, Any]) -> "BlockTaintState":
         """
         Check if block contains sanitizers that clean tainted data.
 
@@ -320,7 +319,7 @@ class PathAnalyzer:
     
     def _analyze_path_taint_enhanced(self, path_blocks: list[int], tainted_var: str,
                                     source_line: int, sink_line: int,
-                                    join_point_states: dict[int, list[BlockTaintState]]) -> tuple[bool, dict[str, Any]]:
+                                    join_point_states: dict[int, list["BlockTaintState"]]) -> tuple[bool, dict[str, Any]]:
         """
         Stage 2: Enhanced path analysis with better condition tracking and join point merging.
         
@@ -512,7 +511,7 @@ class PathAnalyzer:
         return " AND ".join(summary_parts) if summary_parts else "Unknown conditions"
     
     def _process_block_for_assignments(self, state: BlockTaintState,
-                                      block: dict[str, Any]) -> BlockTaintState:
+                                      block: dict[str, Any]) -> "BlockTaintState":
         """
         Track taint propagation through assignments in block.
 
@@ -615,7 +614,7 @@ class PathAnalyzer:
     # Parsed statement text with string operations: text.split("+=")[0].strip()
     # Should query assignments table instead
     
-    def _apply_widening(self, state: BlockTaintState, loop_blocks: list[int]) -> BlockTaintState:
+    def _apply_widening(self, state: BlockTaintState, loop_blocks: list[int]) -> "BlockTaintState":
         """
         Conservative widening when fixed-point doesn't converge.
 

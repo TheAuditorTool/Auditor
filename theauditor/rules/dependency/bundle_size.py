@@ -17,7 +17,6 @@ Database Tables Used:
 - import_styles: Import patterns and packages
 - package_configs: Installed dependencies
 """
-from __future__ import annotations
 
 
 import sqlite3

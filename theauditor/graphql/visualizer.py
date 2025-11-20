@@ -2,7 +2,6 @@
 
 Stub implementation for visualizing GraphQL execution graphs.
 """
-from __future__ import annotations
 
 
 import logging

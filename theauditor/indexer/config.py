@@ -7,7 +7,6 @@ CRITICAL: This file should contain ONLY configuration constants.
 NO business logic, NO regex extraction methods.
 Language extractors should use AST-based extraction, not regex.
 """
-from __future__ import annotations
 
 
 import os

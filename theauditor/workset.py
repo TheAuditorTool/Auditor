@@ -1,5 +1,4 @@
 """Workset resolver - computes target file set from git diff and dependencies."""
-from __future__ import annotations
 
 
 import json

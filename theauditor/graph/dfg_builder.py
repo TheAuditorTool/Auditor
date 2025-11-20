@@ -10,7 +10,6 @@ Architecture:
 - Returns same format as builder.py (dataclass -> asdict)
 - Zero tolerance for missing data - hard fail exposes bugs
 """
-from __future__ import annotations
 
 
 import sqlite3
@@ -136,8 +135,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, DFGNode] = {}
-        edges: list[DFGEdge] = []
+        nodes: dict[str, "DFGNode"] = {}
+        edges: list["DFGEdge"] = []
 
         stats = {
             'total_assignments': 0,
@@ -261,8 +260,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, DFGNode] = {}
-        edges: list[DFGEdge] = []
+        nodes: dict[str, "DFGNode"] = {}
+        edges: list["DFGEdge"] = []
 
         stats = {
             'total_returns': 0,
@@ -381,8 +380,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, DFGNode] = {}
-        edges: list[DFGEdge] = []
+        nodes: dict[str, "DFGNode"] = {}
+        edges: list["DFGEdge"] = []
 
         stats = {
             'total_calls': 0,
@@ -530,8 +529,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, DFGNode] = {}
-        edges: list[DFGEdge] = []
+        nodes: dict[str, "DFGNode"] = {}
+        edges: list["DFGEdge"] = []
 
         stats = {
             'total_matches': 0,
@@ -784,8 +783,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, DFGNode] = {}
-        edges: list[DFGEdge] = []
+        nodes: dict[str, "DFGNode"] = {}
+        edges: list["DFGEdge"] = []
 
         stats = {
             'total_routes': 0,

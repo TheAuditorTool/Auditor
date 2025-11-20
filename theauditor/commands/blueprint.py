@@ -3,7 +3,6 @@
 Truth courier mode: Shows facts about code architecture with NO recommendations.
 Supports drill-down flags for specific analysis areas.
 """
-from __future__ import annotations
 
 
 import sqlite3

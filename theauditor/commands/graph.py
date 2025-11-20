@@ -1,5 +1,4 @@
 """Cross-project dependency and call graph analysis."""
-from __future__ import annotations
 
 
 import json

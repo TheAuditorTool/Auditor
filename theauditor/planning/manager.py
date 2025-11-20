@@ -7,7 +7,6 @@ ARCHITECTURE: Separate planning.db from repo_index.db
 - repo_index.db remains unchanged (used for verification)
 - NO FALLBACKS. Hard failure if planning.db malformed or missing.
 """
-from __future__ import annotations
 
 
 from pathlib import Path
@@ -48,7 +47,7 @@ class PlanningManager:
         self.conn.row_factory = sqlite3.Row  # Enable dict-like access
 
     @classmethod
-    def init_database(cls, db_path: Path) -> PlanningManager:
+    def init_database(cls, db_path: Path) -> "PlanningManager":
         """Create planning.db if it doesn't exist and initialize schema.
 
         Args:

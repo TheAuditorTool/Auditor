@@ -10,7 +10,6 @@ Attack Pattern:
 
 CWE-829: Inclusion of Functionality from Untrusted Control Sphere
 """
-from __future__ import annotations
 
 
 import json

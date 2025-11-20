@@ -9,7 +9,6 @@ Follows schema contract architecture (v1.1+):
 - Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
-from __future__ import annotations
 
 
 import json

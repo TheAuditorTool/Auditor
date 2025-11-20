@@ -15,7 +15,6 @@ LSP code preserved in:
 - theauditor/lsp/rust_analyzer_client.py
 - theauditor/toolboxes/rust.py
 """
-from __future__ import annotations
 
 
 import logging

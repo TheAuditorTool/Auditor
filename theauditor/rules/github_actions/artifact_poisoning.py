@@ -13,7 +13,6 @@ Attack Pattern:
 
 CWE-494: Download of Code Without Integrity Check
 """
-from __future__ import annotations
 
 
 import json

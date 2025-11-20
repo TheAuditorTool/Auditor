@@ -1,5 +1,4 @@
 """Graph builder module - constructs dependency and call graphs."""
-from __future__ import annotations
 
 
 import os
@@ -418,13 +417,13 @@ class XGraphBuilder:
 
     def _ensure_module_node(
         self,
-        nodes: dict[str, GraphNode],
+        nodes: dict[str, "GraphNode"],
         rel_path: str,
         lang: str | None,
         manifest_lookup: dict[str, dict[str, Any]],
         root_path: Path,
         status: str,
-    ) -> GraphNode:
+    ) -> "GraphNode":
         """Ensure a module node exists and return it."""
         if rel_path in nodes:
             node = nodes[rel_path]
@@ -453,8 +452,8 @@ class XGraphBuilder:
     ) -> dict[str, Any]:
         """Build import/dependency graph for the project."""
         root_path = Path(root).resolve()
-        nodes: dict[str, GraphNode] = {}
-        edges: list[GraphEdge] = []
+        nodes: dict[str, "GraphNode"] = {}
+        edges: list["GraphEdge"] = []
 
         # Track manifest metrics for quick lookup (keyed by relative path)
         manifest_lookup_rel: dict[str, dict[str, Any]] = {}
@@ -610,8 +609,8 @@ class XGraphBuilder:
     ) -> dict[str, Any]:
         """Build call graph for the project."""
         root_path = Path(root).resolve()
-        nodes: dict[str, GraphNode] = {}
-        edges: list[GraphEdge] = []
+        nodes: dict[str, "GraphNode"] = {}
+        edges: list["GraphEdge"] = []
         manifest_lookup_rel: dict[str, dict[str, Any]] = {}
         files: list[tuple[Path, str]] = []
 
@@ -684,7 +683,7 @@ class XGraphBuilder:
         else:
             conn = None
 
-        def ensure_function_node(module_path: str, function_name: str, lang: str | None, status: str) -> GraphNode:
+        def ensure_function_node(module_path: str, function_name: str, lang: str | None, status: str) -> "GraphNode":
             node_id = f"{module_path}::{function_name}"
             if node_id in nodes:
                 node = nodes[node_id]

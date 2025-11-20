@@ -1,5 +1,4 @@
 """Project structure and intelligence report command."""
-from __future__ import annotations
 
 
 import click

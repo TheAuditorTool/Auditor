@@ -1,5 +1,4 @@
 """Perform taint analysis to detect security vulnerabilities via data flow tracking."""
-from __future__ import annotations
 
 
 import sys

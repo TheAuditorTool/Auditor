@@ -19,7 +19,6 @@ CWE Coverage:
 - CWE-384: Session Fixation
 - CWE-613: Insufficient Session Expiration
 """
-from __future__ import annotations
 
 
 import sqlite3

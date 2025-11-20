@@ -23,9 +23,9 @@ class FileContext:
     _index: NodeIndex = field(init=False)
 
     # Pre-computed data
-    imports: Dict[str, str] = field(default_factory=dict)
-    function_ranges: List[Tuple[str, int, int]] = field(default_factory=list)
-    class_ranges: List[Tuple[str, int, int]] = field(default_factory=list)
+    imports: dict[str, str] = field(default_factory=dict)
+    function_ranges: list[tuple[str, int, int]] = field(default_factory=list)
+    class_ranges: list[tuple[str, int, int]] = field(default_factory=list)
 
     def __post_init__(self):
         """Build index and pre-compute common data."""
@@ -38,7 +38,7 @@ class FileContext:
         # Build function/class ranges
         self._build_ranges()
 
-    def find_nodes(self, node_type: Union[Type[ast.AST], Tuple[Type[ast.AST], ...]]) -> List[ast.AST]:
+    def find_nodes(self, node_type: type[ast.AST] | tuple[type[ast.AST], ...]) -> list[ast.AST]:
         """O(1) node lookup by type.
 
         Args:
@@ -49,7 +49,7 @@ class FileContext:
         """
         return self._index.find_nodes(node_type)
 
-    def walk_tree(self) -> List[ast.AST]:
+    def walk_tree(self) -> list[ast.AST]:
         """Get all nodes (fallback for complex patterns).
 
         Returns:
@@ -79,7 +79,7 @@ class FileContext:
             return f"{resolved_base}.{'.'.join(parts[1:])}"
         return name
 
-    def find_containing_function(self, line: int) -> Optional[str]:
+    def find_containing_function(self, line: int) -> str | None:
         """Find function containing given line.
 
         Args:
@@ -93,7 +93,7 @@ class FileContext:
                 return fname
         return None
 
-    def find_containing_class(self, line: int) -> Optional[str]:
+    def find_containing_class(self, line: int) -> str | None:
         """Find class containing given line.
 
         Args:
@@ -154,7 +154,7 @@ class FileContext:
         self.class_ranges.sort(key=lambda x: x[1])
 
 
-def build_file_context(tree: ast.AST, content: str = "", file_path: str = "") -> FileContext:
+def build_file_context(tree: ast.AST, content: str = "", file_path: str = "") -> "FileContext":
     """Build FileContext with NodeIndex.
 
     This is the main entry point for extractors.

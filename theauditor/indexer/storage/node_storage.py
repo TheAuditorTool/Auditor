@@ -10,7 +10,6 @@ This module contains handlers for JavaScript/TypeScript frameworks:
 
 Handler Count: 16
 """
-from __future__ import annotations
 
 
 import json

@@ -5,7 +5,6 @@ Handles 34 Python-specific tables including ORM models, routes, decorators, asyn
 testing frameworks (pytest), validation frameworks (Pydantic, Marshmallow, WTForms),
 web frameworks (Django, DRF), and task queues (Celery).
 """
-from __future__ import annotations
 
 
 import json

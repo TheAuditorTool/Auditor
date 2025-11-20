@@ -9,7 +9,6 @@ Extracts 50+ semantic features from repo_index.db tables:
 - Semantic imports (HTTP, DB, Auth, Test libraries)
 - AST complexity (functions, classes, calls)
 """
-from __future__ import annotations
 
 
 import sqlite3

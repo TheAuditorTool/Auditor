@@ -42,7 +42,6 @@ Expected extraction from TheAuditor codebase:
 - ~100 string formatting patterns
 Total: ~1,100 fundamental pattern records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

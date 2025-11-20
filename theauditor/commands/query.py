@@ -3,7 +3,6 @@
 Direct SQL queries over TheAuditor's indexed code relationships.
 NO file reading, NO parsing, NO inference - just exact database lookups.
 """
-from __future__ import annotations
 
 
 import json

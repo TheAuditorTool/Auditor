@@ -18,7 +18,6 @@ Extracted data:
 - Steps: actions, run scripts, env vars, with args
 - References: ${{ }} expressions (github.*, secrets.*, etc.)
 """
-from __future__ import annotations
 
 
 import json

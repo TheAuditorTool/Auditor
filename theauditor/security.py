@@ -1,5 +1,4 @@
 """Security utilities for input sanitization and validation."""
-from __future__ import annotations
 
 
 import shlex

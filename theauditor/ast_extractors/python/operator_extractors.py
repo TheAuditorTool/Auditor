@@ -38,7 +38,6 @@ Expected extraction from TheAuditor codebase:
 - ~20 walrus operators
 Total: ~1,250 operator pattern records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

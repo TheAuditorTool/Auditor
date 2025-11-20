@@ -1,5 +1,4 @@
 """Documentation fetcher for version-correct package docs."""
-from __future__ import annotations
 
 
 import json

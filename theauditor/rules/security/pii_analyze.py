@@ -12,7 +12,6 @@ This implementation:
 - Maps all findings to privacy regulations (15 major regulations)
 - Supports international PII formats (50+ countries)
 """
-from __future__ import annotations
 
 
 import sqlite3

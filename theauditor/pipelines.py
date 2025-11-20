@@ -1,5 +1,4 @@
 """Pipeline execution module for TheAuditor."""
-from __future__ import annotations
 
 
 import json

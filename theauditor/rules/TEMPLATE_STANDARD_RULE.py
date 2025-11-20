@@ -54,7 +54,6 @@ TEMPLATE BASED ON: sql_injection_analyze.py (Production Rule)
 RULE METADATA: Declares file targeting to skip frontend files
 ================================================================================
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -3,7 +3,6 @@
 This module detects WebSocket security issues by querying the indexed database
 instead of traversing AST structures.
 """
-from __future__ import annotations
 
 
 import sqlite3

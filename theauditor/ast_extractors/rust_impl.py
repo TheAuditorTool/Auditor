@@ -19,7 +19,6 @@ Tree-sitter Rust Node Types:
 - unsafe_block: unsafe { } blocks
 - macro_invocation: macro!() calls
 """
-from __future__ import annotations
 
 
 from typing import List, Dict, Any, Optional, Tuple

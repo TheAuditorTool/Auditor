@@ -19,7 +19,6 @@ Detects 15+ real-world CORS vulnerabilities:
 - Dynamic validation flaws
 - Framework-specific misconfigurations
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -23,7 +23,6 @@ Example:
     >>> len(imports)
     15
 """
-from __future__ import annotations
 
 
 import sqlite3

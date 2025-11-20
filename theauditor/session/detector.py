@@ -1,5 +1,4 @@
 """Auto-detect Claude Code and Codex session directories."""
-from __future__ import annotations
 
 
 import json

@@ -27,7 +27,6 @@ Usage:
     # Get file dependencies
     deps = engine.get_file_dependencies("src/auth.ts")
 """
-from __future__ import annotations
 
 
 import sqlite3

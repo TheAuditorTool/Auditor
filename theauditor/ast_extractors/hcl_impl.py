@@ -8,7 +8,6 @@ Architecture:
 - Zero fallbacks: Hard fail on parse errors
 - Line precision: Uses tree-sitter node.start_point for exact locations
 """
-from __future__ import annotations
 
 
 from typing import List, Dict, Any, Optional

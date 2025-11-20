@@ -1,5 +1,4 @@
 """Run Factual Correlation Engine to aggregate and correlate findings."""
-from __future__ import annotations
 
 
 import click

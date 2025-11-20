@@ -1,5 +1,4 @@
 """Generate comprehensive audit summary from all analysis phases."""
-from __future__ import annotations
 
 
 import json

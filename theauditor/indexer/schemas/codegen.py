@@ -22,7 +22,6 @@ Usage:
     accessors = SchemaCodeGenerator.generate_accessor_classes()
     cache = SchemaCodeGenerator.generate_memory_cache()
 """
-from __future__ import annotations
 
 
 from typing import Dict, List, Optional, Set, Any

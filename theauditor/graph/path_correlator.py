@@ -3,7 +3,6 @@
 This module correlates findings based on control flow structure - purely factual 
 relationships about which findings execute together on the same paths.
 """
-from __future__ import annotations
 
 
 import sqlite3

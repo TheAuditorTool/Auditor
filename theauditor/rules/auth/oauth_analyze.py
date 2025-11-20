@@ -15,7 +15,6 @@ CWE Coverage:
 - CWE-601: URL Redirection to Untrusted Site ('Open Redirect')
 - CWE-598: Use of GET Request Method With Sensitive Query Strings
 """
-from __future__ import annotations
 
 
 import sqlite3

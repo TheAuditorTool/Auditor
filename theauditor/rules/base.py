@@ -3,7 +3,6 @@
 This module defines the universal interface that ALL rules must follow.
 Created as part of the Great Refactor to eliminate signature chaos.
 """
-from __future__ import annotations
 
 
 from dataclasses import dataclass, field
@@ -241,7 +240,7 @@ class RuleMetadata:
     jsx_pass_mode: str = 'preserved'  # 'preserved' or 'transformed' (only if requires_jsx_pass=True)
 
 
-def convert_old_context(old_context, project_path: Path = None) -> StandardRuleContext:
+def convert_old_context(old_context, project_path: Path = None) -> "StandardRuleContext":
     """Convert old RuleContext to StandardRuleContext.
 
     Helper for dual-mode orchestrator during migration.

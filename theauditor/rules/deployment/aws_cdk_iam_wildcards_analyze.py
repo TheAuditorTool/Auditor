@@ -7,7 +7,6 @@ Checks:
 - IAM policies with resources containing '*' (HIGH)
 - IAM roles with AdministratorAccess policy attached (CRITICAL)
 """
-from __future__ import annotations
 
 
 

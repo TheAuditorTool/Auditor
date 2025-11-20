@@ -17,7 +17,6 @@ Detects:
 - Unsafe Django/Flask session deserialization
 - XML entity expansion
 """
-from __future__ import annotations
 
 
 import sqlite3

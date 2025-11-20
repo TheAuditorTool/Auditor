@@ -3,7 +3,6 @@
 This module contains add_* methods for INFRASTRUCTURE_TABLES defined in schemas/infrastructure_schema.py.
 Handles 18 infrastructure tables including Docker, Terraform, AWS CDK, and GitHub Actions.
 """
-from __future__ import annotations
 
 
 import json

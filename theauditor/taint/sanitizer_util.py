@@ -6,7 +6,6 @@ consistent sanitizer detection logic across all taint analysis engines.
 
 NO FALLBACKS. NO EXCEPTIONS. Database-first architecture.
 """
-from __future__ import annotations
 
 
 import sys

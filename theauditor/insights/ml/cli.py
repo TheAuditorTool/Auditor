@@ -6,7 +6,6 @@ Delegates to specialized modules:
 - intelligence.py: Smart parsing (journal + raw artifacts)
 - models.py: Model training/loading/saving
 """
-from __future__ import annotations
 
 
 import json

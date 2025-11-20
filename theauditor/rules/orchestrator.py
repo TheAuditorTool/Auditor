@@ -6,7 +6,6 @@ This module provides a central orchestrator that:
 3. Executes them with appropriate parameters
 4. Provides a unified interface for all detection systems
 """
-from __future__ import annotations
 
 
 import importlib
@@ -191,7 +190,7 @@ class RulesOrchestrator:
         
         return rules_by_category
     
-    def _analyze_rule(self, name: str, func: Callable, module_obj: Any, module_name: str, category: str) -> RuleInfo:
+    def _analyze_rule(self, name: str, func: Callable, module_obj: Any, module_name: str, category: str) -> "RuleInfo":
         """Analyze a rule function to determine its requirements.
 
         Args:
@@ -285,7 +284,7 @@ class RulesOrchestrator:
             execution_scope=execution_scope
         )
 
-    def run_all_rules(self, context: RuleContext | None = None) -> list[dict[str, Any]]:
+    def run_all_rules(self, context: "RuleContext" | None = None) -> list[dict[str, Any]]:
         """Execute ALL discovered rules with appropriate parameters.
         
         Args:

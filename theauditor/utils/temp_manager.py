@@ -4,7 +4,6 @@ This module provides a custom temporary directory solution that avoids
 WSL2/Windows permission issues by creating temp files within the project's
 .auditor_venv directory instead of system temp.
 """
-from __future__ import annotations
 
 
 import os

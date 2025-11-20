@@ -8,7 +8,6 @@ Handles:
 - Model training (GradientBoosting + Ridge + Calibration)
 - Model persistence (save/load)
 """
-from __future__ import annotations
 
 
 import json

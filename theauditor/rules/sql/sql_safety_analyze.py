@@ -5,7 +5,6 @@ Focuses on SQL safety patterns: missing WHERE, unbounded queries, transaction is
 
 Truth Courier Design: Reports facts about SQL patterns, not recommendations.
 """
-from __future__ import annotations
 
 
 import sqlite3

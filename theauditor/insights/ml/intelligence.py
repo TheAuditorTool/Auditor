@@ -12,7 +12,6 @@ FIXES:
 - Phase differentiation non-existent (all 26 phases treated the same)
 - Git analysis limited to commit counts (missing authors, recency, workflow data)
 """
-from __future__ import annotations
 
 
 import json

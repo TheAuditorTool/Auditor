@@ -15,7 +15,6 @@ Database Tables Used:
 - import_styles: Track all import/require statements
 - package_configs: Declared dependencies from package files
 """
-from __future__ import annotations
 
 
 import sqlite3

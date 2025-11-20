@@ -6,7 +6,6 @@ Detects zombie clusters (circular dead code) and orphaned features.
 NO FALLBACKS. Hard fail if graphs.db missing or malformed.
 Databases are regenerated fresh every run - missing data = BUG.
 """
-from __future__ import annotations
 
 
 import sqlite3

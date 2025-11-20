@@ -3,7 +3,6 @@
 This module contains add_* methods for NODE_TABLES defined in schemas/node_schema.py.
 Handles 17 Node.js tables including TypeScript, React, Vue, and package management.
 """
-from __future__ import annotations
 
 
 import json

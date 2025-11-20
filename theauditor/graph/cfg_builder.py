@@ -7,7 +7,6 @@ during the indexing phase. It provides analysis capabilities including:
 - Dead code detection
 - Loop detection
 """
-from __future__ import annotations
 
 
 import sqlite3

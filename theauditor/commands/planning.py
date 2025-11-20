@@ -1,5 +1,4 @@
 """Planning and verification commands for implementation workflows."""
-from __future__ import annotations
 
 
 import click

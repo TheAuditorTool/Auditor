@@ -7,7 +7,6 @@ MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
 Signature: context: StandardRuleContext -> List[StandardFinding]
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
-from __future__ import annotations
 
 
 import json

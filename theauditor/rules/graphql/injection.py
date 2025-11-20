@@ -3,7 +3,6 @@
 Detects GraphQL arguments flowing to SQL/command sinks without sanitization.
 Uses graphql_execution_edges + taint analysis. NO regex fallbacks.
 """
-from __future__ import annotations
 
 
 import sqlite3

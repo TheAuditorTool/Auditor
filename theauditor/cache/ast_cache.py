@@ -3,7 +3,6 @@
 This module provides persistent caching for Abstract Syntax Trees,
 avoiding repeated parsing of unchanged files.
 """
-from __future__ import annotations
 
 
 import json

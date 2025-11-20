@@ -3,7 +3,6 @@
 This module detects XSS vulnerabilities specific to Vue.js applications.
 Uses Vue-specific database tables for accurate detection.
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -1,5 +1,4 @@
 """Module resolution for TypeScript/JavaScript projects with tsconfig.json support."""
-from __future__ import annotations
 
 
 import json

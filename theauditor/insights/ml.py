@@ -1,5 +1,4 @@
 """Offline ML signals for TheAuditor - manual trigger, non-blocking."""
-from __future__ import annotations
 
 
 import json

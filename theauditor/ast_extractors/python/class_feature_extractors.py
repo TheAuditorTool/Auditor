@@ -37,7 +37,6 @@ Expected extraction from TheAuditor codebase:
 - ~150 visibility patterns
 Total: ~590 advanced class feature records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

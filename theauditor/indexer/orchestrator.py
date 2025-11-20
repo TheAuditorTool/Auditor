@@ -19,7 +19,6 @@ CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
    This regenerates generated_cache.py which taint analysis uses for memory loading!
    WITHOUT THIS STEP, YOUR TABLE WON'T BE ACCESSIBLE TO THE ANALYZER!
 """
-from __future__ import annotations
 
 
 import os

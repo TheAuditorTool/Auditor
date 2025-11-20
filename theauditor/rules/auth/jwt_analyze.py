@@ -23,7 +23,6 @@ KNOWN LIMITATIONS:
 - Library coverage: jwt, jsonwebtoken, jose, PyJWT (expand as needed)
 - For comprehensive coverage, combine with dependency analysis
 """
-from __future__ import annotations
 
 
 import sqlite3

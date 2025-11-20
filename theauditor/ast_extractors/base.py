@@ -16,7 +16,6 @@ If you're tempted to add regex:
 
 This is a deliberate architectural decision to maintain extraction purity.
 """
-from __future__ import annotations
 
 
 import ast

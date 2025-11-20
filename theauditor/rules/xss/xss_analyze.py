@@ -5,7 +5,6 @@ Uses frozensets for O(1) lookups following Golden Standard pattern.
 
 NO AST TRAVERSAL. NO FILE I/O. Pure database queries.
 """
-from __future__ import annotations
 
 
 import sqlite3

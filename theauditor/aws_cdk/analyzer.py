@@ -3,7 +3,6 @@
 Runs CDK security rules via RulesOrchestrator and stores findings to database.
 Follows the same pattern as TerraformAnalyzer for architectural consistency.
 """
-from __future__ import annotations
 
 
 import logging
@@ -135,7 +134,7 @@ class AWSCdkAnalyzer:
                               - cwe_id → 'cwe'
                               - additional_info → 'details_json' (as JSON string)
         """
-        cdk_findings: list[CdkFinding] = []
+        cdk_findings: list["CdkFinding"] = []
 
         for finding in standard_findings:
             # Parse additional_info from details_json if present
@@ -190,7 +189,7 @@ class AWSCdkAnalyzer:
             return severity.value.lower()
         return str(severity).lower()
 
-    def _filter_by_severity(self, findings: list[CdkFinding]) -> list[CdkFinding]:
+    def _filter_by_severity(self, findings: list["CdkFinding"]) -> list[CdkFinding]:
         """Filter findings by configured severity level."""
         if self.severity_filter == 'all':
             return findings
@@ -201,7 +200,7 @@ class AWSCdkAnalyzer:
             if self.severity_order.get(f.severity.lower(), 999) <= threshold
         ]
 
-    def _write_findings(self, findings: list[CdkFinding]):
+    def _write_findings(self, findings: list["CdkFinding"]):
         """Write findings to cdk_findings and findings_consolidated tables."""
         if not findings:
             return

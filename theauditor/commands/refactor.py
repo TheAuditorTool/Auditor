@@ -5,7 +5,6 @@ references removed/renamed fields and tables, reporting potential breaking chang
 
 NO pattern detection. NO FCE. Just direct database queries.
 """
-from __future__ import annotations
 
 
 import json

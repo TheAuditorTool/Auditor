@@ -10,7 +10,6 @@ Visual encoding strategy:
 - Edge style: Import type (solid/dashed/dotted)
 - Node shape: Type (box=module, ellipse=function)
 """
-from __future__ import annotations
 
 
 from collections import defaultdict

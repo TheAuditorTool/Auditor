@@ -4,7 +4,6 @@ This module replaces Tree-sitter's syntactic parsing with true semantic analysis
 using the TypeScript compiler, enabling accurate type analysis, symbol resolution,
 and cross-file understanding for JavaScript and TypeScript projects.
 """
-from __future__ import annotations
 
 
 import json

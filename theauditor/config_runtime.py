@@ -1,5 +1,4 @@
 """Runtime configuration for TheAuditor - centralized configuration management."""
-from __future__ import annotations
 
 
 import json

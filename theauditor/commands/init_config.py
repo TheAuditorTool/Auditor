@@ -1,5 +1,4 @@
 """Ensure minimal mypy config exists (idempotent)."""
-from __future__ import annotations
 
 
 import click

@@ -1,5 +1,4 @@
 """Parse Claude Code session JSONL files into structured data."""
-from __future__ import annotations
 
 
 import json
@@ -43,7 +42,7 @@ class AssistantMessage:
     timestamp: str
     uuid: str
     text_content: str
-    tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_calls: list["ToolCall"] = field(default_factory=list)
     model: str = ""
     tokens_used: dict[str, int] = field(default_factory=dict)
 
@@ -59,8 +58,8 @@ class Session:
     agent_id: str
     cwd: str
     git_branch: str
-    user_messages: list[UserMessage] = field(default_factory=list)
-    assistant_messages: list[AssistantMessage] = field(default_factory=list)
+    user_messages: list["UserMessage"] = field(default_factory=list)
+    assistant_messages: list["AssistantMessage"] = field(default_factory=list)
 
     @property
     def all_tool_calls(self) -> list[ToolCall]:
@@ -119,7 +118,7 @@ class SessionParser:
             return []
         return sorted(session_dir.glob('*.jsonl'))
 
-    def parse_session(self, jsonl_file: Path) -> Session:
+    def parse_session(self, jsonl_file: Path) -> "Session":
         """Parse a single JSONL session file into structured Session object."""
         entries = []
         with open(jsonl_file, encoding='utf-8') as f:
@@ -203,7 +202,7 @@ class SessionParser:
         return sessions
 
 
-def load_session(jsonl_path: str | Path) -> Session:
+def load_session(jsonl_path: str | Path) -> "Session":
     """Convenience function to load a single session."""
     parser = SessionParser()
     return parser.parse_session(Path(jsonl_path))

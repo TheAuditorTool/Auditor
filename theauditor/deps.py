@@ -1,5 +1,4 @@
 """Dependency parser for multiple ecosystems."""
-from __future__ import annotations
 
 
 import glob

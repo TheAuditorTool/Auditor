@@ -3,7 +3,6 @@
 Toolboxes handle detection and installation of language-specific analysis tools.
 Each toolbox implements the LanguageToolbox interface.
 """
-from __future__ import annotations
 
 
 from abc import ABC, abstractmethod

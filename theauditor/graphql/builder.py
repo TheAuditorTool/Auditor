@@ -7,7 +7,6 @@ This module implements the core correlation logic that maps:
 
 NO FALLBACKS. Hard fail if database is wrong.
 """
-from __future__ import annotations
 
 
 import json
@@ -69,9 +68,9 @@ class GraphQLBuilder:
         self.conn.row_factory = sqlite3.Row
 
         # Loaded data
-        self.types: dict[int, GraphQLType] = {}
-        self.fields: dict[int, GraphQLField] = {}
-        self.resolvers: list[ResolverCandidate] = []
+        self.types: dict[int, "GraphQLType"] = {}
+        self.fields: dict[int, "GraphQLField"] = {}
+        self.resolvers: list["ResolverCandidate"] = []
 
         # Correlation results
         self.mappings: list[tuple[int, int, str, str, int, str, str]] = []  # (field_id, symbol_id, ...)

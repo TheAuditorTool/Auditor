@@ -1,5 +1,4 @@
 """Test framework detection for various languages."""
-from __future__ import annotations
 
 
 import fnmatch

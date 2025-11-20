@@ -19,7 +19,6 @@ FORBIDDEN:
 - Regex-based SQL query extraction in code files (use AST to find db.execute() calls)
 - Regex-based JWT extraction (use AST via function_calls data)
 """
-from __future__ import annotations
 
 
 import os

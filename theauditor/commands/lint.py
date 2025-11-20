@@ -1,5 +1,4 @@
 """Run linters and normalize output to evidence format."""
-from __future__ import annotations
 
 
 import json

@@ -1,5 +1,4 @@
 """Analyze Claude Code sessions for patterns, anti-patterns, and optimization opportunities."""
-from __future__ import annotations
 
 
 import sqlite3
@@ -64,7 +63,7 @@ class SessionAnalyzer:
 
         return stats, findings
 
-    def _compute_stats(self, session: Session) -> SessionStats:
+    def _compute_stats(self, session: Session) -> "SessionStats":
         """Compute basic statistics about the session."""
         tool_counts = Counter(call.tool_name for call in session.all_tool_calls)
 

@@ -18,7 +18,6 @@ See indexer/__init__.py:948-962 for object literal storage example:
 
 This separation ensures single source of truth for file paths.
 """
-from __future__ import annotations
 
 
 from typing import Dict, Any, List, Optional

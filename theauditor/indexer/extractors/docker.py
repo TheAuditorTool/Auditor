@@ -6,7 +6,6 @@ NO separate parser class (inline parsing).
 
 Follows gold standard: Facts only, direct DB writes, no intermediate dicts.
 """
-from __future__ import annotations
 
 
 import json

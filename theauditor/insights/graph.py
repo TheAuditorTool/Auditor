@@ -8,7 +8,6 @@ IMPORTANT: This module performs interpretation and scoring, which goes beyond
 pure data extraction. It's designed for teams that want actionable insights
 and are willing to accept some subjective analysis.
 """
-from __future__ import annotations
 
 
 from collections import defaultdict
@@ -457,7 +456,7 @@ def check_insights_available() -> bool:
     return True
 
 
-def create_insights(weights: dict[str, float] | None = None) -> GraphInsights:
+def create_insights(weights: dict[str, float] | None = None) -> "GraphInsights":
     """
     Factory function to create GraphInsights instance.
     

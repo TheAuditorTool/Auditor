@@ -7,7 +7,6 @@ Checks:
 - EBS Volume without encrypted
 - DynamoDB Table with default encryption (not customer-managed)
 """
-from __future__ import annotations
 
 
 

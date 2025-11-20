@@ -13,7 +13,6 @@ Database Tables Used:
 - package_configs: Declared dependencies
 - import_styles: Imported packages
 """
-from __future__ import annotations
 
 
 import sqlite3

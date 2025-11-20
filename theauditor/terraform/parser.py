@@ -4,7 +4,6 @@ Terraform extraction now relies entirely on the tree-sitter-powered
 ``TerraformExtractor``. This module is kept for backwards compatibility so that
 legacy imports fail with a clear error instead of ``ModuleNotFoundError``.
 """
-from __future__ import annotations
 
 
 from pathlib import Path

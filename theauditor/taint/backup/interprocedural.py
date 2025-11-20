@@ -26,7 +26,6 @@ Schema Contract:
   column is missing, the indexer must be updated. This contract is critical for
   unambiguous call resolution.
 """
-from __future__ import annotations
 
 
 import json

@@ -6,7 +6,6 @@ react_components, react_hooks, and function_call_args tables.
 Focuses on component structure, organization, and best practices.
 Schema Contract Compliance: v1.1+ (Fail-Fast, direct schema-bound queries)
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -3,7 +3,6 @@
 This module detects XSS vulnerabilities specific to React applications.
 Uses database-only approach with React component awareness.
 """
-from __future__ import annotations
 
 
 import sqlite3

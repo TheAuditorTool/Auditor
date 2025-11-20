@@ -13,7 +13,6 @@ This module contains handlers for code patterns that apply across all languages:
 
 Handler Count: 21
 """
-from __future__ import annotations
 
 
 import json
