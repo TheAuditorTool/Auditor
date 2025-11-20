@@ -442,6 +442,24 @@ PACKAGE_CONFIGS = TableSchema(
     ]
 )
 
+DEPENDENCY_VERSIONS = TableSchema(
+    name="dependency_versions",
+    columns=[
+        Column("manager", "TEXT", nullable=False),  # npm, py, docker
+        Column("package_name", "TEXT", nullable=False),
+        Column("locked_version", "TEXT", nullable=False),
+        Column("latest_version", "TEXT"),
+        Column("delta", "TEXT"),  # major, minor, patch, equal
+        Column("is_outdated", "BOOLEAN", nullable=False, default="0"),
+        Column("last_checked", "TEXT", nullable=False),
+        Column("error", "TEXT"),
+    ],
+    indexes=[
+        ("idx_dependency_versions_pk", ["manager", "package_name", "locked_version"]),
+        ("idx_dependency_versions_outdated", ["is_outdated"]),
+    ]
+)
+
 LOCK_ANALYSIS = TableSchema(
     name="lock_analysis",
     columns=[
@@ -628,6 +646,7 @@ NODE_TABLES: dict[str, TableSchema] = {
 
     # Build analysis
     "package_configs": PACKAGE_CONFIGS,
+    "dependency_versions": DEPENDENCY_VERSIONS,
     "lock_analysis": LOCK_ANALYSIS,
     "import_styles": IMPORT_STYLES,
     "import_style_names": IMPORT_STYLE_NAMES,

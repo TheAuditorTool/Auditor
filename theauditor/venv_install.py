@@ -97,6 +97,61 @@ def _extract_pyproject_dependencies(pyproject_path: Path) -> list[str]:
     return unique_deps
 
 
+def _get_runtime_packages(pyproject_path: Path, package_names: list[str]) -> list[str]:
+    """
+    Extract specific package version specs from pyproject.toml optional dependencies.
+
+    Single source of truth for package versions - reads from pyproject.toml instead of hardcoding.
+    Searches both 'runtime' and 'dev' sections.
+
+    Args:
+        pyproject_path: Path to pyproject.toml
+        package_names: List of package names to extract (e.g., ['tree-sitter', 'ruff'])
+
+    Returns:
+        List of package specs in pip format (e.g., ['tree-sitter==0.25.2', 'ruff==0.14.5'])
+        Falls back to package names without versions if parsing fails.
+    """
+    try:
+        data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+        project = data.get("project", {})
+        optional_deps = project.get("optional-dependencies", {})
+
+        # Combine runtime and dev dependencies
+        all_deps = []
+        all_deps.extend(optional_deps.get("runtime", []))
+        all_deps.extend(optional_deps.get("dev", []))
+
+        # Build a map of package name -> version spec
+        package_map = {}
+        for dep in all_deps:
+            dep_str = str(dep).strip()
+            # Handle both "package==1.2.3" and "package>=1.2.3" formats
+            for sep in ["==", ">=", "<=", "~=", ">", "<"]:
+                if sep in dep_str:
+                    pkg_name = dep_str.split(sep)[0].strip().lower()
+                    package_map[pkg_name] = dep_str
+                    break
+            else:
+                # No version specifier, just package name
+                package_map[dep_str.lower()] = dep_str
+
+        # Extract requested packages
+        result = []
+        for pkg_name in package_names:
+            pkg_lower = pkg_name.lower()
+            if pkg_lower in package_map:
+                result.append(package_map[pkg_lower])
+            else:
+                # Fallback: return package name without version
+                result.append(pkg_name)
+
+        return result
+    except Exception:
+        # Fallback: return package names without versions
+        return list(package_names)
+
+
 def find_theauditor_root() -> Path:
     """Find TheAuditor project root by walking up from __file__ to pyproject.toml."""
     current = Path(__file__).resolve().parent
@@ -956,16 +1011,12 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         try:
             print("  Installing linters and AST tools from pyproject.toml...", flush=True)
 
-            # Install linters first
-            linter_packages = [
-                "ruff==0.13.2",
-                "mypy==1.18.2",
-                "black==25.9.0",
-                "bandit==1.8.6",
-                "pylint==3.3.8",
-                "sqlparse==0.5.3",
-                "dockerfile-parse==2.0.1"
-            ]
+            # Read package versions from pyproject.toml (single source of truth)
+            pyproject_path = theauditor_root / "pyproject.toml"
+            linter_packages = _get_runtime_packages(
+                pyproject_path,
+                ["ruff", "mypy", "black", "bandit", "pylint", "sqlparse", "dockerfile-parse"]
+            )
 
             stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
                 str(target_dir), "pip_linters"
@@ -1001,10 +1052,11 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
 
                 # Now install tree-sitter packages separately
                 print("  Installing tree-sitter AST tools...", flush=True)
-                ast_packages = [
-                    "tree-sitter==0.23.2",  # Must match tree-sitter-language-pack requirement
-                    "tree-sitter-language-pack==0.9.1"
-                ]
+                # Read versions from pyproject.toml (single source of truth)
+                ast_packages = _get_runtime_packages(
+                    pyproject_path,
+                    ["tree-sitter", "tree-sitter-language-pack"]
+                )
 
                 stdout_path2, stderr_path2 = TempManager.create_temp_files_for_subprocess(
                     str(target_dir), "pip_ast"

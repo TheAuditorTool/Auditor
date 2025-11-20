@@ -1067,7 +1067,7 @@ def check_latest(
             "outdated": 0
         }
 
-    latest_info = check_latest_versions(deps, allow_net=allow_net, offline=offline)
+    latest_info = check_latest_versions(deps, allow_net=allow_net, offline=offline, root_path=".")
 
     if latest_info:
         # Sanitize output path before writing
