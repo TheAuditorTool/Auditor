@@ -6,6 +6,8 @@ consistent sanitizer detection logic across all taint analysis engines.
 
 NO FALLBACKS. NO EXCEPTIONS. Database-first architecture.
 """
+from __future__ import annotations
+
 
 import sys
 from typing import Dict, List, Optional, Set, Any
@@ -31,13 +33,13 @@ class SanitizerRegistry:
         self.debug = debug
 
         # Initialize storage
-        self.safe_sinks: Set[str] = set()
-        self.validation_sanitizers: List[Dict] = []
+        self.safe_sinks: set[str] = set()
+        self.validation_sanitizers: list[dict] = []
 
         # ARCHITECTURAL FIX: Pre-load DB data to eliminate DB-in-loop bottleneck
         # These caches convert O(paths × hops) SQL queries to O(1) memory lookups
-        self.call_args_cache: Dict[tuple, List[str]] = {}  # (file, line) -> [callees]
-        self.middleware_cache: Dict[str, str] = {}  # controller_func -> validation_middleware
+        self.call_args_cache: dict[tuple, list[str]] = {}  # (file, line) -> [callees]
+        self.middleware_cache: dict[str, str] = {}  # controller_func -> validation_middleware
 
         # Load data from database
         self._load_safe_sinks()
@@ -187,7 +189,7 @@ class SanitizerRegistry:
 
         return False
 
-    def _path_goes_through_sanitizer(self, hop_chain: List[Dict]) -> Optional[Dict]:
+    def _path_goes_through_sanitizer(self, hop_chain: list[dict]) -> dict | None:
         """Check if a taint path goes through any sanitizer.
 
         This is the UNIFIED sanitizer detection logic used by both engines.

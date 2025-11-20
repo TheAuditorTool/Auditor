@@ -5,6 +5,8 @@ The database is generated fresh every run. It MUST exist and MUST contain all re
 NO JSON fallbacks, NO graceful degradation, NO try/except to handle missing data.
 Hard failure is the only acceptable behavior. If data is missing, the pipeline should crash.
 """
+from __future__ import annotations
+
 
 import json
 import os
@@ -15,7 +17,9 @@ import subprocess
 from collections import defaultdict, deque
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from collections.abc import Callable
 
 from theauditor.test_frameworks import detect_test_framework
 from theauditor.utils.temp_manager import TempManager
@@ -23,7 +27,7 @@ from theauditor.utils.temp_manager import TempManager
 
 
 
-def load_graph_data_from_db(db_path: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+def load_graph_data_from_db(db_path: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """
     Load graph analysis data (hotspots and cycles) from database.
 
@@ -98,7 +102,7 @@ def load_graph_data_from_db(db_path: str) -> Tuple[Dict[str, Any], List[Dict[str
     return hotspot_files, cycles
 
 
-def load_cfg_data_from_db(db_path: str) -> Dict[str, Any]:
+def load_cfg_data_from_db(db_path: str) -> dict[str, Any]:
     """
     Load CFG complexity data from database.
 
@@ -139,7 +143,7 @@ def load_cfg_data_from_db(db_path: str) -> Dict[str, Any]:
     return complex_functions
 
 
-def load_churn_data_from_db(db_path: str) -> Dict[str, Any]:
+def load_churn_data_from_db(db_path: str) -> dict[str, Any]:
     """
     Load code churn data from database.
 
@@ -178,7 +182,7 @@ def load_churn_data_from_db(db_path: str) -> Dict[str, Any]:
     return churn_files
 
 
-def load_coverage_data_from_db(db_path: str) -> Dict[str, Any]:
+def load_coverage_data_from_db(db_path: str) -> dict[str, Any]:
     """
     Load test coverage data from database.
 
@@ -217,7 +221,7 @@ def load_coverage_data_from_db(db_path: str) -> Dict[str, Any]:
     return coverage_files
 
 
-def load_taint_data_from_db(db_path: str) -> List[Dict[str, Any]]:
+def load_taint_data_from_db(db_path: str) -> list[dict[str, Any]]:
     """
     Load complete taint paths from database.
 
@@ -277,7 +281,7 @@ def load_taint_data_from_db(db_path: str) -> List[Dict[str, Any]]:
     return taint_paths
 
 
-def load_workflow_data_from_db(db_path: str) -> List[Dict[str, Any]]:
+def load_workflow_data_from_db(db_path: str) -> list[dict[str, Any]]:
     """
     Load GitHub Actions workflow security findings from database.
 
@@ -350,7 +354,7 @@ def load_workflow_data_from_db(db_path: str) -> List[Dict[str, Any]]:
     return workflow_findings
 
 
-def load_graphql_findings_from_db(db_path: str) -> List[Dict[str, Any]]:
+def load_graphql_findings_from_db(db_path: str) -> list[dict[str, Any]]:
     """
     Load GraphQL security findings from graphql_findings_cache table.
 
@@ -422,7 +426,7 @@ def load_graphql_findings_from_db(db_path: str) -> List[Dict[str, Any]]:
     return graphql_findings
 
 
-def scan_all_findings(db_path: str) -> Tuple[List[dict[str, Any]], Dict[str, Any]]:
+def scan_all_findings(db_path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
     Scan ALL findings from database with line-level detail.
 
@@ -445,14 +449,14 @@ def scan_all_findings(db_path: str) -> Tuple[List[dict[str, Any]], Dict[str, Any
         - Gracefully handles old databases without findings_consolidated table
         - Returns empty list with warning if table missing (user should re-index)
     """
-    all_findings: List[dict[str, Any]] = []
-    dedupe_stats: Dict[str, Any] = {
+    all_findings: list[dict[str, Any]] = []
+    dedupe_stats: dict[str, Any] = {
         "total_rows": 0,
         "unique_rows": 0,
         "duplicates_collapsed": 0,
         "top_duplicates": [],
     }
-    seen_keys: Dict[Tuple[Any, ...], dict[str, Any]] = {}
+    seen_keys: dict[tuple[Any, ...], dict[str, Any]] = {}
 
     try:
         conn = sqlite3.connect(db_path)
@@ -625,9 +629,9 @@ def run_tool(command: str, root_path: str, timeout: int = 600) -> tuple[int, str
             process.communicate(timeout=timeout)
             
             # Read back the outputs
-            with open(stdout_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(stdout_path, encoding='utf-8', errors='ignore') as f:
                 stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(stderr_path, encoding='utf-8', errors='ignore') as f:
                 stderr = f.read()
             
             # Clean up temp files
@@ -978,7 +982,7 @@ def run_fce(
             # This future-proofs the system - new insights modules are automatically included
             for insight_file in insights_dir.glob("*.json"):
                 try:
-                    with open(insight_file, 'r', encoding='utf-8') as f:
+                    with open(insight_file, encoding='utf-8') as f:
                         file_data = json.load(f)
                     
                     # Store each insights file's data under its name (without .json)
@@ -986,7 +990,7 @@ def run_fce(
                     insights_data[insight_file.stem] = file_data
                     print(f"[FCE] Loaded insights module: {insight_file.stem}")
                     
-                except (json.JSONDecodeError, IOError) as e:
+                except (json.JSONDecodeError, OSError) as e:
                     # Insights are optional - log warning but continue
                     print(f"[FCE] Warning: Could not load insights file {insight_file.name}: {e}")
                 except Exception as e:
@@ -1174,7 +1178,7 @@ def run_fce(
         # Find hotspots
         hotspots = {}
         for line_key, findings in line_groups.items():
-            tools_on_line = set(f['tool'] for f in findings)
+            tools_on_line = {f['tool'] for f in findings}
             if len(tools_on_line) > 1:
                 hotspots[line_key] = findings
         
@@ -1241,16 +1245,16 @@ def run_fce(
         
         # Step F2: Generate Architectural Meta-Findings (NEW)
         # These correlations combine graph, CFG, and security findings for deeper insights
-        meta_findings: List[dict[str, Any]] = []
-        meta_registry: Dict[Tuple[Any, ...], dict[str, Any]] = {}
+        meta_findings: list[dict[str, Any]] = []
+        meta_registry: dict[tuple[Any, ...], dict[str, Any]] = {}
         meta_stats = {'attempted': 0, 'added': 0, 'merged': 0}
 
         def register_meta(
             entry: dict[str, Any],
-            key: Tuple[Any, ...],
+            key: tuple[Any, ...],
             *,
-            merge: Optional[Callable[[dict[str, Any], dict[str, Any]], None]] = None,
-            log_fn: Optional[Callable[[dict[str, Any]], str]] = None,
+            merge: Callable[[dict[str, Any], dict[str, Any]], None] | None = None,
+            log_fn: Callable[[dict[str, Any]], str] | None = None,
         ) -> bool:
             """Add a meta finding once and merge subsequent duplicates."""
 
@@ -1333,7 +1337,7 @@ def run_fce(
                 ]
 
                 if len(cycle_findings) >= 5:
-                    severity_counts: Dict[str, int] = {}
+                    severity_counts: dict[str, int] = {}
                     for f in cycle_findings:
                         sev = f.get('severity', 'low').lower()
                         severity_counts[sev] = severity_counts.get(sev, 0) + f.get('duplicate_count', 1)
@@ -1367,7 +1371,7 @@ def run_fce(
                     )
 
         # 3. COMPLEXITY_RISK_CORRELATION - Security issues in complex functions (aggregated)
-        complexity_buckets: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        complexity_buckets: dict[tuple[str, str], dict[str, Any]] = {}
         if complex_functions and consolidated_findings:
             for finding in consolidated_findings:
                 if finding.get('tool') not in ['taint', 'taint-insights', 'patterns', 'bandit']:
@@ -1448,7 +1452,7 @@ def run_fce(
                     else all_churns_sorted[-1]
                 )
 
-                churn_buckets: Dict[str, Dict[str, Any]] = {}
+                churn_buckets: dict[str, dict[str, Any]] = {}
                 for finding in consolidated_findings:
                     if finding.get('severity', '').lower() not in ['critical', 'high']:
                         continue
@@ -1512,7 +1516,7 @@ def run_fce(
 
         # 5. POORLY_TESTED_VULNERABILITY - Security issues in code with low test coverage
         if coverage_files and consolidated_findings:
-            coverage_buckets: Dict[Tuple[str, int], Dict[str, Any]] = {}
+            coverage_buckets: dict[tuple[str, int], dict[str, Any]] = {}
             for finding in consolidated_findings:
                 if finding.get('tool') not in ['taint', 'taint-insights', 'patterns', 'bandit', 'semgrep', 'docker']:
                     continue
@@ -1592,7 +1596,7 @@ def run_fce(
 
         if meta_findings:
             print(f"[FCE] Generated {len(meta_findings)} architectural meta-findings")
-            type_counts: Dict[str, int] = {}
+            type_counts: dict[str, int] = {}
             for mf in meta_findings:
                 mf_type = mf.get('type', 'unknown')
                 type_counts[mf_type] = type_counts.get(mf_type, 0) + 1

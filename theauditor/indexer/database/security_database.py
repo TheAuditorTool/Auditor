@@ -3,6 +3,8 @@
 This module contains add_* methods for SECURITY_TABLES defined in schemas/security_schema.py.
 Handles 5 security tables including SQL injection detection, JWT patterns, and environment variable usage.
 """
+from __future__ import annotations
+
 
 from typing import List, Optional
 
@@ -22,7 +24,7 @@ class SecurityDatabaseMixin:
         """Add a SQL object record to the batch."""
         self.generic_batches['sql_objects'].append((file_path, kind, name))
 
-    def add_sql_query(self, file_path: str, line: int, query_text: str, command: str, tables: List[str],
+    def add_sql_query(self, file_path: str, line: int, query_text: str, command: str, tables: list[str],
                       extraction_source: str = 'code_execute'):
         """Add a SQL query record to the batch.
 
@@ -58,7 +60,7 @@ class SecurityDatabaseMixin:
     # ========================================================
 
     def add_env_var_usage(self, file: str, line: int, var_name: str, access_type: str,
-                         in_function: Optional[str] = None, property_access: Optional[str] = None):
+                         in_function: str | None = None, property_access: str | None = None):
         """Add an environment variable usage record to the batch.
 
         Args:

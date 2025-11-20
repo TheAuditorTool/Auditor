@@ -19,6 +19,8 @@ Replaces:
 - webpack_config_parser.py (deprecated)
 - Old generic.py with HAS_CUSTOM_PARSERS flag (eliminated)
 """
+from __future__ import annotations
+
 
 import json
 import yaml
@@ -70,7 +72,7 @@ class GenericExtractor(BaseExtractor):
     Direct YAML/JSON parsing → database storage.
     """
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """This extractor handles files by name pattern, not extension."""
         return []
 
@@ -93,8 +95,8 @@ class GenericExtractor(BaseExtractor):
                 file_name in PACKAGE_FILE_PATTERNS or
                 file_name.endswith('.conf'))
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract config file data directly to database.
 
         ARCHITECTURE CHANGE (v1.2 Nuclear Option):
@@ -218,7 +220,7 @@ class GenericExtractor(BaseExtractor):
             # Graceful failure - log but don't crash indexer
             pass
 
-    def _extract_image(self, config: Dict[str, Any]) -> Optional[str]:
+    def _extract_image(self, config: dict[str, Any]) -> str | None:
         """Extract Docker image name from service config.
 
         Args:
@@ -242,7 +244,7 @@ class GenericExtractor(BaseExtractor):
 
         return None
 
-    def _extract_ports(self, config: Dict[str, Any]) -> List[str]:
+    def _extract_ports(self, config: dict[str, Any]) -> list[str]:
         """Extract port mappings from service config.
 
         Handles both short syntax ("8080:80") and long syntax (target/published).
@@ -273,7 +275,7 @@ class GenericExtractor(BaseExtractor):
 
         return ports
 
-    def _extract_volumes(self, config: Dict[str, Any]) -> List[str]:
+    def _extract_volumes(self, config: dict[str, Any]) -> list[str]:
         """Extract volume mounts from service config.
 
         Handles both short syntax ("/host:/container") and long syntax (type/source/target).
@@ -305,7 +307,7 @@ class GenericExtractor(BaseExtractor):
 
         return volumes
 
-    def _extract_environment(self, config: Dict[str, Any]) -> Dict[str, str]:
+    def _extract_environment(self, config: dict[str, Any]) -> dict[str, str]:
         """Extract environment variables from service config.
 
         Handles both list format ["KEY=value"] and dict format {KEY: value}.

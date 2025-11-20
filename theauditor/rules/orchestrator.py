@@ -6,6 +6,8 @@ This module provides a central orchestrator that:
 3. Executes them with appropriate parameters
 4. Provides a unified interface for all detection systems
 """
+from __future__ import annotations
+
 
 import importlib
 import inspect
@@ -15,7 +17,8 @@ import pkgutil
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, List, Any, Callable, Optional, Set
+from typing import Dict, List, Any, Optional, Set
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 # Import standardized contracts (Phase 1 addition)
@@ -46,7 +49,7 @@ class RuleInfo:
     requires_file: bool = False
     requires_content: bool = False
     param_count: int = 0
-    param_names: List[str] = field(default_factory=list)
+    param_names: list[str] = field(default_factory=list)
     rule_type: str = "standalone"  # standalone, discovery, taint-dependent
     execution_scope: str = "database"
 
@@ -54,12 +57,12 @@ class RuleInfo:
 @dataclass
 class RuleContext:
     """Context information for rule execution."""
-    file_path: Optional[Path] = None
-    content: Optional[str] = None
-    ast_tree: Optional[Any] = None
-    language: Optional[str] = None
-    db_path: Optional[str] = None
-    project_path: Optional[Path] = None
+    file_path: Path | None = None
+    content: str | None = None
+    ast_tree: Any | None = None
+    language: str | None = None
+    db_path: str | None = None
+    project_path: Path | None = None
 
 
 class RulesOrchestrator:
@@ -107,7 +110,7 @@ class RulesOrchestrator:
             if STANDARD_CONTRACTS_AVAILABLE:
                 print(f"[ORCHESTRATOR] Migration Status: {self.migration_stats['standardized_rules']} standardized, {self.migration_stats['legacy_rules']} legacy")
     
-    def _discover_all_rules(self) -> Dict[str, List[RuleInfo]]:
+    def _discover_all_rules(self) -> dict[str, list[RuleInfo]]:
         """Dynamically discover ALL rules in /rules directory.
         
         Returns:
@@ -282,7 +285,7 @@ class RulesOrchestrator:
             execution_scope=execution_scope
         )
 
-    def run_all_rules(self, context: Optional[RuleContext] = None) -> List[Dict[str, Any]]:
+    def run_all_rules(self, context: RuleContext | None = None) -> list[dict[str, Any]]:
         """Execute ALL discovered rules with appropriate parameters.
         
         Args:
@@ -364,7 +367,7 @@ class RulesOrchestrator:
 
         return True
 
-    def run_rules_for_file(self, context: RuleContext) -> List[Dict[str, Any]]:
+    def run_rules_for_file(self, context: RuleContext) -> list[dict[str, Any]]:
         """Run rules applicable to a specific file, WITH METADATA FILTERING.
 
         Args:
@@ -414,7 +417,7 @@ class RulesOrchestrator:
 
         return findings
     
-    def get_rules_by_type(self, rule_type: str) -> List[RuleInfo]:
+    def get_rules_by_type(self, rule_type: str) -> list[RuleInfo]:
         """Get all rules of a specific type.
         
         Args:
@@ -430,7 +433,7 @@ class RulesOrchestrator:
                     rules_of_type.append(rule)
         return rules_of_type
     
-    def run_discovery_rules(self, registry) -> List[Dict[str, Any]]:
+    def run_discovery_rules(self, registry) -> list[dict[str, Any]]:
         """Run all discovery rules that populate the taint registry.
         
         Args:
@@ -466,7 +469,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def run_standalone_rules(self) -> List[Dict[str, Any]]:
+    def run_standalone_rules(self) -> list[dict[str, Any]]:
         """Run all standalone rules that don't need taint data.
         
         Returns:
@@ -493,7 +496,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def run_taint_dependent_rules(self, taint_checker) -> List[Dict[str, Any]]:
+    def run_taint_dependent_rules(self, taint_checker) -> list[dict[str, Any]]:
         """Run all rules that depend on taint analysis results.
         
         Args:
@@ -526,7 +529,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def _build_rule_kwargs(self, rule: RuleInfo, context: RuleContext) -> Dict[str, Any]:
+    def _build_rule_kwargs(self, rule: RuleInfo, context: RuleContext) -> dict[str, Any]:
         """Build keyword arguments for a rule based on its requirements.
         
         Args:
@@ -557,7 +560,7 @@ class RulesOrchestrator:
         
         return kwargs
     
-    def run_database_rules(self) -> List[Dict[str, Any]]:
+    def run_database_rules(self) -> list[dict[str, Any]]:
         """Run rules that operate on the database.
         
         Returns:
@@ -587,7 +590,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> List[Dict[str, Any]]:
+    def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> list[dict[str, Any]]:
         """Execute a single rule with appropriate parameters.
         
         Now handles both standardized and legacy rules (Phase 1 dual-mode).
@@ -702,7 +705,7 @@ class RulesOrchestrator:
                 print(f"[ORCHESTRATOR] Error executing rule {rule.name}: {e}")
             return []
     
-    def get_rule_stats(self) -> Dict[str, Any]:
+    def get_rule_stats(self) -> dict[str, Any]:
         """Get statistics about discovered rules.
         
         Returns:
@@ -914,7 +917,7 @@ class RulesOrchestrator:
 
 
 # Convenience function for backward compatibility
-def run_all_rules(project_path: str, db_path: str = None) -> List[Dict[str, Any]]:
+def run_all_rules(project_path: str, db_path: str = None) -> list[dict[str, Any]]:
     """Run all rules for a project.
     
     Args:

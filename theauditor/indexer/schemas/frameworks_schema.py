@@ -149,7 +149,7 @@ ROUTER_MOUNTS = TableSchema(
 # FRAMEWORKS TABLES REGISTRY
 # ============================================================================
 
-FRAMEWORKS_TABLES: Dict[str, TableSchema] = {
+FRAMEWORKS_TABLES: dict[str, TableSchema] = {
     "orm_relationships": ORM_RELATIONSHIPS,
     "orm_queries": ORM_QUERIES,
     "prisma_models": PRISMA_MODELS,

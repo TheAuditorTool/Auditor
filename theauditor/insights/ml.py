@@ -1,4 +1,6 @@
 """Offline ML signals for TheAuditor - manual trigger, non-blocking."""
+from __future__ import annotations
+
 
 import json
 import os
@@ -780,9 +782,9 @@ def load_git_churn(file_paths: list[str], window_days: int = 30) -> dict[str, in
                 timeout=10,
             )
 
-        with open(stdout_path, "r", encoding="utf-8") as f:
+        with open(stdout_path, encoding="utf-8") as f:
             result.stdout = f.read()
-        with open(stderr_path, "r", encoding="utf-8") as f:
+        with open(stderr_path, encoding="utf-8") as f:
             result.stderr = f.read()
 
         os.unlink(stdout_path)
@@ -1038,7 +1040,7 @@ def build_feature_matrix(
     rca_stats: dict = None,
     ast_stats: dict = None,
     enable_git: bool = False,
-) -> tuple["np.ndarray", dict[str, int]]:
+) -> tuple[np.ndarray, dict[str, int]]:
     """Build feature matrix for files."""
     if not ML_AVAILABLE:
         return None, {}
@@ -1076,7 +1078,7 @@ def build_feature_matrix(
                             "has_sql": False,
                         }
                     graph_stats[path]["centrality"] = graph_metrics[path]
-    except (json.JSONDecodeError, IOError):
+    except (json.JSONDecodeError, OSError):
         pass  # Proceed without centrality scores
 
     git_churn = load_git_churn(file_paths) if enable_git else {}
@@ -1273,7 +1275,7 @@ def build_labels(
     file_paths: list[str],
     journal_stats: dict,
     rca_stats: dict,
-) -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build label vectors for training."""
     if not ML_AVAILABLE:
         return None, None, None
@@ -1304,12 +1306,12 @@ def build_labels(
 
 
 def train_models(
-    features: "np.ndarray",
-    root_cause_labels: "np.ndarray",
-    next_edit_labels: "np.ndarray",
-    risk_labels: "np.ndarray",
+    features: np.ndarray,
+    root_cause_labels: np.ndarray,
+    next_edit_labels: np.ndarray,
+    risk_labels: np.ndarray,
     seed: int = 13,
-    sample_weight: "np.ndarray" = None,
+    sample_weight: np.ndarray = None,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
     """
     Train the three models with optional sample weighting for human feedback

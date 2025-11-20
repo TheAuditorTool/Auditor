@@ -12,6 +12,8 @@ Design Philosophy:
 - Pure class definitions only (no table registries)
 """
 
+from __future__ import annotations
+
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 import sqlite3
@@ -23,10 +25,10 @@ class Column:
     name: str
     type: str
     nullable: bool = True
-    default: Optional[str] = None
+    default: str | None = None
     primary_key: bool = False
     autoincrement: bool = False
-    check: Optional[str] = None
+    check: str | None = None
 
     def to_sql(self) -> str:
         """Generate SQL column definition."""
@@ -64,11 +66,11 @@ class ForeignKey:
             foreign_columns=['file_path', 'line_number']
         )
     """
-    local_columns: List[str]
+    local_columns: list[str]
     foreign_table: str
-    foreign_columns: List[str]
+    foreign_columns: list[str]
 
-    def validate(self, local_table: str, all_tables: Dict[str, 'TableSchema']) -> List[str]:
+    def validate(self, local_table: str, all_tables: dict[str, TableSchema]) -> list[str]:
         """Validate foreign key definition against schema.
 
         Returns:
@@ -136,13 +138,13 @@ class TableSchema:
         foreign_keys: List of ForeignKey definitions (for JOIN generation)
     """
     name: str
-    columns: List[Column]
-    indexes: List[Tuple[str, List[str]]] = field(default_factory=list)
-    primary_key: Optional[List[str]] = None  # Composite primary keys
-    unique_constraints: List[List[str]] = field(default_factory=list)  # UNIQUE constraints
-    foreign_keys: List[ForeignKey] = field(default_factory=list)  # For JOIN query generation
+    columns: list[Column]
+    indexes: list[tuple[str, list[str]]] = field(default_factory=list)
+    primary_key: list[str] | None = None  # Composite primary keys
+    unique_constraints: list[list[str]] = field(default_factory=list)  # UNIQUE constraints
+    foreign_keys: list[ForeignKey] = field(default_factory=list)  # For JOIN query generation
 
-    def column_names(self) -> List[str]:
+    def column_names(self) -> list[str]:
         """Get list of column names in definition order."""
         return [col.name for col in self.columns]
 
@@ -162,7 +164,7 @@ class TableSchema:
 
         return f"CREATE TABLE IF NOT EXISTS {self.name} (\n    " + ",\n    ".join(col_defs) + "\n)"
 
-    def create_indexes_sql(self) -> List[str]:
+    def create_indexes_sql(self) -> list[str]:
         """Generate CREATE INDEX statements."""
         stmts = []
         for idx_name, idx_cols in self.indexes:
@@ -170,7 +172,7 @@ class TableSchema:
             stmts.append(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {self.name} ({cols_str})")
         return stmts
 
-    def validate_against_db(self, cursor: sqlite3.Cursor) -> Tuple[bool, List[str]]:
+    def validate_against_db(self, cursor: sqlite3.Cursor) -> tuple[bool, list[str]]:
         """
         Validate that actual database table matches this schema.
 

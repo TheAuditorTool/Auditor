@@ -16,6 +16,8 @@ Detects:
 - GraphQL mutations without auth
 - API key authentication issues
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -182,7 +184,7 @@ class ApiAuthAnalyzer:
         self.patterns = ApiAuthPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -578,7 +580,7 @@ FLAGGED: Missing database features for better API auth detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_apiauth_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_apiauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect API authentication security issues.
 
     Args:

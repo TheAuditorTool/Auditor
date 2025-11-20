@@ -14,6 +14,9 @@ ARCHITECTURAL CONTRACT:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -28,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions (Internal - Duplicated for Self-Containment)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -37,12 +40,12 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        return node.value
     return None
 
 
-def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
+def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
     """Fetch keyword argument by name from AST call.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -53,7 +56,7 @@ def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
     return None
 
 
-def _extract_list_of_strings(node) -> Optional[str]:
+def _extract_list_of_strings(node) -> str | None:
     """Helper: Extract list/tuple of string constants as comma-separated string.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -74,14 +77,14 @@ def _extract_list_of_strings(node) -> Optional[str]:
 # Validation Framework Extractors
 # ============================================================================
 
-def extract_pydantic_validators(tree: Dict, parser_self) -> List[Dict]:
+def extract_pydantic_validators(context: FileContext) -> list[dict]:
     """Extract Pydantic validator metadata."""
-    validators: List[Dict[str, Any]] = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    validators: list[dict[str, Any]] = []
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return validators
 
-    for node in actual_tree.body if isinstance(actual_tree, ast.Module) else []:
+    for node in context.tree.body if isinstance(context.tree, ast.Module) else []:
         if not isinstance(node, ast.ClassDef):
             continue
         base_names = {get_node_name(base) for base in node.bases}
@@ -124,7 +127,7 @@ def extract_pydantic_validators(tree: Dict, parser_self) -> List[Dict]:
     return validators
 
 
-def extract_marshmallow_schemas(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
     """Extract Marshmallow schema definitions.
 
     Detects:
@@ -139,11 +142,11 @@ def extract_marshmallow_schemas(tree: Dict, parser_self) -> List[Dict[str, Any]]
     - Nested schemas = complex validation chains (parity with Zod/Joi)
     """
     schemas = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return schemas
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -200,7 +203,7 @@ def extract_marshmallow_schemas(tree: Dict, parser_self) -> List[Dict[str, Any]]
     return schemas
 
 
-def extract_marshmallow_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_marshmallow_fields(context: FileContext) -> list[dict[str, Any]]:
     """Extract Marshmallow field definitions from schemas.
 
     Detects:
@@ -215,11 +218,11 @@ def extract_marshmallow_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Missing validate= = incomplete validation (parity with Zod refinements)
     """
     fields = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return fields
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -301,7 +304,7 @@ def extract_marshmallow_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return fields
 
 
-def extract_drf_serializers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django REST Framework serializer definitions.
 
     Detects:
@@ -317,11 +320,11 @@ def extract_drf_serializers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - ModelSerializer without field restrictions = over-exposure (parity with Express/Prisma)
     """
     serializers_list = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return serializers_list
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -386,7 +389,7 @@ def extract_drf_serializers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return serializers_list
 
 
-def extract_drf_serializer_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_drf_serializer_fields(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django REST Framework field definitions from serializers.
 
     Detects:
@@ -405,11 +408,11 @@ def extract_drf_serializer_fields(tree: Dict, parser_self) -> List[Dict[str, Any
     - Missing required= = optional input bypass (parity with Joi.required())
     """
     fields = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return fields
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -498,7 +501,7 @@ def extract_drf_serializer_fields(tree: Dict, parser_self) -> List[Dict[str, Any
     return fields
 
 
-def extract_wtforms_forms(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
     """Extract WTForms form definitions.
 
     Detects:
@@ -512,11 +515,11 @@ def extract_wtforms_forms(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Flask-WTF CSRF protection when using FlaskForm (parity with DRF)
     """
     forms_list = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return forms_list
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -568,7 +571,7 @@ def extract_wtforms_forms(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return forms_list
 
 
-def extract_wtforms_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_wtforms_fields(context: FileContext) -> list[dict[str, Any]]:
     """Extract WTForms field definitions from forms.
 
     Detects:
@@ -582,11 +585,11 @@ def extract_wtforms_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Missing DataRequired = optional input bypass (parity with DRF required=True)
     """
     fields = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return fields
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 

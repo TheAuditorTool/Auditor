@@ -21,6 +21,9 @@ All functions here:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -68,18 +71,18 @@ FLASK_HOOK_DECORATORS = {
 # Helper Functions
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        return node.value
     return None
 
 
-def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
+def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
     """Fetch keyword argument by name from AST call."""
     for keyword in call.keywords:
         if keyword.arg == name:
@@ -87,14 +90,14 @@ def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
     return None
 
 
-def _get_int_constant(node: Optional[ast.AST]) -> Optional[int]:
+def _get_int_constant(node: ast.AST | None) -> int | None:
     """Return integer value for constant nodes."""
     if node is None:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return node.value
-    if isinstance(node, ast.Num):
-        return node.n
+    if (isinstance(node, ast.Constant) and isinstance(node.value, (int, float))):
+        return node.value
     return None
 
 
@@ -102,7 +105,7 @@ def _get_int_constant(node: Optional[ast.AST]) -> Optional[int]:
 # Flask Extractors
 # ============================================================================
 
-def extract_flask_app_factories(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_app_factories(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask application factory patterns.
 
     Detects:
@@ -117,11 +120,11 @@ def extract_flask_app_factories(tree: Dict, parser_self) -> List[Dict[str, Any]]
     - Blueprint registration = attack surface
     """
     factories = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return factories
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -135,28 +138,15 @@ def extract_flask_app_factories(tree: Dict, parser_self) -> List[Dict[str, Any]]
         config_source = None
         registers_blueprints = False
 
-        for item in ast.walk(node):
-            # Check for Flask() instantiation
-            if isinstance(item, ast.Assign):
-                if isinstance(item.value, ast.Call):
-                    func_name = get_node_name(item.value.func)
-                    if any(flask_id in func_name for flask_id in FLASK_APP_IDENTIFIERS):
-                        creates_flask_app = True
-                        # Get app variable name
-                        for target in item.targets:
-                            if isinstance(target, ast.Name):
-                                app_var_name = target.id
-
-            # Check for config source
-            elif isinstance(item, ast.Attribute):
-                if item.attr in ['from_object', 'from_pyfile', 'from_envvar', 'from_json']:
-                    config_source = item.attr
-
-            # Check for blueprint registration
-            elif isinstance(item, ast.Call):
-                func_name = get_node_name(item.func)
-                if 'register_blueprint' in func_name:
-                    registers_blueprints = True
+        for item in context.find_nodes(ast.Assign):
+            if isinstance(item.value, ast.Call):
+                func_name = get_node_name(item.value.func)
+                if any(flask_id in func_name for flask_id in FLASK_APP_IDENTIFIERS):
+                    creates_flask_app = True
+                    # Get app variable name
+                    for target in item.targets:
+                        if isinstance(target, ast.Name):
+                            app_var_name = target.id
 
         if creates_flask_app:
             factories.append({
@@ -170,7 +160,7 @@ def extract_flask_app_factories(tree: Dict, parser_self) -> List[Dict[str, Any]]
     return factories
 
 
-def extract_flask_extensions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_extensions(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask extension registrations.
 
     Detects:
@@ -184,11 +174,11 @@ def extract_flask_extensions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - CORS = cross-origin policy
     """
     extensions = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return extensions
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Assign):
             continue
 
@@ -228,7 +218,7 @@ def extract_flask_extensions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return extensions
 
 
-def extract_flask_request_hooks(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_request_hooks(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask request/response hooks.
 
     Detects:
@@ -244,11 +234,11 @@ def extract_flask_request_hooks(tree: Dict, parser_self) -> List[Dict[str, Any]]
     - Missing auth in before_request = bypass risk
     """
     hooks = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return hooks
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -279,7 +269,7 @@ def extract_flask_request_hooks(tree: Dict, parser_self) -> List[Dict[str, Any]]
     return hooks
 
 
-def extract_flask_error_handlers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_error_handlers(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask error handler decorators.
 
     Detects:
@@ -293,11 +283,11 @@ def extract_flask_error_handlers(tree: Dict, parser_self) -> List[Dict[str, Any]
     - Generic exception handlers = hiding errors
     """
     handlers = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return handlers
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -331,7 +321,7 @@ def extract_flask_error_handlers(tree: Dict, parser_self) -> List[Dict[str, Any]
     return handlers
 
 
-def extract_flask_websocket_handlers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_websocket_handlers(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask-SocketIO WebSocket handlers.
 
     Detects:
@@ -345,11 +335,11 @@ def extract_flask_websocket_handlers(tree: Dict, parser_self) -> List[Dict[str, 
     - Room management = access control issue
     """
     handlers = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return handlers
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -383,7 +373,7 @@ def extract_flask_websocket_handlers(tree: Dict, parser_self) -> List[Dict[str, 
     return handlers
 
 
-def extract_flask_cli_commands(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_cli_commands(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask CLI commands.
 
     Detects:
@@ -397,11 +387,11 @@ def extract_flask_cli_commands(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Dangerous operations (db drop, user delete)
     """
     commands = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return commands
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -436,7 +426,7 @@ def extract_flask_cli_commands(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return commands
 
 
-def extract_flask_cors_configs(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_cors_configs(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask CORS configurations.
 
     Detects:
@@ -450,62 +440,41 @@ def extract_flask_cors_configs(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Overly permissive origins = CSRF risk
     """
     configs = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return configs
 
-    for node in ast.walk(actual_tree):
-        # Check for CORS() instantiation
-        if isinstance(node, ast.Assign):
-            if isinstance(node.value, ast.Call):
-                func_name = get_node_name(node.value.func)
-                if 'CORS' in func_name:
-                    # Extract origins if specified
-                    origins = None
-                    resources_node = _keyword_arg(node.value, 'resources')
-                    origins_node = _keyword_arg(node.value, 'origins')
+    for node in context.find_nodes(ast.Assign):
+        if isinstance(node.value, ast.Call):
+            func_name = get_node_name(node.value.func)
+            if 'CORS' in func_name:
+                # Extract origins if specified
+                origins = None
+                resources_node = _keyword_arg(node.value, 'resources')
+                origins_node = _keyword_arg(node.value, 'origins')
 
-                    if origins_node:
-                        if isinstance(origins_node, ast.Constant) and origins_node.value == '*':
-                            origins = '*'
-                        elif isinstance(origins_node, ast.List):
-                            origin_list = []
-                            for elt in origins_node.elts:
-                                origin_str = _get_str_constant(elt)
-                                if origin_str:
-                                    origin_list.append(origin_str)
-                            origins = ','.join(origin_list)
+                if origins_node:
+                    if isinstance(origins_node, ast.Constant) and origins_node.value == '*':
+                        origins = '*'
+                    elif isinstance(origins_node, ast.List):
+                        origin_list = []
+                        for elt in origins_node.elts:
+                            origin_str = _get_str_constant(elt)
+                            if origin_str:
+                                origin_list.append(origin_str)
+                        origins = ','.join(origin_list)
 
-                    configs.append({
-                        "line": node.lineno,
-                        "config_type": "global",
-                        "origins": origins,
-                        "is_permissive": origins == '*',
-                    })
-
-        # Check for @cross_origin decorator
-        elif isinstance(node, ast.FunctionDef):
-            for decorator in node.decorator_list:
-                decorator_name = get_node_name(decorator)
-                if 'cross_origin' in decorator_name:
-                    origins = None
-                    if isinstance(decorator, ast.Call):
-                        origins_node = _keyword_arg(decorator, 'origins')
-                        if origins_node:
-                            if isinstance(origins_node, ast.Constant) and origins_node.value == '*':
-                                origins = '*'
-
-                    configs.append({
-                        "line": node.lineno,
-                        "config_type": "route",
-                        "origins": origins,
-                        "is_permissive": origins == '*',
-                    })
+                configs.append({
+                    "line": node.lineno,
+                    "config_type": "global",
+                    "origins": origins,
+                    "is_permissive": origins == '*',
+                })
 
     return configs
 
 
-def extract_flask_rate_limits(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_rate_limits(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask rate limiting decorators.
 
     Detects:
@@ -519,11 +488,11 @@ def extract_flask_rate_limits(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Login endpoints without limits = brute force risk
     """
     limits = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return limits
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -550,7 +519,7 @@ def extract_flask_rate_limits(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return limits
 
 
-def extract_flask_cache_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_flask_cache_decorators(context: FileContext) -> list[dict[str, Any]]:
     """Extract Flask caching decorators.
 
     Detects:
@@ -564,11 +533,11 @@ def extract_flask_cache_decorators(tree: Dict, parser_self) -> List[Dict[str, An
     - Cache key collisions = data leakage
     """
     caches = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return caches
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 

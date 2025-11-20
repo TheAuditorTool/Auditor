@@ -1,4 +1,6 @@
 """Workset resolver - computes target file set from git diff and dependencies."""
+from __future__ import annotations
+
 
 import json
 import os
@@ -58,9 +60,9 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
             )
         
         # Read the outputs back
-        with open(stdout_path, 'r', encoding='utf-8') as f:
+        with open(stdout_path, encoding='utf-8') as f:
             stdout_content = f.read()
-        with open(stderr_path, 'r', encoding='utf-8') as f:
+        with open(stderr_path, encoding='utf-8') as f:
             stderr_content = f.read()
         
         # Clean up temp files
@@ -72,7 +74,7 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
     except subprocess.CalledProcessError as e:
         # Read stderr for error message
         try:
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 error_msg = f.read()
         except:
             error_msg = 'git not available'

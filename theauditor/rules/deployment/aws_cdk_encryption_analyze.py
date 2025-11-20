@@ -7,8 +7,9 @@ Checks:
 - EBS Volume without encrypted
 - DynamoDB Table with default encryption (not customer-managed)
 """
-
 from __future__ import annotations
+
+
 
 import logging
 import sqlite3
@@ -38,9 +39,9 @@ METADATA = RuleMetadata(
 )
 
 
-def find_cdk_encryption_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_cdk_encryption_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect unencrypted storage resources in CDK code."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -59,9 +60,9 @@ def find_cdk_encryption_issues(context: StandardRuleContext) -> List[StandardFin
     return findings
 
 
-def _check_unencrypted_rds(cursor) -> List[StandardFinding]:
+def _check_unencrypted_rds(cursor) -> list[StandardFinding]:
     """Detect RDS DatabaseInstance without encryption."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for RDS in Python
     cursor.execute("""
@@ -127,9 +128,9 @@ def _check_unencrypted_rds(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_unencrypted_ebs(cursor) -> List[StandardFinding]:
+def _check_unencrypted_ebs(cursor) -> list[StandardFinding]:
     """Detect EBS Volume without encryption."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for EBS Volume in Python
     cursor.execute("""
@@ -179,9 +180,9 @@ def _check_unencrypted_ebs(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_dynamodb_encryption(cursor) -> List[StandardFinding]:
+def _check_dynamodb_encryption(cursor) -> list[StandardFinding]:
     """Detect DynamoDB Table with default encryption (not customer-managed)."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for DynamoDB Table in Python
     cursor.execute("""

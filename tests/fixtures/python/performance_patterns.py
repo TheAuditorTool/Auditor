@@ -99,7 +99,7 @@ def large_dict_literal():
 
 def unclosed_file_handle():
     """Test file handle without context manager."""
-    f = open("test.txt", "r")  # File handle without cleanup
+    f = open("test.txt")  # File handle without cleanup
     data = f.read()
     # No f.close() - missing cleanup
     return data
@@ -169,7 +169,7 @@ def non_recursive_function(x):
     return x * 2  # Simple function, no memoization
 
 
-@functools.lru_cache()
+@functools.lru_cache
 def memoized_no_maxsize(data):
     """Test lru_cache without maxsize (unbounded)."""
     return len(data) * 2  # Memoized, no cache size limit

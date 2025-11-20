@@ -1,4 +1,6 @@
 """Detect risky global mutable state usage in Python modules."""
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -33,9 +35,9 @@ class GlobalAnalyzer:
     def __init__(self, context: StandardRuleContext):
         self.context = context
         self.patterns = GlobalPatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         if not self.context.db_path:
             return []
 
@@ -102,6 +104,6 @@ class GlobalAnalyzer:
         return self.findings
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     analyzer = GlobalAnalyzer(context)
     return analyzer.analyze()

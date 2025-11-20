@@ -6,6 +6,8 @@ Extracts Python package dependencies from:
 
 Stores in python_package_configs table for fast dependency checking.
 """
+from __future__ import annotations
+
 
 import json
 import re
@@ -19,7 +21,7 @@ from . import BaseExtractor
 import tomllib
 
 
-def _parse_dep_spec(spec: str) -> Dict[str, str]:
+def _parse_dep_spec(spec: str) -> dict[str, str]:
     """Parse a dependency specification into components.
 
     Handles formats:
@@ -87,7 +89,7 @@ def _parse_dep_spec(spec: str) -> Dict[str, str]:
     return result
 
 
-def _extract_from_requirements(content: str, file_path: str) -> Dict[str, Any]:
+def _extract_from_requirements(content: str, file_path: str) -> dict[str, Any]:
     """Extract dependencies from requirements.txt format.
 
     Args:
@@ -131,7 +133,7 @@ def _extract_from_requirements(content: str, file_path: str) -> Dict[str, Any]:
     }
 
 
-def _extract_from_pyproject(content: str, file_path: str) -> Dict[str, Any]:
+def _extract_from_pyproject(content: str, file_path: str) -> dict[str, Any]:
     """Extract dependencies from pyproject.toml.
 
     Args:
@@ -199,7 +201,7 @@ def _extract_from_pyproject(content: str, file_path: str) -> Dict[str, Any]:
     }
 
 
-def extract_python_dependencies(file_path: str, content: str) -> Optional[Dict[str, Any]]:
+def extract_python_dependencies(file_path: str, content: str) -> dict[str, Any] | None:
     """Extract Python dependencies from pyproject.toml or requirements.txt.
 
     Main entry point for Python dependency extraction.
@@ -225,7 +227,7 @@ def extract_python_dependencies(file_path: str, content: str) -> Optional[Dict[s
 class PythonDepsExtractor(BaseExtractor):
     """Extractor for Python dependency files (pyproject.toml, requirements.txt)."""
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.toml', '.txt']  # Will be filtered by should_extract
 
@@ -251,8 +253,8 @@ class PythonDepsExtractor(BaseExtractor):
 
         return False
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract Python dependencies and store to database.
 
         Args:

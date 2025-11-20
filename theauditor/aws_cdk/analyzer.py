@@ -3,6 +3,8 @@
 Runs CDK security rules via RulesOrchestrator and stores findings to database.
 Follows the same pattern as TerraformAnalyzer for architectural consistency.
 """
+from __future__ import annotations
+
 
 import logging
 import sqlite3
@@ -24,12 +26,12 @@ class CdkFinding:
 
     finding_id: str
     file_path: str
-    construct_id: Optional[str]
+    construct_id: str | None
     category: str
     severity: str
     title: str
     description: str
-    line: Optional[int]
+    line: int | None
     remediation: str = ""
 
 
@@ -57,7 +59,7 @@ class AWSCdkAnalyzer:
             'all': 999,
         }
 
-    def analyze(self) -> List[CdkFinding]:
+    def analyze(self) -> list[CdkFinding]:
         """Run all CDK security rules and return findings.
 
         Returns:
@@ -121,7 +123,7 @@ class AWSCdkAnalyzer:
         rule_name = finding.get('rule', '')
         return rule_name.startswith('aws-cdk-')
 
-    def _convert_findings(self, standard_findings: List[dict]) -> List[CdkFinding]:
+    def _convert_findings(self, standard_findings: list[dict]) -> list[CdkFinding]:
         """Convert finding dictionaries from orchestrator to CdkFinding format.
 
         Args:
@@ -133,7 +135,7 @@ class AWSCdkAnalyzer:
                               - cwe_id → 'cwe'
                               - additional_info → 'details_json' (as JSON string)
         """
-        cdk_findings: List[CdkFinding] = []
+        cdk_findings: list[CdkFinding] = []
 
         for finding in standard_findings:
             # Parse additional_info from details_json if present
@@ -188,7 +190,7 @@ class AWSCdkAnalyzer:
             return severity.value.lower()
         return str(severity).lower()
 
-    def _filter_by_severity(self, findings: List[CdkFinding]) -> List[CdkFinding]:
+    def _filter_by_severity(self, findings: list[CdkFinding]) -> list[CdkFinding]:
         """Filter findings by configured severity level."""
         if self.severity_filter == 'all':
             return findings
@@ -199,7 +201,7 @@ class AWSCdkAnalyzer:
             if self.severity_order.get(f.severity.lower(), 999) <= threshold
         ]
 
-    def _write_findings(self, findings: List[CdkFinding]):
+    def _write_findings(self, findings: list[CdkFinding]):
         """Write findings to cdk_findings and findings_consolidated tables."""
         if not findings:
             return

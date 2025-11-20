@@ -463,7 +463,7 @@ GITHUB_STEP_REFERENCES = TableSchema(
 # INFRASTRUCTURE TABLES REGISTRY
 # ============================================================================
 
-INFRASTRUCTURE_TABLES: Dict[str, TableSchema] = {
+INFRASTRUCTURE_TABLES: dict[str, TableSchema] = {
     # Docker & infrastructure
     "docker_images": DOCKER_IMAGES,
     "compose_services": COMPOSE_SERVICES,

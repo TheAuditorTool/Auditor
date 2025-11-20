@@ -1,4 +1,6 @@
 """Auto-detect Claude Code and Codex session directories."""
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -8,7 +10,7 @@ from typing import Optional, Literal
 AgentType = Literal['claude-code', 'codex', 'unknown']
 
 
-def detect_session_directory(root_path: Path) -> Optional[Path]:
+def detect_session_directory(root_path: Path) -> Path | None:
     """
     Auto-detect AI assistant session directory for current project.
 
@@ -37,7 +39,7 @@ def detect_session_directory(root_path: Path) -> Optional[Path]:
     return None
 
 
-def detect_claude_code_sessions(root_path: Path, home: Path) -> Optional[Path]:
+def detect_claude_code_sessions(root_path: Path, home: Path) -> Path | None:
     """Detect Claude Code session directory."""
     # Pattern: ~/.claude/projects/C--Users-santa-Desktop-TheAuditor
     project_name = str(root_path).replace('/', '-').replace('\\', '-').replace(':', '-')
@@ -54,7 +56,7 @@ def detect_claude_code_sessions(root_path: Path, home: Path) -> Optional[Path]:
     return None
 
 
-def detect_codex_sessions(root_path: Path, home: Path) -> Optional[Path]:
+def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
     """
     Detect Codex session directory by scanning for matching cwd.
 
@@ -82,7 +84,7 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Optional[Path]:
 
         for session_file in session_files[:50]:  # Check last 50 sessions
             try:
-                with open(session_file, 'r') as f:
+                with open(session_file) as f:
                     first_line = f.readline()
                     data = json.loads(first_line)
 
@@ -94,7 +96,7 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Optional[Path]:
                         if Path(cwd).resolve() == root_path.resolve():
                             # Found matching session - return base sessions dir
                             return codex_sessions
-            except (json.JSONDecodeError, IOError):
+            except (json.JSONDecodeError, OSError):
                 continue
 
         return None
@@ -118,7 +120,7 @@ def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Pat
 
     for session_file in sessions_dir.rglob('*.jsonl'):
         try:
-            with open(session_file, 'r') as f:
+            with open(session_file) as f:
                 first_line = f.readline()
                 data = json.loads(first_line)
 
@@ -128,7 +130,7 @@ def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Pat
 
                     if Path(cwd).resolve() == root_path.resolve():
                         matching.append(session_file)
-        except (json.JSONDecodeError, IOError):
+        except (json.JSONDecodeError, OSError):
             continue
 
     return matching
@@ -147,7 +149,7 @@ def detect_agent_type(session_dir: Path) -> AgentType:
     # Check first .jsonl file found
     for jsonl_file in session_dir.glob('*.jsonl'):
         try:
-            with open(jsonl_file, 'r', encoding='utf-8') as f:
+            with open(jsonl_file, encoding='utf-8') as f:
                 first_line = f.readline()
 
             if not first_line.strip():
@@ -165,7 +167,7 @@ def detect_agent_type(session_dir: Path) -> AgentType:
             if data.get('type') == 'file-history-snapshot':
                 return 'claude-code'
 
-        except (json.JSONDecodeError, IOError, KeyError):
+        except (json.JSONDecodeError, OSError, KeyError):
             continue
 
     return 'unknown'

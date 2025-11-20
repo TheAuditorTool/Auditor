@@ -3,6 +3,8 @@
 This command reads from the frameworks table populated by 'aud index'.
 It does NOT re-parse manifests - database is the single source of truth.
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -181,7 +183,7 @@ def detect_frameworks(project_path, output_json):
         raise click.ClickException(str(e)) from e
 
 
-def _read_frameworks_from_db(db_path: Path) -> List[Dict]:
+def _read_frameworks_from_db(db_path: Path) -> list[dict]:
     """Read frameworks from database (internal data source).
 
     Args:
@@ -214,7 +216,7 @@ def _read_frameworks_from_db(db_path: Path) -> List[Dict]:
     return frameworks
 
 
-def _write_output(frameworks: List[Dict], project_path: Path, output_json: str):
+def _write_output(frameworks: list[dict], project_path: Path, output_json: str):
     """Write AI-consumable output to consolidated dependency_analysis.
 
     Args:
@@ -230,7 +232,7 @@ def _write_output(frameworks: List[Dict], project_path: Path, output_json: str):
     click.echo(f"[OK] Frameworks analysis saved to {output_path}")
 
 
-def _format_table(frameworks: List[Dict]) -> str:
+def _format_table(frameworks: list[dict]) -> str:
     """Format frameworks as human-readable ASCII table.
 
     Args:

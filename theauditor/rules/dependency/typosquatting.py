@@ -13,6 +13,8 @@ Database Tables Used:
 - package_configs: Declared dependencies
 - import_styles: Imported packages
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -32,7 +34,7 @@ METADATA = RuleMetadata(
 )
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect potential typosquatting in package names.
 
     Args:
@@ -62,7 +64,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _check_declared_packages(cursor) -> List[StandardFinding]:
+def _check_declared_packages(cursor) -> list[StandardFinding]:
     """Check declared dependencies for typosquatting.
 
     Args:
@@ -116,7 +118,7 @@ def _check_declared_packages(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_imported_packages(cursor) -> List[StandardFinding]:
+def _check_imported_packages(cursor) -> list[StandardFinding]:
     """Check imported packages for typosquatting.
 
     Args:

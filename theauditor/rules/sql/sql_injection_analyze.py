@@ -8,6 +8,8 @@ Schema-driven enforcement (v1.3+):
 - No fallback regex patterns
 - No runtime file scanning
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -46,7 +48,7 @@ class SQLInjectionPatterns:
 # RULE: SQL INJECTION DETECTION
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Analyze codebase for SQL injection vulnerabilities.
 
     Detects:
@@ -281,7 +283,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 # AUXILIARY ANALYSIS FUNCTIONS
 # ============================================================================
 
-def check_dynamic_query_construction(context: StandardRuleContext) -> List[StandardFinding]:
+def check_dynamic_query_construction(context: StandardRuleContext) -> list[StandardFinding]:
     """Check for dynamic SQL query construction patterns.
 
     Specifically looks for:

@@ -3,6 +3,8 @@ Snapshot management for planning system.
 
 Handles git-based code snapshots and diffs for tracking implementation progress.
 """
+from __future__ import annotations
+
 
 import subprocess
 import json
@@ -15,7 +17,7 @@ import platform
 IS_WINDOWS = platform.system() == "Windows"
 
 
-def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, task_id: int = None, manager=None) -> Dict:
+def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, task_id: int = None, manager=None) -> dict:
     """
     Create a code snapshot at the current git state.
 
@@ -154,7 +156,7 @@ def create_snapshot(plan_id: int, checkpoint_name: str, repo_root: Path, task_id
     return snapshot_data
 
 
-def load_snapshot(snapshot_id: int, manager) -> Optional[Dict]:
+def load_snapshot(snapshot_id: int, manager) -> dict | None:
     """
     Load a snapshot from the database.
 

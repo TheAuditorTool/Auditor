@@ -1,4 +1,6 @@
 """Universal parser for all manifest file types used in framework detection."""
+from __future__ import annotations
+
 
 import json
 import yaml
@@ -32,7 +34,7 @@ class ManifestParser:
     def parse_json(self, path: Path) -> dict:
         """Parse JSON safely."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Failed to parse JSON {path}: {e}")
@@ -41,7 +43,7 @@ class ManifestParser:
     def parse_yaml(self, path: Path) -> dict:
         """Parse YAML safely."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 return yaml.safe_load(f) or {}
         except (yaml.YAMLError, OSError) as e:
             print(f"Warning: Failed to parse YAML {path}: {e}")
@@ -57,10 +59,10 @@ class ManifestParser:
             print(f"Warning: Failed to parse INI/CFG {path}: {e}")
             return {}
     
-    def parse_requirements_txt(self, path: Path) -> List[str]:
+    def parse_requirements_txt(self, path: Path) -> list[str]:
         """Parse requirements.txt format, returns list of package specs."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 lines = []
                 for line in f:
                     line = line.strip()
@@ -80,7 +82,7 @@ class ManifestParser:
             print(f"Warning: Failed to parse requirements.txt {path}: {e}")
             return []
     
-    def extract_nested_value(self, data: Union[dict, list], key_path: List[str]) -> Any:
+    def extract_nested_value(self, data: dict | list, key_path: list[str]) -> Any:
         """
         Navigate nested dict with key path.
         Handles wildcards (*) for dynamic keys.
@@ -129,7 +131,7 @@ class ManifestParser:
         
         return current
     
-    def check_package_in_deps(self, deps: Any, package_name: str) -> Optional[str]:
+    def check_package_in_deps(self, deps: Any, package_name: str) -> str | None:
         """
         Check if a package exists in dependencies and return its version.
         Handles various dependency formats.

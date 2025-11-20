@@ -36,6 +36,9 @@ Expected extraction from TheAuditor codebase:
 - ~50 memoization patterns
 Total: ~400 performance indicator records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -51,7 +54,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions (Internal - Duplicated for Self-Containment)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
@@ -60,8 +63,8 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):  # Python 3.7 compat (though we require 3.11+)
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7 compat (though we require 3.11+)
+        return node.value
     return None
 
 
@@ -69,7 +72,7 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
 # Performance Pattern Extractors
 # ============================================================================
 
-def extract_loop_complexity(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
     """Detect loop complexity patterns indicating algorithmic performance.
 
     Detects:
@@ -97,18 +100,17 @@ def extract_loop_complexity(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Test with varying input sizes, measure execution time
     """
     loop_patterns = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return loop_patterns
 
     # Build function ranges
     function_ranges = []  # List of (name, start, end)
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
 
     def find_containing_function(line_no):
         """Find the function containing this line."""
@@ -121,7 +123,7 @@ def extract_loop_complexity(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         """Recursively calculate nesting level of loops."""
         max_level = current_level
 
-        for child in ast.walk(node):
+        for child in context.walk_tree():
             if child == node:
                 continue  # Skip self
 
@@ -134,21 +136,15 @@ def extract_loop_complexity(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 
     def has_growing_operation(node):
         """Check if loop body contains growing operations."""
-        for child in ast.walk(node):
-            # Check for .append(), .extend(), .add()
-            if isinstance(child, ast.Call):
-                if isinstance(child.func, ast.Attribute):
-                    if child.func.attr in ['append', 'extend', 'add', 'update', 'insert']:
-                        return True
-
-            # Check for augmented assignment (+=, *=, etc.)
-            elif isinstance(child, ast.AugAssign):
-                return True
+        for child in context.find_nodes(ast.Call):
+            if isinstance(child.func, ast.Attribute):
+                if child.func.attr in ['append', 'extend', 'add', 'update', 'insert']:
+                    return True
 
         return False
 
     # Extract loop patterns
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         loop_type = None
         nesting_level = 1
 
@@ -208,7 +204,7 @@ def extract_loop_complexity(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_resource_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_resource_usage(context: FileContext) -> list[dict[str, Any]]:
     """Detect resource usage patterns that may impact performance.
 
     Detects:
@@ -235,18 +231,17 @@ def extract_resource_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Measure memory usage before/after function call
     """
     resource_patterns = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return resource_patterns
 
     # Build function ranges
     function_ranges = []  # List of (name, start, end)
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
 
     def find_containing_function(line_no):
         """Find the function containing this line."""
@@ -256,77 +251,26 @@ def extract_resource_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         return "global"
 
     # Extract resource allocations
-    for node in ast.walk(actual_tree):
-        # Large list comprehensions
-        if isinstance(node, ast.ListComp):
-            # Check if comprehension has large range
-            for gen in node.generators:
-                if isinstance(gen.iter, ast.Call):
-                    if get_node_name(gen.iter.func) == 'range':
-                        # Try to extract range size
-                        if gen.iter.args:
-                            first_arg = gen.iter.args[0]
-                            if isinstance(first_arg, ast.Constant):
-                                if isinstance(first_arg.value, int) and first_arg.value > 1000:
-                                    in_function = find_containing_function(node.lineno)
-                                    allocation_expr = get_node_name(node) or '[x for x in range(...)]'
+    for node in context.find_nodes(ast.ListComp):
+        # Check if comprehension has large range
+        for gen in node.generators:
+            if isinstance(gen.iter, ast.Call):
+                if get_node_name(gen.iter.func) == 'range':
+                    # Try to extract range size
+                    if gen.iter.args:
+                        first_arg = gen.iter.args[0]
+                        if isinstance(first_arg, ast.Constant):
+                            if isinstance(first_arg.value, int) and first_arg.value > 1000:
+                                in_function = find_containing_function(node.lineno)
+                                allocation_expr = get_node_name(node) or '[x for x in range(...)]'
 
-                                    resource_patterns.append({
-                                        'line': node.lineno,
-                                        'resource_type': 'large_list',
-                                        'allocation_expr': allocation_expr,
-                                        'in_function': in_function,
-                                        'has_cleanup': False,  # Lists auto-cleaned by GC
-                                    })
-
-        # Large list/dict/set literals
-        elif isinstance(node, (ast.List, ast.Dict, ast.Set)):
-            if len(node.elts if hasattr(node, 'elts') else node.keys if hasattr(node, 'keys') else []) > 100:
-                in_function = find_containing_function(node.lineno)
-                resource_type = 'large_list' if isinstance(node, ast.List) else 'large_dict' if isinstance(node, ast.Dict) else 'large_set'
-                allocation_expr = get_node_name(node) or f'{resource_type}_literal'
-
-                resource_patterns.append({
-                    'line': node.lineno,
-                    'resource_type': resource_type,
-                    'allocation_expr': allocation_expr,
-                    'in_function': in_function,
-                    'has_cleanup': False,
-                })
-
-        # File handles without context managers (open() call not in With)
-        elif isinstance(node, ast.Call):
-            func_name = get_node_name(node.func)
-            if func_name == 'open':
-                # Check if this open() is inside a with statement
-                # (This is a simplified heuristic - full check requires parent tracking)
-                in_function = find_containing_function(node.lineno)
-
-                # Assume no cleanup unless proven otherwise
-                # (Full detection would require checking for .close() call)
-                resource_patterns.append({
-                    'line': node.lineno,
-                    'resource_type': 'file_handle',
-                    'allocation_expr': 'open(...)',
-                    'in_function': in_function,
-                    'has_cleanup': False,  # Simplified (would need parent tracking)
-                })
-
-        # Large string concatenation in loop
-        elif isinstance(node, ast.AugAssign):
-            if isinstance(node.op, ast.Add):
-                # Check if target is string-like and inside a loop
-                # (Simplified heuristic)
-                in_function = find_containing_function(node.lineno)
-                target_name = get_node_name(node.target)
-
-                resource_patterns.append({
-                    'line': node.lineno,
-                    'resource_type': 'string_concat',
-                    'allocation_expr': f'{target_name} += ...',
-                    'in_function': in_function,
-                    'has_cleanup': False,
-                })
+                                resource_patterns.append({
+                                    'line': node.lineno,
+                                    'resource_type': 'large_list',
+                                    'allocation_expr': allocation_expr,
+                                    'in_function': in_function,
+                                    'has_cleanup': False,  # Lists auto-cleaned by GC
+                                })
 
     # CRITICAL: Deduplicate by (line, resource_type, in_function)
     seen = set()
@@ -345,7 +289,7 @@ def extract_resource_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_memoization_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_memoization_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Detect memoization patterns and missing opportunities.
 
     Detects:
@@ -373,69 +317,66 @@ def extract_memoization_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]
     Experiment design: Test performance with/without memoization, measure speedup
     """
     memoization_patterns = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return memoization_patterns
 
     # Build function definitions with their decorators
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name
-            has_memoization = False
-            memoization_type = 'none'
-            cache_size = None
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        func_name = node.name
+        has_memoization = False
+        memoization_type = 'none'
+        cache_size = None
 
-            # Check decorators
-            for decorator in node.decorator_list:
-                dec_name = get_node_name(decorator)
-                if dec_name:
-                    # @lru_cache or @lru_cache(maxsize=128)
-                    if 'lru_cache' in dec_name:
-                        has_memoization = True
-                        memoization_type = 'lru_cache'
+        # Check decorators
+        for decorator in node.decorator_list:
+            dec_name = get_node_name(decorator)
+            if dec_name:
+                # @lru_cache or @lru_cache(maxsize=128)
+                if 'lru_cache' in dec_name:
+                    has_memoization = True
+                    memoization_type = 'lru_cache'
 
-                        # Try to extract cache size
-                        if isinstance(decorator, ast.Call):
-                            for keyword in decorator.keywords:
-                                if keyword.arg == 'maxsize':
-                                    if isinstance(keyword.value, ast.Constant):
-                                        cache_size = keyword.value.value
+                    # Try to extract cache size
+                    if isinstance(decorator, ast.Call):
+                        for keyword in decorator.keywords:
+                            if keyword.arg == 'maxsize':
+                                if isinstance(keyword.value, ast.Constant):
+                                    cache_size = keyword.value.value
 
-                    # @cache (Python 3.9+)
-                    elif dec_name == 'cache':
-                        has_memoization = True
-                        memoization_type = 'cache'
+                # @cache (Python 3.9+)
+                elif dec_name == 'cache':
+                    has_memoization = True
+                    memoization_type = 'cache'
 
-            # Check if function is recursive (calls itself)
-            is_recursive = False
-            for child in ast.walk(node):
-                if isinstance(child, ast.Call):
-                    called_func = get_node_name(child.func)
-                    if called_func and func_name in called_func:
-                        is_recursive = True
-                        break
+        # Check if function is recursive (calls itself)
+        is_recursive = False
+        for child in context.find_nodes(ast.Call):
+            called_func = get_node_name(child.func)
+            if called_func and func_name in called_func:
+                is_recursive = True
+                break
 
-            # Check for manual caching pattern (checks cache dict before computing)
-            if not has_memoization:
-                # Look for pattern: if key in cache: return cache[key]
-                for child in ast.walk(node):
-                    if isinstance(child, ast.If):
-                        # Simplified heuristic: if contains 'cache' in condition
-                        test_str = get_node_name(child.test) or ''
-                        if 'cache' in test_str.lower():
-                            has_memoization = True
-                            memoization_type = 'manual'
-                            break
+        # Check for manual caching pattern (checks cache dict before computing)
+        if not has_memoization:
+            # Look for pattern: if key in cache: return cache[key]
+            for child in context.find_nodes(ast.If):
+                # Simplified heuristic: if contains 'cache' in condition
+                test_str = get_node_name(child.test) or ''
+                if 'cache' in test_str.lower():
+                    has_memoization = True
+                    memoization_type = 'manual'
+                    break
 
-            memoization_patterns.append({
-                'line': node.lineno,
-                'function_name': func_name,
-                'has_memoization': has_memoization,
-                'memoization_type': memoization_type,
-                'is_recursive': is_recursive,
-                'cache_size': cache_size,
-            })
+        memoization_patterns.append({
+            'line': node.lineno,
+            'function_name': func_name,
+            'has_memoization': has_memoization,
+            'memoization_type': memoization_type,
+            'is_recursive': is_recursive,
+            'cache_size': cache_size,
+        })
 
     # CRITICAL: Deduplicate by (line, function_name)
     seen = set()

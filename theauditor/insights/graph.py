@@ -8,6 +8,8 @@ IMPORTANT: This module performs interpretation and scoring, which goes beyond
 pure data extraction. It's designed for teams that want actionable insights
 and are willing to accept some subjective analysis.
 """
+from __future__ import annotations
+
 
 from collections import defaultdict
 from typing import Any
@@ -277,9 +279,7 @@ class GraphInsights:
         
         if density > 0.3:
             recommendations.append(
-                "Reduce coupling between modules (current density: {:.2f})".format(
-                    density
-                )
+                f"Reduce coupling between modules (current density: {density:.2f})"
             )
         
         if hotspots and len(hotspots) > 0 and hotspots[0]["in_degree"] > 30:
@@ -352,7 +352,7 @@ class GraphInsights:
             "total": len(cycles),
             "largest": cycles[0]["size"] if cycles else 0,
             "nodes_in_cycles": len(
-                set(node for cycle in cycles for node in cycle["nodes"])
+                {node for cycle in cycles for node in cycle["nodes"]}
             ),
         }
         

@@ -1,4 +1,6 @@
 """Analyze security boundary enforcement across entry points."""
+from __future__ import annotations
+
 
 import sys
 import json

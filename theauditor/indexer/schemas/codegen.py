@@ -22,6 +22,8 @@ Usage:
     accessors = SchemaCodeGenerator.generate_accessor_classes()
     cache = SchemaCodeGenerator.generate_memory_cache()
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Optional, Set, Any
 import textwrap
@@ -319,7 +321,7 @@ class SchemaCodeGenerator:
         return "\n".join(code)
 
     @classmethod
-    def generate_all(cls) -> Dict[str, str]:
+    def generate_all(cls) -> dict[str, str]:
         """Generate all code components.
 
         Returns:

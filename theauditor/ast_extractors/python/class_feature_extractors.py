@@ -37,6 +37,9 @@ Expected extraction from TheAuditor codebase:
 - ~150 visibility patterns
 Total: ~590 advanced class feature records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -51,7 +54,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions
 # ============================================================================
 
-def _build_function_ranges(tree: ast.AST) -> List:
+def _build_function_ranges(tree: ast.AST) -> list:
     """Build list of function ranges for context tracking."""
     function_ranges = []
     for node in ast.walk(tree):
@@ -65,7 +68,7 @@ def _build_function_ranges(tree: ast.AST) -> List:
     return function_ranges
 
 
-def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
+def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     """Find the function containing this node."""
     if not hasattr(node, 'lineno'):
         return 'global'
@@ -93,7 +96,7 @@ CONTEXT_DUNDERS = {'__enter__', '__exit__', '__aenter__', '__aexit__'}
 # Metaclass Extractors
 # ============================================================================
 
-def extract_metaclasses(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_metaclasses(context: FileContext) -> list[dict[str, Any]]:
     """Extract metaclass definitions and usage.
 
     Detects:
@@ -111,38 +114,37 @@ def extract_metaclasses(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     metaclasses = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return metaclasses
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            # Check if class inherits from type (metaclass definition)
-            for base in node.bases:
-                if isinstance(base, ast.Name) and base.id == 'type':
-                    metaclass_data = {
-                        'line': node.lineno,
-                        'class_name': node.name,
-                        'metaclass_name': node.name,  # Self is the metaclass
-                        'is_definition': True,
-                    }
-                    metaclasses.append(metaclass_data)
+    for node in context.find_nodes(ast.ClassDef):
+        # Check if class inherits from type (metaclass definition)
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id == 'type':
+                metaclass_data = {
+                    'line': node.lineno,
+                    'class_name': node.name,
+                    'metaclass_name': node.name,  # Self is the metaclass
+                    'is_definition': True,
+                }
+                metaclasses.append(metaclass_data)
 
-            # Check for metaclass= keyword
-            for keyword in node.keywords:
-                if keyword.arg == 'metaclass':
-                    metaclass_name = 'unknown'
-                    if isinstance(keyword.value, ast.Name):
-                        metaclass_name = keyword.value.id
+        # Check for metaclass= keyword
+        for keyword in node.keywords:
+            if keyword.arg == 'metaclass':
+                metaclass_name = 'unknown'
+                if isinstance(keyword.value, ast.Name):
+                    metaclass_name = keyword.value.id
 
-                    metaclass_data = {
-                        'line': node.lineno,
-                        'class_name': node.name,
-                        'metaclass_name': metaclass_name,
-                        'is_definition': False,
-                    }
-                    metaclasses.append(metaclass_data)
+                metaclass_data = {
+                    'line': node.lineno,
+                    'class_name': node.name,
+                    'metaclass_name': metaclass_name,
+                    'is_definition': False,
+                }
+                metaclasses.append(metaclass_data)
 
     return metaclasses
 
@@ -151,7 +153,7 @@ def extract_metaclasses(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Descriptor Extractors
 # ============================================================================
 
-def extract_descriptors(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_descriptors(context: FileContext) -> list[dict[str, Any]]:
     """Extract descriptor protocol implementations.
 
     Detects classes with __get__, __set__, __delete__ methods.
@@ -168,44 +170,43 @@ def extract_descriptors(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     descriptors = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return descriptors
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            has_get = False
-            has_set = False
-            has_delete = False
+    for node in context.find_nodes(ast.ClassDef):
+        has_get = False
+        has_set = False
+        has_delete = False
 
-            # Check for descriptor protocol methods
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef):
-                    if item.name == '__get__':
-                        has_get = True
-                    elif item.name == '__set__':
-                        has_set = True
-                    elif item.name == '__delete__':
-                        has_delete = True
+        # Check for descriptor protocol methods
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                if item.name == '__get__':
+                    has_get = True
+                elif item.name == '__set__':
+                    has_set = True
+                elif item.name == '__delete__':
+                    has_delete = True
 
-            # Only record if at least __get__ is present
-            if has_get:
-                # Determine descriptor type
-                if has_set or has_delete:
-                    descriptor_type = 'data'  # Data descriptor
-                else:
-                    descriptor_type = 'non-data'  # Non-data descriptor
+        # Only record if at least __get__ is present
+        if has_get:
+            # Determine descriptor type
+            if has_set or has_delete:
+                descriptor_type = 'data'  # Data descriptor
+            else:
+                descriptor_type = 'non-data'  # Non-data descriptor
 
-                descriptor_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'has_get': has_get,
-                    'has_set': has_set,
-                    'has_delete': has_delete,
-                    'descriptor_type': descriptor_type,
-                }
-                descriptors.append(descriptor_data)
+            descriptor_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'has_get': has_get,
+                'has_set': has_set,
+                'has_delete': has_delete,
+                'descriptor_type': descriptor_type,
+            }
+            descriptors.append(descriptor_data)
 
     return descriptors
 
@@ -214,7 +215,7 @@ def extract_descriptors(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Dataclass Extractors
 # ============================================================================
 
-def extract_dataclasses(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_dataclasses(context: FileContext) -> list[dict[str, Any]]:
     """Extract dataclass definitions.
 
     Detects @dataclass decorator usage and field definitions.
@@ -229,43 +230,42 @@ def extract_dataclasses(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     dataclasses = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return dataclasses
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            has_dataclass = False
-            frozen = False
+    for node in context.find_nodes(ast.ClassDef):
+        has_dataclass = False
+        frozen = False
 
-            # Check decorators for @dataclass
-            for decorator in node.decorator_list:
-                if isinstance(decorator, ast.Name) and decorator.id == 'dataclass':
+        # Check decorators for @dataclass
+        for decorator in node.decorator_list:
+            if isinstance(decorator, ast.Name) and decorator.id == 'dataclass':
+                has_dataclass = True
+            elif isinstance(decorator, ast.Call):
+                if isinstance(decorator.func, ast.Name) and decorator.func.id == 'dataclass':
                     has_dataclass = True
-                elif isinstance(decorator, ast.Call):
-                    if isinstance(decorator.func, ast.Name) and decorator.func.id == 'dataclass':
-                        has_dataclass = True
-                        # Check for frozen=True
-                        for keyword in decorator.keywords:
-                            if keyword.arg == 'frozen':
-                                if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
-                                    frozen = True
+                    # Check for frozen=True
+                    for keyword in decorator.keywords:
+                        if keyword.arg == 'frozen':
+                            if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
+                                frozen = True
 
-            if has_dataclass:
-                # Count fields (annotated attributes)
-                field_count = 0
-                for item in node.body:
-                    if isinstance(item, ast.AnnAssign):
-                        field_count += 1
+        if has_dataclass:
+            # Count fields (annotated attributes)
+            field_count = 0
+            for item in node.body:
+                if isinstance(item, ast.AnnAssign):
+                    field_count += 1
 
-                dataclass_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'frozen': frozen,
-                    'field_count': field_count,
-                }
-                dataclasses.append(dataclass_data)
+            dataclass_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'frozen': frozen,
+                'field_count': field_count,
+            }
+            dataclasses.append(dataclass_data)
 
     return dataclasses
 
@@ -274,7 +274,7 @@ def extract_dataclasses(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Enum Extractors
 # ============================================================================
 
-def extract_enums(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_enums(context: FileContext) -> list[dict[str, Any]]:
     """Extract Enum class definitions.
 
     Detects classes inheriting from Enum and their members.
@@ -289,38 +289,37 @@ def extract_enums(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     enums = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return enums
 
     enum_types = {'Enum', 'IntEnum', 'Flag', 'IntFlag', 'StrEnum'}
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            enum_type = None
+    for node in context.find_nodes(ast.ClassDef):
+        enum_type = None
 
-            # Check if inherits from Enum
-            for base in node.bases:
-                if isinstance(base, ast.Name) and base.id in enum_types:
-                    enum_type = base.id
-                elif isinstance(base, ast.Attribute) and base.attr in enum_types:
-                    enum_type = base.attr
+        # Check if inherits from Enum
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id in enum_types:
+                enum_type = base.id
+            elif isinstance(base, ast.Attribute) and base.attr in enum_types:
+                enum_type = base.attr
 
-            if enum_type:
-                # Count enum members (assignments)
-                member_count = 0
-                for item in node.body:
-                    if isinstance(item, ast.Assign):
-                        member_count += len(item.targets)
+        if enum_type:
+            # Count enum members (assignments)
+            member_count = 0
+            for item in node.body:
+                if isinstance(item, ast.Assign):
+                    member_count += len(item.targets)
 
-                enum_data = {
-                    'line': node.lineno,
-                    'enum_name': node.name,
-                    'enum_type': enum_type,
-                    'member_count': member_count,
-                }
-                enums.append(enum_data)
+            enum_data = {
+                'line': node.lineno,
+                'enum_name': node.name,
+                'enum_type': enum_type,
+                'member_count': member_count,
+            }
+            enums.append(enum_data)
 
     return enums
 
@@ -329,7 +328,7 @@ def extract_enums(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Slots Extractors
 # ============================================================================
 
-def extract_slots(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_slots(context: FileContext) -> list[dict[str, Any]]:
     """Extract __slots__ usage.
 
     Detects classes using __slots__ for memory optimization.
@@ -343,28 +342,27 @@ def extract_slots(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     slots = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return slots
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            for item in node.body:
-                if isinstance(item, ast.Assign):
-                    for target in item.targets:
-                        if isinstance(target, ast.Name) and target.id == '__slots__':
-                            # Count slots
-                            slot_count = 0
-                            if isinstance(item.value, (ast.List, ast.Tuple)):
-                                slot_count = len(item.value.elts)
+    for node in context.find_nodes(ast.ClassDef):
+        for item in node.body:
+            if isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name) and target.id == '__slots__':
+                        # Count slots
+                        slot_count = 0
+                        if isinstance(item.value, (ast.List, ast.Tuple)):
+                            slot_count = len(item.value.elts)
 
-                            slots_data = {
-                                'line': item.lineno,
-                                'class_name': node.name,
-                                'slot_count': slot_count,
-                            }
-                            slots.append(slots_data)
+                        slots_data = {
+                            'line': item.lineno,
+                            'class_name': node.name,
+                            'slot_count': slot_count,
+                        }
+                        slots.append(slots_data)
 
     return slots
 
@@ -373,7 +371,7 @@ def extract_slots(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Abstract Base Class Extractors
 # ============================================================================
 
-def extract_abstract_classes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_abstract_classes(context: FileContext) -> list[dict[str, Any]]:
     """Extract abstract base classes (ABC) and abstract methods.
 
     Detects classes using ABC or @abstractmethod decorators.
@@ -387,34 +385,33 @@ def extract_abstract_classes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     abstract_classes = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return abstract_classes
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            # Check if inherits from ABC
-            inherits_abc = False
-            for base in node.bases:
-                if isinstance(base, ast.Name) and base.id in ('ABC', 'ABCMeta'):
-                    inherits_abc = True
+    for node in context.find_nodes(ast.ClassDef):
+        # Check if inherits from ABC
+        inherits_abc = False
+        for base in node.bases:
+            if isinstance(base, ast.Name) and base.id in ('ABC', 'ABCMeta'):
+                inherits_abc = True
 
-            # Count abstract methods
-            abstract_method_count = 0
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef):
-                    for decorator in item.decorator_list:
-                        if isinstance(decorator, ast.Name) and decorator.id == 'abstractmethod':
-                            abstract_method_count += 1
+        # Count abstract methods
+        abstract_method_count = 0
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                for decorator in item.decorator_list:
+                    if isinstance(decorator, ast.Name) and decorator.id == 'abstractmethod':
+                        abstract_method_count += 1
 
-            if inherits_abc or abstract_method_count > 0:
-                abc_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'abstract_method_count': abstract_method_count,
-                }
-                abstract_classes.append(abc_data)
+        if inherits_abc or abstract_method_count > 0:
+            abc_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'abstract_method_count': abstract_method_count,
+            }
+            abstract_classes.append(abc_data)
 
     return abstract_classes
 
@@ -423,7 +420,7 @@ def extract_abstract_classes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Method Type Extractors
 # ============================================================================
 
-def extract_method_types(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_method_types(context: FileContext) -> list[dict[str, Any]]:
     """Extract method types (@classmethod, @staticmethod, instance methods).
 
     Returns:
@@ -436,32 +433,31 @@ def extract_method_types(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     method_types = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return method_types
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef):
-                    method_type = 'instance'  # Default
+    for node in context.find_nodes(ast.ClassDef):
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                method_type = 'instance'  # Default
 
-                    # Check decorators
-                    for decorator in item.decorator_list:
-                        if isinstance(decorator, ast.Name):
-                            if decorator.id == 'classmethod':
-                                method_type = 'class'
-                            elif decorator.id == 'staticmethod':
-                                method_type = 'static'
+                # Check decorators
+                for decorator in item.decorator_list:
+                    if isinstance(decorator, ast.Name):
+                        if decorator.id == 'classmethod':
+                            method_type = 'class'
+                        elif decorator.id == 'staticmethod':
+                            method_type = 'static'
 
-                    method_data = {
-                        'line': item.lineno,
-                        'method_name': item.name,
-                        'method_type': method_type,
-                        'in_class': node.name,
-                    }
-                    method_types.append(method_data)
+                method_data = {
+                    'line': item.lineno,
+                    'method_name': item.name,
+                    'method_type': method_type,
+                    'in_class': node.name,
+                }
+                method_types.append(method_data)
 
     return method_types
 
@@ -470,7 +466,7 @@ def extract_method_types(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Multiple Inheritance Extractors
 # ============================================================================
 
-def extract_multiple_inheritance(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_multiple_inheritance(context: FileContext) -> list[dict[str, Any]]:
     """Extract multiple inheritance patterns.
 
     Detects classes with more than one base class.
@@ -485,29 +481,28 @@ def extract_multiple_inheritance(tree: Dict, parser_self) -> List[Dict[str, Any]
         }
     """
     multi_inheritance = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return multi_inheritance
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            if len(node.bases) > 1:
-                # Get base class names
-                base_names = []
-                for base in node.bases:
-                    if isinstance(base, ast.Name):
-                        base_names.append(base.id)
-                    elif isinstance(base, ast.Attribute):
-                        base_names.append(base.attr)
+    for node in context.find_nodes(ast.ClassDef):
+        if len(node.bases) > 1:
+            # Get base class names
+            base_names = []
+            for base in node.bases:
+                if isinstance(base, ast.Name):
+                    base_names.append(base.id)
+                elif isinstance(base, ast.Attribute):
+                    base_names.append(base.attr)
 
-                inheritance_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'base_count': len(node.bases),
-                    'base_classes': ', '.join(base_names),
-                }
-                multi_inheritance.append(inheritance_data)
+            inheritance_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'base_count': len(node.bases),
+                'base_classes': ', '.join(base_names),
+            }
+            multi_inheritance.append(inheritance_data)
 
     return multi_inheritance
 
@@ -516,7 +511,7 @@ def extract_multiple_inheritance(tree: Dict, parser_self) -> List[Dict[str, Any]
 # Dunder Method Extractors
 # ============================================================================
 
-def extract_dunder_methods(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_dunder_methods(context: FileContext) -> list[dict[str, Any]]:
     """Extract dunder (magic) method definitions.
 
     Categorizes dunder methods by purpose.
@@ -531,9 +526,9 @@ def extract_dunder_methods(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     dunder_methods = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return dunder_methods
 
     def categorize_dunder(name):
@@ -557,18 +552,17 @@ def extract_dunder_methods(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         else:
             return 'other'
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef):
-                    if item.name.startswith('__') and item.name.endswith('__'):
-                        dunder_data = {
-                            'line': item.lineno,
-                            'method_name': item.name,
-                            'category': categorize_dunder(item.name),
-                            'in_class': node.name,
-                        }
-                        dunder_methods.append(dunder_data)
+    for node in context.find_nodes(ast.ClassDef):
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef):
+                if item.name.startswith('__') and item.name.endswith('__'):
+                    dunder_data = {
+                        'line': item.lineno,
+                        'method_name': item.name,
+                        'category': categorize_dunder(item.name),
+                        'in_class': node.name,
+                    }
+                    dunder_methods.append(dunder_data)
 
     return dunder_methods
 
@@ -577,7 +571,7 @@ def extract_dunder_methods(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Visibility Convention Extractors
 # ============================================================================
 
-def extract_visibility_conventions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_visibility_conventions(context: FileContext) -> list[dict[str, Any]]:
     """Extract naming conventions for visibility (_private, __name_mangling).
 
     Returns:
@@ -591,46 +585,45 @@ def extract_visibility_conventions(tree: Dict, parser_self) -> List[Dict[str, An
         }
     """
     visibility = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return visibility
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            # Check methods and attributes
-            for item in node.body:
-                name = None
-                line = None
+    for node in context.find_nodes(ast.ClassDef):
+        # Check methods and attributes
+        for item in node.body:
+            name = None
+            line = None
 
-                if isinstance(item, ast.FunctionDef):
-                    name = item.name
-                    line = item.lineno
-                elif isinstance(item, ast.Assign):
-                    for target in item.targets:
-                        if isinstance(target, ast.Name):
-                            name = target.id
-                            line = item.lineno
+            if isinstance(item, ast.FunctionDef):
+                name = item.name
+                line = item.lineno
+            elif isinstance(item, ast.Assign):
+                for target in item.targets:
+                    if isinstance(target, ast.Name):
+                        name = target.id
+                        line = item.lineno
 
-                if name and not (name.startswith('__') and name.endswith('__')):
-                    # Determine visibility
-                    if name.startswith('__'):
-                        vis = 'private'
-                        is_mangled = True
-                    elif name.startswith('_'):
-                        vis = 'protected'
-                        is_mangled = False
-                    else:
-                        vis = 'public'
-                        is_mangled = False
+            if name and not (name.startswith('__') and name.endswith('__')):
+                # Determine visibility
+                if name.startswith('__'):
+                    vis = 'private'
+                    is_mangled = True
+                elif name.startswith('_'):
+                    vis = 'protected'
+                    is_mangled = False
+                else:
+                    vis = 'public'
+                    is_mangled = False
 
-                    visibility_data = {
-                        'line': line,
-                        'name': name,
-                        'visibility': vis,
-                        'is_name_mangled': is_mangled,
-                        'in_class': node.name,
-                    }
-                    visibility.append(visibility_data)
+                visibility_data = {
+                    'line': line,
+                    'name': name,
+                    'visibility': vis,
+                    'is_name_mangled': is_mangled,
+                    'in_class': node.name,
+                }
+                visibility.append(visibility_data)
 
     return visibility

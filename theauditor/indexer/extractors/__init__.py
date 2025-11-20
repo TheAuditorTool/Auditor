@@ -19,6 +19,8 @@ FORBIDDEN:
 - Regex-based SQL query extraction in code files (use AST to find db.execute() calls)
 - Regex-based JWT extraction (use AST via function_calls data)
 """
+from __future__ import annotations
+
 
 import os
 import re
@@ -48,7 +50,7 @@ class BaseExtractor(ABC):
     - Pattern quality: Only include patterns with low false positive rates
     """
 
-    def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
+    def __init__(self, root_path: Path, ast_parser: Any | None = None):
         """Initialize the extractor.
 
         Args:
@@ -59,7 +61,7 @@ class BaseExtractor(ABC):
         self.ast_parser = ast_parser
 
     @abstractmethod
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports.
 
         Returns:
@@ -68,8 +70,8 @@ class BaseExtractor(ABC):
         pass
 
     @abstractmethod
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract all relevant information from a file.
 
         Args:
@@ -88,7 +90,7 @@ class BaseExtractor(ABC):
     # (Python, JavaScript) should use AST instead of calling these methods.
     # =========================================================================
 
-    def extract_routes(self, content: str) -> List[Tuple[str, str]]:
+    def extract_routes(self, content: str) -> list[tuple[str, str]]:
         """Extract route definitions from file content.
 
         Routes are inherently string-based in all frameworks:
@@ -116,7 +118,7 @@ class BaseExtractor(ABC):
                 routes.append((method, path))
         return routes
 
-    def extract_sql_objects(self, content: str) -> List[Tuple[str, str]]:
+    def extract_sql_objects(self, content: str) -> list[tuple[str, str]]:
         """Extract SQL object definitions from .sql files.
 
         This method detects DDL statements (CREATE TABLE, CREATE INDEX, etc.)
@@ -188,7 +190,7 @@ class ExtractorRegistry:
     - No hardcoded mapping - pure discovery pattern
     """
 
-    def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
+    def __init__(self, root_path: Path, ast_parser: Any | None = None):
         """Initialize the registry and discover extractors.
 
         Args:
@@ -241,7 +243,7 @@ class ExtractorRegistry:
                     print(f"Debug: Failed to load extractor {module_name}: {e}")
                 continue
 
-    def get_extractor(self, file_path: str, file_extension: str) -> Optional[BaseExtractor]:
+    def get_extractor(self, file_path: str, file_extension: str) -> BaseExtractor | None:
         """Get the appropriate extractor for a file.
 
         Args:
@@ -264,7 +266,7 @@ class ExtractorRegistry:
 
         return extractor
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Get list of all supported file extensions.
 
         Returns:

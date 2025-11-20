@@ -17,6 +17,8 @@ CWE Coverage:
 - CWE-521: Weak Password Requirements
 - CWE-598: Use of GET Request Method With Sensitive Query Strings
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -130,7 +132,7 @@ URL_FUNCTION_KEYWORDS = frozenset([
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_password_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_password_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect password security vulnerabilities.
 
     This is a database-first rule following the gold standard pattern.
@@ -179,7 +181,7 @@ def find_password_issues(context: StandardRuleContext) -> List[StandardFinding]:
 # CHECK 1: Weak Password Hashing
 # ============================================================================
 
-def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
+def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
     """Detect weak hash algorithms used for passwords.
 
     MD5 and SHA1 are broken for password hashing - fast to brute force
@@ -281,7 +283,7 @@ def _check_weak_password_hashing(cursor) -> List[StandardFinding]:
 # CHECK 2: Hardcoded Passwords
 # ============================================================================
 
-def _check_hardcoded_passwords(cursor) -> List[StandardFinding]:
+def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
     """Detect hardcoded passwords in source code.
 
     Hardcoded passwords are a critical security risk as they:
@@ -361,7 +363,7 @@ def _check_hardcoded_passwords(cursor) -> List[StandardFinding]:
 # CHECK 3: Weak Password Complexity Enforcement
 # ============================================================================
 
-def _check_weak_complexity(cursor) -> List[StandardFinding]:
+def _check_weak_complexity(cursor) -> list[StandardFinding]:
     """Detect lack of password complexity enforcement.
 
     Strong passwords should enforce:
@@ -446,7 +448,7 @@ def _check_weak_complexity(cursor) -> List[StandardFinding]:
 # CHECK 4: Password in GET Request Parameters
 # ============================================================================
 
-def _check_password_in_url(cursor) -> List[StandardFinding]:
+def _check_password_in_url(cursor) -> list[StandardFinding]:
     """Detect passwords in GET request parameters.
 
     Passwords in URLs are logged in:

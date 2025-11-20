@@ -2620,7 +2620,7 @@ PYTHON_EXEC_EVAL_COMPILE = TableSchema(
 # PYTHON TABLES REGISTRY
 # ============================================================================
 
-PYTHON_TABLES: Dict[str, TableSchema] = {
+PYTHON_TABLES: dict[str, TableSchema] = {
     # Basic Python (Phase 1)
     "python_orm_models": PYTHON_ORM_MODELS,
     "python_orm_fields": PYTHON_ORM_FIELDS,

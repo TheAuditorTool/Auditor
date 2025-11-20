@@ -42,6 +42,9 @@ Expected extraction from TheAuditor codebase:
 - ~100 string formatting patterns
 Total: ~1,100 fundamental pattern records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -56,7 +59,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions (Internal)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
@@ -65,8 +68,8 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):  # Python 3.7 compat (though we require 3.11+)
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7 compat (though we require 3.11+)
+        return node.value
     return None
 
 
@@ -101,7 +104,7 @@ def _get_node_text(node: ast.AST) -> str:
         return "<unknown>"
 
 
-def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
+def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     """Find the function containing this node.
 
     Args:
@@ -121,7 +124,7 @@ def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
     return 'global'
 
 
-def _build_function_ranges(tree: ast.AST) -> List:
+def _build_function_ranges(tree: ast.AST) -> list:
     """Build list of function ranges for context tracking.
 
     Returns:
@@ -139,8 +142,8 @@ def _build_function_ranges(tree: ast.AST) -> List:
     return function_ranges
 
 
-def _detect_closure_captures(lambda_node: ast.Lambda, function_ranges: List,
-                             all_nodes: List[ast.AST]) -> List[str]:
+def _detect_closure_captures(lambda_node: ast.Lambda, function_ranges: list,
+                             all_nodes: list[ast.AST]) -> list[str]:
     """Detect variables captured from outer scope in lambda.
 
     Args:
@@ -179,7 +182,7 @@ def _detect_closure_captures(lambda_node: ast.Lambda, function_ranges: List,
 # Comprehension Extractors
 # ============================================================================
 
-def extract_comprehensions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
     """Extract all comprehension types from Python code.
 
     Detects:
@@ -214,18 +217,18 @@ def extract_comprehensions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Enables curriculum: Chapter 9 - Comprehensions and generators
     """
     comprehensions = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return comprehensions
 
     # Build function ranges for context
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     def calculate_nesting_level(comp_node):
         """Calculate comprehension nesting depth."""
         level = 1
-        for child in ast.walk(comp_node):
+        for child in context.walk_tree():
             if child == comp_node:
                 continue
             if isinstance(child, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
@@ -234,7 +237,7 @@ def extract_comprehensions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         return level
 
     # Walk AST to find comprehensions
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         comp_data = None
 
         if isinstance(node, ast.ListComp):
@@ -319,7 +322,7 @@ def extract_comprehensions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Lambda Function Extractors
 # ============================================================================
 
-def extract_lambda_functions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
     """Extract lambda function definitions with closure detection.
 
     Detects:
@@ -348,13 +351,13 @@ def extract_lambda_functions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Enables curriculum: Chapter 8 - Lambda functions and closures
     """
     lambda_functions = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return lambda_functions
 
-    function_ranges = _build_function_ranges(actual_tree)
-    all_nodes = list(ast.walk(actual_tree))
+    function_ranges = context.function_ranges
+    all_nodes = list(ast.walk(context.tree))
 
     # Find all lambda nodes
     for node in all_nodes:
@@ -422,7 +425,7 @@ def extract_lambda_functions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Slice Operation Extractors
 # ============================================================================
 
-def extract_slice_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_slice_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract slice operations (start:stop:step patterns).
 
     Detects:
@@ -448,27 +451,26 @@ def extract_slice_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     slices = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return slices
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Subscript):
-            # Check if it's a slice (not just subscript like list[0])
-            if isinstance(node.slice, ast.Slice):
-                slice_data = {
-                    'line': node.lineno,
-                    'target': _get_node_text(node.value),
-                    'has_start': node.slice.lower is not None,
-                    'has_stop': node.slice.upper is not None,
-                    'has_step': node.slice.step is not None,
-                    'is_assignment': isinstance(node.ctx, ast.Store),
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                slices.append(slice_data)
+    for node in context.find_nodes(ast.Subscript):
+        # Check if it's a slice (not just subscript like list[0])
+        if isinstance(node.slice, ast.Slice):
+            slice_data = {
+                'line': node.lineno,
+                'target': _get_node_text(node.value),
+                'has_start': node.slice.lower is not None,
+                'has_stop': node.slice.upper is not None,
+                'has_step': node.slice.step is not None,
+                'is_assignment': isinstance(node.ctx, ast.Store),
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            slices.append(slice_data)
 
     return slices
 
@@ -477,7 +479,7 @@ def extract_slice_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Tuple Operation Extractors
 # ============================================================================
 
-def extract_tuple_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_tuple_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract tuple pack/unpack operations.
 
     Detects:
@@ -499,33 +501,32 @@ def extract_tuple_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     tuple_ops = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return tuple_ops
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Tuple):
-            element_count = len(node.elts)
+    for node in context.find_nodes(ast.Tuple):
+        element_count = len(node.elts)
 
-            # Determine operation type based on context
-            if isinstance(node.ctx, ast.Store):
-                operation = 'unpack'  # Target of assignment
-            elif isinstance(node.ctx, ast.Load):
-                # Could be literal or pack - check parent
-                operation = 'literal'  # Default to literal
-            else:
-                operation = 'pack'
+        # Determine operation type based on context
+        if isinstance(node.ctx, ast.Store):
+            operation = 'unpack'  # Target of assignment
+        elif isinstance(node.ctx, ast.Load):
+            # Could be literal or pack - check parent
+            operation = 'literal'  # Default to literal
+        else:
+            operation = 'pack'
 
-            tuple_data = {
-                'line': node.lineno,
-                'operation': operation,
-                'element_count': element_count,
-                'in_function': _find_containing_function(node, function_ranges),
-            }
-            tuple_ops.append(tuple_data)
+        tuple_data = {
+            'line': node.lineno,
+            'operation': operation,
+            'element_count': element_count,
+            'in_function': _find_containing_function(node, function_ranges),
+        }
+        tuple_ops.append(tuple_data)
 
     return tuple_ops
 
@@ -534,7 +535,7 @@ def extract_tuple_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Unpacking Pattern Extractors
 # ============================================================================
 
-def extract_unpacking_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_unpacking_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract extended unpacking patterns (a, *rest, b = ...).
 
     Detects:
@@ -557,12 +558,12 @@ def extract_unpacking_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     unpacking = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return unpacking
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     def has_starred(node):
         """Check if unpacking has *rest pattern."""
@@ -583,32 +584,31 @@ def extract_unpacking_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                     return True
         return False
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Assign):
-            # Check targets for unpacking patterns
-            for target in node.targets:
-                if isinstance(target, (ast.Tuple, ast.List)):
-                    # Count target variables
-                    target_count = len(target.elts)
+    for node in context.find_nodes(ast.Assign):
+        # Check targets for unpacking patterns
+        for target in node.targets:
+            if isinstance(target, (ast.Tuple, ast.List)):
+                # Count target variables
+                target_count = len(target.elts)
 
-                    # Determine unpacking type
-                    if is_nested(target):
-                        unpack_type = 'nested'
-                    elif has_starred(target):
-                        unpack_type = 'extended'
-                    elif isinstance(target, ast.List):
-                        unpack_type = 'list'
-                    else:
-                        unpack_type = 'tuple'
+                # Determine unpacking type
+                if is_nested(target):
+                    unpack_type = 'nested'
+                elif has_starred(target):
+                    unpack_type = 'extended'
+                elif isinstance(target, ast.List):
+                    unpack_type = 'list'
+                else:
+                    unpack_type = 'tuple'
 
-                    unpacking_data = {
-                        'line': node.lineno,
-                        'unpack_type': unpack_type,
-                        'target_count': target_count,
-                        'has_rest': has_starred(target),
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    unpacking.append(unpacking_data)
+                unpacking_data = {
+                    'line': node.lineno,
+                    'unpack_type': unpack_type,
+                    'target_count': target_count,
+                    'has_rest': has_starred(target),
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                unpacking.append(unpacking_data)
 
     return unpacking
 
@@ -617,7 +617,7 @@ def extract_unpacking_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # None Pattern Extractors
 # ============================================================================
 
-def extract_none_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_none_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract None handling patterns (is None vs == None).
 
     Detects:
@@ -641,61 +641,24 @@ def extract_none_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     none_patterns = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return none_patterns
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        # None checks (is None or == None)
-        if isinstance(node, ast.Compare):
-            for i, op in enumerate(node.ops):
-                comparator = node.comparators[i]
-                if isinstance(comparator, ast.Constant) and comparator.value is None:
-                    none_data = {
-                        'line': node.lineno,
-                        'pattern': 'is_none_check',
-                        'uses_is': isinstance(op, (ast.Is, ast.IsNot)),
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    none_patterns.append(none_data)
-
-        # None assignments
-        elif isinstance(node, ast.Assign):
-            if isinstance(node.value, ast.Constant) and node.value.value is None:
+    for node in context.find_nodes(ast.Compare):
+        for i, op in enumerate(node.ops):
+            comparator = node.comparators[i]
+            if isinstance(comparator, ast.Constant) and comparator.value is None:
                 none_data = {
                     'line': node.lineno,
-                    'pattern': 'none_assignment',
-                    'uses_is': True,  # N/A for assignments
+                    'pattern': 'is_none_check',
+                    'uses_is': isinstance(op, (ast.Is, ast.IsNot)),
                     'in_function': _find_containing_function(node, function_ranges),
                 }
                 none_patterns.append(none_data)
-
-        # None returns
-        elif isinstance(node, ast.Return):
-            if node.value is None or (isinstance(node.value, ast.Constant) and node.value.value is None):
-                none_data = {
-                    'line': node.lineno,
-                    'pattern': 'none_return',
-                    'uses_is': True,  # N/A for returns
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                none_patterns.append(none_data)
-
-        # None defaults in function parameters
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.args.defaults:
-                for default in node.args.defaults:
-                    if isinstance(default, ast.Constant) and default.value is None:
-                        none_data = {
-                            'line': node.lineno,
-                            'pattern': 'none_default',
-                            'uses_is': True,  # N/A for defaults
-                            'in_function': node.name,
-                        }
-                        none_patterns.append(none_data)
 
     return none_patterns
 
@@ -704,7 +667,7 @@ def extract_none_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Truthiness Pattern Extractors
 # ============================================================================
 
-def extract_truthiness_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract truthiness patterns (implicit bool conversion).
 
     Detects:
@@ -726,47 +689,24 @@ def extract_truthiness_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     truthiness = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return truthiness
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        # Implicit bool in if/while statements
-        if isinstance(node, (ast.If, ast.While)):
-            # Check if condition is not already a comparison
-            if not isinstance(node.test, (ast.Compare, ast.UnaryOp)):
-                if not isinstance(node.test, ast.BoolOp):  # Skip 'and'/'or' here
-                    truthiness_data = {
-                        'line': node.lineno,
-                        'pattern': 'implicit_bool',
-                        'expression': _get_node_text(node.test),
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    truthiness.append(truthiness_data)
-
-        # Explicit bool() calls
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name) and node.func.id == 'bool':
+    for node in context.find_nodes((ast.If, ast.While)):
+        # Check if condition is not already a comparison
+        if not isinstance(node.test, (ast.Compare, ast.UnaryOp)):
+            if not isinstance(node.test, ast.BoolOp):  # Skip 'and'/'or' here
                 truthiness_data = {
                     'line': node.lineno,
-                    'pattern': 'explicit_bool',
-                    'expression': _get_node_text(node.args[0]) if node.args else '',
+                    'pattern': 'implicit_bool',
+                    'expression': _get_node_text(node.test),
                     'in_function': _find_containing_function(node, function_ranges),
                 }
                 truthiness.append(truthiness_data)
-
-        # Short circuit evaluation (and/or)
-        elif isinstance(node, ast.BoolOp):
-            truthiness_data = {
-                'line': node.lineno,
-                'pattern': 'short_circuit',
-                'expression': _get_node_text(node),
-                'in_function': _find_containing_function(node, function_ranges),
-            }
-            truthiness.append(truthiness_data)
 
     return truthiness
 
@@ -775,7 +715,7 @@ def extract_truthiness_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # String Formatting Extractors
 # ============================================================================
 
-def extract_string_formatting(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_string_formatting(context: FileContext) -> list[dict[str, Any]]:
     """Extract string formatting patterns (f-strings, %, format()).
 
     Detects:
@@ -799,77 +739,31 @@ def extract_string_formatting(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     formatting = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return formatting
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        # F-strings (JoinedStr in Python 3.6+)
-        if isinstance(node, ast.JoinedStr):
-            # Count FormattedValue nodes (interpolations)
-            var_count = sum(1 for part in node.values if isinstance(part, ast.FormattedValue))
+    for node in context.find_nodes(ast.JoinedStr):
+        # Count FormattedValue nodes (interpolations)
+        var_count = sum(1 for part in node.values if isinstance(part, ast.FormattedValue))
 
-            # Check if any have complex expressions (not just variable names)
-            has_expressions = False
-            for part in node.values:
-                if isinstance(part, ast.FormattedValue):
-                    if not isinstance(part.value, ast.Name):
-                        has_expressions = True
+        # Check if any have complex expressions (not just variable names)
+        has_expressions = False
+        for part in node.values:
+            if isinstance(part, ast.FormattedValue):
+                if not isinstance(part.value, ast.Name):
+                    has_expressions = True
 
-            formatting_data = {
-                'line': node.lineno,
-                'format_type': 'f_string',
-                'has_expressions': has_expressions,
-                'var_count': var_count,
-                'in_function': _find_containing_function(node, function_ranges),
-            }
-            formatting.append(formatting_data)
-
-        # %-formatting (BinOp with Mod)
-        elif isinstance(node, ast.BinOp):
-            if isinstance(node.op, ast.Mod):
-                # Check if left side is a string
-                if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
-                    # Count % placeholders in string
-                    format_str = node.left.value
-                    var_count = format_str.count('%s') + format_str.count('%d') + format_str.count('%f')
-
-                    formatting_data = {
-                        'line': node.lineno,
-                        'format_type': 'percent',
-                        'has_expressions': False,  # %-formatting doesn't support expressions
-                        'var_count': var_count,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    formatting.append(formatting_data)
-
-        # .format() method
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute) and node.func.attr == 'format':
-                # Count number of arguments passed to format()
-                var_count = len(node.args) + len(node.keywords)
-
-                formatting_data = {
-                    'line': node.lineno,
-                    'format_type': 'format_method',
-                    'has_expressions': False,  # .format() gets values, not expressions
-                    'var_count': var_count,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                formatting.append(formatting_data)
-
-            # Template strings (string.Template)
-            elif isinstance(node.func, ast.Attribute) and node.func.attr == 'Template':
-                formatting_data = {
-                    'line': node.lineno,
-                    'format_type': 'template',
-                    'has_expressions': False,
-                    'var_count': 0,  # Can't easily count from AST
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                formatting.append(formatting_data)
+        formatting_data = {
+            'line': node.lineno,
+            'format_type': 'f_string',
+            'has_expressions': has_expressions,
+            'var_count': var_count,
+            'in_function': _find_containing_function(node, function_ranges),
+        }
+        formatting.append(formatting_data)
 
     return formatting

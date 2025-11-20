@@ -4,6 +4,8 @@ This module provides a custom temporary directory solution that avoids
 WSL2/Windows permission issues by creating temp files within the project's
 .auditor_venv directory instead of system temp.
 """
+from __future__ import annotations
+
 
 import os
 import shutil
@@ -31,7 +33,7 @@ class TempManager:
         return temp_dir
     
     @staticmethod
-    def create_temp_file(root_path: str, suffix: str = ".txt", prefix: str = "tmp") -> Tuple[Path, int]:
+    def create_temp_file(root_path: str, suffix: str = ".txt", prefix: str = "tmp") -> tuple[Path, int]:
         """Create a temporary file in project temp directory.
         
         Args:
@@ -92,7 +94,7 @@ class TempManager:
             return False
     
     @staticmethod
-    def create_temp_files_for_subprocess(root_path: str, tool_name: str = "process") -> Tuple[Path, Path]:
+    def create_temp_files_for_subprocess(root_path: str, tool_name: str = "process") -> tuple[Path, Path]:
         """Create stdout and stderr temp files for subprocess capture.
         
         Args:

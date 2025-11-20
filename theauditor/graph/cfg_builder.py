@@ -7,6 +7,8 @@ during the indexing phase. It provides analysis capabilities including:
 - Dead code detection
 - Loop detection
 """
+from __future__ import annotations
+
 
 import sqlite3
 from pathlib import Path
@@ -32,7 +34,7 @@ class CFGBuilder:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
 
-    def load_file_cfgs(self, file_path: str) -> Dict[str, Dict[str, Any]]:
+    def load_file_cfgs(self, file_path: str) -> dict[str, dict[str, Any]]:
         """Batch load ALL CFG data for a file with exactly 2 queries.
 
         This is the 2025 batch processing pattern that eliminates N+1 queries.
@@ -100,7 +102,7 @@ class CFGBuilder:
 
         return results
 
-    def get_function_cfg(self, file_path: str, function_name: str) -> Dict[str, Any]:
+    def get_function_cfg(self, file_path: str, function_name: str) -> dict[str, Any]:
         """Get control flow graph for a specific function.
         
         Args:
@@ -170,7 +172,7 @@ class CFGBuilder:
             'metrics': self._calculate_metrics(blocks, edges)
         }
     
-    def get_all_functions(self, file_path: Optional[str] = None) -> List[Dict[str, str]]:
+    def get_all_functions(self, file_path: str | None = None) -> list[dict[str, str]]:
         """Get list of all functions with CFG data.
         
         Args:
@@ -205,8 +207,8 @@ class CFGBuilder:
         
         return functions
     
-    def analyze_complexity(self, file_path: Optional[str] = None,
-                          threshold: int = 10) -> List[Dict[str, Any]]:
+    def analyze_complexity(self, file_path: str | None = None,
+                          threshold: int = 10) -> list[dict[str, Any]]:
         """Find functions with high cyclomatic complexity.
 
         [2025 BATCH PROCESSING] Uses load_file_cfgs to eliminate N+1 queries.
@@ -261,7 +263,7 @@ class CFGBuilder:
         complex_functions.sort(key=lambda x: x['complexity'], reverse=True)
         return complex_functions
     
-    def find_dead_code(self, file_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    def find_dead_code(self, file_path: str | None = None) -> list[dict[str, Any]]:
         """Find unreachable code blocks.
 
         [2025 BATCH PROCESSING] Uses load_file_cfgs to eliminate N+1 queries.
@@ -306,7 +308,7 @@ class CFGBuilder:
 
         return dead_blocks
     
-    def _calculate_metrics(self, blocks: List[Dict], edges: List[Dict]) -> Dict[str, Any]:
+    def _calculate_metrics(self, blocks: list[dict], edges: list[dict]) -> dict[str, Any]:
         """Calculate CFG metrics.
         
         Args:
@@ -338,7 +340,7 @@ class CFGBuilder:
             'edge_count': len(edges)
         }
     
-    def _find_unreachable_blocks(self, blocks: List[Dict], edges: List[Dict]) -> Set[int]:
+    def _find_unreachable_blocks(self, blocks: list[dict], edges: list[dict]) -> set[int]:
         """Find blocks that cannot be reached from entry.
         
         Args:
@@ -374,7 +376,7 @@ class CFGBuilder:
         
         return unreachable
     
-    def _calculate_max_nesting(self, blocks: List[Dict], edges: List[Dict]) -> int:
+    def _calculate_max_nesting(self, blocks: list[dict], edges: list[dict]) -> int:
         """Calculate maximum nesting depth in the CFG.
         
         Args:
@@ -426,7 +428,7 @@ class CFGBuilder:
         return max_depth
     
     def get_execution_paths(self, file_path: str, function_name: str, 
-                           max_paths: int = 100) -> List[List[int]]:
+                           max_paths: int = 100) -> list[list[int]]:
         """Get all execution paths through a function.
         
         Args:

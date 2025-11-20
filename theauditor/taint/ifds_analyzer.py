@@ -21,8 +21,9 @@ This captures the full call chain: route → middleware → controller → servi
 
 Performance: O(CallD³ + 2ED²) - h-sparse IFDS (page 10, Table 3)
 """
+from __future__ import annotations
 
-from __future__ import annotations  # Defer evaluation of type annotations
+
 import sqlite3
 import sys
 from pathlib import Path
@@ -67,10 +68,10 @@ class IFDSTaintAnalyzer:
         self.registry = registry
 
         # Function summaries: (func_name, file) -> {param_path: [return_paths]}
-        self.summaries: Dict[Tuple[str, str], Dict[str, Set[str]]] = {}
+        self.summaries: dict[tuple[str, str], dict[str, set[str]]] = {}
 
         # Visited nodes for cycle detection
-        self.visited: Set[Tuple[str, str]] = set()
+        self.visited: set[tuple[str, str]] = set()
 
         self.max_depth = 10  # 10-hop max
         self.max_paths_per_sink = 100
@@ -88,8 +89,8 @@ class IFDSTaintAnalyzer:
         # Initialize shared sanitizer registry
         self.sanitizer_registry = SanitizerRegistry(self.repo_cursor, self.registry, debug=self.debug)
 
-    def analyze_sink_to_sources(self, sink: Dict, sources: List[Dict],
-                                max_depth: int = 10) -> Tuple[List['TaintPath'], List['TaintPath']]:
+    def analyze_sink_to_sources(self, sink: dict, sources: list[dict],
+                                max_depth: int = 10) -> tuple[list[TaintPath], list[TaintPath]]:
         """Find all taint paths from sink to sources using IFDS backward analysis.
 
         PHASE 6.1 CHANGE (Goal B - Full Provenance):
@@ -136,8 +137,8 @@ class IFDSTaintAnalyzer:
 
         return (vulnerable, sanitized)
 
-    def _trace_backward_to_any_source(self, sink: Dict, source_aps: List[Tuple[Dict, AccessPath]],
-                                      max_depth: int) -> Tuple[List['TaintPath'], List['TaintPath']]:
+    def _trace_backward_to_any_source(self, sink: dict, source_aps: list[tuple[dict, AccessPath]],
+                                      max_depth: int) -> tuple[list[TaintPath], list[TaintPath]]:
         """Backward trace from sink, checking if ANY source is reachable.
 
         PHASE 6.1 CHANGE (Goal B - Full Provenance):
@@ -178,7 +179,7 @@ class IFDSTaintAnalyzer:
         # Worklist: (current_ap, depth, hop_chain, matched_source)
         # PHASE 6.1: Added matched_source to track which source (if any) this path reached
         worklist = deque([(sink_ap, 0, [], None)])
-        visited_states: Set[str] = set()  # ARCHITECTURAL FIX: Only node_id, no depth
+        visited_states: set[str] = set()  # ARCHITECTURAL FIX: Only node_id, no depth
         iteration = 0
 
         while worklist and (len(vulnerable_paths) + len(sanitized_paths)) < self.max_paths_per_sink:
@@ -309,7 +310,7 @@ class IFDSTaintAnalyzer:
         return (vulnerable_paths, sanitized_paths)
 
 
-    def _get_predecessors(self, ap: AccessPath) -> List[Tuple[AccessPath, str, Dict]]:
+    def _get_predecessors(self, ap: AccessPath) -> list[tuple[AccessPath, str, dict]]:
         """Get all access paths that flow into this access path.
 
         BIDIRECTIONAL TRAVERSAL: Uses reverse edges for backward analysis.
@@ -462,7 +463,7 @@ class IFDSTaintAnalyzer:
 
         return False
 
-    def _dict_to_access_path(self, node_dict: Dict) -> Optional[AccessPath]:
+    def _dict_to_access_path(self, node_dict: dict) -> AccessPath | None:
         """Convert source/sink dict to AccessPath.
 
         Args:
@@ -512,8 +513,8 @@ class IFDSTaintAnalyzer:
         row = self.repo_cursor.fetchone()
         return row['name'] if row else "global"
 
-    def _build_taint_path(self, source: Dict, sink: Dict,
-                         hop_chain: List[Dict]):  # Return type removed to avoid circular import
+    def _build_taint_path(self, source: dict, sink: dict,
+                         hop_chain: list[dict]):  # Return type removed to avoid circular import
         """Build TaintPath object from hop chain.
 
         Args:

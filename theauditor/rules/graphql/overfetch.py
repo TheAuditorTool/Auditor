@@ -3,6 +3,8 @@
 Detects resolvers fetching sensitive DB fields not exposed in GraphQL schema.
 Uses orm_queries + graphql_fields comparison. NO regex fallbacks.
 """
+from __future__ import annotations
+
 
 import sqlite3
 

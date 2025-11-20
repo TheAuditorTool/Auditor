@@ -39,6 +39,9 @@ Expected extraction from TheAuditor codebase:
 - ~10 dynamic attribute patterns
 Total: ~430 behavioral pattern records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -54,7 +57,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions (Internal - Duplicated for Self-Containment)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
@@ -63,8 +66,8 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):  # Python 3.7 compat (though we require 3.11+)
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7 compat (though we require 3.11+)
+        return node.value
     return None
 
 
@@ -72,7 +75,7 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
 # Behavioral Pattern Extractors
 # ============================================================================
 
-def extract_recursion_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Detect recursion patterns including direct, mutual, and tail recursion.
 
     Detects:
@@ -100,9 +103,9 @@ def extract_recursion_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Call X with known input, verify recursive behavior and termination
     """
     recursion_patterns = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return recursion_patterns
 
     # Build map of function definitions and their call sites
@@ -110,25 +113,23 @@ def extract_recursion_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     function_calls = {}  # function_name → [(line, called_function)]
 
     # First pass: collect all function definitions
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name
-            is_async = isinstance(node, ast.AsyncFunctionDef)
-            function_definitions[func_name] = (node, is_async)
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        func_name = node.name
+        is_async = isinstance(node, ast.AsyncFunctionDef)
+        function_definitions[func_name] = (node, is_async)
 
     # Second pass: find all function calls within each function
     for func_name, (func_node, is_async) in function_definitions.items():
         calls_in_function = []
 
         # Walk the function body to find calls
-        for child in ast.walk(func_node):
-            if isinstance(child, ast.Call):
-                called_func = get_node_name(child.func)
-                if called_func:
-                    # Extract simple function name (strip module paths)
-                    if '.' in called_func:
-                        called_func = called_func.split('.')[-1]
-                    calls_in_function.append((child.lineno, called_func))
+        for child in context.find_nodes(ast.Call):
+            called_func = get_node_name(child.func)
+            if called_func:
+                # Extract simple function name (strip module paths)
+                if '.' in called_func:
+                    called_func = called_func.split('.')[-1]
+                calls_in_function.append((child.lineno, called_func))
 
         function_calls[func_name] = calls_in_function
 
@@ -144,28 +145,26 @@ def extract_recursion_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
             is_tail = False
 
             # Find Return nodes in function
-            for return_node in ast.walk(func_node):
-                if isinstance(return_node, ast.Return):
-                    if return_node.value and isinstance(return_node.value, ast.Call):
-                        # Check if return calls the same function
-                        returned_func = get_node_name(return_node.value.func)
-                        if returned_func and func_name in returned_func:
-                            is_tail = True
-                            break
+            for return_node in context.find_nodes(ast.Return):
+                if return_node.value and isinstance(return_node.value, ast.Call):
+                    # Check if return calls the same function
+                    returned_func = get_node_name(return_node.value.func)
+                    if returned_func and func_name in returned_func:
+                        is_tail = True
+                        break
 
             recursion_type = 'tail' if is_tail else 'direct'
 
             # Try to find base case (if/elif with return or raise)
             base_case_line = None
-            for child in ast.walk(func_node):
-                if isinstance(child, ast.If):
-                    # Check if if body has return (potential base case)
-                    for stmt in child.body:
-                        if isinstance(stmt, ast.Return):
-                            base_case_line = child.lineno
-                            break
-                    if base_case_line:
+            for child in context.find_nodes(ast.If):
+                # Check if if body has return (potential base case)
+                for stmt in child.body:
+                    if isinstance(stmt, ast.Return):
+                        base_case_line = child.lineno
                         break
+                if base_case_line:
+                    break
 
             recursion_patterns.append({
                 'line': call_line,
@@ -227,7 +226,7 @@ def extract_recursion_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_generator_yields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
     """Extract generator yield patterns (ENHANCED from core_extractors.py).
 
     NOTE: core_extractors.py:998-1097 already extracts basic generators.
@@ -261,24 +260,18 @@ def extract_generator_yields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Iterate generator, verify yield conditions and values
     """
     yields = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return yields
 
     # Build function ranges and loop ranges
     function_ranges = []  # List of (name, start, end)
     loop_ranges = []  # List of (start, end)
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
-
-        # Track loop ranges
-        elif isinstance(node, (ast.For, ast.While, ast.AsyncFor)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                loop_ranges.append((node.lineno, node.end_lineno or node.lineno))
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
 
     def find_containing_function(line_no):
         """Find the function containing this line."""
@@ -295,42 +288,22 @@ def extract_generator_yields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         return False
 
     # Extract yield expressions
-    for node in ast.walk(actual_tree):
-        # Yield expression
-        if isinstance(node, ast.Yield):
-            generator_function = find_containing_function(node.lineno)
-            if generator_function == "global":
-                continue  # Yield outside function (syntax error, skip)
+    for node in context.find_nodes(ast.Yield):
+        generator_function = find_containing_function(node.lineno)
+        if generator_function == "global":
+            continue  # Yield outside function (syntax error, skip)
 
-            yield_expr = get_node_name(node.value) if node.value else None
-            in_loop = is_in_loop(node.lineno)
+        yield_expr = get_node_name(node.value) if node.value else None
+        in_loop = is_in_loop(node.lineno)
 
-            yields.append({
-                'line': node.lineno,
-                'generator_function': generator_function,
-                'yield_type': 'yield',
-                'yield_expr': yield_expr,
-                'condition': None,  # TODO: Detect parent If node (requires parent tracking)
-                'in_loop': in_loop,
-            })
-
-        # Yield from expression
-        elif isinstance(node, ast.YieldFrom):
-            generator_function = find_containing_function(node.lineno)
-            if generator_function == "global":
-                continue
-
-            yield_expr = get_node_name(node.value) if node.value else None
-            in_loop = is_in_loop(node.lineno)
-
-            yields.append({
-                'line': node.lineno,
-                'generator_function': generator_function,
-                'yield_type': 'yield_from',
-                'yield_expr': yield_expr,
-                'condition': None,
-                'in_loop': in_loop,
-            })
+        yields.append({
+            'line': node.lineno,
+            'generator_function': generator_function,
+            'yield_type': 'yield',
+            'yield_expr': yield_expr,
+            'condition': None,  # TODO: Detect parent If node (requires parent tracking)
+            'in_loop': in_loop,
+        })
 
     # CRITICAL: Deduplicate by (line, generator_function, yield_type)
     seen = set()
@@ -349,7 +322,7 @@ def extract_generator_yields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_property_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract property patterns including computed properties and validated setters.
 
     Detects:
@@ -377,18 +350,17 @@ def extract_property_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Access property, verify computation occurs vs simple attribute return
     """
     properties = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return properties
 
     # Build class ranges
     class_ranges = {}  # class_name → (start, end)
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+    for node in context.find_nodes(ast.ClassDef):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
 
     def find_containing_class(line_no):
         """Find the class containing this line."""
@@ -398,82 +370,79 @@ def extract_property_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         return None
 
     # Extract property decorators
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.FunctionDef):
-            # Check for @property decorator
-            is_property_getter = False
-            is_property_setter = False
-            is_property_deleter = False
+    for node in context.find_nodes(ast.FunctionDef):
+        # Check for @property decorator
+        is_property_getter = False
+        is_property_setter = False
+        is_property_deleter = False
 
-            for decorator in node.decorator_list:
-                dec_name = get_node_name(decorator)
-                if dec_name:
-                    if dec_name == 'property':
-                        is_property_getter = True
-                    elif '.setter' in dec_name:
-                        is_property_setter = True
-                    elif '.deleter' in dec_name:
-                        is_property_deleter = True
+        for decorator in node.decorator_list:
+            dec_name = get_node_name(decorator)
+            if dec_name:
+                if dec_name == 'property':
+                    is_property_getter = True
+                elif '.setter' in dec_name:
+                    is_property_setter = True
+                elif '.deleter' in dec_name:
+                    is_property_deleter = True
 
-            if not (is_property_getter or is_property_setter or is_property_deleter):
-                continue
+        if not (is_property_getter or is_property_setter or is_property_deleter):
+            continue
 
-            property_name = node.name
-            in_class = find_containing_class(node.lineno)
+        property_name = node.name
+        in_class = find_containing_class(node.lineno)
 
-            if not in_class:
-                continue  # Property must be in a class
+        if not in_class:
+            continue  # Property must be in a class
 
-            # Analyze getter for computation
-            has_computation = False
-            if is_property_getter:
-                # Check if getter just returns self._property (simple)
-                # vs has computation (complex)
-                for child in ast.walk(node):
-                    if isinstance(child, ast.Return):
-                        if child.value:
-                            # Simple return: return self._x
-                            if isinstance(child.value, ast.Attribute):
-                                if isinstance(child.value.value, ast.Name) and child.value.value.id == 'self':
-                                    # Check if returned attribute is just _property_name
-                                    if child.value.attr == f"_{property_name}":
-                                        has_computation = False
-                                    else:
-                                        has_computation = True
-                            # Any other return expression = computation
-                            elif isinstance(child.value, (ast.BinOp, ast.Call, ast.Compare, ast.IfExp)):
+        # Analyze getter for computation
+        has_computation = False
+        if is_property_getter:
+            # Check if getter just returns self._property (simple)
+            # vs has computation (complex)
+            for child in context.find_nodes(ast.Return):
+                if child.value:
+                    # Simple return: return self._x
+                    if isinstance(child.value, ast.Attribute):
+                        if isinstance(child.value.value, ast.Name) and child.value.value.id == 'self':
+                            # Check if returned attribute is just _property_name
+                            if child.value.attr == f"_{property_name}":
+                                has_computation = False
+                            else:
                                 has_computation = True
+                    # Any other return expression = computation
+                    elif isinstance(child.value, (ast.BinOp, ast.Call, ast.Compare, ast.IfExp)):
+                        has_computation = True
 
-            # Analyze setter for validation
-            has_validation = False
-            if is_property_setter:
-                # Check for validation (if statement with raise)
-                for child in ast.walk(node):
-                    if isinstance(child, ast.If):
-                        # Check if if body has raise
-                        for stmt in child.body:
-                            if isinstance(stmt, ast.Raise):
-                                has_validation = True
-                                break
-                        if has_validation:
-                            break
+        # Analyze setter for validation
+        has_validation = False
+        if is_property_setter:
+            # Check for validation (if statement with raise)
+            for child in context.find_nodes(ast.If):
+                # Check if if body has raise
+                for stmt in child.body:
+                    if isinstance(stmt, ast.Raise):
+                        has_validation = True
+                        break
+                if has_validation:
+                    break
 
-            # Determine access type
-            if is_property_getter:
-                access_type = 'getter'
-            elif is_property_setter:
-                access_type = 'setter'
-            else:
-                access_type = 'deleter'
+        # Determine access type
+        if is_property_getter:
+            access_type = 'getter'
+        elif is_property_setter:
+            access_type = 'setter'
+        else:
+            access_type = 'deleter'
 
-            properties.append({
-                'line': node.lineno,
-                'property_name': property_name,
-                'access_type': access_type,
-                'in_class': in_class,
-                'has_computation': has_computation,
-                'has_validation': has_validation,
-            })
+        properties.append({
+            'line': node.lineno,
+            'property_name': property_name,
+            'access_type': access_type,
+            'in_class': in_class,
+            'has_computation': has_computation,
+            'has_validation': has_validation,
+        })
 
     # CRITICAL: Deduplicate by (line, property_name, access_type)
     seen = set()
@@ -492,7 +461,7 @@ def extract_property_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_dynamic_attributes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
     """Extract dynamic attribute access patterns (__getattr__, __setattr__, __getattribute__).
 
     Detects:
@@ -519,18 +488,17 @@ def extract_dynamic_attributes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Access/set attributes on instance, verify interception occurs
     """
     dynamic_attrs = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return dynamic_attrs
 
     # Build class ranges
     class_ranges = {}  # class_name → (start, end)
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+    for node in context.find_nodes(ast.ClassDef):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
 
     def find_containing_class(line_no):
         """Find the class containing this line."""
@@ -543,44 +511,41 @@ def extract_dynamic_attributes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     DYNAMIC_METHODS = {'__getattr__', '__setattr__', '__getattribute__', '__delattr__'}
 
     # Extract dynamic attribute methods
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.FunctionDef):
-            if node.name not in DYNAMIC_METHODS:
-                continue
+    for node in context.find_nodes(ast.FunctionDef):
+        if node.name not in DYNAMIC_METHODS:
+            continue
 
-            in_class = find_containing_class(node.lineno)
-            if not in_class:
-                continue  # Must be in a class
+        in_class = find_containing_class(node.lineno)
+        if not in_class:
+            continue  # Must be in a class
 
-            # Analyze for delegation pattern (accessing self._data or similar)
-            has_delegation = False
-            for child in ast.walk(node):
-                if isinstance(child, ast.Attribute):
-                    if isinstance(child.value, ast.Name) and child.value.id == 'self':
-                        # Check for self._data, self._attrs, etc.
-                        if child.attr.startswith('_'):
-                            has_delegation = True
-                            break
+        # Analyze for delegation pattern (accessing self._data or similar)
+        has_delegation = False
+        for child in context.find_nodes(ast.Attribute):
+            if isinstance(child.value, ast.Name) and child.value.id == 'self':
+                # Check for self._data, self._attrs, etc.
+                if child.attr.startswith('_'):
+                    has_delegation = True
+                    break
 
-            # Analyze for validation (if/raise in setattr)
-            has_validation = False
-            if node.name == '__setattr__':
-                for child in ast.walk(node):
-                    if isinstance(child, ast.If):
-                        for stmt in child.body:
-                            if isinstance(stmt, ast.Raise):
-                                has_validation = True
-                                break
-                        if has_validation:
-                            break
+        # Analyze for validation (if/raise in setattr)
+        has_validation = False
+        if node.name == '__setattr__':
+            for child in context.find_nodes(ast.If):
+                for stmt in child.body:
+                    if isinstance(stmt, ast.Raise):
+                        has_validation = True
+                        break
+                if has_validation:
+                    break
 
-            dynamic_attrs.append({
-                'line': node.lineno,
-                'method_name': node.name,
-                'in_class': in_class,
-                'has_delegation': has_delegation,
-                'has_validation': has_validation,
-            })
+        dynamic_attrs.append({
+            'line': node.lineno,
+            'method_name': node.name,
+            'in_class': in_class,
+            'has_delegation': has_delegation,
+            'has_validation': has_validation,
+        })
 
     # CRITICAL: Deduplicate by (line, method_name, in_class)
     seen = set()

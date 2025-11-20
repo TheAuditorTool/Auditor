@@ -760,9 +760,12 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
 
         # Check for list comprehension: [x for x in ast.walk(...)]
         elif isinstance(node.value, cst.ListComp):
-            for comp_for in node.value.for_in:
+            # for_in is a single CompFor object, not a sequence
+            # Walk the chain of CompFor objects for nested comprehensions
+            current_comp = node.value.for_in
+            while current_comp is not None:
                 if m.matches(
-                    comp_for.iter,
+                    current_comp.iter,
                     m.Call(
                         func=m.Attribute(
                             value=m.Name("ast"),
@@ -772,6 +775,8 @@ class ASTModernizerTransformer(m.MatcherDecoratableTransformer):
                 ):
                     contains_ast_walk = True
                     break
+                # Move to next nested comprehension level (if any)
+                current_comp = current_comp.inner_for_in
 
         # If we found ast.walk(), track the assigned variable(s)
         if contains_ast_walk:

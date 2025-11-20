@@ -145,7 +145,7 @@ def rate_limit(key, limit, window=60):
 # Critical task with monitoring
 @app.task(base=BaseTaskWithRetry, bind=True, name='tasks.critical_task')
 @with_lock('critical_task')
-def critical_task(self, data: Dict[str, Any]) -> Dict[str, Any]:
+def critical_task(self, data: dict[str, Any]) -> dict[str, Any]:
     """Critical task that must not fail."""
     try:
         # Simulate critical processing
@@ -170,7 +170,7 @@ def critical_task(self, data: Dict[str, Any]) -> Dict[str, Any]:
 # Data pipeline tasks
 @app.task(name='tasks.data_pipeline_extract')
 @rate_limit('pipeline:extract', limit=100, window=60)
-def data_pipeline_extract(source: str, batch_size: int = 1000) -> List[Dict]:
+def data_pipeline_extract(source: str, batch_size: int = 1000) -> list[dict]:
     """Extract data from source."""
     logger.info(f"Extracting from {source} with batch size {batch_size}")
 
@@ -189,7 +189,7 @@ def data_pipeline_extract(source: str, batch_size: int = 1000) -> List[Dict]:
 
 
 @app.task(name='tasks.data_pipeline_transform')
-def data_pipeline_transform(data: List[Dict]) -> List[Dict]:
+def data_pipeline_transform(data: list[dict]) -> list[dict]:
     """Transform extracted data."""
     logger.info(f"Transforming {len(data)} records")
 
@@ -209,7 +209,7 @@ def data_pipeline_transform(data: List[Dict]) -> List[Dict]:
 
 
 @app.task(name='tasks.data_pipeline_validate')
-def data_pipeline_validate(data: List[Dict]) -> tuple:
+def data_pipeline_validate(data: list[dict]) -> tuple:
     """Validate transformed data."""
     logger.info(f"Validating {len(data)} records")
 
@@ -229,7 +229,7 @@ def data_pipeline_validate(data: List[Dict]) -> tuple:
 
 
 @app.task(name='tasks.data_pipeline_load')
-def data_pipeline_load(data: List[Dict], destination: str) -> Dict:
+def data_pipeline_load(data: list[dict], destination: str) -> dict:
     """Load data to destination."""
     logger.info(f"Loading {len(data)} records to {destination}")
 
@@ -244,7 +244,7 @@ def data_pipeline_load(data: List[Dict], destination: str) -> Dict:
 
 
 @app.task(name='tasks.data_pipeline_orchestrator')
-def data_pipeline_orchestrator(sources: List[str], destination: str) -> Dict:
+def data_pipeline_orchestrator(sources: list[str], destination: str) -> dict:
     """Orchestrate entire data pipeline with parallel processing."""
 
     # Create workflow with groups and chains
@@ -292,7 +292,7 @@ def ml_preprocess(data_id: str) -> np.ndarray:
 
 
 @app.task(name='tasks.ml_train_model')
-def ml_train_model(data: List, model_type: str) -> Dict:
+def ml_train_model(data: list, model_type: str) -> dict:
     """Train ML model on preprocessed data."""
     logger.info(f"Training {model_type} model")
 
@@ -317,7 +317,7 @@ def ml_train_model(data: List, model_type: str) -> Dict:
 
 
 @app.task(name='tasks.ml_evaluate')
-def ml_evaluate(model_results: List[Dict]) -> Dict:
+def ml_evaluate(model_results: list[dict]) -> dict:
     """Evaluate and select best model."""
     logger.info(f"Evaluating {len(model_results)} models")
 
@@ -332,7 +332,7 @@ def ml_evaluate(model_results: List[Dict]) -> Dict:
 
 
 @app.task(name='tasks.ml_pipeline')
-def ml_pipeline(data_id: str, model_types: List[str]) -> Dict:
+def ml_pipeline(data_id: str, model_types: list[str]) -> dict:
     """Complete ML pipeline with chord pattern."""
 
     # Preprocess data
@@ -355,7 +355,7 @@ def ml_pipeline(data_id: str, model_types: List[str]) -> Dict:
 
 # Periodic task with beat scheduler
 @app.task(name='tasks.cleanup_old_records')
-def cleanup_old_records() -> Dict:
+def cleanup_old_records() -> dict:
     """Periodic cleanup task."""
     cutoff_date = datetime.now() - timedelta(days=30)
     logger.info(f"Cleaning records older than {cutoff_date}")
@@ -394,7 +394,7 @@ app.conf.beat_schedule = {
 
 # Complex workflow with error handling
 @app.task(bind=True, name='tasks.complex_workflow')
-def complex_workflow(self, order_id: str) -> Dict:
+def complex_workflow(self, order_id: str) -> dict:
     """Complex workflow with conditional logic and error handling."""
 
     try:
@@ -483,7 +483,7 @@ def validate_order(order_id: str) -> bool:
 
 
 @app.task(name='tasks.check_inventory')
-def check_inventory(order_id: str) -> Dict:
+def check_inventory(order_id: str) -> dict:
     """Check inventory availability."""
     return {
         'available': random.choice([True, False]),
@@ -492,7 +492,7 @@ def check_inventory(order_id: str) -> Dict:
 
 
 @app.task(name='tasks.calculate_shipping')
-def calculate_shipping(order_id: str) -> Dict:
+def calculate_shipping(order_id: str) -> dict:
     """Calculate shipping costs."""
     return {
         'cost': random.uniform(5, 50),
@@ -501,7 +501,7 @@ def calculate_shipping(order_id: str) -> Dict:
 
 
 @app.task(name='tasks.apply_discounts')
-def apply_discounts(order_id: str) -> Dict:
+def apply_discounts(order_id: str) -> dict:
     """Apply applicable discounts."""
     return {
         'discount_amount': random.uniform(0, 20),
@@ -510,7 +510,7 @@ def apply_discounts(order_id: str) -> Dict:
 
 
 @app.task(name='tasks.process_payment')
-def process_payment(order_id: str) -> Dict:
+def process_payment(order_id: str) -> dict:
     """Process payment."""
     success = random.choice([True, True, True, False])  # 75% success rate
     return {
@@ -565,7 +565,7 @@ def send_alert(subject: str, message: str) -> None:
 
 
 # Canvas patterns examples
-def create_map_reduce_workflow(data_chunks: List[List], reducer_func):
+def create_map_reduce_workflow(data_chunks: list[list], reducer_func):
     """Create map-reduce pattern with Celery canvas."""
 
     # Map phase: process each chunk in parallel
@@ -582,20 +582,20 @@ def create_map_reduce_workflow(data_chunks: List[List], reducer_func):
 
 
 @app.task
-def process_chunk(chunk: List) -> Any:
+def process_chunk(chunk: list) -> Any:
     """Process a single data chunk."""
     return sum(chunk)  # Example processing
 
 
 @app.task
-def combine_results(results: List) -> Any:
+def combine_results(results: list) -> Any:
     """Combine results from map phase."""
     return sum(results)  # Example reduction
 
 
 # Priority queue task
 @app.task(name='tasks.priority_task', queue='critical', priority=10)
-def priority_task(data: Dict) -> Dict:
+def priority_task(data: dict) -> dict:
     """High priority task."""
     logger.info(f"Processing priority task with data: {data}")
     return {'status': 'completed', 'priority': 'high'}

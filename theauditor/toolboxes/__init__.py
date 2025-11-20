@@ -3,6 +3,8 @@
 Toolboxes handle detection and installation of language-specific analysis tools.
 Each toolbox implements the LanguageToolbox interface.
 """
+from __future__ import annotations
+
 
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -26,7 +28,7 @@ class LanguageToolbox(ABC):
         pass
 
     @abstractmethod
-    def install(self, force: bool = False) -> Dict[str, Any]:
+    def install(self, force: bool = False) -> dict[str, Any]:
         """
         Install language toolchain to sandbox.
 

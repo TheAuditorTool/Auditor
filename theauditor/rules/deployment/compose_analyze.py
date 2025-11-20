@@ -22,6 +22,8 @@ Detects 11 security issues:
 
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -184,7 +186,7 @@ ROOT_USER_IDS = frozenset(['root', '0', 'UID 0'])
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_compose_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_compose_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Docker Compose security misconfigurations using indexed data.
 
     Analyzes compose_services table for:
@@ -239,7 +241,7 @@ def find_compose_issues(context: StandardRuleContext) -> List[StandardFinding]:
 # SERVICE ANALYSIS
 # ============================================================================
 
-def analyze_service(row: tuple) -> List[StandardFinding]:
+def analyze_service(row: tuple) -> list[StandardFinding]:
     """Analyze a single Docker Compose service for security issues.
 
     Args:
@@ -469,7 +471,7 @@ def analyze_service(row: tuple) -> List[StandardFinding]:
     return findings
 
 
-def check_port_exposure(file_path: str, service_name: str, port_mapping: str) -> List[StandardFinding]:
+def check_port_exposure(file_path: str, service_name: str, port_mapping: str) -> list[StandardFinding]:
     """Check if sensitive ports are exposed externally.
 
     Args:
@@ -531,7 +533,7 @@ def check_port_exposure(file_path: str, service_name: str, port_mapping: str) ->
     return findings
 
 
-def check_image_security(file_path: str, service_name: str, image: str) -> List[StandardFinding]:
+def check_image_security(file_path: str, service_name: str, image: str) -> list[StandardFinding]:
     """Check Docker image for security issues.
 
     Args:

@@ -1,9 +1,11 @@
 """Analyze Claude Code session interactions."""
+from __future__ import annotations
+
 
 import click
 import json
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.session.parser import SessionParser, load_session
@@ -134,7 +136,7 @@ def report(project_path, db_path, limit, show_findings):
 
     # Sort by most recent first
     all_sessions.sort(
-        key=lambda s: s.assistant_messages[0].datetime if s.assistant_messages else datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda s: s.assistant_messages[0].datetime if s.assistant_messages else datetime.min.replace(tzinfo=UTC),
         reverse=True
     )
 

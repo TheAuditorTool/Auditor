@@ -9,6 +9,8 @@ Follows schema contract architecture (v1.1+):
 - Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -102,7 +104,7 @@ class FlaskPatterns:
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Flask security misconfigurations.
 
     Analyzes database for:
@@ -140,13 +142,13 @@ class FlaskAnalyzer:
     def __init__(self, context: StandardRuleContext):
         self.context = context
         self.patterns = FlaskPatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
 
         # Track Flask-specific data
-        self.flask_files: List[str] = []
+        self.flask_files: list[str] = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete Flask analysis."""
         # Load Flask data from database
         if not self._load_flask_data():

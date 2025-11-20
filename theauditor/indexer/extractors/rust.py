@@ -15,6 +15,8 @@ LSP code preserved in:
 - theauditor/lsp/rust_analyzer_client.py
 - theauditor/toolboxes/rust.py
 """
+from __future__ import annotations
+
 
 import logging
 from pathlib import Path
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 class RustExtractor(BaseExtractor):
     """Extractor for Rust files using tree-sitter AST parser."""
 
-    def __init__(self, root_path: Path, ast_parser: Optional[Any] = None):
+    def __init__(self, root_path: Path, ast_parser: Any | None = None):
         """Initialize the Rust extractor.
 
         Args:
@@ -62,12 +64,12 @@ class RustExtractor(BaseExtractor):
             )
             raise
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.rs']
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract all relevant information from a Rust file.
 
         Args:

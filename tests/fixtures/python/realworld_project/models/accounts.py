@@ -1,6 +1,5 @@
 """Account and profile models with rich relationship metadata."""
 
-from __future__ import annotations
 
 from datetime import datetime
 

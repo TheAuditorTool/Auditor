@@ -7,6 +7,8 @@ Schema Contract:
     All queries use build_query() for schema compliance.
     Table existence is guaranteed by schema contract - no checks needed.
 """
+from __future__ import annotations
+
 
 import os
 import sys
@@ -33,12 +35,12 @@ class InterProceduralEffect:
     """
     return_tainted: bool = False
     # Maps parameter name to its final state ('sanitized', 'tainted', 'unmodified')
-    param_effects: Dict[str, str] = field(default_factory=dict)
+    param_effects: dict[str, str] = field(default_factory=dict)
     # NEW: Tracks which params directly taint the return value
-    passthrough_taint: Dict[str, bool] = field(default_factory=dict)  # param_name -> taints_return
-    side_effects: List[str] = field(default_factory=list)  # e.g., ["writes_to_db", "sends_response"]
+    passthrough_taint: dict[str, bool] = field(default_factory=dict)  # param_name -> taints_return
+    side_effects: list[str] = field(default_factory=list)  # e.g., ["writes_to_db", "sends_response"]
     
-    def merge_conservative(self, other: 'InterProceduralEffect') -> 'InterProceduralEffect':
+    def merge_conservative(self, other: InterProceduralEffect) -> InterProceduralEffect:
         """Merge two effects conservatively for dynamic dispatch."""
         merged = InterProceduralEffect()
         
@@ -80,7 +82,7 @@ class InterProceduralCFGAnalyzer:
     across function calls, including pass-by-reference modifications.
     """
 
-    def __init__(self, cursor: sqlite3.Cursor, cache: Optional['MemoryCache'] = None) -> None:
+    def __init__(self, cursor: sqlite3.Cursor, cache: MemoryCache | None = None) -> None:
         """Initialize inter-procedural CFG analyzer.
 
         Args:
@@ -100,8 +102,8 @@ class InterProceduralCFGAnalyzer:
         caller_func: str,
         callee_file: str,
         callee_func: str,
-        args_mapping: Dict[str, str],  # caller_var -> callee_param
-        taint_state: Dict[str, bool]   # var -> is_tainted
+        args_mapping: dict[str, str],  # caller_var -> callee_param
+        taint_state: dict[str, bool]   # var -> is_tainted
     ) -> InterProceduralEffect:
         """
         Analyze a function call with full CFG context.
@@ -166,9 +168,9 @@ class InterProceduralCFGAnalyzer:
     def handle_dynamic_dispatch(
         self,
         call_expr: str,
-        context: Dict[str, Any],
-        args_mapping: Dict[str, str],
-        taint_state: Dict[str, bool]
+        context: dict[str, Any],
+        args_mapping: dict[str, str],
+        taint_state: dict[str, bool]
     ) -> InterProceduralEffect:
         """
         Resolve function pointers and dynamic dispatch.
@@ -218,7 +220,7 @@ class InterProceduralCFGAnalyzer:
     # PHASE 5: DATABASE-BACKED DYNAMIC DISPATCH RESOLUTION
     # ========================================================
 
-    def _resolve_dynamic_callees_from_db(self, base_obj: str, context: Dict[str, Any]) -> List[str]:
+    def _resolve_dynamic_callees_from_db(self, base_obj: str, context: dict[str, Any]) -> list[str]:
         """Resolve dynamic callees using object_literals table (database-first, v1.2+).
 
         This is the NEW implementation that replaces regex parsing with structured
@@ -263,7 +265,7 @@ class InterProceduralCFGAnalyzer:
 
         return possible_callees
 
-    def _resolve_dynamic_callees(self, call_expr: str, context: Dict[str, Any]) -> List[str]:
+    def _resolve_dynamic_callees(self, call_expr: str, context: dict[str, Any]) -> list[str]:
         """Try to resolve dynamic function calls to possible targets.
 
         NEW in v1.2: Uses database-backed lookup (object_literals table) for
@@ -328,9 +330,9 @@ class InterProceduralCFGAnalyzer:
     
     def _map_taint_to_params(
         self, 
-        args_mapping: Dict[str, str], 
-        taint_state: Dict[str, bool]
-    ) -> 'BlockTaintState':
+        args_mapping: dict[str, str], 
+        taint_state: dict[str, bool]
+    ) -> BlockTaintState:
         """Map caller's taint state to callee's parameter state."""
         from theauditor.taint.cfg_integration import BlockTaintState
         
@@ -344,9 +346,9 @@ class InterProceduralCFGAnalyzer:
     
     def _analyze_all_paths(
         self,
-        analyzer: 'PathAnalyzer',
-        entry_state: 'BlockTaintState'
-    ) -> List['BlockTaintState']:
+        analyzer: PathAnalyzer,
+        entry_state: BlockTaintState
+    ) -> list[BlockTaintState]:
         """Analyze all execution paths by QUERYING database for path enumeration."""
         from .database import get_paths_between_blocks
 
@@ -422,9 +424,9 @@ class InterProceduralCFGAnalyzer:
         self,
         file_path: str,
         function_name: str,
-        entry_state: 'BlockTaintState',
-        path: List[int]  # List of block IDs from database
-    ) -> Optional['BlockTaintState']:
+        entry_state: BlockTaintState,
+        path: list[int]  # List of block IDs from database
+    ) -> BlockTaintState | None:
         """Query database for taint status along a specific path (NO in-memory simulation)."""
         from theauditor.taint.cfg_integration import BlockTaintState
 
@@ -581,8 +583,8 @@ class InterProceduralCFGAnalyzer:
     
     def _extract_effects(
         self,
-        exit_states: List['BlockTaintState'],
-        args_mapping: Dict[str, str]
+        exit_states: list[BlockTaintState],
+        args_mapping: dict[str, str]
     ) -> InterProceduralEffect:
         """Extract the function's effects from exit states."""
         effect = InterProceduralEffect()
@@ -627,9 +629,9 @@ class InterProceduralCFGAnalyzer:
     
     def _analyze_passthrough(
         self,
-        analyzer: 'PathAnalyzer',
-        entry_state: 'BlockTaintState'
-    ) -> Dict[str, bool]:
+        analyzer: PathAnalyzer,
+        entry_state: BlockTaintState
+    ) -> dict[str, bool]:
         """Query database to check if parameters reach return (NO in-memory flow tracking)."""
         from .database import get_paths_between_blocks
 
@@ -719,7 +721,7 @@ class InterProceduralCFGAnalyzer:
         file_path: str,
         function_name: str,
         var_name: str,
-        path: List[int]
+        path: list[int]
     ) -> bool:
         """Query database to check if variable is sanitized along path."""
         # CRITICAL FIX: Normalize name ONLY for cfg_blocks query
@@ -789,8 +791,8 @@ class InterProceduralCFGAnalyzer:
         self,
         file: str,
         func: str,
-        args_mapping: Dict[str, str],
-        taint_state: Dict[str, bool]
+        args_mapping: dict[str, str],
+        taint_state: dict[str, bool]
     ) -> str:
         """Create a unique cache key for this analysis."""
         key_data = {

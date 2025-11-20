@@ -1,4 +1,6 @@
 """Project structure and intelligence report command."""
+from __future__ import annotations
+
 
 import click
 import sqlite3
@@ -171,7 +173,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         # Show summary stats if available
         if manifest_exists:
             import json
-            with open(manifest, 'r') as f:
+            with open(manifest) as f:
                 manifest_data = json.load(f)
             
             total_files = len(manifest_data)

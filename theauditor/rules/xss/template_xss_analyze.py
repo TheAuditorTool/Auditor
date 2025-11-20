@@ -3,6 +3,8 @@
 This module detects template injection vulnerabilities across various template engines.
 Covers both server-side and client-side template injection.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Dict, FrozenSet
@@ -27,7 +29,7 @@ METADATA = RuleMetadata(
 
 
 # Template engines and their unsafe patterns
-TEMPLATE_ENGINES: Dict[str, Dict[str, FrozenSet[str]]] = {
+TEMPLATE_ENGINES: dict[str, dict[str, frozenset[str]]] = {
     # Python template engines
     'jinja2': {
         'safe': frozenset(['{{}}', '{%%}']),
@@ -100,7 +102,7 @@ TEMPLATE_INPUT_SOURCES = frozenset([
 ])
 
 
-def find_template_injection(context: StandardRuleContext) -> List[StandardFinding]:
+def find_template_injection(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect template injection and XSS vulnerabilities.
 
     Returns:
@@ -129,7 +131,7 @@ def find_template_injection(context: StandardRuleContext) -> List[StandardFindin
     return findings
 
 
-def _check_template_string_injection(conn) -> List[StandardFinding]:
+def _check_template_string_injection(conn) -> list[StandardFinding]:
     """Check for template string injection with user input."""
     findings = []
     cursor = conn.cursor()
@@ -177,7 +179,7 @@ def _check_template_string_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_unsafe_template_syntax(conn) -> List[StandardFinding]:
+def _check_unsafe_template_syntax(conn) -> list[StandardFinding]:
     """Check for unsafe template syntax usage."""
     findings = []
     cursor = conn.cursor()
@@ -268,7 +270,7 @@ def _check_unsafe_template_syntax(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_dynamic_template_compilation(conn) -> List[StandardFinding]:
+def _check_dynamic_template_compilation(conn) -> list[StandardFinding]:
     """Check for dynamic template compilation."""
     findings = []
     cursor = conn.cursor()
@@ -322,7 +324,7 @@ def _check_dynamic_template_compilation(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_template_autoescape_disabled(conn) -> List[StandardFinding]:
+def _check_template_autoescape_disabled(conn) -> list[StandardFinding]:
     """Check for disabled auto-escaping in templates."""
     findings = []
     cursor = conn.cursor()
@@ -394,7 +396,7 @@ def _check_template_autoescape_disabled(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_custom_template_helpers(conn) -> List[StandardFinding]:
+def _check_custom_template_helpers(conn) -> list[StandardFinding]:
     """Check for unsafe custom template helpers/filters."""
     findings = []
     cursor = conn.cursor()
@@ -451,7 +453,7 @@ def _check_custom_template_helpers(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_server_side_template_injection(conn) -> List[StandardFinding]:
+def _check_server_side_template_injection(conn) -> list[StandardFinding]:
     r"""Check for server-side template injection (SSTI).
 
     BUG FIXES (2025-10-17):
@@ -621,7 +623,7 @@ def _check_server_side_template_injection(conn) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

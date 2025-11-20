@@ -23,6 +23,8 @@ KNOWN LIMITATIONS:
 - Library coverage: jwt, jsonwebtoken, jose, PyJWT (expand as needed)
 - For comprehensive coverage, combine with dependency analysis
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -144,7 +146,7 @@ HTTP_FUNCTIONS = frozenset([
 ])
 
 
-def find_jwt_flaws(context: StandardRuleContext) -> List[StandardFinding]:
+def find_jwt_flaws(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect JWT vulnerabilities using database queries with Python-side filtering.
 
     Backend Security (Checks 1-8, 11):

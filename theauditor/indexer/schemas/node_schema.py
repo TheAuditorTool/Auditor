@@ -604,7 +604,7 @@ FRONTEND_API_CALLS = TableSchema(
 # NODE TABLES REGISTRY
 # ============================================================================
 
-NODE_TABLES: Dict[str, TableSchema] = {
+NODE_TABLES: dict[str, TableSchema] = {
     # Node/JS symbol tables
     "class_properties": CLASS_PROPERTIES,
     # env_var_usage moved to SECURITY_TABLES

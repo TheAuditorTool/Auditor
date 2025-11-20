@@ -3,6 +3,8 @@
 This module detects XSS vulnerabilities specific to Express.js applications.
 Uses database-only approach with framework awareness.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -57,7 +59,7 @@ EXPRESS_INPUT_SOURCES = frozenset([
 # If tables are missing, the rule MUST crash to expose indexer bugs.
 
 
-def find_express_xss(context: StandardRuleContext) -> List[StandardFinding]:
+def find_express_xss(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Express.js-specific XSS vulnerabilities.
 
     Returns:
@@ -120,7 +122,7 @@ def _is_express_app(conn) -> bool:
     return False
 
 
-def _check_unsafe_res_send(conn) -> List[StandardFinding]:
+def _check_unsafe_res_send(conn) -> list[StandardFinding]:
     """Check for res.send() with HTML content containing user input."""
     findings = []
     cursor = conn.cursor()
@@ -164,7 +166,7 @@ def _check_unsafe_res_send(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_template_rendering(conn) -> List[StandardFinding]:
+def _check_template_rendering(conn) -> list[StandardFinding]:
     """Check for unsafe template rendering in Express."""
     findings = []
     cursor = conn.cursor()
@@ -233,7 +235,7 @@ def _check_template_rendering(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_middleware_injection(conn) -> List[StandardFinding]:
+def _check_middleware_injection(conn) -> list[StandardFinding]:
     """Check for XSS in custom Express middleware."""
     findings = []
     cursor = conn.cursor()
@@ -270,7 +272,7 @@ def _check_middleware_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_cookie_injection(conn) -> List[StandardFinding]:
+def _check_cookie_injection(conn) -> list[StandardFinding]:
     """Check for XSS via cookie injection in Express."""
     findings = []
     cursor = conn.cursor()
@@ -321,7 +323,7 @@ def _check_cookie_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_header_injection(conn) -> List[StandardFinding]:
+def _check_header_injection(conn) -> list[StandardFinding]:
     """Check for header injection that could lead to XSS."""
     findings = []
     cursor = conn.cursor()
@@ -376,7 +378,7 @@ def _check_header_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_jsonp_callback(conn) -> List[StandardFinding]:
+def _check_jsonp_callback(conn) -> list[StandardFinding]:
     """Check for JSONP callback injection."""
     findings = []
     cursor = conn.cursor()
@@ -429,7 +431,7 @@ def _check_jsonp_callback(conn) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

@@ -16,6 +16,8 @@ TheAuditor uses a two-tier execution model:
 
 This module handles delegation from global CLI → sandbox execution.
 """
+from __future__ import annotations
+
 
 import os
 import platform
@@ -25,7 +27,7 @@ from pathlib import Path
 from typing import List, Optional
 
 
-def find_sandbox_venv(root_path: Path) -> Optional[Path]:
+def find_sandbox_venv(root_path: Path) -> Path | None:
     """
     Find .auditor_venv in current directory or parent directories.
 
@@ -85,7 +87,7 @@ def get_sandbox_python(sandbox_venv: Path) -> Path:
     return python_exe
 
 
-def execute_in_sandbox(command: str, args: List[str], root: str = ".") -> int:
+def execute_in_sandbox(command: str, args: list[str], root: str = ".") -> int:
     """
     Execute TheAuditor command in sandbox Python environment.
 

@@ -3,6 +3,8 @@
 This module contains the FileWalker class for directory traversal with monorepo
 detection.
 """
+from __future__ import annotations
+
 
 import os
 import json
@@ -46,7 +48,7 @@ def is_text_file(file_path: Path) -> bool:
         return False
 
 
-def get_first_lines(file_path: Path, n: int = 2) -> List[str]:
+def get_first_lines(file_path: Path, n: int = 2) -> list[str]:
     """Get first n lines of a text file.
     
     Args:
@@ -71,7 +73,7 @@ def get_first_lines(file_path: Path, n: int = 2) -> List[str]:
     return lines
 
 
-def load_gitignore_patterns(root_path: Path) -> Set[str]:
+def load_gitignore_patterns(root_path: Path) -> set[str]:
     """Load patterns from .gitignore if it exists.
     
     Args:
@@ -85,7 +87,7 @@ def load_gitignore_patterns(root_path: Path) -> Set[str]:
     
     if gitignore_path.exists():
         try:
-            with open(gitignore_path, 'r', encoding='utf-8') as f:
+            with open(gitignore_path, encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     # Skip comments and empty lines
@@ -104,8 +106,8 @@ def load_gitignore_patterns(root_path: Path) -> Set[str]:
 class FileWalker:
     """Handles directory walking with monorepo detection and filtering."""
     
-    def __init__(self, root_path: Path, config: Dict[str, Any], 
-                 follow_symlinks: bool = False, exclude_patterns: Optional[List[str]] = None):
+    def __init__(self, root_path: Path, config: dict[str, Any], 
+                 follow_symlinks: bool = False, exclude_patterns: list[str] | None = None):
         """Initialize the file walker.
         
         Args:
@@ -132,7 +134,7 @@ class FileWalker:
             "skipped_dirs": 0,
         }
     
-    def detect_monorepo(self) -> Tuple[bool, List[Path], List[Path]]:
+    def detect_monorepo(self) -> tuple[bool, list[Path], list[Path]]:
         """Detect if project is a monorepo and return source directories.
         
         Returns:
@@ -170,7 +172,7 @@ class FileWalker:
         
         return monorepo_detected, monorepo_dirs, root_entry_files
     
-    def process_file(self, file: Path, exclude_file_patterns: List[str]) -> Optional[Dict[str, Any]]:
+    def process_file(self, file: Path, exclude_file_patterns: list[str]) -> dict[str, Any] | None:
         """Process a single file and return its info.
         
         Args:
@@ -231,7 +233,7 @@ class FileWalker:
             # Skip files we can't read
             return None
     
-    def walk(self) -> Tuple[List[Dict], Dict[str, Any]]:
+    def walk(self) -> tuple[list[dict], dict[str, Any]]:
         """Walk directory and collect file information.
         
         Returns:

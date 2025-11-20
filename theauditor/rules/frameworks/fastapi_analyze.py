@@ -5,6 +5,8 @@ indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
 This replaces fastapi_analyzer.py with a faster, cleaner implementation.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -58,7 +60,7 @@ FILE_OPERATIONS = frozenset([
 ])
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect FastAPI security vulnerabilities using indexed data.
 
     Detects (from database):

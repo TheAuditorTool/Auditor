@@ -1,4 +1,6 @@
 """Initialization module for TheAuditor - handles project setup and initialization."""
+from __future__ import annotations
+
 
 from pathlib import Path
 from typing import Dict, Any
@@ -10,7 +12,7 @@ def initialize_project(
     skip_docs: bool = False,
     skip_deps: bool = False,
     progress_callback: Any = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Initialize TheAuditor for first-time use by running all setup steps.
     

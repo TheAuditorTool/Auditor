@@ -10,6 +10,8 @@ ERIC'S FRAMEWORK INTEGRATION:
     - Jobs are atomic checkbox items within tasks
     - Audit loops at task and phase level enforce loop-until-correct semantics
 """
+from __future__ import annotations
+
 
 from typing import Optional, List, Dict
 
@@ -46,10 +48,10 @@ class PlanningDatabaseMixin:
         reason: str,
         severity: str,
         detected_at: str,
-        loc: Optional[int] = None,
-        cyclomatic_complexity: Optional[int] = None,
-        duplication_percent: Optional[float] = None,
-        num_dependencies: Optional[int] = None,
+        loc: int | None = None,
+        cyclomatic_complexity: int | None = None,
+        duplication_percent: float | None = None,
+        num_dependencies: int | None = None,
         metadata_json: str = '{}'
     ):
         """Add a refactor candidate record to the batch.
@@ -86,10 +88,10 @@ class PlanningDatabaseMixin:
         timestamp: str,
         target_file: str,
         refactor_type: str,
-        migrations_found: Optional[int] = None,
-        migrations_complete: Optional[int] = None,
-        schema_consistent: Optional[int] = None,
-        validation_status: Optional[str] = None,
+        migrations_found: int | None = None,
+        migrations_complete: int | None = None,
+        schema_consistent: int | None = None,
+        validation_status: str | None = None,
         details_json: str = '{}'
     ):
         """Add a refactor history record to the batch.
@@ -124,8 +126,8 @@ class PlanningDatabaseMixin:
         plan_id: int,
         phase_number: int,
         title: str,
-        description: Optional[str] = None,
-        success_criteria: Optional[str] = None,
+        description: str | None = None,
+        success_criteria: str | None = None,
         status: str = 'pending',
         created_at: str = ''
     ):

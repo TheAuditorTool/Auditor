@@ -1,4 +1,6 @@
 """Run Factual Correlation Engine to aggregate and correlate findings."""
+from __future__ import annotations
+
 
 import click
 from theauditor.utils.error_handler import handle_exceptions

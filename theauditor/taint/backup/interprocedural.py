@@ -26,6 +26,8 @@ Schema Contract:
   column is missing, the indexer must be updated. This contract is critical for
   unambiguous call resolution.
 """
+from __future__ import annotations
+
 
 import json
 import os
@@ -61,11 +63,11 @@ def trace_inter_procedural_flow_insensitive(
     source_file: str,
     source_line: int,
     source_function: str,
-    sinks: List[Dict[str, Any]],
+    sinks: list[dict[str, Any]],
     max_depth: int = 5,
-    cache: Optional['MemoryCache'] = None,
-    origin_source: Optional[Dict[str, Any]] = None
-) -> List['TaintPath']:
+    cache: MemoryCache | None = None,
+    origin_source: dict[str, Any] | None = None
+) -> list[TaintPath]:
     """
     Implements a file-aware, multi-hop, flow-insensitive taint tracking algorithm.
     This version correctly follows taint across file boundaries via function calls
@@ -88,11 +90,11 @@ def trace_inter_procedural_flow_insensitive(
             "name": origin_source.get("name", origin_source.get("pattern", source_var))
         }
 
-    paths: List[TaintPath] = []
+    paths: list[TaintPath] = []
 
     # PHASE 3: Two-Pass Hybrid Architecture (Stage 2)
     # Flow graph stores predecessor links for path reconstruction
-    taint_flow_graph: Dict[tuple[str, str, str], Set[tuple[str, str, str]]] = defaultdict(set)
+    taint_flow_graph: dict[tuple[str, str, str], set[tuple[str, str, str]]] = defaultdict(set)
 
     # PHASE 3: Initialize source var in flow graph
     source_state = (source_file, source_function, source_var)
@@ -107,10 +109,10 @@ def trace_inter_procedural_flow_insensitive(
     # Worklist stores the state to be processed:
     # (current_var, current_function, current_file, depth)
     # PHASE 3: Removed path from worklist (now in taint_flow_graph)
-    worklist: List[tuple[str, str, str, int]] = [(source_var, source_function, source_file, 0)]
+    worklist: list[tuple[str, str, str, int]] = [(source_var, source_function, source_file, 0)]
 
     # visited prevents re-processing the same state (file, function, var) to avoid cycles.
-    visited: Set[tuple[str, str, str]] = set()
+    visited: set[tuple[str, str, str]] = set()
 
     while worklist:
         current_var, current_func, current_file, depth = worklist.pop(0)
@@ -233,7 +235,7 @@ def trace_inter_procedural_flow_insensitive(
 
             # PHASE 3: Remove new_path construction (now use flow graph)
 
-            propagated_names: Set[str] = set()
+            propagated_names: set[str] = set()
             if param_name:
                 propagated_names.add(param_name)
 
@@ -296,13 +298,13 @@ def trace_inter_procedural_flow_insensitive(
 
 
 def _reconstruct_path(
-    flow_graph: Dict[tuple[str, str, str], Set[tuple[str, str, str]]],
+    flow_graph: dict[tuple[str, str, str], set[tuple[str, str, str]]],
     sink_file: str,
     sink_func: str,
     sink_var: str,
     source_pattern: str,
     max_depth: int = 20
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     PHASE 2: Reconstruct taint propagation path by backtracking through flow graph.
 
@@ -383,17 +385,17 @@ def _reconstruct_path(
 
 
 def trace_inter_procedural_flow_cfg(
-    analyzer: 'InterProceduralCFGAnalyzer',
+    analyzer: InterProceduralCFGAnalyzer,
     cursor: sqlite3.Cursor,
-    source_vars: Set[str],  # CRITICAL FIX: Now accepts SET of variables for unified analysis
+    source_vars: set[str],  # CRITICAL FIX: Now accepts SET of variables for unified analysis
     source_file: str,
     source_line: int,
     source_function: str,
-    sinks: List[Dict[str, Any]],
+    sinks: list[dict[str, Any]],
     max_depth: int = 5,
-    cache: Optional['MemoryCache'] = None,
-    origin_source: Optional[Dict[str, Any]] = None
-) -> List['TaintPath']:
+    cache: MemoryCache | None = None,
+    origin_source: dict[str, Any] | None = None
+) -> list[TaintPath]:
     """
     Implements a file-aware, multi-hop, CFG-based (flow-sensitive) taint analysis.
     This is the most precise analysis stage, using a worklist to trace taint across
@@ -420,12 +422,12 @@ def trace_inter_procedural_flow_cfg(
             "name": default_pattern
         }
 
-    paths: List[TaintPath] = []
+    paths: list[TaintPath] = []
 
     # PHASE 1: Two-Pass Hybrid Architecture
     # Flow graph stores predecessor links for path reconstruction
     # Key: (file, func, var) -> Value: {(source_file, source_func, source_var), ...}
-    taint_flow_graph: Dict[tuple[str, str, str], Set[tuple[str, str, str]]] = defaultdict(set)
+    taint_flow_graph: dict[tuple[str, str, str], set[tuple[str, str, str]]] = defaultdict(set)
 
     # PHASE 2: Initialize source vars in flow graph
     # Mark source vars as originating from SOURCE marker
@@ -441,7 +443,7 @@ def trace_inter_procedural_flow_cfg(
 
     generic_param_regex = re.compile(r"^arg\d*$", re.IGNORECASE)
 
-    def _is_generic_param(name: Optional[str]) -> bool:
+    def _is_generic_param(name: str | None) -> bool:
         if not name:
             return True
         lowered = name.lower()
@@ -450,7 +452,7 @@ def trace_inter_procedural_flow_cfg(
             or generic_param_regex.match(lowered) is not None
         )
 
-    def _extract_simple_identifier(expr: Optional[str]) -> Optional[str]:
+    def _extract_simple_identifier(expr: str | None) -> str | None:
         if not expr:
             return None
         candidate = expr.strip()
@@ -464,10 +466,10 @@ def trace_inter_procedural_flow_cfg(
     # (current_file, current_function, tainted_vars_set, depth)
     # PHASE 1: Removed call_path from worklist (now in taint_flow_graph)
     # CRITICAL FIX: Initialize with ENTIRE SET of source variables for unified analysis
-    worklist: List[tuple[str, str, frozenset, int]] = [(source_file, source_function, frozenset(source_vars), 0)]
+    worklist: list[tuple[str, str, frozenset, int]] = [(source_file, source_function, frozenset(source_vars), 0)]
 
     # visited prevents cycles by tracking (file, function, tainted_vars).
-    visited: Set[tuple[str, str, frozenset]] = set()
+    visited: set[tuple[str, str, frozenset]] = set()
 
     while worklist:
         current_file, current_func, tainted_vars, depth = worklist.pop(0)
@@ -620,8 +622,8 @@ def trace_inter_procedural_flow_cfg(
             callee_file_path = call_info["callee_file_path"]
 
             # Build args_mapping for the ENTIRE call (all parameters processed together)
-            args_mapping: Dict[str, str] = {}
-            alias_params: Set[str] = set()
+            args_mapping: dict[str, str] = {}
+            alias_params: set[str] = set()
             for param_info in params:
                 param_name = (param_info["name"] or "").strip()
                 arg_expr = param_info["expr"] or ""
@@ -687,8 +689,8 @@ def trace_inter_procedural_flow_cfg(
                     callback_taints = set(tainted_vars)
                     cb_start = call_line
                     cb_end = call_line
-                    vars_used_in_callback: Set[str] = set()
-                    seeded_aliases: Set[str] = set()
+                    vars_used_in_callback: set[str] = set()
+                    seeded_aliases: set[str] = set()
 
                     bounds = None
                     scoped_bounds_query = build_query(
@@ -747,7 +749,7 @@ def trace_inter_procedural_flow_cfg(
                                 seeded_aliases.add(target_var)
                                 known_taints.add(target_var)
 
-                    captured_taint: Set[str] = set()
+                    captured_taint: set[str] = set()
                     if vars_used_in_callback:
                         for outer_var in tainted_vars:
                             base_outer = outer_var.split('.', 1)[0]
@@ -846,8 +848,8 @@ def trace_inter_procedural_flow_cfg(
             if effect.return_tainted:
                 # Find the assignment that captures this call's return value
                 # Handle both normalized and fully-qualified function names in assignments.in_function
-                in_conditions: List[str] = []
-                in_params: List[str] = []
+                in_conditions: list[str] = []
+                in_params: list[str] = []
                 for name in {current_func, original_func_name}:
                     if not name:
                         continue
@@ -864,7 +866,7 @@ def trace_inter_procedural_flow_cfg(
                     ['target_var'],
                     where=where_clause
                 )
-                params: List[Any] = [current_file, call_line, f"%{callee_func}%"] + in_params
+                params: list[Any] = [current_file, call_line, f"%{callee_func}%"] + in_params
                 cursor.execute(assignment_query, params)
 
                 result = cursor.fetchone()

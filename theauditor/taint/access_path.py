@@ -6,6 +6,8 @@ This prevents false positives like: req.headers.auth vs req.body.malicious
 Based on: "IFDS Taint Analysis with Access Paths" (Allen et al., 2021)
 Section 1: Access Paths - page 3
 """
+from __future__ import annotations
+
 
 from dataclasses import dataclass
 from typing import Tuple, Optional, Set
@@ -34,7 +36,7 @@ class AccessPath:
     file: str
     function: str
     base: str
-    fields: Tuple[str, ...]
+    fields: tuple[str, ...]
     max_length: int = 5
 
     def __str__(self) -> str:
@@ -54,7 +56,7 @@ class AccessPath:
         return f"{self.file}::{self.function}::{path_str}"
 
     @staticmethod
-    def parse(node_id: str, max_length: int = 5) -> Optional['AccessPath']:
+    def parse(node_id: str, max_length: int = 5) -> AccessPath | None:
         """Parse graphs.db node ID into AccessPath.
 
         Format: "file::function::var" or "file::function::var.field1.field2"
@@ -114,7 +116,7 @@ class AccessPath:
             max_length=max_length
         )
 
-    def matches(self, other: 'AccessPath') -> bool:
+    def matches(self, other: AccessPath) -> bool:
         """Check if two access paths could alias (prefix match).
 
         Conservative approximation: If one is a prefix of the other, assume they alias.
@@ -141,7 +143,7 @@ class AccessPath:
 
         return self.fields[:min_len] == other.fields[:min_len]
 
-    def append_field(self, field: str) -> Optional['AccessPath']:
+    def append_field(self, field: str) -> AccessPath | None:
         """Append a field to this access path (with k-limiting).
 
         Args:
@@ -166,7 +168,7 @@ class AccessPath:
             max_length=self.max_length
         )
 
-    def strip_fields(self, count: int) -> 'AccessPath':
+    def strip_fields(self, count: int) -> AccessPath:
         """Remove N fields from the end (for reification).
 
         Used in backward analysis when traversing field stores:
@@ -201,7 +203,7 @@ class AccessPath:
             max_length=self.max_length
         )
 
-    def change_base(self, new_base: str) -> 'AccessPath':
+    def change_base(self, new_base: str) -> AccessPath:
         """Replace the base variable (for assignments: x = y.f).
 
         Args:
@@ -223,7 +225,7 @@ class AccessPath:
             max_length=self.max_length
         )
 
-    def to_pattern_set(self) -> Set[str]:
+    def to_pattern_set(self) -> set[str]:
         """Convert to set of patterns for legacy taint matching.
 
         Returns all prefixes for substring matching in existing code.

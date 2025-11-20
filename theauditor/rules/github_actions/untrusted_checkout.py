@@ -11,6 +11,8 @@ Attack Pattern:
 
 CWE-284: Improper Access Control
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -36,7 +38,7 @@ METADATA = RuleMetadata(
 )
 
 
-def find_untrusted_checkout_sequence(context: StandardRuleContext) -> List[StandardFinding]:
+def find_untrusted_checkout_sequence(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect untrusted code checkout in pull_request_target workflows.
 
     Detection Logic:
@@ -51,7 +53,7 @@ def find_untrusted_checkout_sequence(context: StandardRuleContext) -> List[Stand
     Returns:
         List of security findings
     """
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings

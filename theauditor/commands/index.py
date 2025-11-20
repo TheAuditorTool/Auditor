@@ -1,4 +1,6 @@
 """[DEPRECATED] Index command - now redirects to 'aud full' for data fidelity."""
+from __future__ import annotations
+
 
 import time
 import click

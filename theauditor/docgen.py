@@ -1,4 +1,6 @@
 """Documentation generator from index and capsules (optional feature)."""
+from __future__ import annotations
+
 
 import hashlib
 import json

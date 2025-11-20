@@ -19,6 +19,8 @@ Detects 15+ real-world CORS vulnerabilities:
 - Dynamic validation flaws
 - Framework-specific misconfigurations
 """
+from __future__ import annotations
+
 
 import sqlite3
 import re
@@ -142,7 +144,7 @@ class CORSAnalyzer:
         self.patterns = CORSPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main entry point - runs all CORS vulnerability checks.
 
         Returns:
@@ -990,7 +992,7 @@ class CORSAnalyzer:
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_cors_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_cors_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Main entry point for CORS vulnerability detection.
 
     Args:

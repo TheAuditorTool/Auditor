@@ -101,7 +101,7 @@ ANALYSIS_RESULTS = TableSchema(
 # GRAPH TABLES REGISTRY - Separate from main TABLES
 # ============================================================================
 
-GRAPH_TABLES: Dict[str, TableSchema] = {
+GRAPH_TABLES: dict[str, TableSchema] = {
     "nodes": GRAPH_NODES,
     "edges": GRAPH_EDGES,
     "analysis_results": ANALYSIS_RESULTS,

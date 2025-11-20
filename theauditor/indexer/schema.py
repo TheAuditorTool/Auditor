@@ -44,6 +44,8 @@ Schema Contract:
 - Schema validation runs at indexing time and analysis time
 - Breaking changes detected at runtime, not production
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Optional, Tuple
 import sqlite3
@@ -66,7 +68,7 @@ from .schemas.graphql_schema import GRAPHQL_TABLES
 # SCHEMA REGISTRY - Single source of truth (merged from all modules)
 # ============================================================================
 
-TABLES: Dict[str, TableSchema] = {
+TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
     **SECURITY_TABLES,       # 7 tables (SQL, JWT, env vars, taint flows + resolved_flow_audit)
     **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
@@ -273,9 +275,9 @@ CODE_DIFFS = TABLES['code_diffs']
 # QUERY BUILDER UTILITIES
 # ============================================================================
 
-def build_query(table_name: str, columns: Optional[List[str]] = None,
-                where: Optional[str] = None, order_by: Optional[str] = None,
-                limit: Optional[int] = None) -> str:
+def build_query(table_name: str, columns: list[str] | None = None,
+                where: str | None = None, order_by: str | None = None,
+                limit: int | None = None) -> str:
     """
     Build a SELECT query using schema definitions.
 
@@ -337,15 +339,15 @@ def build_query(table_name: str, columns: Optional[List[str]] = None,
 
 def build_join_query(
     base_table: str,
-    base_columns: List[str],
+    base_columns: list[str],
     join_table: str,
-    join_columns: List[str],
-    join_on: Optional[List[Tuple[str, str]]] = None,
-    aggregate: Optional[Dict[str, str]] = None,
-    where: Optional[str] = None,
-    group_by: Optional[List[str]] = None,
-    order_by: Optional[str] = None,
-    limit: Optional[int] = None,
+    join_columns: list[str],
+    join_on: list[tuple[str, str]] | None = None,
+    aggregate: dict[str, str] | None = None,
+    where: str | None = None,
+    group_by: list[str] | None = None,
+    order_by: str | None = None,
+    limit: int | None = None,
     join_type: str = "LEFT"
 ) -> str:
     """Build a JOIN query using schema definitions and foreign keys.
@@ -503,7 +505,7 @@ def build_join_query(
     return " ".join(query_parts)
 
 
-def validate_all_tables(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
+def validate_all_tables(cursor: sqlite3.Cursor) -> dict[str, list[str]]:
     """
     Validate all table schemas against actual database.
 

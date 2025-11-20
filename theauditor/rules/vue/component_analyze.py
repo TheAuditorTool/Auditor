@@ -9,6 +9,8 @@ Follows v1.1+ gold standard patterns:
 - Direct database queries (crash on missing tables to expose indexer bugs)
 - Proper confidence levels via Confidence enum
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set
@@ -85,7 +87,7 @@ COMPONENT_REGISTRATION = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_component_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_component_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue component anti-patterns and performance issues.
 
     Detects:
@@ -139,7 +141,7 @@ def find_vue_component_issues(context: StandardRuleContext) -> List[StandardFind
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor) -> Set[str]:
+def _get_vue_files(cursor) -> set[str]:
     """Get all Vue-related files from the database.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -188,7 +190,7 @@ def _get_vue_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_props_mutations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_props_mutations(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find direct props mutations (anti-pattern in Vue)."""
     findings = []
 
@@ -225,7 +227,7 @@ def _find_props_mutations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_vfor_keys(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find v-for loops without :key attribute.
 
     Uses BOTH vue_directives (authoritative) and symbols (heuristic) to
@@ -304,7 +306,7 @@ def _find_missing_vfor_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_complex_components(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_complex_components(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find components with excessive complexity."""
     findings = []
 
@@ -374,7 +376,7 @@ def _find_complex_components(cursor, vue_files: Set[str]) -> List[StandardFindin
     return findings
 
 
-def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unnecessary_rerenders(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find unnecessary re-render triggers."""
     findings = []
 
@@ -412,7 +414,7 @@ def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_missing_component_names(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_component_names(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find components without explicit names (harder to debug)."""
     findings = []
 
@@ -459,7 +461,7 @@ def _find_missing_component_names(cursor, vue_files: Set[str]) -> List[StandardF
     return findings
 
 
-def _find_inefficient_computed(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_inefficient_computed(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find inefficient computed properties."""
     findings = []
 
@@ -498,7 +500,7 @@ def _find_inefficient_computed(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_complex_template_expressions(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_complex_template_expressions(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find overly complex expressions in templates."""
     findings = []
 
@@ -536,7 +538,7 @@ def _find_complex_template_expressions(cursor, vue_files: Set[str]) -> List[Stan
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

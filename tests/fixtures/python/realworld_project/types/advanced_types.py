@@ -25,7 +25,7 @@ K = TypeVar('K')
 V = TypeVar('V')
 
 
-class Repository(Generic[T]):
+class Repository[T]:
     """Generic repository pattern.
 
     Should be extracted as a Generic with type_params=['T'].
@@ -40,7 +40,7 @@ class Repository(Generic[T]):
         return self._items[index]
 
 
-class Cache(Generic[K, V]):
+class Cache[K, V]:
     """Generic cache with key-value types.
 
     Should be extracted as a Generic with type_params=['K', 'V'].

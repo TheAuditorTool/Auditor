@@ -13,6 +13,9 @@ ARCHITECTURAL CONTRACT:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -44,7 +47,7 @@ DJANGO_MODEL_BASES = {
 # Helper Functions (Internal - Duplicated for Self-Containment)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -53,12 +56,12 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        return node.value
     return None
 
 
-def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
+def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
     """Fetch keyword argument by name from AST call.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -69,7 +72,7 @@ def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
     return None
 
 
-def _get_bool_constant(node: Optional[ast.AST]) -> Optional[bool]:
+def _get_bool_constant(node: ast.AST | None) -> bool | None:
     """Return boolean value for constant/literal nodes.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -84,7 +87,7 @@ def _get_bool_constant(node: Optional[ast.AST]) -> Optional[bool]:
     return None
 
 
-def _cascade_implies_delete(value: Optional[str]) -> bool:
+def _cascade_implies_delete(value: str | None) -> bool:
     """Return True when cascade configuration includes delete semantics."""
     if not value:
         return False
@@ -92,7 +95,7 @@ def _cascade_implies_delete(value: Optional[str]) -> bool:
     return "delete" in normalized or "remove" in normalized
 
 
-def _extract_backref_name(backref_value: ast.AST) -> Optional[str]:
+def _extract_backref_name(backref_value: ast.AST) -> str | None:
     """Extract string name from backref keyword (string or sqlalchemy.orm.backref)."""
     name = _get_str_constant(backref_value)
     if name:
@@ -154,16 +157,16 @@ def _inverse_relationship_type(rel_type: str) -> str:
     return rel_type
 
 
-def _is_truthy(node: Optional[ast.AST]) -> bool:
+def _is_truthy(node: ast.AST | None) -> bool:
     """Check if AST node represents a truthy value."""
     if isinstance(node, ast.Constant):
         return bool(node.value)
-    if isinstance(node, ast.NameConstant):
+    if isinstance(node, ast.Constant):
         return bool(node.value)
     return False
 
 
-def _get_type_annotation(node: Optional[ast.AST]) -> Optional[str]:
+def _get_type_annotation(node: ast.AST | None) -> str | None:
     """Convert an annotation AST node into source text."""
     if node is None:
         return None
@@ -179,18 +182,18 @@ def _get_type_annotation(node: Optional[ast.AST]) -> Optional[str]:
 # ORM Extractors
 # ============================================================================
 
-def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], list[dict], list[dict]]:
     """Extract SQLAlchemy ORM models, fields, and relationships."""
-    models: List[Dict[str, Any]] = []
-    fields: List[Dict[str, Any]] = []
-    relationships: List[Dict[str, Any]] = []
-    seen_relationships: Set[Tuple[int, str, str, str]] = set()  # (line, source, target, rel_type)
+    models: list[dict[str, Any]] = []
+    fields: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
+    seen_relationships: set[tuple[int, str, str, str]] = set()  # (line, source, target, rel_type)
 
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return models, fields, relationships
 
-    for node in actual_tree.body if isinstance(actual_tree, ast.Module) else []:
+    for node in context.tree.body if isinstance(context.tree, ast.Module) else []:
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -305,11 +308,11 @@ def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict],
 
                 def _add_relationship(
                     source_model: str,
-                    target_model_name: Optional[str],
+                    target_model_name: str | None,
                     rel_type: str,
-                    alias: Optional[str],
+                    alias: str | None,
                     cascade_flag: bool,
-                    fk_name: Optional[str],
+                    fk_name: str | None,
                     rel_line: int,
                 ) -> None:
                     target_name = target_model_name or "Unknown"
@@ -367,17 +370,17 @@ def extract_sqlalchemy_definitions(tree: Dict, parser_self) -> Tuple[List[Dict],
     return models, fields, relationships
 
 
-def extract_django_definitions(tree: Dict, parser_self) -> Tuple[List[Dict], List[Dict]]:
+def extract_django_definitions(context: FileContext) -> tuple[list[dict], list[dict]]:
     """Extract Django ORM models and relationships."""
-    relationships: List[Dict[str, Any]] = []
-    models: List[Dict[str, Any]] = []
-    seen_relationships: Set[Tuple[int, str, str, str]] = set()
+    relationships: list[dict[str, Any]] = []
+    models: list[dict[str, Any]] = []
+    seen_relationships: set[tuple[int, str, str, str]] = set()
 
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return models, relationships
 
-    for node in actual_tree.body if isinstance(actual_tree, ast.Module) else []:
+    for node in context.tree.body if isinstance(context.tree, ast.Module) else []:
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -468,37 +471,36 @@ def extract_django_definitions(tree: Dict, parser_self) -> Tuple[List[Dict], Lis
     return models, relationships
 
 
-def extract_flask_blueprints(tree: Dict, parser_self) -> List[Dict]:
+def extract_flask_blueprints(context: FileContext) -> list[dict]:
     """Detect Flask blueprint declarations.
 
     TEMPORARY: This function logically belongs in flask_extractors.py
     Will be moved to flask_extractors.py in future PR to avoid scope creep.
     """
-    blueprints: List[Dict[str, Any]] = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    blueprints: list[dict[str, Any]] = []
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return blueprints
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Assign):
-            if not isinstance(node.value, ast.Call):
-                continue
-            func_name = get_node_name(node.value.func)
-            if not func_name.endswith("Blueprint"):
-                continue
-            targets = [t for t in node.targets if isinstance(t, ast.Name)]
-            if not targets:
-                continue
-            var_name = targets[0].id
-            name_arg = node.value.args[0] if node.value.args else None
-            blueprint_name = _get_str_constant(name_arg) or var_name
-            url_prefix = _get_str_constant(_keyword_arg(node.value, "url_prefix"))
-            subdomain = _get_str_constant(_keyword_arg(node.value, "subdomain"))
-            blueprints.append({
-                "line": getattr(node, "lineno", 0),
-                "blueprint_name": blueprint_name,
-                "url_prefix": url_prefix,
-                "subdomain": subdomain,
-            })
+    for node in context.find_nodes(ast.Assign):
+        if not isinstance(node.value, ast.Call):
+            continue
+        func_name = get_node_name(node.value.func)
+        if not func_name.endswith("Blueprint"):
+            continue
+        targets = [t for t in node.targets if isinstance(t, ast.Name)]
+        if not targets:
+            continue
+        var_name = targets[0].id
+        name_arg = node.value.args[0] if node.value.args else None
+        blueprint_name = _get_str_constant(name_arg) or var_name
+        url_prefix = _get_str_constant(_keyword_arg(node.value, "url_prefix"))
+        subdomain = _get_str_constant(_keyword_arg(node.value, "subdomain"))
+        blueprints.append({
+            "line": getattr(node, "lineno", 0),
+            "blueprint_name": blueprint_name,
+            "url_prefix": url_prefix,
+            "subdomain": subdomain,
+        })
 
     return blueprints

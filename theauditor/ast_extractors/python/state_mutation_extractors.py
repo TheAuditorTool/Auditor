@@ -42,6 +42,9 @@ Expected extraction from TheAuditor codebase:
 - ~2,100 augmented assignments (x += 1, y *= 2, etc.)
 Total: ~3,000 state mutation records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -57,7 +60,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions (Internal - Duplicated for Self-Containment)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Handles both Python 3.8+ ast.Constant and legacy ast.Str nodes.
@@ -66,8 +69,8 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):  # Python 3.7 compat (though we require 3.11+)
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7 compat (though we require 3.11+)
+        return node.value
     return None
 
 
@@ -75,7 +78,7 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
 # State Mutation Extractors
 # ============================================================================
 
-def extract_instance_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_instance_mutations(context: FileContext) -> list[dict[str, Any]]:
     """Extract instance attribute mutations (self.x = value).
 
     Detects:
@@ -102,9 +105,9 @@ def extract_instance_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Call X, check object.Y before/after
     """
     mutations = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return mutations
 
     # Build function ranges for context detection
@@ -113,31 +116,26 @@ def extract_instance_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     function_ranges = []  # List of (name, start, end, is_property_setter, is_dunder)
     class_ranges = {}
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                func_name = node.name
-                start_line = node.lineno
-                end_line = node.end_lineno or node.lineno
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            func_name = node.name
+            start_line = node.lineno
+            end_line = node.end_lineno or node.lineno
 
-                # Detect property setters: @property.setter or @x.setter
-                is_property_setter = any(
-                    isinstance(dec, ast.Attribute) and dec.attr == "setter"
-                    for dec in node.decorator_list
-                )
+            # Detect property setters: @property.setter or @x.setter
+            is_property_setter = any(
+                isinstance(dec, ast.Attribute) and dec.attr == "setter"
+                for dec in node.decorator_list
+            )
 
-                # Detect dunder methods (special methods with expected mutations)
-                is_dunder = (
-                    func_name.startswith("__") and func_name.endswith("__") and
-                    func_name in ["__init__", "__setitem__", "__enter__", "__exit__",
-                                  "__setattr__", "__delattr__", "__set__"]
-                )
+            # Detect dunder methods (special methods with expected mutations)
+            is_dunder = (
+                func_name.startswith("__") and func_name.endswith("__") and
+                func_name in ["__init__", "__setitem__", "__enter__", "__exit__",
+                              "__setattr__", "__delattr__", "__set__"]
+            )
 
-                function_ranges.append((func_name, start_line, end_line, is_property_setter, is_dunder))
-
-        elif isinstance(node, ast.ClassDef):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+            function_ranges.append((func_name, start_line, end_line, is_property_setter, is_dunder))
 
     def find_containing_function(line_no):
         """Find the function containing this line.
@@ -168,70 +166,22 @@ def extract_instance_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         return ".".join(reversed(parts)) if parts else None
 
     # Extract mutations with single-pass AST walk
-    for node in ast.walk(actual_tree):
-        # Pattern 1: self.x = value (ast.Assign with ast.Attribute target)
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Attribute):
-                    # Check if target is self.x or self.nested.x
-                    attr_chain = get_attribute_chain(target)
-                    if attr_chain and attr_chain.startswith("self."):
-                        in_function, is_prop_setter, is_dunder = find_containing_function(node.lineno)
-                        mutations.append({
-                            'line': node.lineno,
-                            'target': attr_chain,
-                            'operation': 'assignment',
-                            'in_function': in_function,
-                            'is_init': (in_function == "__init__"),
-                            'is_property_setter': is_prop_setter,
-                            'is_dunder_method': is_dunder,
-                        })
-
-        # Pattern 2: self.x += 1 (ast.AugAssign with ast.Attribute target)
-        elif isinstance(node, ast.AugAssign):
-            if isinstance(node.target, ast.Attribute):
-                attr_chain = get_attribute_chain(node.target)
+    for node in context.find_nodes(ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Attribute):
+                # Check if target is self.x or self.nested.x
+                attr_chain = get_attribute_chain(target)
                 if attr_chain and attr_chain.startswith("self."):
                     in_function, is_prop_setter, is_dunder = find_containing_function(node.lineno)
                     mutations.append({
                         'line': node.lineno,
                         'target': attr_chain,
-                        'operation': 'augmented_assignment',
+                        'operation': 'assignment',
                         'in_function': in_function,
                         'is_init': (in_function == "__init__"),
                         'is_property_setter': is_prop_setter,
                         'is_dunder_method': is_dunder,
                     })
-
-        # Pattern 3: self.items.append(x) (method call mutation)
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                # Check if func.value is self.something
-                if isinstance(node.func.value, ast.Attribute):
-                    attr_chain = get_attribute_chain(node.func.value)
-                    if attr_chain and attr_chain.startswith("self."):
-                        # Mutation methods: append, extend, update, add, remove, pop, clear, etc.
-                        mutation_methods = {
-                            'append', 'extend', 'insert', 'remove', 'pop', 'clear',
-                            'update', 'add', 'discard', 'sort', 'reverse'
-                        }
-                        if node.func.attr in mutation_methods:
-                            in_function, is_prop_setter, is_dunder = find_containing_function(node.lineno)
-                            mutations.append({
-                                'line': node.lineno,
-                                'target': attr_chain,
-                                'operation': 'method_call',
-                                'in_function': in_function,
-                                'is_init': (in_function == "__init__"),
-                                'is_property_setter': is_prop_setter,
-                                'is_dunder_method': is_dunder,
-                            })
-                # Also check direct self.method() calls (e.g., self.clear())
-                elif isinstance(node.func.value, ast.Name) and node.func.value.id == 'self':
-                    # This catches self.method_name() patterns
-                    # We record the method being called on self, not a mutation
-                    # Skip this pattern - it's not a state mutation
-                    pass
 
     # CRITICAL: Deduplicate by (line, target, in_function) - core_extractors.py:452-468 pattern
     seen = set()
@@ -250,7 +200,7 @@ def extract_instance_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_class_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
     """Extract class attribute mutations (ClassName.x = value, cls.x = value).
 
     Detects:
@@ -276,32 +226,17 @@ def extract_class_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Monitor ClassName.Y before/after calling X
     """
     mutations = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return mutations
 
     # Build class name registry and function ranges for context
     class_names = set()
     function_ranges = []  # List of (name, start, end, is_classmethod)
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            class_names.add(node.name)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                func_name = node.name
-                start_line = node.lineno
-                end_line = node.end_lineno or node.lineno
-
-                # Detect @classmethod decorator
-                is_classmethod = any(
-                    (isinstance(dec, ast.Name) and dec.id == "classmethod") or
-                    (isinstance(dec, ast.Attribute) and dec.attr == "classmethod")
-                    for dec in node.decorator_list
-                )
-
-                function_ranges.append((func_name, start_line, end_line, is_classmethod))
+    for node in context.find_nodes(ast.ClassDef):
+        class_names.add(node.name)
 
     def find_containing_function(line_no):
         """Find the function containing this line.
@@ -314,32 +249,12 @@ def extract_class_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         return "global", False
 
     # Extract class mutations with single-pass AST walk
-    for node in ast.walk(actual_tree):
-        # Pattern 1: ClassName.attr = value (ast.Assign with ast.Attribute target)
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Attribute):
-                    # Check if target is ClassName.attr or cls.attr
-                    if isinstance(target.value, ast.Name):
-                        class_or_cls = target.value.id
-
-                        # Match if it's 'cls' or a known class name
-                        if class_or_cls == 'cls' or class_or_cls in class_names:
-                            in_function, is_cm = find_containing_function(node.lineno)
-                            mutations.append({
-                                'line': node.lineno,
-                                'class_name': class_or_cls,
-                                'attribute': target.attr,
-                                'operation': 'assignment',
-                                'in_function': in_function,
-                                'is_classmethod': is_cm,
-                            })
-
-        # Pattern 2: ClassName.attr += 1 (ast.AugAssign with ast.Attribute target)
-        elif isinstance(node, ast.AugAssign):
-            if isinstance(node.target, ast.Attribute):
-                if isinstance(node.target.value, ast.Name):
-                    class_or_cls = node.target.value.id
+    for node in context.find_nodes(ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Attribute):
+                # Check if target is ClassName.attr or cls.attr
+                if isinstance(target.value, ast.Name):
+                    class_or_cls = target.value.id
 
                     # Match if it's 'cls' or a known class name
                     if class_or_cls == 'cls' or class_or_cls in class_names:
@@ -347,8 +262,8 @@ def extract_class_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                         mutations.append({
                             'line': node.lineno,
                             'class_name': class_or_cls,
-                            'attribute': node.target.attr,
-                            'operation': 'augmented_assignment',
+                            'attribute': target.attr,
+                            'operation': 'assignment',
                             'in_function': in_function,
                             'is_classmethod': is_cm,
                         })
@@ -370,7 +285,7 @@ def extract_class_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_global_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
     """Extract global variable mutations (global x; x = value).
 
     Detects:
@@ -394,31 +309,29 @@ def extract_global_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Monitor global variable before/after calling X
     """
     mutations = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return mutations
 
     # Build function ranges and track global declarations
     function_ranges = []  # List of (name, start, end)
     globals_by_function = {}  # {function_name: set(global_var_names)}
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                func_name = node.name
-                start_line = node.lineno
-                end_line = node.end_lineno or node.lineno
-                function_ranges.append((func_name, start_line, end_line))
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            func_name = node.name
+            start_line = node.lineno
+            end_line = node.end_lineno or node.lineno
+            function_ranges.append((func_name, start_line, end_line))
 
-                # Track global declarations within this function
-                global_vars = set()
-                for child in ast.walk(node):
-                    if isinstance(child, ast.Global):
-                        global_vars.update(child.names)
+            # Track global declarations within this function
+            global_vars = set()
+            for child in context.find_nodes(ast.Global):
+                global_vars.update(child.names)
 
-                if global_vars:
-                    globals_by_function[func_name] = global_vars
+            if global_vars:
+                globals_by_function[func_name] = global_vars
 
     def find_containing_function(line_no):
         """Find the function containing this line."""
@@ -428,66 +341,49 @@ def extract_global_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         return "global"
 
     # Extract global mutations
-    for node in ast.walk(actual_tree):
-        # Pattern 1: global x; x = value (ast.Assign)
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    var_name = target.id
-                    in_function = find_containing_function(node.lineno)
-
-                    # Check if this variable was declared global in this function
-                    if in_function != "global" and in_function in globals_by_function:
-                        if var_name in globals_by_function[in_function]:
-                            mutations.append({
-                                'line': node.lineno,
-                                'global_name': var_name,
-                                'operation': 'assignment',
-                                'in_function': in_function,
-                            })
-                # Pattern 2: global dict; dict['key'] = value (subscript assignment)
-                elif isinstance(target, ast.Subscript):
-                    if isinstance(target.value, ast.Name):
-                        var_name = target.value.id
-                        in_function = find_containing_function(node.lineno)
-
-                        if in_function != "global" and in_function in globals_by_function:
-                            if var_name in globals_by_function[in_function]:
-                                mutations.append({
-                                    'line': node.lineno,
-                                    'global_name': var_name,
-                                    'operation': 'item_assignment',
-                                    'in_function': in_function,
-                                })
-                # Pattern 3: global obj; obj.attr = value (attribute assignment)
-                elif isinstance(target, ast.Attribute):
-                    if isinstance(target.value, ast.Name):
-                        var_name = target.value.id
-                        in_function = find_containing_function(node.lineno)
-
-                        if in_function != "global" and in_function in globals_by_function:
-                            if var_name in globals_by_function[in_function]:
-                                mutations.append({
-                                    'line': node.lineno,
-                                    'global_name': var_name,
-                                    'operation': 'attr_assignment',
-                                    'in_function': in_function,
-                                })
-
-        # Pattern 4: global x; x += 1 (ast.AugAssign)
-        elif isinstance(node, ast.AugAssign):
-            if isinstance(node.target, ast.Name):
-                var_name = node.target.id
+    for node in context.find_nodes(ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                var_name = target.id
                 in_function = find_containing_function(node.lineno)
 
+                # Check if this variable was declared global in this function
                 if in_function != "global" and in_function in globals_by_function:
                     if var_name in globals_by_function[in_function]:
                         mutations.append({
                             'line': node.lineno,
                             'global_name': var_name,
-                            'operation': 'augmented_assignment',
+                            'operation': 'assignment',
                             'in_function': in_function,
                         })
+            # Pattern 2: global dict; dict['key'] = value (subscript assignment)
+            elif isinstance(target, ast.Subscript):
+                if isinstance(target.value, ast.Name):
+                    var_name = target.value.id
+                    in_function = find_containing_function(node.lineno)
+
+                    if in_function != "global" and in_function in globals_by_function:
+                        if var_name in globals_by_function[in_function]:
+                            mutations.append({
+                                'line': node.lineno,
+                                'global_name': var_name,
+                                'operation': 'item_assignment',
+                                'in_function': in_function,
+                            })
+            # Pattern 3: global obj; obj.attr = value (attribute assignment)
+            elif isinstance(target, ast.Attribute):
+                if isinstance(target.value, ast.Name):
+                    var_name = target.value.id
+                    in_function = find_containing_function(node.lineno)
+
+                    if in_function != "global" and in_function in globals_by_function:
+                        if var_name in globals_by_function[in_function]:
+                            mutations.append({
+                                'line': node.lineno,
+                                'global_name': var_name,
+                                'operation': 'attr_assignment',
+                                'in_function': in_function,
+                            })
 
     # CRITICAL: Deduplicate by (line, global_name) - core_extractors.py:452-468 pattern
     seen = set()
@@ -506,7 +402,7 @@ def extract_global_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_argument_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
     """Extract mutable argument modifications (def foo(lst): lst.append(x)).
 
     Detects:
@@ -532,48 +428,46 @@ def extract_argument_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     Experiment design: Pass mutable argument, check state before/after
     """
     mutations = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return mutations
 
     # Build map of function parameters
     function_params = {}  # {function_name: set(parameter_names)}
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name
-            param_names = set()
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        func_name = node.name
+        param_names = set()
 
-            # Extract all parameter names (args, kwargs, etc.)
-            if hasattr(node, 'args') and node.args:
-                args_obj = node.args
-                # Regular args
-                for arg in args_obj.args:
-                    param_names.add(arg.arg)
-                # *args
-                if args_obj.vararg:
-                    param_names.add(args_obj.vararg.arg)
-                # **kwargs
-                if args_obj.kwarg:
-                    param_names.add(args_obj.kwarg.arg)
-                # kwonly args
-                for arg in args_obj.kwonlyargs:
-                    param_names.add(arg.arg)
+        # Extract all parameter names (args, kwargs, etc.)
+        if hasattr(node, 'args') and node.args:
+            args_obj = node.args
+            # Regular args
+            for arg in args_obj.args:
+                param_names.add(arg.arg)
+            # *args
+            if args_obj.vararg:
+                param_names.add(args_obj.vararg.arg)
+            # **kwargs
+            if args_obj.kwarg:
+                param_names.add(args_obj.kwarg.arg)
+            # kwonly args
+            for arg in args_obj.kwonlyargs:
+                param_names.add(arg.arg)
 
-            # CRITICAL: Remove 'self' and 'cls' - they're handled by instance/class mutation extractors
-            param_names.discard('self')
-            param_names.discard('cls')
+        # CRITICAL: Remove 'self' and 'cls' - they're handled by instance/class mutation extractors
+        param_names.discard('self')
+        param_names.discard('cls')
 
-            if param_names:
-                function_params[func_name] = param_names
+        if param_names:
+            function_params[func_name] = param_names
 
     # Build function ranges for context detection
     function_ranges = []  # List of (name, start, end)
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            function_ranges.append((node.name, node.lineno, node.end_lineno or node.lineno))
 
     def find_containing_function(line_no):
         """Find the function containing this line."""
@@ -591,7 +485,7 @@ def extract_argument_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     }
 
     # Extract argument mutations
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         in_function = find_containing_function(node.lineno) if hasattr(node, 'lineno') else "global"
 
         # Skip if not in a function or function has no params
@@ -685,7 +579,7 @@ def extract_argument_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_augmented_assignments(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_augmented_assignments(context: FileContext) -> list[dict[str, Any]]:
     """Extract augmented assignments (+=, -=, *=, /=, //=, %=, **=, &=, |=, ^=, >>=, <<=).
 
     Detects ALL augmented assignments on ANY target:
@@ -715,9 +609,9 @@ def extract_augmented_assignments(tree: Dict, parser_self) -> List[Dict[str, Any
     Experiment design: Monitor target variable before/after in-place operation
     """
     mutations = []
-    actual_tree = tree.get("tree")  # CRITICAL: Extract AST from dict
+    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return mutations
 
     # Build context: class names, global variables, function parameters
@@ -726,39 +620,8 @@ def extract_augmented_assignments(tree: Dict, parser_self) -> List[Dict[str, Any
     function_params = {}  # {function_name: set(parameter_names)}
     function_ranges = []  # List of (name, start, end)
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            class_names.add(node.name)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                function_ranges.append((func_name, node.lineno, node.end_lineno or node.lineno))
-
-            # Track global declarations
-            global_vars = set()
-            for child in ast.walk(node):
-                if isinstance(child, ast.Global):
-                    global_vars.update(child.names)
-            if global_vars:
-                globals_by_function[func_name] = global_vars
-
-            # Track parameters
-            param_names = set()
-            if hasattr(node, 'args') and node.args:
-                args_obj = node.args
-                for arg in args_obj.args:
-                    param_names.add(arg.arg)
-                if args_obj.vararg:
-                    param_names.add(args_obj.vararg.arg)
-                if args_obj.kwarg:
-                    param_names.add(args_obj.kwarg.arg)
-                for arg in args_obj.kwonlyargs:
-                    param_names.add(arg.arg)
-            # Remove self/cls (they're instance/class, not argument)
-            param_names.discard('self')
-            param_names.discard('cls')
-            if param_names:
-                function_params[func_name] = param_names
+    for node in context.find_nodes(ast.ClassDef):
+        class_names.add(node.name)
 
     def find_containing_function(line_no):
         """Find the function containing this line."""
@@ -784,69 +647,68 @@ def extract_augmented_assignments(tree: Dict, parser_self) -> List[Dict[str, Any
     }
 
     # Extract all augmented assignments
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.AugAssign):
-            in_function = find_containing_function(node.lineno)
-            operator = OP_MAP.get(type(node.op), '?=')
+    for node in context.find_nodes(ast.AugAssign):
+        in_function = find_containing_function(node.lineno)
+        operator = OP_MAP.get(type(node.op), '?=')
 
-            # Determine target and target_type
-            target_expr = None
-            target_type = 'unknown'
+        # Determine target and target_type
+        target_expr = None
+        target_type = 'unknown'
 
-            if isinstance(node.target, ast.Name):
-                # Simple name: x += 1
-                var_name = node.target.id
-                target_expr = var_name
+        if isinstance(node.target, ast.Name):
+            # Simple name: x += 1
+            var_name = node.target.id
+            target_expr = var_name
 
-                # Classify target type
-                if in_function != "global":
-                    # Check if it's a parameter
-                    if in_function in function_params and var_name in function_params[in_function]:
-                        target_type = 'argument'
-                    # Check if it's a declared global
-                    elif in_function in globals_by_function and var_name in globals_by_function[in_function]:
-                        target_type = 'global'
-                    else:
-                        target_type = 'local'
+            # Classify target type
+            if in_function != "global":
+                # Check if it's a parameter
+                if in_function in function_params and var_name in function_params[in_function]:
+                    target_type = 'argument'
+                # Check if it's a declared global
+                elif in_function in globals_by_function and var_name in globals_by_function[in_function]:
+                    target_type = 'global'
                 else:
-                    target_type = 'global'  # Module-level
+                    target_type = 'local'
+            else:
+                target_type = 'global'  # Module-level
 
-            elif isinstance(node.target, ast.Attribute):
-                # Attribute: self.x += 1 or cls.x += 1 or Counter.instances += 1
-                if isinstance(node.target.value, ast.Name):
-                    base_name = node.target.value.id
-                    attr_name = node.target.attr
-                    target_expr = f"{base_name}.{attr_name}"
+        elif isinstance(node.target, ast.Attribute):
+            # Attribute: self.x += 1 or cls.x += 1 or Counter.instances += 1
+            if isinstance(node.target.value, ast.Name):
+                base_name = node.target.value.id
+                attr_name = node.target.attr
+                target_expr = f"{base_name}.{attr_name}"
 
-                    if base_name == 'self':
-                        target_type = 'instance'
-                    elif base_name == 'cls' or base_name in class_names:
-                        target_type = 'class'
-                    else:
-                        target_type = 'attribute'
+                if base_name == 'self':
+                    target_type = 'instance'
+                elif base_name == 'cls' or base_name in class_names:
+                    target_type = 'class'
                 else:
-                    # Complex attribute chain (rare)
                     target_type = 'attribute'
-                    target_expr = 'complex_attribute'
+            else:
+                # Complex attribute chain (rare)
+                target_type = 'attribute'
+                target_expr = 'complex_attribute'
 
-            elif isinstance(node.target, ast.Subscript):
-                # Subscript: lst[0] += 1 or dict['key'] += 1
-                if isinstance(node.target.value, ast.Name):
-                    var_name = node.target.value.id
-                    target_expr = f"{var_name}[...]"
-                    target_type = 'subscript'
-                else:
-                    target_expr = 'subscript'
-                    target_type = 'subscript'
+        elif isinstance(node.target, ast.Subscript):
+            # Subscript: lst[0] += 1 or dict['key'] += 1
+            if isinstance(node.target.value, ast.Name):
+                var_name = node.target.value.id
+                target_expr = f"{var_name}[...]"
+                target_type = 'subscript'
+            else:
+                target_expr = 'subscript'
+                target_type = 'subscript'
 
-            if target_expr:
-                mutations.append({
-                    'line': node.lineno,
-                    'target': target_expr,
-                    'operator': operator,
-                    'target_type': target_type,
-                    'in_function': in_function,
-                })
+        if target_expr:
+            mutations.append({
+                'line': node.lineno,
+                'target': target_expr,
+                'operator': operator,
+                'target_type': target_type,
+                'in_function': in_function,
+            })
 
     # CRITICAL: Deduplicate by (line, target) - core_extractors.py:452-468 pattern
     seen = set()

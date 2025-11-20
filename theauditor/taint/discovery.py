@@ -6,13 +6,15 @@ instead of using hardcoded patterns. This eliminates the need for manual
 pattern maintenance and automatically discovers new sources/sinks as the
 database evolves.
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Any, Optional, Tuple
 import sys
 import sqlite3
 
 
-def _matches_file_io_pattern(func_name: str, patterns: List[str]) -> bool:
+def _matches_file_io_pattern(func_name: str, patterns: list[str]) -> bool:
     """
     Strict pattern matching for file I/O functions to avoid false positives.
 
@@ -56,7 +58,7 @@ class TaintDiscovery:
         """Initialize with a cache (either old MemoryCache or SchemaMemoryCache)."""
         self.cache = cache
 
-    def discover_sources(self, sources_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+    def discover_sources(self, sources_dict: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
         """
         Discover taint sources from database.
 
@@ -167,7 +169,7 @@ class TaintDiscovery:
 
         return sources
 
-    def discover_sinks(self, sinks_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+    def discover_sinks(self, sinks_dict: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
         """
         Discover security sinks from database.
 
@@ -546,7 +548,7 @@ class TaintDiscovery:
         # Medium: Can't determine
         return 'medium'
 
-    def filter_framework_safe_sinks(self, sinks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def filter_framework_safe_sinks(self, sinks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Filter out sinks that are automatically safe due to framework protections.
 
@@ -602,7 +604,7 @@ class TaintDiscovery:
 
         return filtered
 
-    def discover_sanitizers(self) -> List[Dict[str, Any]]:
+    def discover_sanitizers(self) -> list[dict[str, Any]]:
         """
         Discover sanitizers from framework tables.
 

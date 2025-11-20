@@ -81,6 +81,8 @@ TEMPLATE BASED ON: react_xss_analyze.py (Production Rule)
 RULE METADATA: JSX-specific with framework detection
 ================================================================================
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -178,7 +180,7 @@ class JSXSecurityPatterns:
 # Function name MUST start with 'find_' (orchestrator requirement).
 # ============================================================================
 
-def find_your_jsx_vulnerability(context: StandardRuleContext) -> List[StandardFinding]:
+def find_your_jsx_vulnerability(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect JSX-specific security issues using preserved JSX data.
 
     CRITICAL: This rule queries JSX-SPECIFIC TABLES:
@@ -241,7 +243,7 @@ def find_your_jsx_vulnerability(context: StandardRuleContext) -> List[StandardFi
 # These query *_jsx tables to access preserved JSX syntax.
 # ============================================================================
 
-def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Detect dynamic JSX element injection: <{UserComponent} />
 
     This pattern is LOST in transformed AST (becomes createElement call).
@@ -309,7 +311,7 @@ def _check_jsx_element_injection(conn, patterns: JSXSecurityPatterns) -> List[St
     return findings
 
 
-def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Detect JSX spread operator injection: <div {...userProps} />
 
     Spread operator can inject arbitrary props including dangerous ones.
@@ -359,7 +361,7 @@ def _check_jsx_attribute_injection(conn, patterns: JSXSecurityPatterns) -> List[
     return findings
 
 
-def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Check for dangerous props like dangerouslySetInnerHTML with user input."""
     findings = []
     cursor = conn.cursor()
@@ -398,7 +400,7 @@ def _check_dangerous_jsx_props(conn, patterns: JSXSecurityPatterns) -> List[Stan
     return findings
 
 
-def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> List[StandardFinding]:
+def _check_vue_v_html(conn, patterns: JSXSecurityPatterns) -> list[StandardFinding]:
     """Check Vue v-html directive with user input (Vue-specific)."""
     findings = []
     cursor = conn.cursor()

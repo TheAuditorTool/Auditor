@@ -5,6 +5,8 @@ This is a Phase 2 temporary adapter that allows SchemaMemoryCache to work
 with the existing taint code that expects the old MemoryCache interface.
 This will be removed in Phase 4 when we refactor the taint code directly.
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Any, Optional
 import sys
@@ -76,7 +78,7 @@ class SchemaMemoryCacheAdapter:
         # Rough estimate: 1KB per row average
         return (total_rows * 1024) / (1024 * 1024)
 
-    def find_taint_sources_cached(self, sources_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+    def find_taint_sources_cached(self, sources_dict: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
         """Find taint sources using cache - adapter method."""
         sources = []
 
@@ -125,7 +127,7 @@ class SchemaMemoryCacheAdapter:
 
         return sources
 
-    def find_security_sinks_cached(self, sinks_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+    def find_security_sinks_cached(self, sinks_dict: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
         """Find security sinks using cache - adapter method.
 
         ZERO FALLBACK POLICY: Use sinks_dict from TaintRegistry, no hardcoded patterns.

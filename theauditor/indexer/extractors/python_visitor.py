@@ -26,6 +26,8 @@ The visitor populates "state buckets" (definitions, calls, imports, issues).
 The adapter layer (in python.py) maps these to the 150+ legacy table schemas
 during Phase 2 transition. Once all consumers migrate, we can simplify the schema.
 """
+from __future__ import annotations
+
 
 import ast
 from typing import List, Dict, Any, Optional, Set
@@ -42,8 +44,8 @@ class AnalysisContext:
     Example scope progression:
         global → MyClass → MyClass.my_method
     """
-    scope_stack: List[str] = field(default_factory=list)
-    current_class: Optional[str] = None
+    scope_stack: list[str] = field(default_factory=list)
+    current_class: str | None = None
 
     @property
     def current_scope_name(self) -> str:
@@ -51,7 +53,7 @@ class AnalysisContext:
         return ".".join(self.scope_stack) if self.scope_stack else "global"
 
     @property
-    def current_function(self) -> Optional[str]:
+    def current_function(self) -> str | None:
         """Get innermost function name (for 'in_function' field)."""
         # Return last scope item if it's a function (not a class)
         if self.scope_stack:
@@ -106,10 +108,10 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
         # These map to domain concepts, not specific database tables.
         # The adapter layer (in python.py) will map these to legacy schemas.
 
-        self.definitions: List[Dict[str, Any]] = []  # Classes, functions, methods
-        self.calls: List[Dict[str, Any]] = []        # Function calls
-        self.imports: List[Dict[str, Any]] = []      # Import statements
-        self.issues: List[Dict[str, Any]] = []       # Security findings
+        self.definitions: list[dict[str, Any]] = []  # Classes, functions, methods
+        self.calls: list[dict[str, Any]] = []        # Function calls
+        self.imports: list[dict[str, Any]] = []      # Import statements
+        self.issues: list[dict[str, Any]] = []       # Security findings
 
         # =================================================================
         # DOMAIN DETECTORS - Pre-compiled Pattern Sets
@@ -117,35 +119,35 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
         # Compiled once at init for O(1) lookups during traversal.
 
         # Route decorators (Flask, FastAPI, Django)
-        self._route_decorators: Set[str] = {
+        self._route_decorators: set[str] = {
             'route', 'get', 'post', 'put', 'delete', 'patch', 'head', 'options',
             'api_route',  # FastAPI
         }
 
         # Task decorators (Celery)
-        self._task_decorators: Set[str] = {
+        self._task_decorators: set[str] = {
             'task', 'shared_task', 'periodic_task'
         }
 
         # Auth/permission decorators
-        self._auth_decorators: Set[str] = {
+        self._auth_decorators: set[str] = {
             'login_required', 'auth_required', 'permission_required',
             'require_auth', 'authenticated', 'authorize', 'requires_auth',
             'jwt_required', 'token_required', 'verify_jwt', 'check_auth'
         }
 
         # ORM base classes
-        self._orm_bases: Set[str] = {
+        self._orm_bases: set[str] = {
             'Model', 'Base', 'db.Model', 'models.Model'  # SQLAlchemy, Django
         }
 
         # SQL execution methods (for injection detection)
-        self._sql_methods: Set[str] = {
+        self._sql_methods: set[str] = {
             'execute', 'executemany', 'exec_driver_sql', 'raw', 'query'
         }
 
         # Command execution functions (for injection detection)
-        self._command_functions: Set[str] = {
+        self._command_functions: set[str] = {
             'system', 'popen', 'exec', 'eval', 'run', 'call', 'check_output'
         }
 
@@ -325,7 +327,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
     # HELPER METHODS - Pure Logic, No Side Effects
     # =================================================================
 
-    def _get_name(self, node: Any) -> Optional[str]:
+    def _get_name(self, node: Any) -> str | None:
         """Safely extract name from AST node.
 
         Handles:
@@ -344,7 +346,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
             return self._get_name(node.func)
         return None
 
-    def _get_decorator_name(self, node: Any) -> Optional[str]:
+    def _get_decorator_name(self, node: Any) -> str | None:
         """Extract decorator name from decorator node.
 
         Handles:
@@ -372,7 +374,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
                     return True
         return False
 
-    def _extract_route_meta(self, node: ast.FunctionDef) -> Dict[str, Any]:
+    def _extract_route_meta(self, node: ast.FunctionDef) -> dict[str, Any]:
         """Extract route metadata (HTTP method, URL pattern, framework, dependencies).
 
         Analyzes decorators to identify:
@@ -453,7 +455,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
             "dependencies": dependencies,
         }
 
-    def _extract_fastapi_dependencies(self, func_node: ast.FunctionDef) -> List[str]:
+    def _extract_fastapi_dependencies(self, func_node: ast.FunctionDef) -> list[str]:
         """Extract dependency injection targets from FastAPI route function parameters.
 
         FastAPI routes use Depends() in default parameter values:
@@ -468,7 +470,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
         """
         dependencies = []
 
-        def _extract_depends_target(call: ast.Call) -> Optional[str]:
+        def _extract_depends_target(call: ast.Call) -> str | None:
             """Extract target from Depends() call."""
             func_name = self._get_name(call.func)
             if not (func_name and func_name.endswith("Depends")):
@@ -518,7 +520,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
                     return True
         return False
 
-    def _extract_task_meta(self, node: ast.FunctionDef) -> Dict[str, Any]:
+    def _extract_task_meta(self, node: ast.FunctionDef) -> dict[str, Any]:
         """Extract Celery task metadata."""
         return {}  # Placeholder
 
@@ -534,7 +536,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
                 return True
         return False
 
-    def _extract_test_meta(self, node: ast.FunctionDef) -> Dict[str, Any]:
+    def _extract_test_meta(self, node: ast.FunctionDef) -> dict[str, Any]:
         """Extract test metadata (fixtures, parametrize, etc.)."""
         return {}  # Placeholder
 
@@ -556,7 +558,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
                 return True
         return False
 
-    def _extract_orm_meta(self, node: ast.ClassDef) -> Dict[str, Any]:
+    def _extract_orm_meta(self, node: ast.ClassDef) -> dict[str, Any]:
         """Extract ORM metadata (table name, fields) from SQLAlchemy/Django models.
 
         Scans class body for:
@@ -725,7 +727,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
         method = func_name.split('.')[-1]
         return method in self._sql_methods
 
-    def _check_sql_injection(self, node: ast.Call, func_name: str) -> Optional[Dict[str, Any]]:
+    def _check_sql_injection(self, node: ast.Call, func_name: str) -> dict[str, Any] | None:
         """Detect SQL injection vulnerabilities in SQL execution calls.
 
         Looks for string formatting in SQL queries (vulnerable patterns):
@@ -849,7 +851,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
             return True
         return False
 
-    def _check_command_injection(self, node: ast.Call, func_name: str) -> Optional[Dict[str, Any]]:
+    def _check_command_injection(self, node: ast.Call, func_name: str) -> dict[str, Any] | None:
         """Detect command injection vulnerabilities in system command execution.
 
         Looks for shell=True with dynamic input in subprocess calls:
@@ -962,7 +964,7 @@ class UnifiedPythonVisitor(ast.NodeVisitor):
     # OUTPUT - Convert State Buckets to Results
     # =================================================================
 
-    def get_results(self) -> Dict[str, List[Dict[str, Any]]]:
+    def get_results(self) -> dict[str, list[dict[str, Any]]]:
         """Return extracted data as dictionary.
 
         This is the "new schema" that the adapter layer will map to legacy tables.

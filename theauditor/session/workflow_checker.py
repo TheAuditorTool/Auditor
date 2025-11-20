@@ -7,6 +7,8 @@ This module checks if agent execution follows defined workflows:
 
 Returns compliance score and list of violations.
 """
+from __future__ import annotations
+
 
 import logging
 from dataclasses import dataclass, asdict
@@ -23,10 +25,10 @@ class WorkflowCompliance:
     """Workflow compliance result."""
     compliant: bool
     score: float  # 0.0-1.0
-    violations: List[str]  # ['blueprint_first', 'query_before_edit']
-    checks: Dict[str, bool]  # {'blueprint_first': False, ...}
+    violations: list[str]  # ['blueprint_first', 'query_before_edit']
+    checks: dict[str, bool]  # {'blueprint_first': False, ...}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
@@ -87,7 +89,7 @@ class WorkflowChecker:
             checks=checks
         )
 
-    def _parse_workflows(self) -> Dict[str, Any]:
+    def _parse_workflows(self) -> dict[str, Any]:
         """Parse workflows from planning.md.
 
         Returns:
@@ -97,7 +99,7 @@ class WorkflowChecker:
         # For now, use default checks
         return {}
 
-    def _extract_tool_sequence(self, session: Session) -> List[ToolCall]:
+    def _extract_tool_sequence(self, session: Session) -> list[ToolCall]:
         """Extract chronological tool call sequence.
 
         Args:
@@ -108,7 +110,7 @@ class WorkflowChecker:
         """
         return session.all_tool_calls
 
-    def _check_blueprint_first(self, sequence: List[ToolCall]) -> bool:
+    def _check_blueprint_first(self, sequence: list[ToolCall]) -> bool:
         """Check if aud blueprint was run before modifications.
 
         Args:
@@ -138,7 +140,7 @@ class WorkflowChecker:
         # If no edits, this check passes (not applicable)
         return True
 
-    def _check_query_usage(self, sequence: List[ToolCall]) -> bool:
+    def _check_query_usage(self, sequence: list[ToolCall]) -> bool:
         """Check if aud query was used before editing.
 
         Args:
@@ -165,7 +167,7 @@ class WorkflowChecker:
         # For now, this check always passes (query is recommended, not mandatory)
         return True
 
-    def _check_blind_edits(self, sequence: List[ToolCall]) -> bool:
+    def _check_blind_edits(self, sequence: list[ToolCall]) -> bool:
         """Check if files were read before being edited.
 
         Args:
@@ -197,7 +199,7 @@ class WorkflowChecker:
 
         return True
 
-    def _calculate_compliance_score(self, checks: Dict[str, bool]) -> float:
+    def _calculate_compliance_score(self, checks: dict[str, bool]) -> float:
         """Calculate compliance score from checks.
 
         Args:

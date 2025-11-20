@@ -7,8 +7,9 @@ Checks:
 - IAM policies with resources containing '*' (HIGH)
 - IAM roles with AdministratorAccess policy attached (CRITICAL)
 """
-
 from __future__ import annotations
+
+
 
 import logging
 import sqlite3
@@ -38,9 +39,9 @@ METADATA = RuleMetadata(
 )
 
 
-def find_cdk_iam_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_cdk_iam_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect IAM policies with overly permissive wildcards in CDK code."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -59,9 +60,9 @@ def find_cdk_iam_issues(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _check_wildcard_actions(cursor) -> List[StandardFinding]:
+def _check_wildcard_actions(cursor) -> list[StandardFinding]:
     """Detect IAM policies with wildcard actions."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for IAM Policy in Python
     cursor.execute("""
@@ -109,9 +110,9 @@ def _check_wildcard_actions(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_wildcard_resources(cursor) -> List[StandardFinding]:
+def _check_wildcard_resources(cursor) -> list[StandardFinding]:
     """Detect IAM policies with wildcard resources."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for IAM Policy in Python
     cursor.execute("""
@@ -159,9 +160,9 @@ def _check_wildcard_resources(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_administrator_access(cursor) -> List[StandardFinding]:
+def _check_administrator_access(cursor) -> list[StandardFinding]:
     """Detect IAM roles with AdministratorAccess managed policy attached."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for IAM Role in Python
     cursor.execute("""

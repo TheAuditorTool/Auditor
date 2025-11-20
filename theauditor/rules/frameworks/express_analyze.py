@@ -9,6 +9,8 @@ Follows schema contract architecture (v1.1+):
 - Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -92,7 +94,7 @@ class ExpressPatterns:
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Express.js security misconfigurations.
 
     Analyzes database for:
@@ -124,16 +126,16 @@ class ExpressAnalyzer:
     def __init__(self, context: StandardRuleContext):
         self.context = context
         self.patterns = ExpressPatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
 
         # Track Express.js specific data
-        self.express_files: List[str] = []
-        self.api_endpoints: List[Dict[str, Any]] = []
-        self.function_calls: List[Dict[str, Any]] = []
-        self.imports: Dict[str, Set[str]] = {}
+        self.express_files: list[str] = []
+        self.api_endpoints: list[dict[str, Any]] = []
+        self.function_calls: list[dict[str, Any]] = []
+        self.imports: dict[str, set[str]] = {}
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete Express.js analysis."""
         # Load data from database
         if not self._load_express_data():
@@ -456,7 +458,7 @@ class ExpressAnalyzer:
             cursor = conn.cursor()
 
             # Get all DB operations in files with routes
-            route_files = set(ep['file'] for ep in self.api_endpoints)
+            route_files = {ep['file'] for ep in self.api_endpoints}
 
             for route_file in route_files:
                 # Fetch DB operations, filter caller in Python

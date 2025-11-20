@@ -8,6 +8,8 @@ Note: CDK constructs handler remains in core_storage.py (cross-language AWS dete
 
 Handler Count: 11
 """
+from __future__ import annotations
+
 
 import json
 from typing import List, Dict, Any
@@ -17,7 +19,7 @@ from .base import BaseStorage
 class InfrastructureStorage(BaseStorage):
     """Infrastructure-as-Code storage handlers."""
 
-    def __init__(self, db_manager, counts: Dict[str, int]):
+    def __init__(self, db_manager, counts: dict[str, int]):
         super().__init__(db_manager, counts)
 
         self.handlers = {
@@ -34,7 +36,7 @@ class InfrastructureStorage(BaseStorage):
             'graphql_resolver_params': self._store_graphql_resolver_params
         }
 
-    def _store_terraform_file(self, file_path: str, terraform_file: Dict, jsx_pass: bool):
+    def _store_terraform_file(self, file_path: str, terraform_file: dict, jsx_pass: bool):
         """Store Terraform infrastructure definitions."""
         self.db_manager.add_terraform_file(
             file_path=terraform_file['file_path'],
@@ -49,7 +51,7 @@ class InfrastructureStorage(BaseStorage):
             self.counts['terraform_files'] = 0
         self.counts['terraform_files'] += 1
 
-    def _store_terraform_resources(self, file_path: str, terraform_resources: List, jsx_pass: bool):
+    def _store_terraform_resources(self, file_path: str, terraform_resources: list, jsx_pass: bool):
         """Store Terraform resources."""
         for resource in terraform_resources:
             self.db_manager.add_terraform_resource(
@@ -68,7 +70,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['terraform_resources'] = 0
             self.counts['terraform_resources'] += 1
 
-    def _store_terraform_variables(self, file_path: str, terraform_variables: List, jsx_pass: bool):
+    def _store_terraform_variables(self, file_path: str, terraform_variables: list, jsx_pass: bool):
         """Store Terraform variables."""
         for variable in terraform_variables:
             self.db_manager.add_terraform_variable(
@@ -86,7 +88,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['terraform_variables'] = 0
             self.counts['terraform_variables'] += 1
 
-    def _store_terraform_variable_values(self, file_path: str, terraform_variable_values: List, jsx_pass: bool):
+    def _store_terraform_variable_values(self, file_path: str, terraform_variable_values: list, jsx_pass: bool):
         """Store Terraform variable values."""
         for value in terraform_variable_values:
             raw_value = value.get('variable_value')
@@ -108,7 +110,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['terraform_variable_values'] = 0
             self.counts['terraform_variable_values'] += 1
 
-    def _store_terraform_outputs(self, file_path: str, terraform_outputs: List, jsx_pass: bool):
+    def _store_terraform_outputs(self, file_path: str, terraform_outputs: list, jsx_pass: bool):
         """Store Terraform outputs."""
         for output in terraform_outputs:
             self.db_manager.add_terraform_output(
@@ -128,7 +130,7 @@ class InfrastructureStorage(BaseStorage):
     # GRAPHQL STORAGE METHODS
     # ========================================================
 
-    def _store_graphql_schemas(self, file_path: str, graphql_schemas: List, jsx_pass: bool):
+    def _store_graphql_schemas(self, file_path: str, graphql_schemas: list, jsx_pass: bool):
         """Store GraphQL schema file records."""
         for schema in graphql_schemas:
             self.db_manager.add_graphql_schema(
@@ -141,7 +143,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['graphql_schemas'] = 0
             self.counts['graphql_schemas'] += 1
 
-    def _store_graphql_types(self, file_path: str, graphql_types: List, jsx_pass: bool):
+    def _store_graphql_types(self, file_path: str, graphql_types: list, jsx_pass: bool):
         """Store GraphQL type definition records."""
         import os, sys
         if os.environ.get('THEAUDITOR_DEBUG') == '1':
@@ -164,7 +166,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['graphql_types'] = 0
             self.counts['graphql_types'] += 1
 
-    def _store_graphql_fields(self, file_path: str, graphql_fields: List, jsx_pass: bool):
+    def _store_graphql_fields(self, file_path: str, graphql_fields: list, jsx_pass: bool):
         """Store GraphQL field definition records."""
         for field in graphql_fields:
             self.db_manager.add_graphql_field(
@@ -181,7 +183,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['graphql_fields'] = 0
             self.counts['graphql_fields'] += 1
 
-    def _store_graphql_field_args(self, file_path: str, graphql_field_args: List, jsx_pass: bool):
+    def _store_graphql_field_args(self, file_path: str, graphql_field_args: list, jsx_pass: bool):
         """Store GraphQL field argument definition records."""
         for arg in graphql_field_args:
             self.db_manager.add_graphql_field_arg(
@@ -197,7 +199,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['graphql_field_args'] = 0
             self.counts['graphql_field_args'] += 1
 
-    def _store_graphql_resolver_mappings(self, file_path: str, graphql_resolver_mappings: List, jsx_pass: bool):
+    def _store_graphql_resolver_mappings(self, file_path: str, graphql_resolver_mappings: list, jsx_pass: bool):
         """Store GraphQL resolver mapping records."""
         for mapping in graphql_resolver_mappings:
             self.db_manager.add_graphql_resolver_mapping(
@@ -213,7 +215,7 @@ class InfrastructureStorage(BaseStorage):
                 self.counts['graphql_resolver_mappings'] = 0
             self.counts['graphql_resolver_mappings'] += 1
 
-    def _store_graphql_resolver_params(self, file_path: str, graphql_resolver_params: List, jsx_pass: bool):
+    def _store_graphql_resolver_params(self, file_path: str, graphql_resolver_params: list, jsx_pass: bool):
         """Store GraphQL resolver parameter mapping records."""
         for param in graphql_resolver_params:
             self.db_manager.add_graphql_resolver_param(

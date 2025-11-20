@@ -1,4 +1,6 @@
 """Detect universal runtime, DB, and logic patterns in code."""
+from __future__ import annotations
+
 
 import click
 from pathlib import Path

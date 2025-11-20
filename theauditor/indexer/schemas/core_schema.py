@@ -517,7 +517,7 @@ FINDINGS_CONSOLIDATED = TableSchema(
 # CORE TABLES REGISTRY
 # ============================================================================
 
-CORE_TABLES: Dict[str, TableSchema] = {
+CORE_TABLES: dict[str, TableSchema] = {
     # Core tables
     "files": FILES,
     "config_files": CONFIG_FILES,

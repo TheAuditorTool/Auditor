@@ -33,6 +33,9 @@ Expected extraction from TheAuditor codebase:
 - ~50 collections module usage
 Total: ~1,320 collection pattern records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -47,7 +50,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions
 # ============================================================================
 
-def _build_function_ranges(tree: ast.AST) -> List:
+def _build_function_ranges(tree: ast.AST) -> list:
     """Build list of function ranges for context tracking."""
     function_ranges = []
     for node in ast.walk(tree):
@@ -61,7 +64,7 @@ def _build_function_ranges(tree: ast.AST) -> List:
     return function_ranges
 
 
-def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
+def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     """Find the function containing this node."""
     if not hasattr(node, 'lineno'):
         return 'global'
@@ -133,7 +136,7 @@ COLLECTIONS_TYPES = {
 # Dictionary Operation Extractors
 # ============================================================================
 
-def extract_dict_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_dict_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract dictionary method calls.
 
     Detects all dict method usage: keys(), values(), items(), get(), update(), etc.
@@ -148,29 +151,28 @@ def extract_dict_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     dict_ops = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return dict_ops
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                method_name = node.func.attr
-                if method_name in DICT_METHODS:
-                    has_default = False
-                    if method_name == 'get' and len(node.args) > 1:
-                        has_default = True
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            if method_name in DICT_METHODS:
+                has_default = False
+                if method_name == 'get' and len(node.args) > 1:
+                    has_default = True
 
-                    dict_data = {
-                        'line': node.lineno,
-                        'operation': method_name,
-                        'has_default': has_default,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    dict_ops.append(dict_data)
+                dict_data = {
+                    'line': node.lineno,
+                    'operation': method_name,
+                    'has_default': has_default,
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                dict_ops.append(dict_data)
 
     return dict_ops
 
@@ -179,7 +181,7 @@ def extract_dict_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # List Mutation Extractors
 # ============================================================================
 
-def extract_list_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_list_mutations(context: FileContext) -> list[dict[str, Any]]:
     """Extract list method calls (focusing on mutations).
 
     Detects: append(), extend(), insert(), remove(), pop(), sort(), reverse(), etc.
@@ -194,28 +196,27 @@ def extract_list_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     list_mutations = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return list_mutations
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     # Methods that mutate vs return new
     mutating_methods = {'append', 'extend', 'insert', 'remove', 'pop', 'clear', 'sort', 'reverse'}
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                method_name = node.func.attr
-                if method_name in LIST_METHODS:
-                    list_data = {
-                        'line': node.lineno,
-                        'method': method_name,
-                        'mutates_in_place': method_name in mutating_methods,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    list_mutations.append(list_data)
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            if method_name in LIST_METHODS:
+                list_data = {
+                    'line': node.lineno,
+                    'method': method_name,
+                    'mutates_in_place': method_name in mutating_methods,
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                list_mutations.append(list_data)
 
     return list_mutations
 
@@ -224,7 +225,7 @@ def extract_list_mutations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Set Operation Extractors
 # ============================================================================
 
-def extract_set_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_set_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract set operations (union, intersection, difference, etc.).
 
     Detects both method calls and operators: union() vs |, intersection() vs &
@@ -238,25 +239,24 @@ def extract_set_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     set_ops = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return set_ops
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     # Set method calls
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                method_name = node.func.attr
-                if method_name in SET_METHODS:
-                    set_data = {
-                        'line': node.lineno,
-                        'operation': method_name,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    set_ops.append(set_data)
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            if method_name in SET_METHODS:
+                set_data = {
+                    'line': node.lineno,
+                    'operation': method_name,
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                set_ops.append(set_data)
 
     return set_ops
 
@@ -265,7 +265,7 @@ def extract_set_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # String Method Extractors
 # ============================================================================
 
-def extract_string_methods(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_string_methods(context: FileContext) -> list[dict[str, Any]]:
     """Extract string method calls.
 
     Detects: split(), join(), strip(), replace(), find(), startswith(), etc.
@@ -279,24 +279,23 @@ def extract_string_methods(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     string_methods = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return string_methods
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                method_name = node.func.attr
-                if method_name in STRING_METHODS:
-                    string_data = {
-                        'line': node.lineno,
-                        'method': method_name,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    string_methods.append(string_data)
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            if method_name in STRING_METHODS:
+                string_data = {
+                    'line': node.lineno,
+                    'method': method_name,
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                string_methods.append(string_data)
 
     return string_methods
 
@@ -305,7 +304,7 @@ def extract_string_methods(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Builtin Function Extractors
 # ============================================================================
 
-def extract_builtin_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_builtin_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract builtin function usage.
 
     Detects: len(), sum(), max(), min(), sorted(), enumerate(), zip(), map(), filter()
@@ -320,33 +319,32 @@ def extract_builtin_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     builtins = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return builtins
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                func_name = node.func.id
-                if func_name in BUILTIN_FUNCTIONS:
-                    # Check for key argument in sorted/max/min
-                    has_key = False
-                    if func_name in {'sorted', 'max', 'min'}:
-                        for keyword in node.keywords:
-                            if keyword.arg == 'key':
-                                has_key = True
-                                break
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Name):
+            func_name = node.func.id
+            if func_name in BUILTIN_FUNCTIONS:
+                # Check for key argument in sorted/max/min
+                has_key = False
+                if func_name in {'sorted', 'max', 'min'}:
+                    for keyword in node.keywords:
+                        if keyword.arg == 'key':
+                            has_key = True
+                            break
 
-                    builtin_data = {
-                        'line': node.lineno,
-                        'builtin': func_name,
-                        'has_key': has_key,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    builtins.append(builtin_data)
+                builtin_data = {
+                    'line': node.lineno,
+                    'builtin': func_name,
+                    'has_key': has_key,
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                builtins.append(builtin_data)
 
     return builtins
 
@@ -355,7 +353,7 @@ def extract_builtin_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Itertools Usage Extractors
 # ============================================================================
 
-def extract_itertools_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_itertools_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract itertools function usage.
 
     Detects: chain(), cycle(), combinations(), permutations(), etc.
@@ -370,36 +368,35 @@ def extract_itertools_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     itertools_usage = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return itertools_usage
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     infinite_functions = {'cycle', 'count'}
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            # Check for itertools.function() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'itertools':
-                        func_name = node.func.attr
-                        if func_name in ITERTOOLS_FUNCTIONS:
-                            is_infinite = func_name in infinite_functions
+    for node in context.find_nodes(ast.Call):
+        # Check for itertools.function() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'itertools':
+                    func_name = node.func.attr
+                    if func_name in ITERTOOLS_FUNCTIONS:
+                        is_infinite = func_name in infinite_functions
 
-                            # Check if repeat has count argument
-                            if func_name == 'repeat' and len(node.args) > 1:
-                                is_infinite = False
+                        # Check if repeat has count argument
+                        if func_name == 'repeat' and len(node.args) > 1:
+                            is_infinite = False
 
-                            itertools_data = {
-                                'line': node.lineno,
-                                'function': func_name,
-                                'is_infinite': is_infinite,
-                                'in_function': _find_containing_function(node, function_ranges),
-                            }
-                            itertools_usage.append(itertools_data)
+                        itertools_data = {
+                            'line': node.lineno,
+                            'function': func_name,
+                            'is_infinite': is_infinite,
+                            'in_function': _find_containing_function(node, function_ranges),
+                        }
+                        itertools_usage.append(itertools_data)
 
     return itertools_usage
 
@@ -408,7 +405,7 @@ def extract_itertools_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Functools Usage Extractors
 # ============================================================================
 
-def extract_functools_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_functools_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract functools function usage.
 
     Detects: partial(), reduce(), lru_cache(), cached_property(), etc.
@@ -423,41 +420,39 @@ def extract_functools_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     functools_usage = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return functools_usage
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     # Track decorators
     decorator_usage = set()
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for decorator in node.decorator_list:
-                if isinstance(decorator, ast.Name):
-                    decorator_usage.add((decorator.lineno, decorator.id))
-                elif isinstance(decorator, ast.Attribute):
-                    if isinstance(decorator.value, ast.Name) and decorator.value.id == 'functools':
-                        decorator_usage.add((decorator.lineno, decorator.attr))
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        for decorator in node.decorator_list:
+            if isinstance(decorator, ast.Name):
+                decorator_usage.add((decorator.lineno, decorator.id))
+            elif isinstance(decorator, ast.Attribute):
+                if isinstance(decorator.value, ast.Name) and decorator.value.id == 'functools':
+                    decorator_usage.add((decorator.lineno, decorator.attr))
 
     # Track function calls
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'functools':
-                        func_name = node.func.attr
-                        if func_name in FUNCTOOLS_FUNCTIONS:
-                            is_decorator = (node.lineno, func_name) in decorator_usage
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'functools':
+                    func_name = node.func.attr
+                    if func_name in FUNCTOOLS_FUNCTIONS:
+                        is_decorator = (node.lineno, func_name) in decorator_usage
 
-                            functools_data = {
-                                'line': node.lineno,
-                                'function': func_name,
-                                'is_decorator': is_decorator,
-                                'in_function': _find_containing_function(node, function_ranges),
-                            }
-                            functools_usage.append(functools_data)
+                        functools_data = {
+                            'line': node.lineno,
+                            'function': func_name,
+                            'is_decorator': is_decorator,
+                            'in_function': _find_containing_function(node, function_ranges),
+                        }
+                        functools_usage.append(functools_data)
 
     return functools_usage
 
@@ -466,7 +461,7 @@ def extract_functools_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Collections Module Usage Extractors
 # ============================================================================
 
-def extract_collections_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_collections_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract collections module usage.
 
     Detects: defaultdict, Counter, deque, OrderedDict, ChainMap, namedtuple
@@ -481,43 +476,42 @@ def extract_collections_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     collections_usage = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return collections_usage
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            collection_type = None
+    for node in context.find_nodes(ast.Call):
+        collection_type = None
 
-            # Check for collections.Type() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'collections':
-                        if node.func.attr in COLLECTIONS_TYPES:
-                            collection_type = node.func.attr
+        # Check for collections.Type() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'collections':
+                    if node.func.attr in COLLECTIONS_TYPES:
+                        collection_type = node.func.attr
 
-            # Check for direct Type() calls (after import)
-            elif isinstance(node.func, ast.Name):
-                if node.func.id in COLLECTIONS_TYPES:
-                    collection_type = node.func.id
+        # Check for direct Type() calls (after import)
+        elif isinstance(node.func, ast.Name):
+            if node.func.id in COLLECTIONS_TYPES:
+                collection_type = node.func.id
 
-            if collection_type:
-                # Try to detect default_factory for defaultdict
-                default_factory = None
-                if collection_type == 'defaultdict' and node.args:
-                    first_arg = node.args[0]
-                    if isinstance(first_arg, ast.Name):
-                        default_factory = first_arg.id
+        if collection_type:
+            # Try to detect default_factory for defaultdict
+            default_factory = None
+            if collection_type == 'defaultdict' and node.args:
+                first_arg = node.args[0]
+                if isinstance(first_arg, ast.Name):
+                    default_factory = first_arg.id
 
-                collections_data = {
-                    'line': node.lineno,
-                    'collection_type': collection_type,
-                    'default_factory': default_factory or 'unknown',
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                collections_usage.append(collections_data)
+            collections_data = {
+                'line': node.lineno,
+                'collection_type': collection_type,
+                'default_factory': default_factory or 'unknown',
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            collections_usage.append(collections_data)
 
     return collections_usage

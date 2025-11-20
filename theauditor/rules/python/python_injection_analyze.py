@@ -18,6 +18,8 @@ Detects:
 - NoSQL Injection
 - XPath Injection
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Optional, Set
@@ -153,7 +155,7 @@ class InjectionAnalyzer:
         self.patterns = InjectionPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -181,7 +183,7 @@ class InjectionAnalyzer:
 
         return self.findings
 
-    def _get_assignment_expr(self, file: str, variable: str, call_line: int) -> Optional[str]:
+    def _get_assignment_expr(self, file: str, variable: str, call_line: int) -> str | None:
         """Get the latest assignment expression for a variable before a call line."""
         self.cursor.execute(
             """
@@ -563,7 +565,7 @@ FLAGGED: Missing database features that would improve injection detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Python injection vulnerabilities.
 
     Args:

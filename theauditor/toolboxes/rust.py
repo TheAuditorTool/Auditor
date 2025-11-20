@@ -18,6 +18,8 @@ If future hybrid approach is implemented:
 PRESERVED: 2025-10-11
 ===========================================================
 """
+from __future__ import annotations
+
 
 import os
 import subprocess
@@ -59,7 +61,7 @@ class RustToolbox(LanguageToolbox):
 
     @staticmethod
     def _build_result(status: str, path: Path = None, version: str = '',
-                      cached: bool = False, message: str = '') -> Dict[str, Any]:
+                      cached: bool = False, message: str = '') -> dict[str, Any]:
         """Build installation result dict.
 
         Args:
@@ -96,7 +98,7 @@ class RustToolbox(LanguageToolbox):
         cargo_toml = project_dir / 'Cargo.toml'
         return cargo_toml.exists()
 
-    def install(self, force: bool = False) -> Dict[str, Any]:
+    def install(self, force: bool = False) -> dict[str, Any]:
         """
         Install rust-analyzer to sandbox directory.
 
@@ -190,7 +192,7 @@ class RustToolbox(LanguageToolbox):
         except (OSError, subprocess.CalledProcessError, urllib.error.URLError) as e:
             return self._build_result('error', message=f'{type(e).__name__}: {str(e)}')
 
-    def _detect_platform(self) -> Dict[str, str]:
+    def _detect_platform(self) -> dict[str, str]:
         """
         Detect current platform and architecture for rust-analyzer.
 

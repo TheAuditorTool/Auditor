@@ -5,6 +5,8 @@ Generates findings with severity='info' (quality concern, not security).
 
 Pattern: Follows progress.md rules - analyze() function, execution_scope='database'.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -27,7 +29,7 @@ METADATA = RuleMetadata(
 )
 
 
-def find_dead_code(context: StandardRuleContext) -> List[StandardFinding]:
+def find_dead_code(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect dead code using database queries.
 
     Detection Strategy:

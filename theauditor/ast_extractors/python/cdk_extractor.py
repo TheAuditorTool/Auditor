@@ -18,6 +18,8 @@ All functions here:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+
 
 import ast
 import logging
@@ -129,14 +131,14 @@ def _is_cdk_construct_call(node: ast.Call) -> bool:
     second_arg = node.args[1]
     if isinstance(second_arg, ast.Constant) and isinstance(second_arg.value, str):
         return True
-    elif isinstance(second_arg, ast.Str):  # Python <3.8 compatibility
+    elif (isinstance(second_arg, ast.Constant) and isinstance(second_arg.value, str)):  # Python <3.8 compatibility
         return True
 
     # Not a valid CDK construct call (e.g., factory method like ec2.InstanceType.of)
     return False
 
 
-def _extract_construct_name(call_node: ast.Call) -> Optional[str]:
+def _extract_construct_name(call_node: ast.Call) -> str | None:
     """Extract CDK logical ID (construct name) from call arguments.
 
     CDK constructs use pattern: Construct(self, "LogicalID", ...)
@@ -155,7 +157,7 @@ def _extract_construct_name(call_node: ast.Call) -> Optional[str]:
         # Handle string constants
         if isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str):
             return name_arg.value
-        elif isinstance(name_arg, ast.Str):  # Python <3.8 compatibility
+        elif (isinstance(name_arg, ast.Constant) and isinstance(name_arg.value, str)):  # Python <3.8 compatibility
             return name_arg.s
 
     return None
@@ -204,7 +206,7 @@ def _serialize_property_value(value_node: ast.AST) -> str:
 # Main Extraction Function
 # ============================================================================
 
-def extract_python_cdk_constructs(tree_dict: Dict[str, Any], parser_self=None) -> List[Dict]:
+def extract_python_cdk_constructs(tree_dict: dict[str, Any], parser_self=None) -> list[dict]:
     """Extract AWS CDK construct instantiations from Python AST.
 
     Walks the AST to find CDK construct calls and extracts:
@@ -248,12 +250,12 @@ def extract_python_cdk_constructs(tree_dict: Dict[str, Any], parser_self=None) -
     if not tree_dict or tree_dict.get('type') != 'python_ast':
         return constructs
 
-    actual_tree = tree_dict.get('tree')
-    if not actual_tree:
+    context.tree = tree_dict.get('tree')
+    if not context.tree:
         return constructs
 
     # Walk AST to find all Call nodes
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 

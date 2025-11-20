@@ -9,8 +9,9 @@ Detects infrastructure security issues by querying Terraform extractor tables:
 The rule mirrors the legacy TerraformAnalyzer checks while exposing findings via
 StandardFinding so orchestrator and CLI can share a single source of truth.
 """
-
 from __future__ import annotations
+
+
 
 import json
 import logging
@@ -42,9 +43,9 @@ METADATA = RuleMetadata(
 )
 
 
-def find_terraform_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_terraform_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Terraform security issues using indexed data."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -72,8 +73,8 @@ def find_terraform_issues(context: StandardRuleContext) -> List[StandardFinding]
 # ---------------------------------------------------------------------------
 
 
-def _check_public_s3_buckets(cursor) -> List[StandardFinding]:
-    findings: List[StandardFinding] = []
+def _check_public_s3_buckets(cursor) -> list[StandardFinding]:
+    findings: list[StandardFinding] = []
 
     cursor.execute(
         """
@@ -124,8 +125,8 @@ def _check_public_s3_buckets(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_unencrypted_storage(cursor) -> List[StandardFinding]:
-    findings: List[StandardFinding] = []
+def _check_unencrypted_storage(cursor) -> list[StandardFinding]:
+    findings: list[StandardFinding] = []
 
     cursor.execute(
         """
@@ -181,8 +182,8 @@ def _check_unencrypted_storage(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_iam_wildcards(cursor) -> List[StandardFinding]:
-    findings: List[StandardFinding] = []
+def _check_iam_wildcards(cursor) -> list[StandardFinding]:
+    findings: list[StandardFinding] = []
 
     cursor.execute(
         """
@@ -237,8 +238,8 @@ def _check_iam_wildcards(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_resource_secrets(cursor) -> List[StandardFinding]:
-    findings: List[StandardFinding] = []
+def _check_resource_secrets(cursor) -> list[StandardFinding]:
+    findings: list[StandardFinding] = []
 
     cursor.execute(
         """
@@ -272,8 +273,8 @@ def _check_resource_secrets(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_tfvars_secrets(cursor) -> List[StandardFinding]:
-    findings: List[StandardFinding] = []
+def _check_tfvars_secrets(cursor) -> list[StandardFinding]:
+    findings: list[StandardFinding] = []
 
     cursor.execute(
         """
@@ -305,8 +306,8 @@ def _check_tfvars_secrets(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_missing_encryption(cursor) -> List[StandardFinding]:
-    findings: List[StandardFinding] = []
+def _check_missing_encryption(cursor) -> list[StandardFinding]:
+    findings: list[StandardFinding] = []
 
     cursor.execute(
         """
@@ -335,8 +336,8 @@ def _check_missing_encryption(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_security_groups(cursor) -> List[StandardFinding]:
-    findings: List[StandardFinding] = []
+def _check_security_groups(cursor) -> list[StandardFinding]:
+    findings: list[StandardFinding] = []
 
     cursor.execute(
         """
@@ -417,8 +418,8 @@ def _build_finding(
     severity: Severity,
     category: str,
     snippet: str = "",
-    additional_info: Optional[Dict[str, Any]] = None,
-    cwe: Optional[str] = None,
+    additional_info: dict[str, Any] | None = None,
+    cwe: str | None = None,
 ) -> StandardFinding:
     finding = StandardFinding(
         rule_name=rule_name,

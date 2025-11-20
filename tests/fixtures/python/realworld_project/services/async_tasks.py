@@ -1,6 +1,8 @@
 """Async task service demonstrating async/await patterns."""
 import asyncio
-from typing import List, AsyncIterator
+from typing import List
+
+from collections.abc import AsyncIterator
 
 
 async def fetch_user_data(user_id: int) -> dict:
@@ -60,7 +62,7 @@ async def fetch_related_records(conn, user_id: int) -> AsyncIterator[dict]:
         yield {"id": i, "user_id": user_id}
 
 
-async def process_batch_users(user_ids: List[int]) -> List[dict]:
+async def process_batch_users(user_ids: list[int]) -> list[dict]:
     """Process multiple users with async for loop.
 
     Demonstrates async for consumption.
@@ -74,14 +76,14 @@ async def process_batch_users(user_ids: List[int]) -> List[dict]:
     return results
 
 
-async def batch_fetch_users(user_ids: List[int]) -> AsyncIterator[dict]:
+async def batch_fetch_users(user_ids: list[int]) -> AsyncIterator[dict]:
     """Async generator for batch user fetching."""
     for user_id in user_ids:
         data = await fetch_user_data(user_id)
         yield data
 
 
-async def parallel_fetch(user_ids: List[int]) -> List[dict]:
+async def parallel_fetch(user_ids: list[int]) -> list[dict]:
     """Fetch multiple users in parallel with asyncio.gather.
 
     Multiple await expressions in complex patterns.

@@ -3,6 +3,8 @@
 This module detects XSS vulnerabilities specific to React applications.
 Uses database-only approach with React component awareness.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -63,7 +65,7 @@ REACT_SAFE_METHODS = frozenset([
 ])
 
 
-def find_react_xss(context: StandardRuleContext) -> List[StandardFinding]:
+def find_react_xss(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React-specific XSS vulnerabilities.
 
     Returns:
@@ -135,7 +137,7 @@ def _is_react_app(conn) -> bool:
     return False
 
 
-def _check_dangerous_html_prop(conn) -> List[StandardFinding]:
+def _check_dangerous_html_prop(conn) -> list[StandardFinding]:
     """Check for dangerouslySetInnerHTML with user input."""
     findings = []
     cursor = conn.cursor()
@@ -219,7 +221,7 @@ def _check_dangerous_html_prop(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_javascript_urls(conn) -> List[StandardFinding]:
+def _check_javascript_urls(conn) -> list[StandardFinding]:
     """Check for javascript: URLs in href/src props."""
     findings = []
     cursor = conn.cursor()
@@ -305,7 +307,7 @@ def _check_javascript_urls(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_unsafe_html_creation(conn) -> List[StandardFinding]:
+def _check_unsafe_html_creation(conn) -> list[StandardFinding]:
     """Check for unsafe HTML string creation in React components."""
     findings = []
     cursor = conn.cursor()
@@ -370,7 +372,7 @@ def _check_unsafe_html_creation(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_ref_innerhtml(conn) -> List[StandardFinding]:
+def _check_ref_innerhtml(conn) -> list[StandardFinding]:
     """Check for direct DOM manipulation via refs."""
     findings = []
     cursor = conn.cursor()
@@ -449,7 +451,7 @@ def _check_ref_innerhtml(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_component_injection(conn) -> List[StandardFinding]:
+def _check_component_injection(conn) -> list[StandardFinding]:
     """Check for dynamic component injection vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -512,7 +514,7 @@ def _check_component_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_server_side_rendering(conn) -> List[StandardFinding]:
+def _check_server_side_rendering(conn) -> list[StandardFinding]:
     """Check for SSR-specific XSS vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -588,7 +590,7 @@ def _check_server_side_rendering(conn) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

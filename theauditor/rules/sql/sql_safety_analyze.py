@@ -5,6 +5,8 @@ Focuses on SQL safety patterns: missing WHERE, unbounded queries, transaction is
 
 Truth Courier Design: Reports facts about SQL patterns, not recommendations.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -60,7 +62,7 @@ class SQLSafetyPatterns:
     ])
 
 
-def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect SQL safety issues using database queries.
 
     Detection strategy:
@@ -109,7 +111,7 @@ def find_sql_safety_issues(context: StandardRuleContext) -> List[StandardFinding
     return findings
 
 
-def _find_update_without_where(cursor) -> List[StandardFinding]:
+def _find_update_without_where(cursor) -> list[StandardFinding]:
     """Find UPDATE statements without WHERE clause."""
     findings = []
 
@@ -151,7 +153,7 @@ def _find_update_without_where(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_delete_without_where(cursor) -> List[StandardFinding]:
+def _find_delete_without_where(cursor) -> list[StandardFinding]:
     """Find DELETE statements without WHERE clause."""
     findings = []
 
@@ -192,7 +194,7 @@ def _find_delete_without_where(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> List[StandardFinding]:
+def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
     """Find SELECT queries without LIMIT that might return large datasets."""
     findings = []
 
@@ -249,7 +251,7 @@ def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> List[Standar
     return findings
 
 
-def _find_select_star(cursor) -> List[StandardFinding]:
+def _find_select_star(cursor) -> list[StandardFinding]:
     """Find SELECT * queries that fetch unnecessary columns."""
     findings = []
 
@@ -300,7 +302,7 @@ def _find_select_star(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> List[StandardFinding]:
+def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
     """Find transactions that lack rollback in error handlers."""
     findings = []
 
@@ -373,7 +375,7 @@ def _find_transactions_without_rollback(cursor, patterns: SQLSafetyPatterns) -> 
     return findings
 
 
-def _find_connection_leaks(cursor) -> List[StandardFinding]:
+def _find_connection_leaks(cursor) -> list[StandardFinding]:
     """Find database connections opened but not closed."""
     findings = []
 
@@ -447,7 +449,7 @@ def _find_connection_leaks(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> List[StandardFinding]:
+def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
     """Find nested transaction starts that could cause deadlocks."""
     findings = []
 
@@ -515,7 +517,7 @@ def _find_nested_transactions(cursor, patterns: SQLSafetyPatterns) -> List[Stand
     return findings
 
 
-def _find_large_in_clauses(cursor) -> List[StandardFinding]:
+def _find_large_in_clauses(cursor) -> list[StandardFinding]:
     """Find queries with large IN clauses that could be inefficient."""
     findings = []
 
@@ -583,7 +585,7 @@ def _find_large_in_clauses(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> List[StandardFinding]:
+def _find_missing_db_indexes(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
     """Find queries on potentially unindexed fields (heuristic-based)."""
     findings = []
 

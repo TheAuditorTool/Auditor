@@ -1,6 +1,5 @@
 """FastAPI router showcasing dependency injection and response models."""
 
-from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 

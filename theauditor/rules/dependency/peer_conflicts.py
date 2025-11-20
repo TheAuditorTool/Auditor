@@ -12,6 +12,8 @@ Detection Strategy:
 Database Tables Used:
 - package_configs: Peer dependency declarations and actual versions
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -29,7 +31,7 @@ METADATA = RuleMetadata(
 )
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect peer dependency version mismatches.
 
     Checks if peer dependency requirements match actual installed versions.
@@ -55,7 +57,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
         packages_with_peers = cursor.fetchall()
 
         # Build map of installed packages and their versions
-        installed_versions: Dict[str, str] = {}
+        installed_versions: dict[str, str] = {}
         query = build_query('package_configs', ['package_name', 'version'])
         cursor.execute(query)
         for pkg_name, version in cursor.fetchall():

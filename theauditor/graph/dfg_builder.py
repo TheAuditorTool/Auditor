@@ -10,6 +10,8 @@ Architecture:
 - Returns same format as builder.py (dataclass -> asdict)
 - Zero tolerance for missing data - hard fail exposes bugs
 """
+from __future__ import annotations
+
 
 import sqlite3
 from dataclasses import asdict, dataclass, field
@@ -29,7 +31,7 @@ class DFGNode:
     variable_name: str
     scope: str  # function name or "global"
     type: str = "variable"  # variable, parameter, return_value
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -43,7 +45,7 @@ class DFGEdge:
     type: str = "assignment"  # assignment, return, parameter
     expression: str = ""  # The assignment expression
     function: str = ""  # Function context
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class DFGBuilder:
@@ -66,7 +68,7 @@ class DFGBuilder:
 
     def _create_bidirectional_edges(self, source: str, target: str, edge_type: str,
                                    file: str, line: int, expression: str,
-                                   function: str, metadata: Dict[str, Any] = None) -> List[DFGEdge]:
+                                   function: str, metadata: dict[str, Any] = None) -> list[DFGEdge]:
         """
         Helper to create both a FORWARD edge and a REVERSE edge.
 
@@ -118,7 +120,7 @@ class DFGBuilder:
 
         return edges
 
-    def build_assignment_flow_graph(self, root: str = ".") -> Dict[str, Any]:
+    def build_assignment_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build data flow graph from variable assignments.
 
         Queries the normalized assignments + assignment_sources tables to construct
@@ -134,8 +136,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: Dict[str, DFGNode] = {}
-        edges: List[DFGEdge] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             'total_assignments': 0,
@@ -243,7 +245,7 @@ class DFGBuilder:
             }
         }
 
-    def build_return_flow_graph(self, root: str = ".") -> Dict[str, Any]:
+    def build_return_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build data flow graph from function returns.
 
         Queries the normalized function_returns + function_return_sources tables
@@ -259,8 +261,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: Dict[str, DFGNode] = {}
-        edges: List[DFGEdge] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             'total_returns': 0,
@@ -359,7 +361,7 @@ class DFGBuilder:
             }
         }
 
-    def build_parameter_binding_edges(self, root: str = ".") -> Dict[str, Any]:
+    def build_parameter_binding_edges(self, root: str = ".") -> dict[str, Any]:
         """Build parameter binding edges connecting caller arguments to callee parameters.
 
         This is the CRITICAL inter-procedural data flow edge that enables multi-hop
@@ -379,8 +381,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: Dict[str, DFGNode] = {}
-        edges: List[DFGEdge] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             'total_calls': 0,
@@ -507,7 +509,7 @@ class DFGBuilder:
             }
         }
 
-    def build_cross_boundary_edges(self, root: str = ".") -> Dict[str, Any]:
+    def build_cross_boundary_edges(self, root: str = ".") -> dict[str, Any]:
         """Build edges connecting frontend API calls to backend controllers.
 
         Creates edges from frontend body variables to backend req.body/params/query.
@@ -528,8 +530,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: Dict[str, DFGNode] = {}
-        edges: List[DFGEdge] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             'total_matches': 0,
@@ -765,7 +767,7 @@ class DFGBuilder:
             }
         }
 
-    def build_express_middleware_edges(self, root: str = ".") -> Dict[str, Any]:
+    def build_express_middleware_edges(self, root: str = ".") -> dict[str, Any]:
         """Build edges connecting Express middleware chains.
 
         Creates edges showing data flow through middleware execution order.
@@ -782,8 +784,8 @@ class DFGBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: Dict[str, DFGNode] = {}
-        edges: List[DFGEdge] = []
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
 
         stats = {
             'total_routes': 0,
@@ -803,7 +805,7 @@ class DFGBuilder:
 
         # FIX: Group by route only, ignoring file to allow middleware imported from other files
         # This allows validate.ts middleware to connect to controller.ts handlers
-        routes: Dict[str, List] = defaultdict(list)
+        routes: dict[str, list] = defaultdict(list)
         for row in cursor.fetchall():
             # Group by route only - allows cross-file middleware chains
             key = f"{row['route_method']} {row['route_path']}"
@@ -896,7 +898,7 @@ class DFGBuilder:
             }
         }
 
-    def _parse_argument_variable(self, arg_expr: str) -> Optional[str]:
+    def _parse_argument_variable(self, arg_expr: str) -> str | None:
         """Extract variable identifier or semantic placeholder from argument.
 
         Universal Adapter Logic:
@@ -962,7 +964,7 @@ class DFGBuilder:
         # Final safety check: if it creates a valid SQL/Graph ID, return it
         return clean_expr
 
-    def build_controller_implementation_edges(self, root: str = ".") -> Dict[str, Any]:
+    def build_controller_implementation_edges(self, root: str = ".") -> dict[str, Any]:
         """Build edges connecting route handlers to controller implementations.
 
         This bridges the gap between Express route handlers and their actual
@@ -1182,7 +1184,7 @@ class DFGBuilder:
         }
 
 
-    def build_unified_flow_graph(self, root: str = ".") -> Dict[str, Any]:
+    def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build unified data flow graph combining all edge types.
 
         Includes:
@@ -1257,7 +1259,7 @@ class DFGBuilder:
         }
 
     def get_data_dependencies(self, file: str, variable: str,
-                              function: str = None) -> Dict[str, Any]:
+                              function: str = None) -> dict[str, Any]:
         """Get all variables that flow into the given variable.
 
         Performs a backwards traversal from the target variable to find all
@@ -1279,7 +1281,7 @@ class DFGBuilder:
         target_id = f"{file}::{scope}::{variable}"
 
         # Build adjacency list from assignments
-        graph: Dict[str, Set[str]] = defaultdict(set)
+        graph: dict[str, set[str]] = defaultdict(set)
 
         cursor.execute("""
             SELECT

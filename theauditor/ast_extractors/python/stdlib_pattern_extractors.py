@@ -33,6 +33,9 @@ Expected extraction from TheAuditor codebase:
 - ~50 type checking patterns
 Total: ~600 stdlib pattern records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -47,7 +50,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions
 # ============================================================================
 
-def _build_function_ranges(tree: ast.AST) -> List:
+def _build_function_ranges(tree: ast.AST) -> list:
     """Build list of function ranges for context tracking."""
     function_ranges = []
     for node in ast.walk(tree):
@@ -61,7 +64,7 @@ def _build_function_ranges(tree: ast.AST) -> List:
     return function_ranges
 
 
-def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
+def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     """Find the function containing this node."""
     if not hasattr(node, 'lineno'):
         return 'global'
@@ -99,7 +102,7 @@ CONTEXTLIB_DECORATORS = {'contextmanager', 'asynccontextmanager', 'closing', 'su
 # Regex Pattern Extractors
 # ============================================================================
 
-def extract_regex_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_regex_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract regular expression usage (re module).
 
     Detects re.compile(), re.match(), re.search(), re.findall(), etc.
@@ -114,38 +117,37 @@ def extract_regex_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     regex_patterns = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return regex_patterns
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            operation = None
+    for node in context.find_nodes(ast.Call):
+        operation = None
 
-            # Check for re.function() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 're':
-                        if node.func.attr in REGEX_FUNCTIONS:
-                            operation = node.func.attr
+        # Check for re.function() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 're':
+                    if node.func.attr in REGEX_FUNCTIONS:
+                        operation = node.func.attr
 
-            if operation:
-                # Check for flags argument
-                has_flags = False
-                for keyword in node.keywords:
-                    if keyword.arg == 'flags':
-                        has_flags = True
+        if operation:
+            # Check for flags argument
+            has_flags = False
+            for keyword in node.keywords:
+                if keyword.arg == 'flags':
+                    has_flags = True
 
-                regex_data = {
-                    'line': node.lineno,
-                    'operation': operation,
-                    'has_flags': has_flags,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                regex_patterns.append(regex_data)
+            regex_data = {
+                'line': node.lineno,
+                'operation': operation,
+                'has_flags': has_flags,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            regex_patterns.append(regex_data)
 
     return regex_patterns
 
@@ -154,7 +156,7 @@ def extract_regex_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # JSON Operation Extractors
 # ============================================================================
 
-def extract_json_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_json_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract JSON serialization/deserialization operations.
 
     Detects json.dumps(), json.loads(), json.dump(), json.load().
@@ -169,38 +171,37 @@ def extract_json_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     json_operations = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return json_operations
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            operation = None
+    for node in context.find_nodes(ast.Call):
+        operation = None
 
-            # Check for json.function() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'json':
-                        if node.func.attr in JSON_FUNCTIONS:
-                            operation = node.func.attr
+        # Check for json.function() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'json':
+                    if node.func.attr in JSON_FUNCTIONS:
+                        operation = node.func.attr
 
-            if operation:
-                # Determine direction
-                if operation in ('dumps', 'dump'):
-                    direction = 'serialize'
-                else:
-                    direction = 'deserialize'
+        if operation:
+            # Determine direction
+            if operation in ('dumps', 'dump'):
+                direction = 'serialize'
+            else:
+                direction = 'deserialize'
 
-                json_data = {
-                    'line': node.lineno,
-                    'operation': operation,
-                    'direction': direction,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                json_operations.append(json_data)
+            json_data = {
+                'line': node.lineno,
+                'operation': operation,
+                'direction': direction,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            json_operations.append(json_data)
 
     return json_operations
 
@@ -209,7 +210,7 @@ def extract_json_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Datetime Operation Extractors
 # ============================================================================
 
-def extract_datetime_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_datetime_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract datetime module usage.
 
     Detects datetime(), date(), time(), timedelta(), timezone() usage.
@@ -223,36 +224,35 @@ def extract_datetime_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     datetime_operations = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return datetime_operations
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            datetime_type = None
+    for node in context.find_nodes(ast.Call):
+        datetime_type = None
 
-            # Check for datetime.Type() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'datetime':
-                        if node.func.attr in DATETIME_TYPES:
-                            datetime_type = node.func.attr
+        # Check for datetime.Type() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'datetime':
+                    if node.func.attr in DATETIME_TYPES:
+                        datetime_type = node.func.attr
 
-            # Check for direct Type() calls (after import)
-            elif isinstance(node.func, ast.Name):
-                if node.func.id in DATETIME_TYPES:
-                    datetime_type = node.func.id
+        # Check for direct Type() calls (after import)
+        elif isinstance(node.func, ast.Name):
+            if node.func.id in DATETIME_TYPES:
+                datetime_type = node.func.id
 
-            if datetime_type:
-                datetime_data = {
-                    'line': node.lineno,
-                    'datetime_type': datetime_type,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                datetime_operations.append(datetime_data)
+        if datetime_type:
+            datetime_data = {
+                'line': node.lineno,
+                'datetime_type': datetime_type,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            datetime_operations.append(datetime_data)
 
     return datetime_operations
 
@@ -261,7 +261,7 @@ def extract_datetime_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # Path Operation Extractors
 # ============================================================================
 
-def extract_path_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_path_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract pathlib and os.path operations.
 
     Detects Path() usage, exists(), mkdir(), glob(), etc.
@@ -276,44 +276,43 @@ def extract_path_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     path_operations = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return path_operations
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            operation = None
-            path_type = None
+    for node in context.find_nodes(ast.Call):
+        operation = None
+        path_type = None
 
-            # Check for Path() constructor
-            if isinstance(node.func, ast.Name) and node.func.id == 'Path':
-                operation = 'Path'
-                path_type = 'pathlib'
+        # Check for Path() constructor
+        if isinstance(node.func, ast.Name) and node.func.id == 'Path':
+            operation = 'Path'
+            path_type = 'pathlib'
 
-            # Check for path.method() calls
-            elif isinstance(node.func, ast.Attribute):
-                if node.func.attr in PATH_METHODS:
-                    operation = node.func.attr
-                    path_type = 'pathlib'  # Assume pathlib
+        # Check for path.method() calls
+        elif isinstance(node.func, ast.Attribute):
+            if node.func.attr in PATH_METHODS:
+                operation = node.func.attr
+                path_type = 'pathlib'  # Assume pathlib
 
-                # Check for os.path.function() calls
-                if isinstance(node.func.value, ast.Attribute):
-                    if isinstance(node.func.value.value, ast.Name):
-                        if node.func.value.value.id == 'os' and node.func.value.attr == 'path':
-                            operation = node.func.attr
-                            path_type = 'os.path'
+            # Check for os.path.function() calls
+            if isinstance(node.func.value, ast.Attribute):
+                if isinstance(node.func.value.value, ast.Name):
+                    if node.func.value.value.id == 'os' and node.func.value.attr == 'path':
+                        operation = node.func.attr
+                        path_type = 'os.path'
 
-            if operation:
-                path_data = {
-                    'line': node.lineno,
-                    'operation': operation,
-                    'path_type': path_type or 'unknown',
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                path_operations.append(path_data)
+        if operation:
+            path_data = {
+                'line': node.lineno,
+                'operation': operation,
+                'path_type': path_type or 'unknown',
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            path_operations.append(path_data)
 
     return path_operations
 
@@ -322,7 +321,7 @@ def extract_path_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Logging Pattern Extractors
 # ============================================================================
 
-def extract_logging_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_logging_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract logging usage patterns.
 
     Detects logger.debug(), logger.info(), logger.warning(), etc.
@@ -336,25 +335,24 @@ def extract_logging_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     logging_patterns = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return logging_patterns
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            # Check for logger.method() or logging.method() calls
-            if isinstance(node.func, ast.Attribute):
-                method_name = node.func.attr
-                if method_name in LOGGING_METHODS:
-                    logging_data = {
-                        'line': node.lineno,
-                        'log_level': method_name,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    logging_patterns.append(logging_data)
+    for node in context.find_nodes(ast.Call):
+        # Check for logger.method() or logging.method() calls
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            if method_name in LOGGING_METHODS:
+                logging_data = {
+                    'line': node.lineno,
+                    'log_level': method_name,
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                logging_patterns.append(logging_data)
 
     return logging_patterns
 
@@ -363,7 +361,7 @@ def extract_logging_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Threading Pattern Extractors
 # ============================================================================
 
-def extract_threading_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_threading_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract threading and multiprocessing usage.
 
     Detects Thread(), Lock(), Queue(), Process(), etc.
@@ -377,36 +375,35 @@ def extract_threading_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     threading_patterns = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return threading_patterns
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            threading_type = None
+    for node in context.find_nodes(ast.Call):
+        threading_type = None
 
-            # Check for threading.Type() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id in ('threading', 'multiprocessing'):
-                        if node.func.attr in THREADING_TYPES or node.func.attr == 'Process':
-                            threading_type = node.func.attr
+        # Check for threading.Type() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id in ('threading', 'multiprocessing'):
+                    if node.func.attr in THREADING_TYPES or node.func.attr == 'Process':
+                        threading_type = node.func.attr
 
-            # Check for direct Type() calls
-            elif isinstance(node.func, ast.Name):
-                if node.func.id in THREADING_TYPES or node.func.id == 'Process':
-                    threading_type = node.func.id
+        # Check for direct Type() calls
+        elif isinstance(node.func, ast.Name):
+            if node.func.id in THREADING_TYPES or node.func.id == 'Process':
+                threading_type = node.func.id
 
-            if threading_type:
-                threading_data = {
-                    'line': node.lineno,
-                    'threading_type': threading_type,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                threading_patterns.append(threading_data)
+        if threading_type:
+            threading_data = {
+                'line': node.lineno,
+                'threading_type': threading_type,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            threading_patterns.append(threading_data)
 
     return threading_patterns
 
@@ -415,7 +412,7 @@ def extract_threading_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Context Manager Extractors
 # ============================================================================
 
-def extract_contextlib_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_contextlib_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract contextlib usage (@contextmanager, closing(), suppress()).
 
     Returns:
@@ -428,59 +425,57 @@ def extract_contextlib_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     contextlib_patterns = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return contextlib_patterns
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     # Track decorators
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.FunctionDef):
-            for decorator in node.decorator_list:
-                pattern = None
-                if isinstance(decorator, ast.Name):
-                    if decorator.id in CONTEXTLIB_DECORATORS:
-                        pattern = decorator.id
-                elif isinstance(decorator, ast.Attribute):
-                    if isinstance(decorator.value, ast.Name):
-                        if decorator.value.id == 'contextlib':
-                            if decorator.attr in CONTEXTLIB_DECORATORS:
-                                pattern = decorator.attr
-
-                if pattern:
-                    contextlib_data = {
-                        'line': decorator.lineno,
-                        'pattern': pattern,
-                        'is_decorator': True,
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    contextlib_patterns.append(contextlib_data)
-
-    # Track function calls (closing(), suppress())
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
+    for node in context.find_nodes(ast.FunctionDef):
+        for decorator in node.decorator_list:
             pattern = None
-
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'contextlib':
-                        if node.func.attr in CONTEXTLIB_DECORATORS:
-                            pattern = node.func.attr
-
-            elif isinstance(node.func, ast.Name):
-                if node.func.id in CONTEXTLIB_DECORATORS:
-                    pattern = node.func.id
+            if isinstance(decorator, ast.Name):
+                if decorator.id in CONTEXTLIB_DECORATORS:
+                    pattern = decorator.id
+            elif isinstance(decorator, ast.Attribute):
+                if isinstance(decorator.value, ast.Name):
+                    if decorator.value.id == 'contextlib':
+                        if decorator.attr in CONTEXTLIB_DECORATORS:
+                            pattern = decorator.attr
 
             if pattern:
                 contextlib_data = {
-                    'line': node.lineno,
+                    'line': decorator.lineno,
                     'pattern': pattern,
-                    'is_decorator': False,
+                    'is_decorator': True,
                     'in_function': _find_containing_function(node, function_ranges),
                 }
                 contextlib_patterns.append(contextlib_data)
+
+    # Track function calls (closing(), suppress())
+    for node in context.find_nodes(ast.Call):
+        pattern = None
+
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'contextlib':
+                    if node.func.attr in CONTEXTLIB_DECORATORS:
+                        pattern = node.func.attr
+
+        elif isinstance(node.func, ast.Name):
+            if node.func.id in CONTEXTLIB_DECORATORS:
+                pattern = node.func.id
+
+        if pattern:
+            contextlib_data = {
+                'line': node.lineno,
+                'pattern': pattern,
+                'is_decorator': False,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            contextlib_patterns.append(contextlib_data)
 
     return contextlib_patterns
 
@@ -489,7 +484,7 @@ def extract_contextlib_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # Type Checking Extractors
 # ============================================================================
 
-def extract_type_checking(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_type_checking(context: FileContext) -> list[dict[str, Any]]:
     """Extract runtime type checking patterns.
 
     Detects isinstance(), issubclass(), type() checks.
@@ -503,27 +498,26 @@ def extract_type_checking(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     type_checking = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return type_checking
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            check_type = None
+    for node in context.find_nodes(ast.Call):
+        check_type = None
 
-            if isinstance(node.func, ast.Name):
-                if node.func.id in ('isinstance', 'issubclass', 'type'):
-                    check_type = node.func.id
+        if isinstance(node.func, ast.Name):
+            if node.func.id in ('isinstance', 'issubclass', 'type'):
+                check_type = node.func.id
 
-            if check_type:
-                type_check_data = {
-                    'line': node.lineno,
-                    'check_type': check_type,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                type_checking.append(type_check_data)
+        if check_type:
+            type_check_data = {
+                'line': node.lineno,
+                'check_type': check_type,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            type_checking.append(type_check_data)
 
     return type_checking

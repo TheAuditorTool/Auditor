@@ -3,6 +3,8 @@
 This module contains add_* methods for FRAMEWORKS_TABLES defined in schemas/frameworks_schema.py.
 Handles 5 framework tables including API endpoints, ORM relationships, and Prisma models.
 """
+from __future__ import annotations
+
 
 from typing import List, Optional
 
@@ -18,9 +20,9 @@ class FrameworksDatabaseMixin:
     # API ENDPOINT BATCH METHODS
     # ========================================================
 
-    def add_endpoint(self, file_path: str, method: str, pattern: str, controls: List[str],
-                     line: Optional[int] = None, path: Optional[str] = None,
-                     has_auth: bool = False, handler_function: Optional[str] = None):
+    def add_endpoint(self, file_path: str, method: str, pattern: str, controls: list[str],
+                     line: int | None = None, path: str | None = None,
+                     has_auth: bool = False, handler_function: str | None = None):
         """Add an API endpoint record to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
@@ -46,8 +48,8 @@ class FrameworksDatabaseMixin:
     # ========================================================
 
     def add_orm_relationship(self, file: str, line: int, source_model: str, target_model: str,
-                            relationship_type: str, foreign_key: Optional[str] = None,
-                            cascade_delete: bool = False, as_name: Optional[str] = None):
+                            relationship_type: str, foreign_key: str | None = None,
+                            cascade_delete: bool = False, as_name: str | None = None):
         """Add an ORM relationship record to the batch.
 
         Args:
@@ -65,7 +67,7 @@ class FrameworksDatabaseMixin:
             foreign_key, 1 if cascade_delete else 0, as_name
         ))
 
-    def add_orm_query(self, file_path: str, line: int, query_type: str, includes: Optional[str],
+    def add_orm_query(self, file_path: str, line: int, query_type: str, includes: str | None,
                       has_limit: bool, has_transaction: bool):
         """Add an ORM query record to the batch."""
         self.generic_batches['orm_queries'].append((file_path, line, query_type, includes, has_limit, has_transaction))

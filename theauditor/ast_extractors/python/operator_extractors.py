@@ -38,6 +38,9 @@ Expected extraction from TheAuditor codebase:
 - ~20 walrus operators
 Total: ~1,250 operator pattern records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -52,7 +55,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions
 # ============================================================================
 
-def _build_function_ranges(tree: ast.AST) -> List:
+def _build_function_ranges(tree: ast.AST) -> list:
     """Build list of function ranges for context tracking."""
     function_ranges = []
     for node in ast.walk(tree):
@@ -66,7 +69,7 @@ def _build_function_ranges(tree: ast.AST) -> List:
     return function_ranges
 
 
-def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
+def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     """Find the function containing this node."""
     if not hasattr(node, 'lineno'):
         return 'global'
@@ -97,7 +100,7 @@ def _get_node_text(node: ast.AST) -> str:
 # Operator Extractors
 # ============================================================================
 
-def extract_operators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_operators(context: FileContext) -> list[dict[str, Any]]:
     """Extract all operator usage (arithmetic, comparison, logical, bitwise).
 
     Detects:
@@ -121,12 +124,12 @@ def extract_operators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     operators = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return operators
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     # Operator type mappings
     arithmetic_ops = {
@@ -152,65 +155,26 @@ def extract_operators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         ast.Not: 'not', ast.UAdd: '+', ast.USub: '-', ast.Invert: '~',
     }
 
-    for node in ast.walk(actual_tree):
-        # Binary operators (arithmetic, bitwise, matrix mult)
-        if isinstance(node, ast.BinOp):
-            op_type = type(node.op)
+    for node in context.find_nodes(ast.BinOp):
+        op_type = type(node.op)
 
-            if op_type in arithmetic_ops:
-                operator_data = {
-                    'line': node.lineno,
-                    'operator_type': 'arithmetic',
-                    'operator': arithmetic_ops[op_type],
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                operators.append(operator_data)
+        if op_type in arithmetic_ops:
+            operator_data = {
+                'line': node.lineno,
+                'operator_type': 'arithmetic',
+                'operator': arithmetic_ops[op_type],
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            operators.append(operator_data)
 
-            elif op_type in bitwise_ops:
-                operator_data = {
-                    'line': node.lineno,
-                    'operator_type': 'bitwise',
-                    'operator': bitwise_ops[op_type],
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                operators.append(operator_data)
-
-        # Comparison operators
-        elif isinstance(node, ast.Compare):
-            for op in node.ops:
-                op_type = type(op)
-                if op_type in comparison_ops:
-                    operator_data = {
-                        'line': node.lineno,
-                        'operator_type': 'comparison',
-                        'operator': comparison_ops[op_type],
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    operators.append(operator_data)
-
-        # Logical operators (and, or)
-        elif isinstance(node, ast.BoolOp):
-            op_type = type(node.op)
-            if op_type in logical_ops:
-                operator_data = {
-                    'line': node.lineno,
-                    'operator_type': 'logical',
-                    'operator': logical_ops[op_type],
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                operators.append(operator_data)
-
-        # Unary operators (not, -, +, ~)
-        elif isinstance(node, ast.UnaryOp):
-            op_type = type(node.op)
-            if op_type in unary_ops:
-                operator_data = {
-                    'line': node.lineno,
-                    'operator_type': 'unary',
-                    'operator': unary_ops[op_type],
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                operators.append(operator_data)
+        elif op_type in bitwise_ops:
+            operator_data = {
+                'line': node.lineno,
+                'operator_type': 'bitwise',
+                'operator': bitwise_ops[op_type],
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            operators.append(operator_data)
 
     return operators
 
@@ -219,7 +183,7 @@ def extract_operators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Membership Test Extractors
 # ============================================================================
 
-def extract_membership_tests(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_membership_tests(context: FileContext) -> list[dict[str, Any]]:
     """Extract membership testing (in/not in) operations.
 
     Detects:
@@ -240,24 +204,23 @@ def extract_membership_tests(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     membership_tests = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return membership_tests
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Compare):
-            for op in node.ops:
-                if isinstance(op, (ast.In, ast.NotIn)):
-                    membership_data = {
-                        'line': node.lineno,
-                        'operator': 'in' if isinstance(op, ast.In) else 'not in',
-                        'container_type': 'unknown',  # Could analyze but expensive
-                        'in_function': _find_containing_function(node, function_ranges),
-                    }
-                    membership_tests.append(membership_data)
+    for node in context.find_nodes(ast.Compare):
+        for op in node.ops:
+            if isinstance(op, (ast.In, ast.NotIn)):
+                membership_data = {
+                    'line': node.lineno,
+                    'operator': 'in' if isinstance(op, ast.In) else 'not in',
+                    'container_type': 'unknown',  # Could analyze but expensive
+                    'in_function': _find_containing_function(node, function_ranges),
+                }
+                membership_tests.append(membership_data)
 
     return membership_tests
 
@@ -266,7 +229,7 @@ def extract_membership_tests(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Chained Comparison Extractors
 # ============================================================================
 
-def extract_chained_comparisons(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_chained_comparisons(context: FileContext) -> list[dict[str, Any]]:
     """Extract chained comparison operations (1 < x < 10).
 
     Detects:
@@ -287,32 +250,31 @@ def extract_chained_comparisons(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     chained_comparisons = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return chained_comparisons
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     comparison_ops = {
         ast.Lt: '<', ast.Gt: '>', ast.LtE: '<=', ast.GtE: '>=',
         ast.Eq: '==', ast.NotEq: '!=',
     }
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Compare):
-            # Chained if more than one operator
-            if len(node.ops) > 1:
-                operators = [comparison_ops.get(type(op), str(type(op).__name__))
-                           for op in node.ops]
+    for node in context.find_nodes(ast.Compare):
+        # Chained if more than one operator
+        if len(node.ops) > 1:
+            operators = [comparison_ops.get(type(op), str(type(op).__name__))
+                       for op in node.ops]
 
-                chained_data = {
-                    'line': node.lineno,
-                    'chain_length': len(node.ops),
-                    'operators': ', '.join(operators),  # Store as comma-separated string
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                chained_comparisons.append(chained_data)
+            chained_data = {
+                'line': node.lineno,
+                'chain_length': len(node.ops),
+                'operators': ', '.join(operators),  # Store as comma-separated string
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            chained_comparisons.append(chained_data)
 
     return chained_comparisons
 
@@ -321,7 +283,7 @@ def extract_chained_comparisons(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # Ternary Expression Extractors
 # ============================================================================
 
-def extract_ternary_expressions(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_ternary_expressions(context: FileContext) -> list[dict[str, Any]]:
     """Extract ternary expressions (x if condition else y).
 
     Detects:
@@ -340,24 +302,23 @@ def extract_ternary_expressions(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     ternary_expressions = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return ternary_expressions
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.IfExp):
-            # Check if condition is complex (not just a simple variable/attribute)
-            has_complex_condition = not isinstance(node.test, (ast.Name, ast.Attribute, ast.Constant))
+    for node in context.find_nodes(ast.IfExp):
+        # Check if condition is complex (not just a simple variable/attribute)
+        has_complex_condition = not isinstance(node.test, (ast.Name, ast.Attribute, ast.Constant))
 
-            ternary_data = {
-                'line': node.lineno,
-                'has_complex_condition': has_complex_condition,
-                'in_function': _find_containing_function(node, function_ranges),
-            }
-            ternary_expressions.append(ternary_data)
+        ternary_data = {
+            'line': node.lineno,
+            'has_complex_condition': has_complex_condition,
+            'in_function': _find_containing_function(node, function_ranges),
+        }
+        ternary_expressions.append(ternary_data)
 
     return ternary_expressions
 
@@ -366,7 +327,7 @@ def extract_ternary_expressions(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # Walrus Operator Extractors
 # ============================================================================
 
-def extract_walrus_operators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_walrus_operators(context: FileContext) -> list[dict[str, Any]]:
     """Extract walrus operator usage (:= assignment expressions).
 
     Detects:
@@ -387,39 +348,38 @@ def extract_walrus_operators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     walrus_operators = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return walrus_operators
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     # Track parent nodes to determine context
     parent_map = {}
-    for parent in ast.walk(actual_tree):
+    for parent in context.walk_tree():
         for child in ast.iter_child_nodes(parent):
             parent_map[child] = parent
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.NamedExpr):  # Walrus operator (:=)
-            # Determine context
-            parent = parent_map.get(node)
-            if isinstance(parent, ast.If):
-                used_in = 'if'
-            elif isinstance(parent, ast.While):
-                used_in = 'while'
-            elif isinstance(parent, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
-                used_in = 'comprehension'
-            else:
-                used_in = 'expression'
+    for node in context.find_nodes(ast.NamedExpr):
+        # Determine context
+        parent = parent_map.get(node)
+        if isinstance(parent, ast.If):
+            used_in = 'if'
+        elif isinstance(parent, ast.While):
+            used_in = 'while'
+        elif isinstance(parent, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):
+            used_in = 'comprehension'
+        else:
+            used_in = 'expression'
 
-            walrus_data = {
-                'line': node.lineno,
-                'variable': node.target.id if isinstance(node.target, ast.Name) else '<complex>',
-                'used_in': used_in,
-                'in_function': _find_containing_function(node, function_ranges),
-            }
-            walrus_operators.append(walrus_data)
+        walrus_data = {
+            'line': node.lineno,
+            'variable': node.target.id if isinstance(node.target, ast.Name) else '<complex>',
+            'used_in': used_in,
+            'in_function': _find_containing_function(node, function_ranges),
+        }
+        walrus_operators.append(walrus_data)
 
     return walrus_operators
 
@@ -428,7 +388,7 @@ def extract_walrus_operators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Matrix Multiplication Extractor
 # ============================================================================
 
-def extract_matrix_multiplication(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_matrix_multiplication(context: FileContext) -> list[dict[str, Any]]:
     """Extract matrix multiplication operator (@) usage.
 
     Detects:
@@ -446,20 +406,19 @@ def extract_matrix_multiplication(tree: Dict, parser_self) -> List[Dict[str, Any
         }
     """
     matrix_mult = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return matrix_mult
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.BinOp):
-            if isinstance(node.op, ast.MatMult):
-                matrix_data = {
-                    'line': node.lineno,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                matrix_mult.append(matrix_data)
+    for node in context.find_nodes(ast.BinOp):
+        if isinstance(node.op, ast.MatMult):
+            matrix_data = {
+                'line': node.lineno,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            matrix_mult.append(matrix_data)
 
     return matrix_mult

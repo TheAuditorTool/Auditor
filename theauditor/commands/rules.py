@@ -1,4 +1,6 @@
 """Rules command - inspect and summarize detection capabilities."""
+from __future__ import annotations
+
 
 import os
 import yaml
@@ -204,7 +206,7 @@ def rules_command(summary: bool) -> None:
     raise SystemExit(ExitCodes.SUCCESS)
 
 
-def scan_yaml_patterns(patterns_path: Path) -> Dict[str, Dict[str, List[str]]]:
+def scan_yaml_patterns(patterns_path: Path) -> dict[str, dict[str, list[str]]]:
     """Scan YAML pattern files and extract pattern names.
 
     Args:
@@ -241,7 +243,7 @@ def scan_yaml_patterns(patterns_path: Path) -> Dict[str, Dict[str, List[str]]]:
 
                 # Parse YAML and extract pattern names
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(file_path, encoding='utf-8') as f:
                         data = yaml.safe_load(f)
 
                     if data and isinstance(data, list):
@@ -260,7 +262,7 @@ def scan_yaml_patterns(patterns_path: Path) -> Dict[str, Dict[str, List[str]]]:
     return results
 
 
-def scan_python_rules(rules_path: Path) -> Dict[str, List[str]]:
+def scan_python_rules(rules_path: Path) -> dict[str, list[str]]:
     """Scan Python rule files and find all find_* functions.
 
     Args:
@@ -303,7 +305,7 @@ def scan_python_rules(rules_path: Path) -> Dict[str, List[str]]:
 
                 # Try basic text scanning (more reliable than import)
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(file_path, encoding='utf-8') as f:
                         content = f.read()
 
                     # Simple regex to find function definitions

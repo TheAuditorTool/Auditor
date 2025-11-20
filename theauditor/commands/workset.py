@@ -1,4 +1,6 @@
 """Compute target file set from git diff and dependencies."""
+from __future__ import annotations
+
 
 import click
 from theauditor.utils.error_handler import handle_exceptions

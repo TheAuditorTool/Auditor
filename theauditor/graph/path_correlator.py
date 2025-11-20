@@ -3,6 +3,8 @@
 This module correlates findings based on control flow structure - purely factual 
 relationships about which findings execute together on the same paths.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from pathlib import Path
@@ -29,7 +31,7 @@ class PathCorrelator:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
     
-    def correlate(self, findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def correlate(self, findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Find findings that co-exist on same execution paths.
         
         Args:
@@ -69,7 +71,7 @@ class PathCorrelator:
         
         return path_clusters
     
-    def _group_findings_by_function(self, findings: List[Dict]) -> Dict[Tuple[str, str], List]:
+    def _group_findings_by_function(self, findings: list[dict]) -> dict[tuple[str, str], list]:
         """Group findings by their containing function.
         
         Uses symbols table to find function boundaries.
@@ -102,7 +104,7 @@ class PathCorrelator:
         
         return dict(grouped)
     
-    def _map_findings_to_blocks(self, cfg: Dict, findings: List) -> Dict[int, List]:
+    def _map_findings_to_blocks(self, cfg: dict, findings: list) -> dict[int, list]:
         """Map each finding to its CFG block ID."""
         block_findings = defaultdict(list)
         
@@ -117,8 +119,8 @@ class PathCorrelator:
         
         return dict(block_findings)
     
-    def _find_finding_paths_with_conditions(self, cfg: Dict, findings_to_blocks: Dict,
-                                           all_findings: List) -> List[Dict]:
+    def _find_finding_paths_with_conditions(self, cfg: dict, findings_to_blocks: dict,
+                                           all_findings: list) -> list[dict]:
         """Find execution paths containing multiple findings with path conditions.
 
         ADAPTIVE STRATEGY (v1.3+):
@@ -215,7 +217,7 @@ class PathCorrelator:
 
         return unique_clusters
 
-    def _fast_block_clustering(self, findings_to_blocks: Dict[int, List]) -> List[Dict]:
+    def _fast_block_clustering(self, findings_to_blocks: dict[int, list]) -> list[dict]:
         """
         O(N) clustering strategy for complex functions.
 
@@ -247,7 +249,7 @@ class PathCorrelator:
 
         return clusters
 
-    def _build_cfg_graph(self, cfg: Dict) -> Dict[int, List[int]]:
+    def _build_cfg_graph(self, cfg: dict) -> dict[int, list[int]]:
         """Build adjacency list representation of CFG for efficient traversal.
 
         Args:
@@ -263,7 +265,7 @@ class PathCorrelator:
                 graph[edge["source"]].append(edge["target"])
         return dict(graph)
 
-    def _find_path_bfs(self, graph: Dict[int, List[int]], start: int, end: int) -> Optional[List[int]]:
+    def _find_path_bfs(self, graph: dict[int, list[int]], start: int, end: int) -> list[int] | None:
         """Find a path from start to end using BFS.
 
         Args:
@@ -298,7 +300,7 @@ class PathCorrelator:
         # No path exists
         return None
 
-    def _extract_path_conditions(self, cfg: Dict, path_blocks: List[int]) -> List[str]:
+    def _extract_path_conditions(self, cfg: dict, path_blocks: list[int]) -> list[str]:
         """Extract the literal conditions from source that define this execution path.
         
         Returns factual code conditions, not interpretations.

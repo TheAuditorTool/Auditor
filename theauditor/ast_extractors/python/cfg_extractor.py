@@ -13,6 +13,9 @@ All functions here:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -21,28 +24,27 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def extract_python_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_python_cfg(context: FileContext) -> list[dict[str, Any]]:
     """Extract control flow graphs for all Python functions.
 
     Returns CFG data matching the database schema expectations.
     """
     cfg_data = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not actual_tree:
+    if not context.tree:
         return cfg_data
 
     # Find all functions and methods
-    for node in ast.walk(actual_tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            function_cfg = build_python_function_cfg(node)
-            if function_cfg:
-                cfg_data.append(function_cfg)
+    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
+        function_cfg = build_python_function_cfg(node)
+        if function_cfg:
+            cfg_data.append(function_cfg)
 
     return cfg_data
 
 
-def build_python_function_cfg(func_node: ast.FunctionDef) -> Dict[str, Any]:
+def build_python_function_cfg(func_node: ast.FunctionDef) -> dict[str, Any]:
     """Build control flow graph for a single Python function.
 
     Args:
@@ -106,7 +108,7 @@ def build_python_function_cfg(func_node: ast.FunctionDef) -> Dict[str, Any]:
 
 
 def process_python_statement(stmt: ast.stmt, current_block_id: int,
-                            get_next_block_id) -> Optional[tuple]:
+                            get_next_block_id) -> tuple | None:
     """Process a statement and update CFG.
 
     Args:

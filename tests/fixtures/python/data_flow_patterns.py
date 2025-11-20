@@ -30,7 +30,7 @@ def file_write_operation():
 
 def file_read_operation():
     """Test FILE_READ I/O operation."""
-    with open("input.txt", "r") as f:  # Expected: io_type='FILE_READ', target='input.txt', is_static=True
+    with open("input.txt") as f:  # Expected: io_type='FILE_READ', target='input.txt', is_static=True
         data = f.read()
     return data
 
@@ -298,7 +298,7 @@ def transaction_pattern(data):
 def file_processor(input_file, output_file):
     """Test file I/O operations."""
     # I/O: FILE_READ
-    with open(input_file, "r") as f_in:  # Dynamic target (parameter)
+    with open(input_file) as f_in:  # Dynamic target (parameter)
         data = f_in.read()
 
     processed = data.upper()  # Transform

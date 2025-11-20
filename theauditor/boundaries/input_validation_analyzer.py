@@ -23,6 +23,8 @@ Examples of Violations:
         def create_user(data: UserSchema):  # ← Validation IN signature (distance 0)
             db.insert('users', data)        # ← Safe! Already validated
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Dict
@@ -40,7 +42,7 @@ VALIDATION_PATTERNS = [
 ]
 
 
-def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> List[Dict]:
+def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> list[dict]:
     """
     Analyze input validation boundaries across all entry points.
 
@@ -186,7 +188,7 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
     return results
 
 
-def generate_report(analysis_results: List[Dict]) -> str:
+def generate_report(analysis_results: list[dict]) -> str:
     """
     Generate human-readable boundary analysis report.
 

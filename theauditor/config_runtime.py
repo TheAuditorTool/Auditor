@@ -1,6 +1,7 @@
 """Runtime configuration for TheAuditor - centralized configuration management."""
-
 from __future__ import annotations
+
+
 import json
 import os
 from pathlib import Path
@@ -116,7 +117,7 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
     path = Path(root) / ".pf" / "config.json"
     try:
         if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 user = json.load(f)
                 
             # Merge each section if present
@@ -128,7 +129,7 @@ def load_runtime_config(root: str = ".") -> dict[str, Any]:
                             if key in cfg[section]:
                                 if isinstance(value, type(cfg[section][key])):
                                     cfg[section][key] = value
-    except (json.JSONDecodeError, IOError, OSError) as e:
+    except (json.JSONDecodeError, OSError) as e:
         print(f"[WARNING] Could not load config file from {path}: {e}")
         print("[INFO] Continuing with default configuration")
         # Continue with defaults - config file is optional

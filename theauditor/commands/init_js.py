@@ -1,4 +1,6 @@
 """Create or merge minimal package.json for lint/typecheck."""
+from __future__ import annotations
+
 
 import click
 

@@ -9,6 +9,8 @@ Follows schema contract architecture (v1.1+):
 - Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -98,7 +100,7 @@ CONNECTION_DANGER_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Prisma ORM anti-patterns and performance issues.
 
     Detects:
