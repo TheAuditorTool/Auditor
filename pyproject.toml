@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "theauditor"
-version = "1.4.2-RC1"
+version = "1.6.4-dev1"
 description = "Offline, air-gapped CLI for repo indexing, evidence checking, and task running"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -36,8 +36,8 @@ runtime = [
     "scikit-learn==1.7.2",
     "joblib==1.5.2",
     # Documentation fetching
-    "beautifulsoup4>=4.12.0",
-    "markdownify>=0.11.0",
+    "beautifulsoup4>=4.14.2",
+    "markdownify>=1.2.2",
     # Graph analysis
     "networkx==3.5",
 ]
@@ -45,8 +45,8 @@ runtime = [
 # Development tools (for developing TheAuditor itself)
 dev = [
     "pytest==9.0.1",
-    "pytest-cov>=4.0.0",
-    "pytest-xdist>=3.0.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
     "ruff==0.14.5",
     "black==25.11.0",
     "mypy==1.18.2",

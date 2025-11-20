@@ -967,8 +967,8 @@ def check_latest_versions(
     deps: list[dict[str, Any]],
     allow_net: bool = True,
     offline: bool = False,
-    cache_file: str = "./.pf/deps_cache.json",
-    allow_prerelease: bool = False
+    allow_prerelease: bool = False,
+    root_path: str = "."
 ) -> dict[str, dict[str, Any]]:
     """
     Check latest versions from registries with caching.
@@ -991,7 +991,7 @@ def check_latest_versions(
     """
     if offline or not allow_net:
         # Try to load from cache in offline mode
-        cached_data = _load_deps_cache(cache_file)
+        cached_data = _load_deps_cache(root_path)
         if cached_data:
             # Update locked versions from current deps
             for dep in deps:
@@ -1007,9 +1007,9 @@ def check_latest_versions(
                     cached_data[key]["is_outdated"] = cached_data[key]["latest"] != locked_clean
                     cached_data[key]["delta"] = _calculate_version_delta(locked_clean, cached_data[key]["latest"])
         return cached_data or {}
-    
+
     # Load existing cache
-    cache = _load_deps_cache(cache_file)
+    cache = _load_deps_cache(root_path)
     latest_info = {}
     needs_check = []
     
@@ -1133,34 +1133,20 @@ def check_latest_versions(
             continue
     
     # Save updated cache
-    _save_deps_cache(latest_info, cache_file)
-    
+    _save_deps_cache(latest_info, root_path)
+
     return latest_info
 
 
-def _load_deps_cache(cache_file: str) -> dict[str, dict[str, Any]]:
+def _load_deps_cache(root_path: str) -> dict[str, dict[str, Any]]:
     """
-    Load the dependency cache from runtime database.
+    Load the dependency version cache from repo_index.db.
 
-    ARCHITECTURE NOTE:
-    Cache is stored in .pf/runtime.db (NOT repo_index.db) to avoid interference
-    with `aud full` which regenerates repo_index.db from scratch.
-
-    Separation of concerns:
-    - .pf/repo_index.db: Indexer-managed, wiped on `aud full`
-    - .pf/graphs.db: Graph-managed, regenerated on graph build
-    - .pf/runtime.db: Runtime-managed, persistent across runs (THIS)
-
-    Returns empty dict if cache doesn't exist or is invalid.
+    Returns empty dict if database doesn't exist or table is empty.
     """
     import sqlite3
 
-    # Use runtime.db instead of JSON file
-    # cache_file is typically "./.pf/deps_cache.json"
-    # Extract .pf directory and use it for runtime.db
-    cache_path = Path(cache_file)
-    pf_dir = cache_path.parent  # ./.pf
-    db_path = pf_dir / "runtime.db"
+    db_path = Path(root_path) / ".pf" / "repo_index.db"
 
     try:
         if not db_path.exists():
@@ -1169,25 +1155,16 @@ def _load_deps_cache(cache_file: str) -> dict[str, dict[str, Any]]:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Check if table exists
+        # Load all cache entries from dependency_versions table
         cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='dependency_cache'
-        """)
-
-        if not cursor.fetchone():
-            conn.close()
-            return {}
-
-        # Load all cache entries
-        cursor.execute("""
-            SELECT cache_key, locked, latest, delta, is_outdated, last_checked, error
-            FROM dependency_cache
+            SELECT manager, package_name, locked_version, latest_version, delta, is_outdated, last_checked, error
+            FROM dependency_versions
         """)
 
         cache = {}
         for row in cursor.fetchall():
-            key, locked, latest, delta, is_outdated, last_checked, error = row
+            manager, pkg_name, locked, latest, delta, is_outdated, last_checked, error = row
+            key = f"{manager}:{pkg_name}"
             cache[key] = {
                 "locked": locked,
                 "latest": latest,
@@ -1205,50 +1182,63 @@ def _load_deps_cache(cache_file: str) -> dict[str, dict[str, Any]]:
         return {}
 
 
-def _save_deps_cache(latest_info: dict[str, dict[str, Any]], cache_file: str) -> None:
+def _save_deps_cache(latest_info: dict[str, dict[str, Any]], root_path: str) -> None:
     """
-    Save the dependency cache to runtime database.
-    Merges with existing cache to preserve data for packages not in current check.
-
-    Uses UPSERT (INSERT OR REPLACE) to handle updates atomically.
+    Save the dependency version cache to repo_index.db.
+    Uses INSERT OR REPLACE to update existing entries.
+    Creates table if it doesn't exist (for standalone aud deps usage).
     """
     import sqlite3
 
-    # Use runtime.db instead of JSON file
-    # cache_file is typically "./.pf/deps_cache.json"
-    # Extract .pf directory and use it for runtime.db
-    cache_path = Path(cache_file)
-    pf_dir = cache_path.parent  # ./.pf
-    db_path = pf_dir / "runtime.db"
+    db_path = Path(root_path) / ".pf" / "repo_index.db"
 
     try:
-        # Ensure .pf directory exists
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not db_path.exists():
+            # Create .pf directory and database for standalone usage
+            db_path.parent.mkdir(parents=True, exist_ok=True)
 
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Create table if not exists (schema)
+        # Create table if it doesn't exist (schema contract)
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS dependency_cache (
-                cache_key TEXT PRIMARY KEY,
-                locked TEXT NOT NULL,
-                latest TEXT,
+            CREATE TABLE IF NOT EXISTS dependency_versions (
+                manager TEXT NOT NULL,
+                package_name TEXT NOT NULL,
+                locked_version TEXT NOT NULL,
+                latest_version TEXT,
                 delta TEXT,
-                is_outdated INTEGER NOT NULL,
+                is_outdated INTEGER NOT NULL DEFAULT 0,
                 last_checked TEXT NOT NULL,
                 error TEXT
             )
         """)
 
-        # Upsert each entry (merge new data with existing)
+        # Create indexes if they don't exist
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dependency_versions_pk
+            ON dependency_versions(manager, package_name, locked_version)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_dependency_versions_outdated
+            ON dependency_versions(is_outdated)
+        """)
+
+        # Upsert each entry into dependency_versions table
         for key, info in latest_info.items():
+            # Parse key format: "manager:package_name"
+            parts = key.split(":", 1)
+            if len(parts) != 2:
+                continue
+            manager, pkg_name = parts
+
             cursor.execute("""
-                INSERT OR REPLACE INTO dependency_cache
-                (cache_key, locked, latest, delta, is_outdated, last_checked, error)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO dependency_versions
+                (manager, package_name, locked_version, latest_version, delta, is_outdated, last_checked, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                key,
+                manager,
+                pkg_name,
                 info.get("locked", ""),
                 info.get("latest"),
                 info.get("delta"),
@@ -1994,23 +1984,32 @@ def _upgrade_pyproject_toml(
         
         package_name = key[3:]  # Remove "py:" prefix
         latest_version = info.get("latest")
-        
+
         if not latest_version:
             continue
-        
+
+        # Escape special regex characters in package name (dots, etc.)
+        escaped_package_name = re.escape(package_name)
+
         # Pattern to match this package anywhere in the file
-        # Matches: "package==X.Y.Z" with any version number
-        pattern = rf'"{package_name}==([^"]+)"'
-        
+        # Matches: "package==X.Y.Z" OR "package>=X.Y.Z" OR "package[extra]>=X.Y.Z"
+        # Group 1: Optional extras notation [dev], [test], etc.
+        # Group 2: Version operator (>=, ==, ~=, etc.)
+        # Group 3: Version number
+        pattern = rf'"{escaped_package_name}(\[.*?\])?([><=~!]+)([^"]+)"'
+
         # Replace ALL occurrences at once using re.sub with a function
         def replacer(match):
-            old_version = match.group(1)
+            extras = match.group(1) or ""  # [extra] or empty string
+            old_operator = match.group(2)  # >=, ==, ~=, etc.
+            old_version = match.group(3)
             if old_version != latest_version:
                 # Track the update
                 if package_name not in updated_packages:
                     updated_packages[package_name] = []
                 updated_packages[package_name].append((old_version, latest_version))
-                return f'"{package_name}=={latest_version}"'
+                # Keep the original operator and extras notation
+                return f'"{package_name}{extras}{old_operator}{latest_version}"'
             return match.group(0)  # No change
         
         # Replace all occurrences in one pass

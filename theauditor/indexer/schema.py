@@ -78,13 +78,13 @@ TABLES: dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 249 tables (180 base + 68 Python Coverage V2 + 1 Python deps)
+# Total: 250 tables (180 base + 68 Python Coverage V2 + 2 deps)
 #   - 180 base: 164 + 4 exception flow + 5 data flow + 4 behavioral + 3 performance = Causal Learning COMPLETE
 #   - 68 Python Coverage V2: 8 fundamentals + 6 operators + 8 collections + 18 advanced (10 class features + 8 stdlib patterns) + 20 Week 5-6 (10 control flow + 10 protocol) + 8 Advanced
-#   - 1 Python deps: python_package_configs (Week 2 deps-docs-modernization)
+#   - 2 deps tables: python_package_configs, dependency_versions (version cache)
 
 # Verify table count at module load time
-assert len(TABLES) == 249, f"Schema contract violation: Expected 249 tables, got {len(TABLES)}"
+assert len(TABLES) == 250, f"Schema contract violation: Expected 250 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
@@ -216,6 +216,7 @@ VUE_PROVIDE_INJECT = TABLES['vue_provide_inject']
 
 # Package management
 PACKAGE_CONFIGS = TABLES['package_configs']
+DEPENDENCY_VERSIONS = TABLES['dependency_versions']
 LOCK_ANALYSIS = TABLES['lock_analysis']
 IMPORT_STYLES = TABLES['import_styles']
 IMPORT_STYLE_NAMES = TABLES['import_style_names']
