@@ -17,7 +17,6 @@ See indexer/__init__.py:619-564 for _store_extracted_data() implementation.
 
 This separation ensures single source of truth for file paths.
 """
-from __future__ import annotations
 
 
 import ast
@@ -29,8 +28,8 @@ from . import BaseExtractor
 from .sql import parse_sql_query
 from theauditor.ast_extractors import python as python_impl
 from theauditor.ast_extractors.base import get_node_name
-from theauditor.ast_extractors.python import (
 from theauditor.ast_extractors.python.utils.context import build_file_context
+from theauditor.ast_extractors.python import (
     advanced_extractors,  # Python Coverage V2 - Advanced
     async_extractors,
     behavioral_extractors,
@@ -1110,7 +1109,6 @@ class PythonExtractor(BaseExtractor):
                 # CRITICAL: Call Python extractor directly to pass resolved_imports for cross-file taint analysis
                 function_params = self.ast_parser._extract_function_parameters(tree, 'python')
                 calls_with_args = core_extractors.extract_python_calls_with_args(context)
-                )
                 for call in calls_with_args:
                     # Skip calls with empty callee_function (violates CHECK constraint)
                     callee = call.get('callee_function', '')

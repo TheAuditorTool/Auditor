@@ -5,7 +5,6 @@ Generates findings with severity='info' (quality concern, not security).
 
 Pattern: Follows progress.md rules - analyze() function, execution_scope='database'.
 """
-from __future__ import annotations
 
 
 import sqlite3

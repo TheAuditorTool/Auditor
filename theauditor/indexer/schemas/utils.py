@@ -12,7 +12,6 @@ Design Philosophy:
 - Pure class definitions only (no table registries)
 """
 
-from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -70,7 +69,7 @@ class ForeignKey:
     foreign_table: str
     foreign_columns: list[str]
 
-    def validate(self, local_table: str, all_tables: dict[str, TableSchema]) -> list[str]:
+    def validate(self, local_table: str, all_tables: dict[str, "TableSchema"]) -> list[str]:
         """Validate foreign key definition against schema.
 
         Returns:
@@ -138,11 +137,11 @@ class TableSchema:
         foreign_keys: List of ForeignKey definitions (for JOIN generation)
     """
     name: str
-    columns: list[Column]
+    columns: list["Column"]
     indexes: list[tuple[str, list[str]]] = field(default_factory=list)
     primary_key: list[str] | None = None  # Composite primary keys
     unique_constraints: list[list[str]] = field(default_factory=list)  # UNIQUE constraints
-    foreign_keys: list[ForeignKey] = field(default_factory=list)  # For JOIN query generation
+    foreign_keys: list["ForeignKey"] = field(default_factory=list)  # For JOIN query generation
 
     def column_names(self) -> list[str]:
         """Get list of column names in definition order."""

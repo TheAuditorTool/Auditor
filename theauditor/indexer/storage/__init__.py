@@ -21,7 +21,6 @@ Usage:
     storer = DataStorer(db_manager, counts)
     storer.store(file_path, extracted, jsx_pass=False)
 """
-from __future__ import annotations
 
 
 import os

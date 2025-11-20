@@ -1,5 +1,4 @@
 """Analyze Claude Code session interactions."""
-from __future__ import annotations
 
 
 import click

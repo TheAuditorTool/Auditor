@@ -5,7 +5,6 @@ This is a Phase 2 temporary adapter that allows SchemaMemoryCache to work
 with the existing taint code that expects the old MemoryCache interface.
 This will be removed in Phase 4 when we refactor the taint code directly.
 """
-from __future__ import annotations
 
 
 from typing import Dict, List, Any, Optional

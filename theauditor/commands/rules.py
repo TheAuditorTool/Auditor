@@ -1,5 +1,4 @@
 """Rules command - inspect and summarize detection capabilities."""
-from __future__ import annotations
 
 
 import os

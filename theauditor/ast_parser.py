@@ -13,7 +13,6 @@ CRITICAL:
 - Python is NEVER parsed by Tree-sitter (see _init_tree_sitter_parsers() lines 63-90)
 - JS/TS MUST use semantic parser - silent fallbacks produce "anonymous" function names
 """
-from __future__ import annotations
 
 
 import ast

@@ -4,7 +4,6 @@ This module collects temporal (git history) and quality (test coverage) metadata
 to provide additional factual dimensions for the FCE correlation engine.
 Maintains Truth Courier principles - reports only facts, no interpretation.
 """
-from __future__ import annotations
 
 
 import json

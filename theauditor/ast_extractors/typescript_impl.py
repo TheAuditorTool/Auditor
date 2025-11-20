@@ -31,7 +31,6 @@ CONSUMERS:
 - Pattern rules (uses all behavioral data)
 - CFG analysis (uses cfg_blocks, cfg_edges)
 """
-from __future__ import annotations
 
 
 import os

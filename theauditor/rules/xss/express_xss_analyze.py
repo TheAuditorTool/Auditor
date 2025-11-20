@@ -3,7 +3,6 @@
 This module detects XSS vulnerabilities specific to Express.js applications.
 Uses database-only approach with framework awareness.
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -5,7 +5,6 @@ indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
 
 This replaces fastapi_analyzer.py with a faster, cleaner implementation.
 """
-from __future__ import annotations
 
 
 import sqlite3

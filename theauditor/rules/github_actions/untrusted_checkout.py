@@ -11,7 +11,6 @@ Attack Pattern:
 
 CWE-284: Improper Access Control
 """
-from __future__ import annotations
 
 
 import json

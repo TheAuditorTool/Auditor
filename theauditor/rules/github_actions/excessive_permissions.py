@@ -11,7 +11,6 @@ Attack Pattern:
 
 CWE-269: Improper Privilege Management
 """
-from __future__ import annotations
 
 
 import json

@@ -6,7 +6,6 @@ Schema Contract:
     All queries use build_query() for schema compliance.
     Table existence is guaranteed by schema contract - no checks needed.
 """
-from __future__ import annotations
 
 
 import sys

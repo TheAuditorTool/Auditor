@@ -42,7 +42,6 @@ Expected extraction from TheAuditor codebase:
 - ~2,100 augmented assignments (x += 1, y *= 2, etc.)
 Total: ~3,000 state mutation records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

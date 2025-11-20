@@ -20,7 +20,6 @@ TO USE IN HYBRID APPROACH:
 PRESERVED: 2025-10-11
 ===========================================================
 """
-from __future__ import annotations
 
 
 import json

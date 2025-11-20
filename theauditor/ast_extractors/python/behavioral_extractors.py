@@ -39,7 +39,6 @@ Expected extraction from TheAuditor codebase:
 - ~10 dynamic attribute patterns
 Total: ~430 behavioral pattern records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

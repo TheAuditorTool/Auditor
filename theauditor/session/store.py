@@ -6,7 +6,6 @@ This module stores session execution data to:
 
 Implements dual-write principle: all data written to both storage types for consistency.
 """
-from __future__ import annotations
 
 
 import json

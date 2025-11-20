@@ -7,7 +7,6 @@ Loads execution history from archived runs in .pf/history/full/*/
 - Historical findings (past vulnerabilities)
 - Git churn (commit frequency)
 """
-from __future__ import annotations
 
 
 import json

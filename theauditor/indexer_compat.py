@@ -6,7 +6,6 @@ All functionality has been refactored into the theauditor.indexer package.
 IMPORTANT: New code should import from theauditor.indexer package directly:
     from theauditor.indexer import IndexerOrchestrator
 """
-from __future__ import annotations
 
 
 import json

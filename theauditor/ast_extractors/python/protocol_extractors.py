@@ -37,7 +37,6 @@ Expected extraction from TheAuditor codebase:
 - ~25 class decorators
 Total: ~900 protocol records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

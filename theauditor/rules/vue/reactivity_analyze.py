@@ -10,7 +10,6 @@ Database-First Architecture (v1.1+):
 - Join tables to detect props mutations
 - NO manual AST traversal (indexer already extracted this data)
 """
-from __future__ import annotations
 
 
 import sqlite3

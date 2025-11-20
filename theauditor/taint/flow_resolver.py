@@ -13,7 +13,6 @@ Architecture:
     - Uses graph node IDs: file::function::variable (matches dfg_builder.py)
     - Memory optimized: No redundant visited sets, DFS stack instead of BFS queue
 """
-from __future__ import annotations
 
 
 import json

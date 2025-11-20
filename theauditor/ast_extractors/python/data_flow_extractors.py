@@ -40,7 +40,6 @@ Expected extraction from TheAuditor codebase:
 - ~50 nonlocal accesses
 Total: ~3,850 data flow records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

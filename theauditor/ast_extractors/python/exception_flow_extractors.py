@@ -40,7 +40,6 @@ Expected extraction from TheAuditor codebase:
 - ~400 context managers (already extracted by core_extractors.py)
 Total: ~2,000 exception flow records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

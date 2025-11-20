@@ -7,7 +7,6 @@ Schema Contract:
     All queries use build_query() for schema compliance.
     Table existence is guaranteed by schema contract - no checks needed.
 """
-from __future__ import annotations
 
 
 import os
@@ -40,7 +39,7 @@ class InterProceduralEffect:
     passthrough_taint: dict[str, bool] = field(default_factory=dict)  # param_name -> taints_return
     side_effects: list[str] = field(default_factory=list)  # e.g., ["writes_to_db", "sends_response"]
     
-    def merge_conservative(self, other: InterProceduralEffect) -> InterProceduralEffect:
+    def merge_conservative(self, other: InterProceduralEffect) -> "InterProceduralEffect":
         """Merge two effects conservatively for dynamic dispatch."""
         merged = InterProceduralEffect()
         
@@ -104,7 +103,7 @@ class InterProceduralCFGAnalyzer:
         callee_func: str,
         args_mapping: dict[str, str],  # caller_var -> callee_param
         taint_state: dict[str, bool]   # var -> is_tainted
-    ) -> InterProceduralEffect:
+    ) -> "InterProceduralEffect":
         """
         Analyze a function call with full CFG context.
         
@@ -171,7 +170,7 @@ class InterProceduralCFGAnalyzer:
         context: dict[str, Any],
         args_mapping: dict[str, str],
         taint_state: dict[str, bool]
-    ) -> InterProceduralEffect:
+    ) -> "InterProceduralEffect":
         """
         Resolve function pointers and dynamic dispatch.
         
@@ -585,7 +584,7 @@ class InterProceduralCFGAnalyzer:
         self,
         exit_states: list[BlockTaintState],
         args_mapping: dict[str, str]
-    ) -> InterProceduralEffect:
+    ) -> "InterProceduralEffect":
         """Extract the function's effects from exit states."""
         effect = InterProceduralEffect()
 
@@ -813,7 +812,7 @@ class InterProceduralCFGAnalyzer:
             "side_effects": effect.side_effects
         })
     
-    def _deserialize_effect(self, data) -> InterProceduralEffect:
+    def _deserialize_effect(self, data) -> "InterProceduralEffect":
         """Deserialize an effect from cache."""
         # Handle both string and dict inputs (cfg_cache returns dict after json.loads)
         obj = data if isinstance(data, dict) else json.loads(data)

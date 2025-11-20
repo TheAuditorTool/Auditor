@@ -20,7 +20,6 @@ Example:
 
 Truth Courier Design: Reports factual distance measurements, not recommendations.
 """
-from __future__ import annotations
 
 
 import sqlite3

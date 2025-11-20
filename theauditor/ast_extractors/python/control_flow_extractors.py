@@ -37,7 +37,6 @@ Expected extraction from TheAuditor codebase:
 - ~80 with statements
 Total: ~2,115 control flow records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

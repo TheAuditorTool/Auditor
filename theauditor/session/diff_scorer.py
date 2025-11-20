@@ -8,7 +8,6 @@ This module runs diffs from Edit/Write tool calls through the complete SAST stac
 
 Aggregate scores into a single risk metric (0.0-1.0).
 """
-from __future__ import annotations
 
 
 import json

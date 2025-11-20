@@ -6,7 +6,6 @@ standardized rule at theauditor.rules.terraform.terraform_analyze via the
 rule orchestrator. This wrapper now delegates to that rule and preserves the
 legacy TerraformFinding format plus database dual-writes.
 """
-from __future__ import annotations
 
 
 import json
@@ -83,7 +82,7 @@ class TerraformAnalyzer:
         )
 
     def _convert_findings(self, standard_findings) -> list[TerraformFinding]:
-        terraform_findings: list[TerraformFinding] = []
+        terraform_findings: list["TerraformFinding"] = []
 
         for finding in standard_findings:
             additional = getattr(finding, 'additional_info', None) or {}
@@ -117,7 +116,7 @@ class TerraformAnalyzer:
             return severity_value.value
         return str(severity_value).lower()
 
-    def _filter_by_severity(self, findings: list[TerraformFinding]) -> list[TerraformFinding]:
+    def _filter_by_severity(self, findings: list["TerraformFinding"]) -> list[TerraformFinding]:
         if self.severity_filter == 'all':
             return findings
 
@@ -127,7 +126,7 @@ class TerraformAnalyzer:
             if self.severity_order.get(f.severity, 999) <= min_severity
         ]
 
-    def _write_findings(self, findings: list[TerraformFinding]):
+    def _write_findings(self, findings: list["TerraformFinding"]):
         """Write findings to both terraform_findings and consolidated tables."""
         if not findings:
             return

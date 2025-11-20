@@ -1,5 +1,4 @@
 """Detect risky global mutable state usage in Python modules."""
-from __future__ import annotations
 
 
 import sqlite3

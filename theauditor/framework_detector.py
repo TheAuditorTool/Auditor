@@ -1,5 +1,4 @@
 """Framework detection for various languages and ecosystems."""
-from __future__ import annotations
 
 
 import json

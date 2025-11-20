@@ -3,7 +3,6 @@
 This module provides functionality to write and read execution journals in NDJSON format.
 The journal tracks all pipeline events, file touches, and results for ML training.
 """
-from __future__ import annotations
 
 
 import json
@@ -389,7 +388,7 @@ class JournalReader:
 
 
 # Integration functions for pipeline
-def get_journal_writer(run_type: str = "full") -> JournalWriter:
+def get_journal_writer(run_type: str = "full") -> "JournalWriter":
     """Get a journal writer for the current run.
     
     Args:

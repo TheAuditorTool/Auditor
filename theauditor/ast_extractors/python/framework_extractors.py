@@ -13,7 +13,6 @@ REFACTOR NOTE:
 This file was reduced from 2222 lines to ~150 lines as part of refactor-framework-extractors-domain-split.
 All implementation moved to domain-specific files. This file now serves as a re-export facade only.
 """
-from __future__ import annotations
 
 
 # ============================================================================

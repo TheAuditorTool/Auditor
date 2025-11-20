@@ -10,7 +10,6 @@ PHILOSOPHY:
 - Platform-aware: Handle Windows/Unix path differences
 - Fallback support: Check system PATH as secondary option
 """
-from __future__ import annotations
 
 
 import platform

@@ -3,7 +3,6 @@
 This module contains add_* methods for GRAPHQL_TABLES defined in schemas/graphql_schema.py.
 Handles 8 GraphQL tables including schemas, types, fields, resolvers, and execution graph.
 """
-from __future__ import annotations
 
 
 from typing import List, Optional

@@ -16,7 +16,6 @@ Detects 12 types of issues:
 
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
-from __future__ import annotations
 
 
 import sqlite3

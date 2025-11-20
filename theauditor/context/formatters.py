@@ -15,7 +15,6 @@ Usage:
     text = format_output(results, format='text')
     json_str = format_output(results, format='json')
 """
-from __future__ import annotations
 
 
 import json

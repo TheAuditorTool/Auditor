@@ -1,5 +1,4 @@
 """Impact analysis engine for tracing code dependencies and change blast radius."""
-from __future__ import annotations
 
 
 import sqlite3

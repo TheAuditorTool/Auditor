@@ -9,7 +9,6 @@ Follows golden standard patterns:
 - Schema contract compliance (v1.1+ - uses build_query())
 - Proper confidence levels
 """
-from __future__ import annotations
 
 
 import sqlite3

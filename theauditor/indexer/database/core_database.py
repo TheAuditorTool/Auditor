@@ -3,7 +3,6 @@
 This module contains add_* methods for CORE_TABLES defined in schemas/core_schema.py.
 Handles 21 core tables including files, symbols, assignments, function calls, CFG, and JSX variants.
 """
-from __future__ import annotations
 
 
 from typing import List, Optional

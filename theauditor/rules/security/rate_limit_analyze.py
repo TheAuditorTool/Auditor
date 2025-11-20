@@ -11,7 +11,6 @@ This implementation:
 - Provides confidence scoring based on context
 - Maps findings to security regulations (OWASP, PCI-DSS, NIST)
 """
-from __future__ import annotations
 
 
 import sqlite3

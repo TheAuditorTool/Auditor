@@ -30,7 +30,6 @@ Workflow:
 This replaces the old Phase 4 architecture where all JavaScript was embedded as
 Python string constants with f-string injection points.
 """
-from __future__ import annotations
 
 
 from pathlib import Path

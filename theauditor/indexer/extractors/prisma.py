@@ -5,7 +5,6 @@ Inlines parsing logic (no separate parser class).
 
 Populates prisma_models table for use by rules/orm/prisma_analyze.py.
 """
-from __future__ import annotations
 
 
 import re

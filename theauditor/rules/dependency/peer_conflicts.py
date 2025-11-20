@@ -12,7 +12,6 @@ Detection Strategy:
 Database Tables Used:
 - package_configs: Peer dependency declarations and actual versions
 """
-from __future__ import annotations
 
 
 import json

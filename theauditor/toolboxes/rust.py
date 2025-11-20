@@ -18,7 +18,6 @@ If future hybrid approach is implemented:
 PRESERVED: 2025-10-11
 ===========================================================
 """
-from __future__ import annotations
 
 
 import os

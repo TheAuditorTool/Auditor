@@ -17,7 +17,6 @@ CWE Coverage:
 - CWE-521: Weak Password Requirements
 - CWE-598: Use of GET Request Method With Sensitive Query Strings
 """
-from __future__ import annotations
 
 
 import sqlite3

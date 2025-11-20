@@ -3,7 +3,6 @@
 This module contains add_* methods for FRAMEWORKS_TABLES defined in schemas/frameworks_schema.py.
 Handles 5 framework tables including API endpoints, ORM relationships, and Prisma models.
 """
-from __future__ import annotations
 
 
 from typing import List, Optional

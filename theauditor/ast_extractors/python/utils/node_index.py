@@ -16,8 +16,8 @@ class NodeIndex:
         Args:
             tree: AST tree to index
         """
-        self._index: Dict[Type[ast.AST], List[ast.AST]] = defaultdict(list)
-        self._line_index: Dict[Type[ast.AST], Dict[int, List[ast.AST]]] = defaultdict(lambda: defaultdict(list))
+        self._index: dict[type[ast.AST], list[ast.AST]] = defaultdict(list)
+        self._line_index: dict[type[ast.AST], dict[int, list[ast.AST]]] = defaultdict(lambda: defaultdict(list))
 
         # Single walk to build index
         for node in ast.walk(tree):
@@ -28,7 +28,7 @@ class NodeIndex:
             if hasattr(node, 'lineno'):
                 self._line_index[node_type][node.lineno].append(node)
 
-    def find_nodes(self, node_type: Union[Type[ast.AST], Tuple[Type[ast.AST], ...]]) -> List[ast.AST]:
+    def find_nodes(self, node_type: type[ast.AST] | tuple[type[ast.AST], ...]) -> list[ast.AST]:
         """Get all nodes of given type(s) with O(1) lookup.
 
         Args:
@@ -45,7 +45,7 @@ class NodeIndex:
             return result
         return self._index.get(node_type, []).copy()
 
-    def find_nodes_in_range(self, node_type: Type[ast.AST], start_line: int, end_line: int) -> List[ast.AST]:
+    def find_nodes_in_range(self, node_type: type[ast.AST], start_line: int, end_line: int) -> list[ast.AST]:
         """Get nodes of type within line range.
 
         Args:
@@ -62,7 +62,7 @@ class NodeIndex:
             result.extend(type_lines.get(line_num, []))
         return result
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get count of each node type.
 
         Returns:

@@ -1,5 +1,4 @@
 """Common utilities for toolbox implementations."""
-from __future__ import annotations
 
 
 import gzip

@@ -11,7 +11,6 @@ This implementation:
 - Provides confidence scoring
 - Maps all findings to CWE IDs
 """
-from __future__ import annotations
 
 
 import sqlite3

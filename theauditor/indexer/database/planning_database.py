@@ -10,7 +10,6 @@ ERIC'S FRAMEWORK INTEGRATION:
     - Jobs are atomic checkbox items within tasks
     - Audit loops at task and phase level enforce loop-until-correct semantics
 """
-from __future__ import annotations
 
 
 from typing import Optional, List, Dict

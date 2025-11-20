@@ -3,7 +3,6 @@
 This module detects template injection vulnerabilities across various template engines.
 Covers both server-side and client-side template injection.
 """
-from __future__ import annotations
 
 
 import sqlite3

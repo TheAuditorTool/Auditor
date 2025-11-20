@@ -27,7 +27,6 @@ REFACTORED ARCHITECTURE:
 
 DatabaseManager uses multiple inheritance to combine all capabilities.
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -6,7 +6,6 @@ Checks:
 - public_read_access=True (CRITICAL)
 - Missing block_public_access configuration (HIGH)
 """
-from __future__ import annotations
 
 
 

@@ -5,7 +5,6 @@ react_components, function_call_args, and symbols tables.
 
 Focuses on render optimization and performance bottlenecks.
 """
-from __future__ import annotations
 
 
 import sqlite3

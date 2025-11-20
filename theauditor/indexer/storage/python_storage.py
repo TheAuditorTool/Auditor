@@ -13,7 +13,6 @@ This module contains handlers for Python frameworks and patterns:
 
 Handler Count: 59
 """
-from __future__ import annotations
 
 
 import json

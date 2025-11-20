@@ -81,7 +81,6 @@ TEMPLATE BASED ON: react_xss_analyze.py (Production Rule)
 RULE METADATA: JSX-specific with framework detection
 ================================================================================
 """
-from __future__ import annotations
 
 
 import sqlite3

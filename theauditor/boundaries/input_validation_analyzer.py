@@ -23,7 +23,6 @@ Examples of Violations:
         def create_user(data: UserSchema):  # ← Validation IN signature (distance 0)
             db.insert('users', data)        # ← Safe! Already validated
 """
-from __future__ import annotations
 
 
 import sqlite3

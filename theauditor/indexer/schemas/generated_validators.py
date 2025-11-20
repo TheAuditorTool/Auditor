@@ -1,5 +1,7 @@
 # Auto-generated validators from schema
-from typing import Any, Callable, Dict
+from typing import Any, Dict
+
+from collections.abc import Callable
 from functools import wraps
 from ..schema import TABLES
 
@@ -26,7 +28,7 @@ def validate_storage(table_name: str):
     return decorator
 
 
-def validate_column_types(table_name: str, data: Dict[str, Any]) -> None:
+def validate_column_types(table_name: str, data: dict[str, Any]) -> None:
     """Validate column types match schema."""
     if table_name not in TABLES:
         raise ValueError(f'Unknown table: {table_name}')

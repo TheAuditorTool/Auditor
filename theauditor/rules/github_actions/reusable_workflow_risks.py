@@ -12,7 +12,6 @@ Attack Pattern:
 
 CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
 """
-from __future__ import annotations
 
 
 import json

@@ -12,7 +12,6 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 - Proper Severity and Confidence enums
 - Standardized finding generation with correct parameter names
 """
-from __future__ import annotations
 
 
 import sqlite3

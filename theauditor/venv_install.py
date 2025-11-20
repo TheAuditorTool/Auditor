@@ -1,5 +1,4 @@
 """Pure Python venv creation and TheAuditor installation."""
-from __future__ import annotations
 
 
 import json

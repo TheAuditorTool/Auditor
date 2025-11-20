@@ -16,7 +16,6 @@ Detects:
 
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
-from __future__ import annotations
 
 
 import json
@@ -138,11 +137,11 @@ class NginxAnalyzer:
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
 
         # Track configurations across blocks
-        self.proxy_configs: list[NginxProxyConfig] = []
-        self.rate_limits: list[NginxRateLimit] = []
+        self.proxy_configs: list["NginxProxyConfig"] = []
+        self.rate_limits: list["NginxRateLimit"] = []
         self.security_headers: dict[str, set[str]] = {}
-        self.ssl_configs: list[NginxSSLConfig] = []
-        self.location_blocks: list[NginxLocationBlock] = []
+        self.ssl_configs: list["NginxSSLConfig"] = []
+        self.location_blocks: list["NginxLocationBlock"] = []
         self.server_tokens: dict[str, str] = {}
 
     def analyze(self) -> list[StandardFinding]:

@@ -16,7 +16,6 @@ Detects:
 - GraphQL mutations without auth
 - API key authentication issues
 """
-from __future__ import annotations
 
 
 import sqlite3

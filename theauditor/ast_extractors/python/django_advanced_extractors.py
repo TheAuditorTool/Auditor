@@ -15,7 +15,6 @@ These extractors identify Django-specific patterns for:
 
 All extractors follow architectural contract: NO file_path in results.
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

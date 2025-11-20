@@ -8,7 +8,6 @@ Provides shared infrastructure:
 All domain storage modules (CoreStorage, PythonStorage, etc.) inherit from
 this base class to access shared dependencies without duplication.
 """
-from __future__ import annotations
 
 
 from typing import Dict, Any

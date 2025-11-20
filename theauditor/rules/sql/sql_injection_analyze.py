@@ -8,7 +8,6 @@ Schema-driven enforcement (v1.3+):
 - No fallback regex patterns
 - No runtime file scanning
 """
-from __future__ import annotations
 
 
 import sqlite3

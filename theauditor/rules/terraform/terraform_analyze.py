@@ -9,7 +9,6 @@ Detects infrastructure security issues by querying Terraform extractor tables:
 The rule mirrors the legacy TerraformAnalyzer checks while exposing findings via
 StandardFinding so orchestrator and CLI can share a single source of truth.
 """
-from __future__ import annotations
 
 
 

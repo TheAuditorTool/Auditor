@@ -22,7 +22,6 @@ Detects 11 security issues:
 
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
-from __future__ import annotations
 
 
 import json

@@ -7,7 +7,6 @@ This module orchestrates the 3-layer analysis:
 
 Stores results to session_executions table via SessionExecutionStore.
 """
-from __future__ import annotations
 
 
 import logging

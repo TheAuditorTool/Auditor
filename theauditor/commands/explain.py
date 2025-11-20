@@ -1,5 +1,4 @@
 """Explain TheAuditor concepts and terminology."""
-from __future__ import annotations
 
 
 import click

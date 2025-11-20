@@ -8,7 +8,6 @@ Note: CDK constructs handler remains in core_storage.py (cross-language AWS dete
 
 Handler Count: 11
 """
-from __future__ import annotations
 
 
 import json

@@ -23,7 +23,6 @@ CONSUMERS:
 CRITICAL: build_scope_map (line ~353) fixes "100% anonymous caller" bug
 by providing O(1) line-to-function lookups for accurate scope resolution.
 """
-from __future__ import annotations
 
 
 import os

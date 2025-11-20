@@ -1,5 +1,4 @@
 """Generate project structure and intelligence reports for AI consumption."""
-from __future__ import annotations
 
 
 import json

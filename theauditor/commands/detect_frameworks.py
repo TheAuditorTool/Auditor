@@ -3,7 +3,6 @@
 This command reads from the frameworks table populated by 'aud index'.
 It does NOT re-parse manifests - database is the single source of truth.
 """
-from __future__ import annotations
 
 
 import json

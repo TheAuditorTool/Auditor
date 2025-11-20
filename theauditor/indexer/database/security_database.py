@@ -3,7 +3,6 @@
 This module contains add_* methods for SECURITY_TABLES defined in schemas/security_schema.py.
 Handles 5 security tables including SQL injection detection, JWT patterns, and environment variable usage.
 """
-from __future__ import annotations
 
 
 from typing import List, Optional

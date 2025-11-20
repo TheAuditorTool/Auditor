@@ -26,7 +26,6 @@ The visitor populates "state buckets" (definitions, calls, imports, issues).
 The adapter layer (in python.py) maps these to the 150+ legacy table schemas
 during Phase 2 transition. Once all consumers migrate, we can simplify the schema.
 """
-from __future__ import annotations
 
 
 import ast

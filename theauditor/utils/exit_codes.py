@@ -3,7 +3,6 @@
 This module provides a single source of truth for all program exit codes,
 eliminating magic numbers and ensuring consistency across the application.
 """
-from __future__ import annotations
 
 
 

@@ -8,7 +8,6 @@ Detects:
 
 Pattern: Multi-table JOINs like taint tracking (see rules/progress.md).
 """
-from __future__ import annotations
 
 
 import sqlite3

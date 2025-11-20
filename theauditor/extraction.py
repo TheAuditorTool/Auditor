@@ -31,7 +31,6 @@ Pure Courier Principles:
 
 The AI consumer decides what's important, not TheAuditor.
 """
-from __future__ import annotations
 
 
 import json

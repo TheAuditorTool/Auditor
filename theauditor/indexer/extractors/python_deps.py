@@ -6,7 +6,6 @@ Extracts Python package dependencies from:
 
 Stores in python_package_configs table for fast dependency checking.
 """
-from __future__ import annotations
 
 
 import json

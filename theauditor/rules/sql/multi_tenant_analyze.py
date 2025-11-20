@@ -5,7 +5,6 @@ Focuses on PostgreSQL RLS (Row Level Security) patterns for multi-tenant applica
 
 Truth Courier Design: Reports facts about tenant isolation patterns, not recommendations.
 """
-from __future__ import annotations
 
 
 import sqlite3

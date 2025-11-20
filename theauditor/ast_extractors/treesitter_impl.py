@@ -6,7 +6,6 @@ CRITICAL: Tree-sitter is FORBIDDEN for JavaScript/TypeScript files.
 It produces corrupted data (e.g., "anonymous" function names).
 JS/TS MUST use TypeScript Compiler API (semantic parser) - NO EXCEPTIONS.
 """
-from __future__ import annotations
 
 
 from typing import Any, List, Dict, Optional

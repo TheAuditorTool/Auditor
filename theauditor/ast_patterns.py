@@ -3,7 +3,6 @@
 This module contains all pattern matching and query logic for the AST parser.
 It provides pattern-based search capabilities across different AST types.
 """
-from __future__ import annotations
 
 
 import ast

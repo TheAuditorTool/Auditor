@@ -18,7 +18,6 @@ Database Tables Used:
 - package_configs: Current dependency versions (for validation)
 - Reads: .pf/raw/deps_latest.json (if it exists)
 """
-from __future__ import annotations
 
 
 import json

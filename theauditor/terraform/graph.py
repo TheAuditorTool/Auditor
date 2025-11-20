@@ -14,7 +14,6 @@ Usage:
     graph = builder.build_provisioning_flow_graph(root=".")
     # Returns: {'nodes': [...], 'edges': [...], 'metadata': {...}}
 """
-from __future__ import annotations
 
 
 import sqlite3
@@ -92,8 +91,8 @@ class TerraformGraphBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        nodes: dict[str, ProvisioningNode] = {}
-        edges: list[ProvisioningEdge] = []
+        nodes: dict[str, "ProvisioningNode"] = {}
+        edges: list["ProvisioningEdge"] = []
 
         stats = {
             'total_resources': 0,

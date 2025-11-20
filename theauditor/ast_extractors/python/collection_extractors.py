@@ -33,7 +33,6 @@ Expected extraction from TheAuditor codebase:
 - ~50 collections module usage
 Total: ~1,320 collection pattern records
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

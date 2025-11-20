@@ -4,7 +4,6 @@ Handles extraction of SQL-specific elements including:
 - SQL object definitions (tables, indexes, views, functions)
 - SQL queries and their structure
 """
-from __future__ import annotations
 
 
 from pathlib import Path

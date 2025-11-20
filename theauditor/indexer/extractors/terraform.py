@@ -18,7 +18,6 @@ ARCHITECTURE: Database-first, zero fallbacks.
 CRITICAL: This extractor ONLY extracts facts from .tf files.
 Graph relationships (variable → resource → output) are built in Phase 4 by graph builder.
 """
-from __future__ import annotations
 
 
 import json

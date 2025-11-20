@@ -19,7 +19,6 @@ Replaces:
 - webpack_config_parser.py (deprecated)
 - Old generic.py with HAS_CUSTOM_PARSERS flag (eliminated)
 """
-from __future__ import annotations
 
 
 import json

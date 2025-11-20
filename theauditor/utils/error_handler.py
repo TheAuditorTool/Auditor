@@ -4,7 +4,6 @@ This module provides a decorator that captures detailed error information
 including full tracebacks, while presenting clean error messages to users.
 All detailed debugging information is logged to .pf/error.log.
 """
-from __future__ import annotations
 
 
 import click

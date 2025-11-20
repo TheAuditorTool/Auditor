@@ -17,7 +17,6 @@ All functions here:
 File path context is provided by the INDEXER layer when storing to database.
 This separation ensures single source of truth for file paths.
 """
-from __future__ import annotations
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 

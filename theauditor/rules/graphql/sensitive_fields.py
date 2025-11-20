@@ -1,5 +1,4 @@
 """GraphQL Sensitive Fields Check - Detect exposed sensitive data."""
-from __future__ import annotations
 
 
 import sqlite3

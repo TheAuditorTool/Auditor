@@ -18,7 +18,6 @@ Detects:
 - ECB mode usage
 - Small key sizes
 """
-from __future__ import annotations
 
 
 import sqlite3

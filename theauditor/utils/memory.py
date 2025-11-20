@@ -3,7 +3,6 @@
 This module provides intelligent memory limit detection based on system resources.
 Philosophy: SAST tools need RAM. If you're running complex analysis, allocate accordingly.
 """
-from __future__ import annotations
 
 
 import os

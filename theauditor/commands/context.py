@@ -5,7 +5,6 @@ business logic, refactoring contexts, and semantic patterns.
 
 Example: During OAuth migration, mark all JWT findings as "obsolete".
 """
-from __future__ import annotations
 
 
 import json

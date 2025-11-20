@@ -13,7 +13,6 @@ Config files (kept for setup):
 - eslint.config.cjs - Copied to .auditor_venv/.theauditor_tools/ during setup
 - pyproject.toml - Copied to .auditor_venv/.theauditor_tools/ during setup
 """
-from __future__ import annotations
 
 
 # Import from the new single-file module in this directory

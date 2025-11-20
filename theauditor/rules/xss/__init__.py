@@ -3,7 +3,6 @@
 This module orchestrates all XSS analyzers based on detected frameworks.
 Dramatically reduces false positives by understanding framework context.
 """
-from __future__ import annotations
 
 
 import sqlite3

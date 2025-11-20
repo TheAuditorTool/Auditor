@@ -6,7 +6,6 @@ instead of using hardcoded patterns. This eliminates the need for manual
 pattern maintenance and automatically discovers new sources/sinks as the
 database evolves.
 """
-from __future__ import annotations
 
 
 from typing import Dict, List, Any, Optional, Tuple

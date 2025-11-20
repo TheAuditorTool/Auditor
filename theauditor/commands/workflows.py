@@ -3,7 +3,6 @@
 Commands for analyzing GitHub Actions workflows, detecting CI/CD security
 vulnerabilities, and reporting on workflow misconfigurations.
 """
-from __future__ import annotations
 
 
 import json

@@ -5,7 +5,6 @@ react_hooks, variable_usage, and assignments tables.
 
 Focuses on state complexity, prop drilling, and state management best practices.
 """
-from __future__ import annotations
 
 
 import sqlite3

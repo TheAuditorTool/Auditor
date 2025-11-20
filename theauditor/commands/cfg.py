@@ -1,5 +1,4 @@
 """Control Flow Graph analysis commands."""
-from __future__ import annotations
 
 
 import json

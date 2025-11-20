@@ -3,7 +3,6 @@
 This module contains the FileWalker class for directory traversal with monorepo
 detection.
 """
-from __future__ import annotations
 
 
 import os

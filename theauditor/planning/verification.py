@@ -10,7 +10,6 @@ Integration Points:
 
 NO FALLBACKS. Hard failure if spec YAML is malformed or database query fails.
 """
-from __future__ import annotations
 
 
 from pathlib import Path

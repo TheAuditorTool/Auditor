@@ -3,7 +3,6 @@
 This module detects DOM-based XSS vulnerabilities that occur in client-side JavaScript.
 These are particularly dangerous as they can bypass server-side protections.
 """
-from __future__ import annotations
 
 
 import sqlite3

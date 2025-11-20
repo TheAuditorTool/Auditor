@@ -9,7 +9,6 @@ Follows v1.1+ gold standard patterns:
 - Direct database queries (crash on missing tables to expose indexer bugs)
 - Proper confidence levels via Confidence enum
 """
-from __future__ import annotations
 
 
 import sqlite3

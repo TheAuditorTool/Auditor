@@ -5,7 +5,6 @@ This module coordinates pattern detection across the codebase:
 - Falls back to regex patterns ONLY for non-AST files (configs, shell scripts)
 - Acts as a thin coordination layer, not a detection engine itself
 """
-from __future__ import annotations
 
 
 import json
@@ -71,7 +70,7 @@ class UniversalPatternDetector:
         """
         self.project_path = Path(project_path).resolve()
         self.pattern_loader = pattern_loader or PatternLoader()
-        self.findings: list[Finding] = []
+        self.findings: list["Finding"] = []
         self.exclude_patterns = exclude_patterns or []
         
         # Create orchestrator ONCE at initialization

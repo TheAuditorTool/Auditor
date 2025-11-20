@@ -36,7 +36,6 @@ Example flow for object literals:
 WHY: This separation ensures single source of truth for file paths and prevents
 architectural violations where implementations incorrectly attempt to track files.
 """
-from __future__ import annotations
 
 
 import os

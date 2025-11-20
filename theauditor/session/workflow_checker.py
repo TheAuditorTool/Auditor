@@ -7,7 +7,6 @@ This module checks if agent execution follows defined workflows:
 
 Returns compliance score and list of violations.
 """
-from __future__ import annotations
 
 
 import logging
@@ -52,7 +51,7 @@ class WorkflowChecker:
         self.workflow_path = workflow_path
         self.workflows = self._parse_workflows() if workflow_path and workflow_path.exists() else {}
 
-    def check_compliance(self, session: Session) -> WorkflowCompliance:
+    def check_compliance(self, session: Session) -> "WorkflowCompliance":
         """Check if session followed workflow.
 
         Args:

@@ -12,7 +12,6 @@ Detection Strategy:
 Database Tables Used:
 - package_configs: Dependency declarations
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -44,7 +44,6 @@ Schema Contract:
 - Schema validation runs at indexing time and analysis time
 - Breaking changes detected at runtime, not production
 """
-from __future__ import annotations
 
 
 from typing import Dict, List, Optional, Tuple

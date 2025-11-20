@@ -3,7 +3,6 @@
 Moved from core.py to break circular dependency (core.py ↔ ifds_analyzer.py).
 This is a pure data model with no external dependencies.
 """
-from __future__ import annotations
 
 
 from typing import Dict, List, Any, Optional

@@ -21,7 +21,6 @@ This captures the full call chain: route → middleware → controller → servi
 
 Performance: O(CallD³ + 2ED²) - h-sparse IFDS (page 10, Table 3)
 """
-from __future__ import annotations
 
 
 import sqlite3

@@ -16,7 +16,6 @@ TheAuditor uses a two-tier execution model:
 
 This module handles delegation from global CLI → sandbox execution.
 """
-from __future__ import annotations
 
 
 import os

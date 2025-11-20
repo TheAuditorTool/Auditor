@@ -5,7 +5,6 @@ The database is generated fresh every run. It MUST exist and MUST contain all re
 NO JSON fallbacks, NO graceful degradation, NO try/except to handle missing data.
 Hard failure is the only acceptable behavior. If data is missing, the pipeline should crash.
 """
-from __future__ import annotations
 
 
 import json
