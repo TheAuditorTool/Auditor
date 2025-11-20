@@ -11,6 +11,8 @@ Attack Pattern:
 
 CWE-77: Improper Neutralization of Special Elements used in a Command
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -76,7 +78,7 @@ def register_taint_patterns(taint_registry):
 
 
 # Untrusted data paths that should not be in run: scripts
-UNTRUSTED_PATHS: Set[str] = {
+UNTRUSTED_PATHS: set[str] = {
     'github.event.pull_request.title',
     'github.event.pull_request.body',
     'github.event.pull_request.head.ref',  # Branch name
@@ -90,7 +92,7 @@ UNTRUSTED_PATHS: Set[str] = {
 }
 
 
-def find_pull_request_injection(context: StandardRuleContext) -> List[StandardFinding]:
+def find_pull_request_injection(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect script injection from untrusted PR/issue data.
 
     Detection Logic:
@@ -105,7 +107,7 @@ def find_pull_request_injection(context: StandardRuleContext) -> List[StandardFi
     Returns:
         List of security findings
     """
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -179,7 +181,7 @@ def find_pull_request_injection(context: StandardRuleContext) -> List[StandardFi
 
 def _build_injection_finding(workflow_path: str, workflow_name: str,
                              job_key: str, step_name: str, run_script: str,
-                             untrusted_refs: List[str], severity: Severity,
+                             untrusted_refs: list[str], severity: Severity,
                              has_pr_target: bool) -> StandardFinding:
     """Build finding for script injection vulnerability.
 

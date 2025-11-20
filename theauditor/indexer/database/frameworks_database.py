@@ -3,6 +3,8 @@
 This module contains add_* methods for FRAMEWORKS_TABLES defined in schemas/frameworks_schema.py.
 Handles 5 framework tables including API endpoints, ORM relationships, and Prisma models.
 """
+from __future__ import annotations
+
 
 from typing import List, Optional
 
@@ -18,9 +20,9 @@ class FrameworksDatabaseMixin:
     # API ENDPOINT BATCH METHODS
     # ========================================================
 
-    def add_endpoint(self, file_path: str, method: str, pattern: str, controls: List[str],
-                     line: Optional[int] = None, path: Optional[str] = None,
-                     has_auth: bool = False, handler_function: Optional[str] = None):
+    def add_endpoint(self, file_path: str, method: str, pattern: str, controls: list[str],
+                     line: int | None = None, path: str | None = None,
+                     has_auth: bool = False, handler_function: str | None = None):
         """Add an API endpoint record to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
@@ -29,9 +31,10 @@ class FrameworksDatabaseMixin:
 
         NO FALLBACKS. If controls is malformed, hard fail.
         """
-        # Phase 1: Add endpoint record (6 params, no controls column)
+        # Phase 1: Add endpoint record (8 columns: file, line, method, pattern, path, full_path, has_auth, handler_function)
+        # full_path starts as NULL, will be populated by resolve_router_mount_hierarchy()
         self.generic_batches['api_endpoints'].append((file_path, line, method, pattern, path,
-                                                      has_auth, handler_function))
+                                                      None, has_auth, handler_function))
 
         # Phase 2: Add junction records for each control/middleware
         if controls:
@@ -45,8 +48,8 @@ class FrameworksDatabaseMixin:
     # ========================================================
 
     def add_orm_relationship(self, file: str, line: int, source_model: str, target_model: str,
-                            relationship_type: str, foreign_key: Optional[str] = None,
-                            cascade_delete: bool = False, as_name: Optional[str] = None):
+                            relationship_type: str, foreign_key: str | None = None,
+                            cascade_delete: bool = False, as_name: str | None = None):
         """Add an ORM relationship record to the batch.
 
         Args:
@@ -64,7 +67,7 @@ class FrameworksDatabaseMixin:
             foreign_key, 1 if cascade_delete else 0, as_name
         ))
 
-    def add_orm_query(self, file_path: str, line: int, query_type: str, includes: Optional[str],
+    def add_orm_query(self, file_path: str, line: int, query_type: str, includes: str | None,
                       has_limit: bool, has_transaction: bool):
         """Add an ORM query record to the batch."""
         self.generic_batches['orm_queries'].append((file_path, line, query_type, includes, has_limit, has_transaction))
@@ -78,3 +81,24 @@ class FrameworksDatabaseMixin:
         """Add a Prisma model field record to the batch."""
         self.generic_batches['prisma_models'].append((model_name, field_name, field_type,
                                                       is_indexed, is_unique, is_relation))
+
+    # ========================================================
+    # ROUTER MOUNT BATCH METHODS (ADDED 2025-11-09: Phase 6.7)
+    # ========================================================
+
+    def add_router_mount(self, file: str, line: int, mount_path_expr: str,
+                        router_variable: str, is_literal: bool):
+        """Add a router mount record to the batch.
+
+        ADDED 2025-11-09: Phase 6.7 - AST-based route resolution
+
+        Args:
+            file: File containing the router.use() statement
+            line: Line number
+            mount_path_expr: Mount path expression ('/areas', 'API_PREFIX', or `${API_PREFIX}/auth`)
+            router_variable: Router variable name ('areaRoutes', 'protectedRouter')
+            is_literal: True if static string, False if identifier/template
+        """
+        self.generic_batches['router_mounts'].append((
+            file, line, mount_path_expr, router_variable, 1 if is_literal else 0
+        ))

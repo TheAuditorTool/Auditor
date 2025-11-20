@@ -13,6 +13,8 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 - Proper frozensets for O(1) pattern matching
 - If type_annotations table missing, rule crashes with clear error (CORRECT behavior)
 """
+from __future__ import annotations
+
 
 import sqlite3
 import logging
@@ -35,7 +37,7 @@ METADATA = RuleMetadata(
 )
 
 
-def find_type_safety_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """
     Detect TypeScript type safety issues using semantic type data from TypeScript compiler.
 
@@ -140,7 +142,7 @@ def find_type_safety_issues(context: StandardRuleContext) -> List[StandardFindin
     return findings
 
 
-def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_explicit_any_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find explicit 'any' type annotations using semantic type data."""
     findings = []
 
@@ -200,7 +202,7 @@ def _find_explicit_any_types(cursor, ts_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_return_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find functions without explicit return types using semantic type data."""
     findings = []
 
@@ -242,7 +244,7 @@ def _find_missing_return_types(cursor, ts_files: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _find_missing_parameter_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_parameter_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find function parameters without type annotations."""
     findings = []
 
@@ -281,7 +283,7 @@ def _find_missing_parameter_types(cursor, ts_files: Set[str]) -> List[StandardFi
     return findings
 
 
-def _find_unsafe_type_assertions(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_unsafe_type_assertions(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find unsafe type assertions (as any, as unknown)."""
     findings = []
 
@@ -318,7 +320,7 @@ def _find_unsafe_type_assertions(cursor, ts_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_non_null_assertions(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_non_null_assertions(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find non-null assertions (!) that bypass null checks."""
     findings = []
 
@@ -353,7 +355,7 @@ def _find_non_null_assertions(cursor, ts_files: Set[str]) -> List[StandardFindin
     return findings
 
 
-def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_dangerous_type_patterns(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find dangerous type patterns like Function, Object, {} using semantic type data."""
     findings = []
 
@@ -392,7 +394,7 @@ def _find_dangerous_type_patterns(cursor, ts_files: Set[str]) -> List[StandardFi
     return findings
 
 
-def _find_untyped_json_parse(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_json_parse(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find JSON.parse without type validation."""
     findings = []
 
@@ -444,7 +446,7 @@ def _find_untyped_json_parse(cursor, ts_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_untyped_api_responses(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_api_responses(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find API calls without typed responses."""
     findings = []
 
@@ -498,7 +500,7 @@ def _find_untyped_api_responses(cursor, ts_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_missing_interfaces(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_interfaces(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find objects that should have interface definitions."""
     findings = []
 
@@ -537,7 +539,7 @@ def _find_missing_interfaces(cursor, ts_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_type_suppression_comments(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_type_suppression_comments(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find @ts-ignore, @ts-nocheck, and @ts-expect-error comments."""
     findings = []
 
@@ -580,7 +582,7 @@ def _find_type_suppression_comments(cursor, ts_files: Set[str]) -> List[Standard
     return findings
 
 
-def _find_untyped_catch_blocks(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_catch_blocks(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find catch blocks without typed errors."""
     findings = []
 
@@ -613,7 +615,7 @@ def _find_untyped_catch_blocks(cursor, ts_files: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_generic_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find usage of generic types without type parameters using semantic type data."""
     findings = []
 
@@ -650,7 +652,7 @@ def _find_missing_generic_types(cursor, ts_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_untyped_event_handlers(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_untyped_event_handlers(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find event handlers without proper typing."""
     findings = []
 
@@ -688,7 +690,7 @@ def _find_untyped_event_handlers(cursor, ts_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_type_mismatches(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_type_mismatches(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find potential type mismatches in assignments."""
     findings = []
 
@@ -732,7 +734,7 @@ def _find_type_mismatches(cursor, ts_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_unsafe_property_access(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_unsafe_property_access(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find unsafe property access patterns."""
     findings = []
 
@@ -770,7 +772,7 @@ def _find_unsafe_property_access(cursor, ts_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_unknown_types(cursor, ts_files: Set[str]) -> List[StandardFinding]:
+def _find_unknown_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
     """Find 'unknown' types requiring type narrowing using semantic type data."""
     findings = []
 

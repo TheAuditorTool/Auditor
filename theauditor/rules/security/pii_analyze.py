@@ -12,6 +12,8 @@ This implementation:
 - Maps all findings to privacy regulations (15 major regulations)
 - Supports international PII formats (50+ countries)
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set, Dict, Optional, Tuple
@@ -675,7 +677,7 @@ CLIENT_STORAGE_FUNCTIONS = frozenset([
 # COMPLIANCE MAPPING
 # ============================================================================
 
-def get_applicable_regulations(pii_type: str) -> List[PrivacyRegulation]:
+def get_applicable_regulations(pii_type: str) -> list[PrivacyRegulation]:
     """Map PII types to applicable privacy regulations."""
     regulations = []
 
@@ -712,7 +714,7 @@ def get_applicable_regulations(pii_type: str) -> List[PrivacyRegulation]:
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_pii_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_pii_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect PII exposure issues using comprehensive international patterns.
 
     Implements 25+ detection patterns across 15 PII categories with
@@ -783,7 +785,7 @@ def find_pii_issues(context: StandardRuleContext) -> List[StandardFinding]:
 # HELPER: Organize PII Patterns
 # ============================================================================
 
-def _organize_pii_patterns() -> Dict[str, Set[str]]:
+def _organize_pii_patterns() -> dict[str, set[str]]:
     """Organize PII patterns by category for efficient searching."""
     return {
         'government': US_GOVERNMENT_IDS | INTERNATIONAL_GOVERNMENT_IDS,
@@ -837,7 +839,7 @@ def _determine_confidence(
 # DETECTION LAYER 1: Direct PII
 # ============================================================================
 
-def _detect_direct_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_direct_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect direct PII fields in assignments and symbols."""
     findings = []
 
@@ -894,7 +896,7 @@ def _detect_direct_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
 # DETECTION LAYER 2: PII in Logging
 # ============================================================================
 
-def _detect_pii_in_logging(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_logging(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII being logged."""
     findings = []
 
@@ -938,7 +940,7 @@ def _detect_pii_in_logging(cursor, pii_categories: Dict) -> List[StandardFinding
                 additional_info={
                     'regulations': [r.value for r in regulations],
                     'pii_types': [p[0] for p in detected_pii],
-                    'pii_categories': list(set([p[1] for p in detected_pii]))
+                    'pii_categories': list({p[1] for p in detected_pii})
                 }
             ))
 
@@ -948,7 +950,7 @@ def _detect_pii_in_logging(cursor, pii_categories: Dict) -> List[StandardFinding
 # DETECTION LAYER 3: PII in Error Responses
 # ============================================================================
 
-def _detect_pii_in_errors(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_errors(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in error responses."""
     findings = []
 
@@ -1029,7 +1031,7 @@ def _detect_pii_in_errors(cursor, pii_categories: Dict) -> List[StandardFinding]
 # DETECTION LAYER 4: PII in URLs
 # ============================================================================
 
-def _detect_pii_in_urls(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_urls(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in URLs and query parameters."""
     findings = []
 
@@ -1078,7 +1080,7 @@ def _detect_pii_in_urls(cursor, pii_categories: Dict) -> List[StandardFinding]:
 # DETECTION LAYER 5: Unencrypted PII Storage
 # ============================================================================
 
-def _detect_unencrypted_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_unencrypted_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect unencrypted PII being stored."""
     findings = []
 
@@ -1141,7 +1143,7 @@ def _detect_unencrypted_pii(cursor, pii_categories: Dict) -> List[StandardFindin
 # DETECTION LAYER 6: Client-Side PII Storage
 # ============================================================================
 
-def _detect_client_side_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_client_side_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII stored in client-side storage."""
     findings = []
 
@@ -1189,7 +1191,7 @@ def _detect_client_side_pii(cursor, pii_categories: Dict) -> List[StandardFindin
 # DETECTION LAYER 7: PII in Exception Handling
 # ============================================================================
 
-def _detect_pii_in_exceptions(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_exceptions(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII exposed in exception handling."""
     findings = []
 
@@ -1242,7 +1244,7 @@ def _detect_pii_in_exceptions(cursor, pii_categories: Dict) -> List[StandardFind
 # DETECTION LAYER 8: Derived PII
 # ============================================================================
 
-def _detect_derived_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_derived_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII derived from other fields."""
     findings = []
 
@@ -1293,7 +1295,7 @@ def _detect_derived_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
 # DETECTION LAYER 9: Aggregated PII (Quasi-Identifiers)
 # ============================================================================
 
-def _detect_aggregated_pii(cursor) -> List[StandardFinding]:
+def _detect_aggregated_pii(cursor) -> list[StandardFinding]:
     """Detect quasi-identifiers that become PII when combined."""
     findings = []
 
@@ -1344,7 +1346,7 @@ def _detect_aggregated_pii(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 10: Third-Party PII Exposure
 # ============================================================================
 
-def _detect_third_party_pii(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_third_party_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII being sent to third-party services."""
     findings = []
 
@@ -1427,7 +1429,7 @@ def register_taint_patterns(taint_registry):
 # ADDITIONAL DETECTION LAYERS
 # ============================================================================
 
-def _detect_pii_in_route_patterns(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_route_patterns(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detects PII exposed in parameterized API route patterns."""
     findings = []
 
@@ -1486,7 +1488,7 @@ def _detect_pii_in_route_patterns(cursor, pii_categories: Dict) -> List[Standard
 
     return findings
 
-def _detect_pii_in_apis(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_apis(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII exposed in API endpoints."""
     findings = []
 
@@ -1537,7 +1539,7 @@ def _detect_pii_in_apis(cursor, pii_categories: Dict) -> List[StandardFinding]:
 
     return findings
 
-def _detect_pii_in_exports(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_exports(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in data exports (CSV, JSON, XML)."""
     findings = []
 
@@ -1593,7 +1595,7 @@ def _detect_pii_in_exports(cursor, pii_categories: Dict) -> List[StandardFinding
 
     return findings
 
-def _detect_pii_retention(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_retention(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII retention policy violations."""
     findings = []
 
@@ -1652,7 +1654,7 @@ def _detect_pii_retention(cursor, pii_categories: Dict) -> List[StandardFinding]
 
     return findings
 
-def _detect_pii_cross_border(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_cross_border(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect cross-border PII transfers."""
     findings = []
 
@@ -1721,7 +1723,7 @@ def _detect_pii_cross_border(cursor, pii_categories: Dict) -> List[StandardFindi
 
     return findings
 
-def _detect_pii_consent_gaps(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_consent_gaps(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII processing without consent checks."""
     findings = []
 
@@ -1792,7 +1794,7 @@ def _detect_pii_consent_gaps(cursor, pii_categories: Dict) -> List[StandardFindi
 
     return findings
 
-def _detect_pii_in_metrics(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_in_metrics(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in metrics and monitoring."""
     findings = []
 
@@ -1840,7 +1842,7 @@ def _detect_pii_in_metrics(cursor, pii_categories: Dict) -> List[StandardFinding
 
     return findings
 
-def _detect_pii_access_control(cursor, pii_categories: Dict) -> List[StandardFinding]:
+def _detect_pii_access_control(cursor, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII access without proper authorization checks."""
     findings = []
 
@@ -1911,7 +1913,7 @@ def _detect_pii_access_control(cursor, pii_categories: Dict) -> List[StandardFin
 # SUMMARY REPORT HELPER
 # ============================================================================
 
-def generate_pii_summary(findings: List[StandardFinding]) -> Dict:
+def generate_pii_summary(findings: list[StandardFinding]) -> dict:
     """Generate a summary report of PII findings."""
     summary = {
         'total_findings': len(findings),
@@ -1956,7 +1958,7 @@ def generate_pii_summary(findings: List[StandardFinding]) -> Dict:
 # MAIN ANALYSIS ORCHESTRATION
 # ============================================================================
 
-def analyze_pii_comprehensive(context: StandardRuleContext) -> Dict:
+def analyze_pii_comprehensive(context: StandardRuleContext) -> dict:
     """Run comprehensive PII analysis and return detailed report."""
     findings = find_pii_issues(context)
 

@@ -5,7 +5,6 @@ DO NOT re-index fixtures in tests - use the existing database.
 Run `aud full` once, then all tests query the same database.
 """
 
-from __future__ import annotations
 
 import json
 import sqlite3

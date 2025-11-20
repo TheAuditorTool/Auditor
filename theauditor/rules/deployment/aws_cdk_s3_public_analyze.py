@@ -6,8 +6,9 @@ Checks:
 - public_read_access=True (CRITICAL)
 - Missing block_public_access configuration (HIGH)
 """
-
 from __future__ import annotations
+
+
 
 import logging
 import sqlite3
@@ -37,9 +38,9 @@ METADATA = RuleMetadata(
 )
 
 
-def find_cdk_s3_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_cdk_s3_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect S3 buckets with public access enabled in CDK code."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -57,9 +58,9 @@ def find_cdk_s3_issues(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _check_public_read_access(cursor) -> List[StandardFinding]:
+def _check_public_read_access(cursor) -> list[StandardFinding]:
     """Detect S3 buckets with explicit public_read_access=True."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for S3 Buckets in Python
     cursor.execute("""
@@ -106,9 +107,9 @@ def _check_public_read_access(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_missing_block_public_access(cursor) -> List[StandardFinding]:
+def _check_missing_block_public_access(cursor) -> list[StandardFinding]:
     """Detect S3 buckets missing block_public_access configuration."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for S3 Buckets in Python
     cursor.execute("""

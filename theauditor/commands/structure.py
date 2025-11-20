@@ -1,4 +1,6 @@
 """Project structure and intelligence report command."""
+from __future__ import annotations
+
 
 import click
 import sqlite3
@@ -112,13 +114,22 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         - Symbol count (functions, classes)
         - Refactor recommendation
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("structure", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.project_summary import generate_project_summary, generate_directory_tree
 
     # Handle --monoliths flag (separate mode)
     if monoliths:
         db_path_obj = Path(db_path)
         if not db_path_obj.exists():
-            click.echo("Error: Database not found. Run 'aud index' first.", err=True)
+            click.echo("Error: Database not found. Run 'aud full' first.", err=True)
             return ExitCodes.TASK_INCOMPLETE
 
         return _find_monoliths(db_path, threshold, format)
@@ -130,7 +141,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
     
     if not manifest_exists and not db_exists:
         click.echo("Warning: Neither manifest.json nor repo_index.db found", err=True)
-        click.echo("Run 'aud index' first for complete statistics", err=True)
+        click.echo("Run 'aud full' first for complete statistics", err=True)
         click.echo("Generating basic structure report...\n")
     elif not manifest_exists:
         click.echo("Warning: manifest.json not found, statistics will be limited", err=True)
@@ -162,7 +173,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         # Show summary stats if available
         if manifest_exists:
             import json
-            with open(manifest, 'r') as f:
+            with open(manifest) as f:
                 manifest_data = json.load(f)
             
             total_files = len(manifest_data)

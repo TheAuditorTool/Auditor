@@ -91,6 +91,7 @@ API_ENDPOINTS = TableSchema(
         Column("method", "TEXT", nullable=False),
         Column("pattern", "TEXT", nullable=False),
         Column("path", "TEXT"),
+        Column("full_path", "TEXT"),  # ADDED 2025-11-09: Resolved API path (e.g., /api/v1/areas/:id)
         # controls REMOVED - see api_endpoint_controls junction table
         Column("has_auth", "BOOLEAN", default="0"),
         Column("handler_function", "TEXT"),
@@ -126,13 +127,33 @@ API_ENDPOINT_CONTROLS = TableSchema(
 )
 
 # ============================================================================
+# ROUTER MOUNT HIERARCHY - Express.js router.use() mount tracking
+# ============================================================================
+
+ROUTER_MOUNTS = TableSchema(
+    name="router_mounts",
+    columns=[
+        Column("file", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("mount_path_expr", "TEXT", nullable=False),    # '/areas' or 'API_PREFIX' or `${API_PREFIX}/auth`
+        Column("router_variable", "TEXT", nullable=False),    # 'areaRoutes' or 'protectedRouter'
+        Column("is_literal", "BOOLEAN", default="0"),         # True if static string, False if identifier/template
+    ],
+    indexes=[
+        ("idx_router_mounts_file", ["file"]),
+        ("idx_router_mounts_router_var", ["router_variable"]),
+    ]
+)
+
+# ============================================================================
 # FRAMEWORKS TABLES REGISTRY
 # ============================================================================
 
-FRAMEWORKS_TABLES: Dict[str, TableSchema] = {
+FRAMEWORKS_TABLES: dict[str, TableSchema] = {
     "orm_relationships": ORM_RELATIONSHIPS,
     "orm_queries": ORM_QUERIES,
     "prisma_models": PRISMA_MODELS,
     "api_endpoints": API_ENDPOINTS,
     "api_endpoint_controls": API_ENDPOINT_CONTROLS,
+    "router_mounts": ROUTER_MOUNTS,
 }

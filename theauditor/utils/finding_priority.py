@@ -5,6 +5,8 @@ critical security issues appear before style warnings in reports.
 This is NOT severity mapping for tools, but internal organization
 for optimal AI context utilization.
 """
+from __future__ import annotations
+
 
 # Priority order for internal organization (lower = higher priority)
 # This is our SINGLE SOURCE OF TRUTH for severity ranking

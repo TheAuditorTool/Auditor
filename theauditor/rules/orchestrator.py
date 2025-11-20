@@ -6,6 +6,8 @@ This module provides a central orchestrator that:
 3. Executes them with appropriate parameters
 4. Provides a unified interface for all detection systems
 """
+from __future__ import annotations
+
 
 import importlib
 import inspect
@@ -15,7 +17,8 @@ import pkgutil
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, List, Any, Callable, Optional, Set
+from typing import Dict, List, Any, Optional, Set
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 # Import standardized contracts (Phase 1 addition)
@@ -46,7 +49,7 @@ class RuleInfo:
     requires_file: bool = False
     requires_content: bool = False
     param_count: int = 0
-    param_names: List[str] = field(default_factory=list)
+    param_names: list[str] = field(default_factory=list)
     rule_type: str = "standalone"  # standalone, discovery, taint-dependent
     execution_scope: str = "database"
 
@@ -54,12 +57,12 @@ class RuleInfo:
 @dataclass
 class RuleContext:
     """Context information for rule execution."""
-    file_path: Optional[Path] = None
-    content: Optional[str] = None
-    ast_tree: Optional[Any] = None
-    language: Optional[str] = None
-    db_path: Optional[str] = None
-    project_path: Optional[Path] = None
+    file_path: Path | None = None
+    content: str | None = None
+    ast_tree: Any | None = None
+    language: str | None = None
+    db_path: str | None = None
+    project_path: Path | None = None
 
 
 class RulesOrchestrator:
@@ -107,7 +110,7 @@ class RulesOrchestrator:
             if STANDARD_CONTRACTS_AVAILABLE:
                 print(f"[ORCHESTRATOR] Migration Status: {self.migration_stats['standardized_rules']} standardized, {self.migration_stats['legacy_rules']} legacy")
     
-    def _discover_all_rules(self) -> Dict[str, List[RuleInfo]]:
+    def _discover_all_rules(self) -> dict[str, list[RuleInfo]]:
         """Dynamically discover ALL rules in /rules directory.
         
         Returns:
@@ -282,7 +285,7 @@ class RulesOrchestrator:
             execution_scope=execution_scope
         )
 
-    def run_all_rules(self, context: Optional[RuleContext] = None) -> List[Dict[str, Any]]:
+    def run_all_rules(self, context: RuleContext | None = None) -> list[dict[str, Any]]:
         """Execute ALL discovered rules with appropriate parameters.
         
         Args:
@@ -364,7 +367,7 @@ class RulesOrchestrator:
 
         return True
 
-    def run_rules_for_file(self, context: RuleContext) -> List[Dict[str, Any]]:
+    def run_rules_for_file(self, context: RuleContext) -> list[dict[str, Any]]:
         """Run rules applicable to a specific file, WITH METADATA FILTERING.
 
         Args:
@@ -414,7 +417,7 @@ class RulesOrchestrator:
 
         return findings
     
-    def get_rules_by_type(self, rule_type: str) -> List[RuleInfo]:
+    def get_rules_by_type(self, rule_type: str) -> list[RuleInfo]:
         """Get all rules of a specific type.
         
         Args:
@@ -430,7 +433,7 @@ class RulesOrchestrator:
                     rules_of_type.append(rule)
         return rules_of_type
     
-    def run_discovery_rules(self, registry) -> List[Dict[str, Any]]:
+    def run_discovery_rules(self, registry) -> list[dict[str, Any]]:
         """Run all discovery rules that populate the taint registry.
         
         Args:
@@ -466,7 +469,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def run_standalone_rules(self) -> List[Dict[str, Any]]:
+    def run_standalone_rules(self) -> list[dict[str, Any]]:
         """Run all standalone rules that don't need taint data.
         
         Returns:
@@ -493,7 +496,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def run_taint_dependent_rules(self, taint_checker) -> List[Dict[str, Any]]:
+    def run_taint_dependent_rules(self, taint_checker) -> list[dict[str, Any]]:
         """Run all rules that depend on taint analysis results.
         
         Args:
@@ -526,7 +529,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def _build_rule_kwargs(self, rule: RuleInfo, context: RuleContext) -> Dict[str, Any]:
+    def _build_rule_kwargs(self, rule: RuleInfo, context: RuleContext) -> dict[str, Any]:
         """Build keyword arguments for a rule based on its requirements.
         
         Args:
@@ -557,7 +560,7 @@ class RulesOrchestrator:
         
         return kwargs
     
-    def run_database_rules(self) -> List[Dict[str, Any]]:
+    def run_database_rules(self) -> list[dict[str, Any]]:
         """Run rules that operate on the database.
         
         Returns:
@@ -587,7 +590,7 @@ class RulesOrchestrator:
         
         return findings
     
-    def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> List[Dict[str, Any]]:
+    def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> list[dict[str, Any]]:
         """Execute a single rule with appropriate parameters.
         
         Now handles both standardized and legacy rules (Phase 1 dual-mode).
@@ -628,7 +631,7 @@ class RulesOrchestrator:
             if param_name == 'taint_registry':
                 # Lazy-load taint registry only when needed
                 if self.taint_registry is None:
-                    from theauditor.taint.registry import TaintRegistry
+                    from theauditor.taint import TaintRegistry
                     self.taint_registry = TaintRegistry()
                 kwargs['taint_registry'] = self.taint_registry
                 
@@ -702,7 +705,7 @@ class RulesOrchestrator:
                 print(f"[ORCHESTRATOR] Error executing rule {rule.name}: {e}")
             return []
     
-    def get_rule_stats(self) -> Dict[str, Any]:
+    def get_rule_stats(self) -> dict[str, Any]:
         """Get statistics about discovered rules.
         
         Returns:
@@ -735,8 +738,10 @@ class RulesOrchestrator:
         """
         # Get cached taint results
         if not hasattr(self, '_taint_results'):
-            from theauditor.taint import trace_taint
-            self._taint_results = trace_taint(str(self.db_path), max_depth=5, use_cfg=True)
+            from theauditor.taint import trace_taint, TaintRegistry
+            # ZERO FALLBACK POLICY: IFDS-only mode
+            registry = TaintRegistry()  # Empty registry for basic analysis
+            self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
             if self._debug:
                 total = len(self._taint_results.get("taint_paths", []))
                 print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
@@ -766,58 +771,99 @@ class RulesOrchestrator:
     
     def collect_rule_patterns(self, registry):
         """Collect and register all taint patterns from rules that define them.
-        
-        This method DYNAMICALLY discovers and calls register_taint_patterns()
-        functions from ALL rule modules, without hardcoding any module names.
-        
+
+        ARCHITECTURAL FIX: Framework-Aware Pattern Collection
+        This method now FILTERS rules by detected frameworks before registering patterns.
+        Only runs Python rules if Python frameworks detected (Flask, Django, etc.),
+        only runs JavaScript rules if JavaScript frameworks detected (Express, React, etc.).
+
+        This prevents registry pollution (Python patterns matching JavaScript code) and
+        ensures taint analysis only uses relevant patterns for the project's languages.
+
         Args:
             registry: TaintRegistry instance to populate with patterns
-            
+
         Returns:
             The populated registry
         """
+        # Query frameworks table to get detected languages
+        detected_languages = set()
+        if self.db_path.exists():
+            try:
+                conn = sqlite3.connect(str(self.db_path))
+                cursor = conn.cursor()
+
+                # Get all unique languages from frameworks table
+                # Schema Contract: frameworks table guaranteed to exist
+                # Note: build_query doesn't support DISTINCT, so use raw SQL
+                cursor.execute("SELECT DISTINCT language FROM frameworks")
+
+                for (language,) in cursor.fetchall():
+                    if language:  # Skip None values
+                        detected_languages.add(language.lower())
+
+                conn.close()
+
+                if self._debug:
+                    print(f"[ORCHESTRATOR] Detected languages: {detected_languages}")
+            except Exception as e:
+                if self._debug:
+                    print(f"[ORCHESTRATOR] Warning: Failed to query frameworks: {e}")
+                # ZERO FALLBACK POLICY: If frameworks query fails, continue with empty set
+                # This will skip all language-specific rules (correct behavior)
+
         # Track unique modules we've already processed
         processed_modules = set()
-        
+        skipped_categories = set()
+
         # Use the ALREADY DISCOVERED rules to find modules dynamically
         for category, rules in self.rules.items():
+            # CRITICAL FIX: Filter rules by detected languages
+            # Category name corresponds to language (python/, javascript/, rust/)
+            # Only process if framework detection found that language
+            if category in {'python', 'javascript', 'rust', 'typescript'} and category not in detected_languages:
+                skipped_categories.add(category)
+                if self._debug:
+                    print(f"[ORCHESTRATOR] Skipping {category} rules (no {category} frameworks detected)")
+                continue
+
             for rule in rules:
                 module_name = rule.module
-                
+
                 # Skip if we've already processed this module
                 if module_name in processed_modules:
                     continue
                 processed_modules.add(module_name)
-                
+
                 try:
                     # Import the module
                     module = importlib.import_module(module_name)
-                    
+
                     # Check if it has register_taint_patterns function
                     if hasattr(module, 'register_taint_patterns'):
                         register_func = getattr(module, 'register_taint_patterns')
-                        
+
                         # Call the registration function
                         register_func(registry)
-                        
+
                         if self._debug:
                             print(f"[ORCHESTRATOR] Registered patterns from {module_name}")
-                            
+
                 except ImportError as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Failed to import {module_name}: {e}")
                 except Exception as e:
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Error registering patterns from {module_name}: {e}")
-        
+
         if self._debug:
-            # Report statistics about registered patterns
-            source_count = sum(len(patterns) for patterns in registry.sources.values())
-            sink_count = sum(len(patterns) for patterns in registry.sinks.values())
+            # Report statistics about registered patterns (language-aware now)
+            stats = registry.get_stats()
             processed_count = len(processed_modules)
             print(f"[ORCHESTRATOR] Dynamically processed {processed_count} modules")
-            print(f"[ORCHESTRATOR] Collected {source_count} sources and {sink_count} sinks from rules")
-        
+            print(f"[ORCHESTRATOR] Skipped {len(skipped_categories)} categories: {skipped_categories}")
+            print(f"[ORCHESTRATOR] Pattern statistics: {stats}")
+
         return registry
     
     def _get_taint_tracer(self):
@@ -831,9 +877,11 @@ class RulesOrchestrator:
         """
         if self._taint_trace_func is None:
             # Run FULL taint analysis ONCE and cache it
-            from theauditor.taint import trace_taint
+            from theauditor.taint import trace_taint, TaintRegistry
             if not hasattr(self, '_taint_results'):
-                self._taint_results = trace_taint(str(self.db_path), max_depth=5, use_cfg=True)
+                # ZERO FALLBACK POLICY: IFDS-only mode
+                registry = TaintRegistry()  # Empty registry for basic analysis
+                self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
                 if self._debug:
                     total = len(self._taint_results.get("taint_paths", []))
                     print(f"[ORCHESTRATOR] Cached {total} taint paths for rules", file=sys.stderr)
@@ -869,7 +917,7 @@ class RulesOrchestrator:
 
 
 # Convenience function for backward compatibility
-def run_all_rules(project_path: str, db_path: str = None) -> List[Dict[str, Any]]:
+def run_all_rules(project_path: str, db_path: str = None) -> list[dict[str, Any]]:
     """Run all rules for a project.
     
     Args:

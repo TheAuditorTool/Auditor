@@ -1,6 +1,5 @@
 """End-to-end assertions for the synthetic realworld Python fixture."""
 
-from __future__ import annotations
 
 import json
 import shutil

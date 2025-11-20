@@ -10,6 +10,8 @@ Database-First Architecture (v1.1+):
 - Join tables to detect props mutations
 - NO manual AST traversal (indexer already extracted this data)
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -61,7 +63,7 @@ NON_REACTIVE_INITIALIZERS = frozenset([
 # ============================================================================
 
 
-def find_vue_reactivity_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_reactivity_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """
     Detect Vue.js reactivity and props mutation issues using database queries.
 
@@ -99,7 +101,7 @@ def find_vue_reactivity_issues(context: StandardRuleContext) -> List[StandardFin
 # DETECTION FUNCTIONS (Database-First)
 # ============================================================================
 
-def _find_props_mutations(cursor) -> List[StandardFinding]:
+def _find_props_mutations(cursor) -> list[StandardFinding]:
     """Find direct props mutations using database queries.
 
     Schema contract guarantees:
@@ -187,7 +189,7 @@ def _find_props_mutations(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_non_reactive_data(cursor) -> List[StandardFinding]:
+def _find_non_reactive_data(cursor) -> list[StandardFinding]:
     """Find non-reactive data initialization in Options API.
 
     Strategy:
@@ -263,7 +265,7 @@ def _find_non_reactive_data(cursor) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

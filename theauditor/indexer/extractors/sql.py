@@ -4,6 +4,8 @@ Handles extraction of SQL-specific elements including:
 - SQL object definitions (tables, indexes, views, functions)
 - SQL queries and their structure
 """
+from __future__ import annotations
+
 
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -11,7 +13,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from . import BaseExtractor
 
 
-def parse_sql_query(query_text: str) -> Optional[Tuple[str, List[str]]]:
+def parse_sql_query(query_text: str) -> tuple[str, list[str]] | None:
     """Parse SQL query to extract command type and table names.
 
     Shared helper used by Python and JavaScript extractors to maintain
@@ -74,12 +76,12 @@ def parse_sql_query(query_text: str) -> Optional[Tuple[str, List[str]]]:
 class SQLExtractor(BaseExtractor):
     """Extractor for SQL files."""
     
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.sql', '.psql', '.ddl']
     
-    def extract(self, file_info: Dict[str, Any], content: str, 
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str, 
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract all relevant information from a SQL file.
         
         Args:

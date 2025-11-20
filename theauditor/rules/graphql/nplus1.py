@@ -3,6 +3,8 @@
 Detects N+1 query patterns where resolvers execute DB queries inside loops.
 Uses cfg_blocks + graphql_execution_edges. NO regex fallbacks.
 """
+from __future__ import annotations
+
 
 import sqlite3
 

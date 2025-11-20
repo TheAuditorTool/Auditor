@@ -1,4 +1,6 @@
 """Run Factual Correlation Engine to aggregate and correlate findings."""
+from __future__ import annotations
+
 
 import click
 from theauditor.utils.error_handler import handle_exceptions
@@ -123,6 +125,15 @@ def fce(root, capsules, manifest, workset, timeout, print_plan):
 
     Note: FCE is most effective after running 'aud full' to ensure
     all analysis data is available for correlation."""
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("fce", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.fce import run_fce
 
     result = run_fce(

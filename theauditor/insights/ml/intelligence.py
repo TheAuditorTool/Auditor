@@ -12,6 +12,8 @@ FIXES:
 - Phase differentiation non-existent (all 26 phases treated the same)
 - Git analysis limited to commit counts (missing authors, recency, workflow data)
 """
+from __future__ import annotations
+
 
 import json
 import re
@@ -51,7 +53,7 @@ def parse_pipeline_log(log_path: Path) -> dict[str, dict]:
     phase_stats = {}
 
     try:
-        with open(log_path, 'r', encoding='utf-8') as f:
+        with open(log_path, encoding='utf-8') as f:
             content = f.read()
 
         # Pattern: [Phase X/Y] Phase Name
@@ -172,7 +174,7 @@ def parse_journal_events(journal_path: Path) -> dict:
     pipeline_summary = {}
 
     try:
-        with open(journal_path, 'r', encoding='utf-8') as f:
+        with open(journal_path, encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -288,7 +290,7 @@ def parse_taint_analysis(raw_path: Path) -> dict[str, dict]:
     })
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
 
         for finding in data.get("findings", []):
@@ -348,7 +350,7 @@ def parse_vulnerabilities(raw_path: Path) -> dict[str, dict]:
     })
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
 
         for vuln in data.get("vulnerabilities", []):
@@ -406,7 +408,7 @@ def parse_patterns(raw_path: Path) -> dict[str, dict]:
     })
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
 
         for finding in data.get("findings", []):
@@ -456,7 +458,7 @@ def parse_fce(raw_path: Path) -> dict[str, dict]:
     })
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
 
         # Parse failure correlations
@@ -509,7 +511,7 @@ def parse_cfg_analysis(raw_path: Path) -> dict[str, dict]:
     })
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
 
         file_functions = defaultdict(list)
@@ -563,7 +565,7 @@ def parse_frameworks(raw_path: Path) -> dict[str, dict]:
     })
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
 
         for detection in data.get("detected", []):
@@ -597,7 +599,7 @@ def parse_graph_metrics(raw_path: Path) -> dict[str, float]:
         return {}
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             return json.load(f)
     except Exception:
         return {}
@@ -636,7 +638,7 @@ def parse_all_raw_artifacts(raw_dir: Path) -> dict:
 # TIER 4: Git Analysis (Churn, Authors, Workflows, Worktrees)
 # ============================================================================
 
-def parse_git_churn(root_path: Path, days: int = 90, file_paths: Optional[list[str]] = None) -> dict[str, dict]:
+def parse_git_churn(root_path: Path, days: int = 90, file_paths: list[str] | None = None) -> dict[str, dict]:
     """
     Parse git history for commit churn, author diversity, and recency.
 

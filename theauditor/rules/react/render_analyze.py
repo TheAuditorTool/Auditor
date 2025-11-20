@@ -5,6 +5,8 @@ react_components, function_call_args, and symbols tables.
 
 Focuses on render optimization and performance bottlenecks.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Dict, Any
@@ -98,7 +100,7 @@ class ReactRenderAnalyzer:
         self.patterns = ReactRenderPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -500,7 +502,7 @@ class ReactRenderAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React rendering performance issues and anti-patterns.
 
     Uses data from function_call_args and react tables to identify

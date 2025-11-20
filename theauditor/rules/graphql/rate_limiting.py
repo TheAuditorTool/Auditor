@@ -1,4 +1,6 @@
 """GraphQL Rate Limiting Check - Stub implementation."""
+from __future__ import annotations
+
 
 
 from theauditor.rules.base import RuleMetadata, StandardFinding, StandardRuleContext

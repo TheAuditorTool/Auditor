@@ -18,6 +18,8 @@ Detects:
 - ECB mode usage
 - Small key sizes
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set
@@ -155,7 +157,7 @@ class CryptoAnalyzer:
         self.patterns = CryptoPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -579,7 +581,7 @@ FLAGGED: Missing database features for better crypto detection:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Python cryptography vulnerabilities.
 
     Args:

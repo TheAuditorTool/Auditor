@@ -7,6 +7,8 @@ This module orchestrates the 3-layer analysis:
 
 Stores results to session_executions table via SessionExecutionStore.
 """
+from __future__ import annotations
+
 
 import logging
 from pathlib import Path
@@ -27,7 +29,7 @@ class SessionAnalysis:
         self,
         db_path: Path = None,
         project_root: Path = None,
-        workflow_path: Optional[Path] = None
+        workflow_path: Path | None = None
     ):
         """Initialize session analysis orchestrator.
 

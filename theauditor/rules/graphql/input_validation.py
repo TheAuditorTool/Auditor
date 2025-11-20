@@ -1,4 +1,6 @@
 """GraphQL Input Validation Check."""
+from __future__ import annotations
+
 
 import sqlite3
 

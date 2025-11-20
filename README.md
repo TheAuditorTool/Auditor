@@ -27,10 +27,7 @@ TheAuditor is a **production-grade offline SAST tool** that indexes your entire 
 # Install
 pip install theauditor
 
-# Initialize project (creates .pf/ directory with databases)
-aud init
-
-# Run complete security audit
+# Run complete security audit (auto-creates .pf/ directory)
 aud full
 
 # View findings

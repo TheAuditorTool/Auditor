@@ -3,6 +3,8 @@
 This module contains add_* methods for GRAPHQL_TABLES defined in schemas/graphql_schema.py.
 Handles 8 GraphQL tables including schemas, types, fields, resolvers, and execution graph.
 """
+from __future__ import annotations
+
 
 from typing import List, Optional
 
@@ -21,7 +23,7 @@ class GraphQLDatabaseMixin:
     # ========================================================
 
     def add_graphql_schema(self, file_path: str, schema_hash: str, language: str,
-                          last_modified: Optional[int] = None):
+                          last_modified: int | None = None):
         """Add a GraphQL schema file record to the batch.
 
         Args:
@@ -35,8 +37,8 @@ class GraphQLDatabaseMixin:
         self.generic_batches['graphql_schemas'].append((file_path, schema_hash, language, last_modified))
 
     def add_graphql_type(self, schema_path: str, type_name: str, kind: str,
-                        implements: Optional[str] = None, description: Optional[str] = None,
-                        line: Optional[int] = None):
+                        implements: str | None = None, description: str | None = None,
+                        line: int | None = None):
         """Add a GraphQL type definition record to the batch.
 
         Args:
@@ -62,8 +64,8 @@ class GraphQLDatabaseMixin:
 
     def add_graphql_field(self, type_id: int, field_name: str, return_type: str,
                          is_list: bool = False, is_nullable: bool = True,
-                         directives_json: Optional[str] = None,
-                         line: Optional[int] = None, column: Optional[int] = None):
+                         directives_json: str | None = None,
+                         line: int | None = None, column: int | None = None):
         """Add a GraphQL field definition record to the batch.
 
         Args:
@@ -86,8 +88,8 @@ class GraphQLDatabaseMixin:
         ))
 
     def add_graphql_field_arg(self, field_id: int, arg_name: str, arg_type: str,
-                             has_default: bool = False, default_value: Optional[str] = None,
-                             is_nullable: bool = True, directives_json: Optional[str] = None):
+                             has_default: bool = False, default_value: str | None = None,
+                             is_nullable: bool = True, directives_json: str | None = None):
         """Add a GraphQL field argument definition record to the batch.
 
         Args:
@@ -116,7 +118,7 @@ class GraphQLDatabaseMixin:
     def add_graphql_resolver_mapping(self, field_id: int, resolver_symbol_id: int,
                                     resolver_path: str, resolver_line: int,
                                     resolver_language: str, binding_style: str,
-                                    resolver_export: Optional[str] = None):
+                                    resolver_export: str | None = None):
         """Add a GraphQL resolver mapping record to the batch.
 
         Maps a GraphQL field to its backend implementation symbol.

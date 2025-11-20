@@ -16,11 +16,13 @@ Validates that complex type annotations are correctly extracted and stored.
 """
 
 from typing import (
-    List, Dict, Set, Tuple, Optional, Union, Any, Callable,
+    List, Dict, Set, Tuple, Optional, Union, Any,
     TypeVar, Generic, Protocol, runtime_checkable,
-    Literal, Final, ClassVar, Sequence, Mapping, Iterable,
+    Literal, Final, ClassVar,
     Type, cast, overload
 )
+
+from collections.abc import Callable, Sequence, Mapping, Iterable
 from collections.abc import Iterator
 from dataclasses import dataclass
 
@@ -35,7 +37,7 @@ V = TypeVar('V')
 TNum = TypeVar('TNum', int, float)  # Constrained TypeVar
 
 
-class Container(Generic[T]):
+class Container[T]:
     """
     Generic container class.
     Tests: Generic class with single type parameter.
@@ -53,7 +55,7 @@ class Container(Generic[T]):
         self.value = value
 
 
-class Pair(Generic[K, V]):
+class Pair[K, V]:
     """
     Generic pair class with two type parameters.
     Tests: Generic class with multiple type parameters.
@@ -72,25 +74,25 @@ class Pair(Generic[K, V]):
         return self.value
 
 
-class Repository(Generic[T]):
+class Repository[T]:
     """
     Generic repository pattern.
     Tests: Generic base class for specialized repositories.
     """
 
-    def __init__(self, model_class: Type[T]) -> None:
-        self.model_class: Type[T] = model_class
-        self.storage: List[T] = []
+    def __init__(self, model_class: type[T]) -> None:
+        self.model_class: type[T] = model_class
+        self.storage: list[T] = []
 
     def add(self, item: T) -> None:
         """Add item to repository."""
         self.storage.append(item)
 
-    def get_all(self) -> List[T]:
+    def get_all(self) -> list[T]:
         """Get all items."""
         return self.storage
 
-    def find(self, predicate: Callable[[T], bool]) -> Optional[T]:
+    def find(self, predicate: Callable[[T], bool]) -> T | None:
         """Find first item matching predicate."""
         for item in self.storage:
             if predicate(item):
@@ -103,13 +105,13 @@ class Repository(Generic[T]):
 # ==============================================================================
 
 def process_nested_dict(
-    data: Dict[str, List[Dict[str, Union[int, str, None]]]]
-) -> List[str]:
+    data: dict[str, list[dict[str, int | str | None]]]
+) -> list[str]:
     """
     Function with deeply nested generic types.
     Tests: Dict[str, List[Dict[str, Union[int, str, None]]]]
     """
-    results: List[str] = []
+    results: list[str] = []
     for key, value_list in data.items():
         for item_dict in value_list:
             for k, v in item_dict.items():
@@ -119,13 +121,13 @@ def process_nested_dict(
 
 
 def transform_complex_structure(
-    input_data: List[Tuple[str, Dict[str, Any]]]
-) -> Dict[str, List[Tuple[str, Any]]]:
+    input_data: list[tuple[str, dict[str, Any]]]
+) -> dict[str, list[tuple[str, Any]]]:
     """
     Transform complex nested structure.
     Tests: List[Tuple[str, Dict[str, Any]]] -> Dict[str, List[Tuple[str, Any]]]
     """
-    output: Dict[str, List[Tuple[str, Any]]] = {}
+    output: dict[str, list[tuple[str, Any]]] = {}
     for key, value_dict in input_data:
         if key not in output:
             output[key] = []
@@ -135,13 +137,13 @@ def transform_complex_structure(
 
 
 def process_optional_lists(
-    data: Optional[List[Optional[Dict[str, Optional[int]]]]]
-) -> List[int]:
+    data: list[dict[str, int | None] | None] | None
+) -> list[int]:
     """
     Function with multiple Optional layers.
     Tests: Optional[List[Optional[Dict[str, Optional[int]]]]]
     """
-    results: List[int] = []
+    results: list[int] = []
     if data is not None:
         for item in data:
             if item is not None:
@@ -156,7 +158,7 @@ def process_optional_lists(
 # ==============================================================================
 
 def handle_multiple_types(
-    value: Union[int, str, List[int], Dict[str, Any]]
+    value: int | str | list[int] | dict[str, Any]
 ) -> str:
     """
     Function accepting multiple distinct types.
@@ -174,8 +176,8 @@ def handle_multiple_types(
 
 
 def parse_value(
-    value: Union[str, int, float, bool, None]
-) -> Optional[Union[int, float]]:
+    value: str | int | float | bool | None
+) -> int | float | None:
     """
     Parse value to numeric type.
     Tests: Union[str, int, float, bool, None] -> Optional[Union[int, float]]
@@ -198,9 +200,9 @@ def parse_value(
 # ==============================================================================
 
 def apply_transform(
-    items: List[int],
+    items: list[int],
     transform: Callable[[int], str]
-) -> List[str]:
+) -> list[str]:
     """
     Apply transformation function to items.
     Tests: Callable[[int], str]
@@ -209,9 +211,9 @@ def apply_transform(
 
 
 def filter_items(
-    items: List[T],
+    items: list[T],
     predicate: Callable[[T], bool]
-) -> List[T]:
+) -> list[T]:
     """
     Filter items using predicate.
     Tests: Generic function with Callable[[T], bool]
@@ -234,13 +236,13 @@ def compose_functions(
 
 def higher_order_function(
     mapper: Callable[[T], V],
-    items: List[T]
-) -> Callable[[Callable[[V], bool]], List[T]]:
+    items: list[T]
+) -> Callable[[Callable[[V], bool]], list[T]]:
     """
     Higher-order function returning function.
     Tests: Complex callable returning callable.
     """
-    def filter_by_mapped(predicate: Callable[[V], bool]) -> List[T]:
+    def filter_by_mapped(predicate: Callable[[V], bool]) -> list[T]:
         return [item for item in items if predicate(mapper(item))]
     return filter_by_mapped
 
@@ -250,7 +252,7 @@ def higher_order_function(
 # ==============================================================================
 
 def process_fixed_tuple(
-    data: Tuple[str, int, float]
+    data: tuple[str, int, float]
 ) -> str:
     """
     Process fixed-size tuple.
@@ -261,7 +263,7 @@ def process_fixed_tuple(
 
 
 def process_variadic_tuple(
-    args: Tuple[int, ...]
+    args: tuple[int, ...]
 ) -> int:
     """
     Process variadic tuple.
@@ -271,9 +273,9 @@ def process_variadic_tuple(
 
 
 def combine_tuples(
-    first: Tuple[str, ...],
-    second: Tuple[int, ...]
-) -> List[Tuple[str, int]]:
+    first: tuple[str, ...],
+    second: tuple[int, ...]
+) -> list[tuple[str, int]]:
     """
     Combine two variadic tuples.
     Tests: Multiple variadic tuples.
@@ -282,13 +284,13 @@ def combine_tuples(
 
 
 def complex_tuple_processing(
-    data: List[Tuple[str, Optional[Tuple[int, str, ...]]]]
-) -> Dict[str, List[int]]:
+    data: list[tuple[str, tuple[int, str, ...] | None]]
+) -> dict[str, list[int]]:
     """
     Process complex nested tuples.
     Tests: List[Tuple[str, Optional[Tuple[int, str, ...]]]]
     """
-    result: Dict[str, List[int]] = {}
+    result: dict[str, list[int]] = {}
     for key, values in data:
         if values is not None and len(values) > 0:
             if isinstance(values[0], int):
@@ -324,13 +326,13 @@ class Drawable(Protocol):
     def draw(self) -> str:
         ...
 
-    def get_position(self) -> Tuple[int, int]:
+    def get_position(self) -> tuple[int, int]:
         ...
 
 
 def sort_comparable_items(
-    items: List[Comparable]
-) -> List[Comparable]:
+    items: list[Comparable]
+) -> list[Comparable]:
     """
     Sort items using Protocol.
     Tests: Function parameter with Protocol type.
@@ -340,7 +342,7 @@ def sort_comparable_items(
 
 def draw_all(
     drawables: Sequence[Drawable]
-) -> List[str]:
+) -> list[str]:
     """
     Draw all drawable objects.
     Tests: Sequence[Drawable] where Drawable is Protocol.
@@ -393,12 +395,12 @@ Username = str
 Email = str
 
 # Complex type aliases
-UserData = Dict[str, Union[str, int, None]]
-UserList = List[UserData]
-UserMap = Dict[UserId, UserData]
+UserData = dict[str, str | int | None]
+UserList = list[UserData]
+UserMap = dict[UserId, UserData]
 
 # Nested type alias
-ComplexStructure = Dict[str, List[Tuple[str, Optional[Union[int, str]]]]]
+ComplexStructure = dict[str, list[tuple[str, int | str | None]]]
 
 
 def create_user(
@@ -429,12 +431,12 @@ def get_user_map(
 
 def process_complex_structure(
     data: ComplexStructure
-) -> List[str]:
+) -> list[str]:
     """
     Process complex aliased structure.
     Tests: Nested type alias with multiple generics.
     """
-    results: List[str] = []
+    results: list[str] = []
     for key, value_list in data.items():
         for item_tuple in value_list:
             name, value = item_tuple
@@ -472,16 +474,16 @@ class Configuration:
 # ==============================================================================
 
 @overload
-def get_item(container: Dict[str, int], key: str) -> int:
+def get_item(container: dict[str, int], key: str) -> int:
     ...
 
 
 @overload
-def get_item(container: List[str], key: int) -> str:
+def get_item(container: list[str], key: int) -> str:
     ...
 
 
-def get_item(container: Union[Dict[str, int], List[str]], key: Union[str, int]) -> Union[int, str]:
+def get_item(container: dict[str, int] | list[str], key: str | int) -> int | str:
     """
     Get item with overloaded signatures.
     Tests: @overload decorator with multiple type signatures.
@@ -509,17 +511,17 @@ class ComplexDataClass:
     age: int
 
     # Optional with default
-    email: Optional[str] = None
+    email: str | None = None
 
     # Generic collection types
-    tags: List[str] = None
-    metadata: Dict[str, Any] = None
+    tags: list[str] = None
+    metadata: dict[str, Any] = None
 
     # Complex nested types
-    attributes: Dict[str, List[Union[int, str, bool]]] = None
+    attributes: dict[str, list[int | str | bool]] = None
 
     # Callable field
-    validator: Optional[Callable[[str], bool]] = None
+    validator: Callable[[str], bool] | None = None
 
     # ClassVar
     instance_count: ClassVar[int] = 0
@@ -540,14 +542,14 @@ class ComplexDataClass:
 # ==============================================================================
 
 def deep_merge(
-    dict1: Dict[K, V],
-    dict2: Dict[K, V]
-) -> Dict[K, V]:
+    dict1: dict[K, V],
+    dict2: dict[K, V]
+) -> dict[K, V]:
     """
     Deep merge two dictionaries.
     Tests: Generic function with TypeVar usage.
     """
-    result: Dict[K, V] = dict1.copy()
+    result: dict[K, V] = dict1.copy()
     result.update(dict2)
     return result
 
@@ -555,7 +557,7 @@ def deep_merge(
 def map_values(
     mapping: Mapping[K, V],
     transform: Callable[[V], T]
-) -> Dict[K, T]:
+) -> dict[K, T]:
     """
     Map values with transformation.
     Tests: Mapping[K, V] -> Dict[K, T] with transformation.
@@ -563,14 +565,14 @@ def map_values(
     return {k: transform(v) for k, v in mapping.items()}
 
 
-def flatten_nested_lists(
-    nested: List[List[T]]
-) -> List[T]:
+def flatten_nested_lists[T](
+    nested: list[list[T]]
+) -> list[T]:
     """
     Flatten nested lists.
     Tests: List[List[T]] -> List[T]
     """
-    result: List[T] = []
+    result: list[T] = []
     for sublist in nested:
         result.extend(sublist)
     return result
@@ -582,7 +584,7 @@ def flatten_nested_lists(
 
 def generate_items(
     count: int
-) -> Iterator[Tuple[int, str]]:
+) -> Iterator[tuple[int, str]]:
     """
     Generate items as iterator.
     Tests: Iterator[Tuple[int, str]] return type.

@@ -15,11 +15,14 @@ These extractors identify Django-specific patterns for:
 
 All extractors follow architectural contract: NO file_path in results.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 from typing import Dict, List, Any
 
 
-def extract_django_signals(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
     """
     Extract Django signal definitions and connections.
 
@@ -120,7 +123,7 @@ def extract_django_signals(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return results
 
 
-def extract_django_receivers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_receivers(context: FileContext) -> list[dict[str, Any]]:
     """
     Extract Django @receiver decorators.
 
@@ -194,7 +197,7 @@ def extract_django_receivers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return results
 
 
-def extract_django_managers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
     """
     Extract Django custom manager definitions.
 
@@ -277,7 +280,7 @@ def extract_django_managers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return results
 
 
-def extract_django_querysets(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
     """
     Extract Django QuerySet method definitions and chains.
 

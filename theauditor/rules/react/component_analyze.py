@@ -6,6 +6,8 @@ react_components, react_hooks, and function_call_args tables.
 Focuses on component structure, organization, and best practices.
 Schema Contract Compliance: v1.1+ (Fail-Fast, direct schema-bound queries)
 """
+from __future__ import annotations
+
 
 import sqlite3
 from collections import defaultdict
@@ -89,7 +91,7 @@ class ReactComponentAnalyzer:
         self.patterns = ReactComponentPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -191,7 +193,7 @@ class ReactComponentAnalyzer:
             dependency_tokens = self.component_dependencies.get(key, set())
             prop_tokens = self._extract_prop_tokens(component['props_type'])
 
-            reason: Optional[str] = None
+            reason: str | None = None
             if hooks.intersection({'useCallback', 'useMemo'}):
                 reason = 'uses optimization hooks'
             elif any(normalized_basename.endswith(token) for token in memo_tokens):
@@ -446,8 +448,8 @@ class ReactComponentAnalyzer:
 
     def _bootstrap_component_metadata(self) -> None:
         """Load component-level metadata and relationship tables once."""
-        self.components: List[Dict[str, Any]] = []
-        self.components_by_file: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        self.components: list[dict[str, Any]] = []
+        self.components_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
         self.cursor.execute("""
             SELECT file, name, type, start_line, end_line, has_jsx, props_type
@@ -470,9 +472,9 @@ class ReactComponentAnalyzer:
         self.component_hooks = self._load_component_hooks()
         self.component_dependencies = self._load_component_dependencies()
 
-    def _load_component_hooks(self) -> Dict[tuple, Set[str]]:
+    def _load_component_hooks(self) -> dict[tuple, set[str]]:
         """Return mapping of components to hooks used."""
-        hooks: Dict[tuple, Set[str]] = defaultdict(set)
+        hooks: dict[tuple, set[str]] = defaultdict(set)
         self.cursor.execute("""
             SELECT component_file, component_name, hook_name
             FROM react_component_hooks
@@ -482,9 +484,9 @@ class ReactComponentAnalyzer:
             hooks[key].add(row['hook_name'])
         return hooks
 
-    def _load_component_dependencies(self) -> Dict[tuple, Set[str]]:
+    def _load_component_dependencies(self) -> dict[tuple, set[str]]:
         """Return mapping of components to dependency tokens."""
-        dependencies: Dict[tuple, Set[str]] = defaultdict(set)
+        dependencies: dict[tuple, set[str]] = defaultdict(set)
         self.cursor.execute("""
             SELECT hook_file, hook_component, dependency_name
             FROM react_hook_dependencies
@@ -498,28 +500,28 @@ class ReactComponentAnalyzer:
         return dependencies
 
     @staticmethod
-    def _component_key(file_path: str, name: Optional[str]) -> tuple:
+    def _component_key(file_path: str, name: str | None) -> tuple:
         return (file_path, name or '')
 
     @staticmethod
-    def _component_basename(name: Optional[str]) -> str:
+    def _component_basename(name: str | None) -> str:
         if not name:
             return ''
         return name.split('.')[-1]
 
     @staticmethod
-    def _normalize_dependency_name(name: Optional[str]) -> Optional[str]:
+    def _normalize_dependency_name(name: str | None) -> str | None:
         if not name:
             return None
         token = name.split('.')[-1].strip()
         return token.lower() if token else None
 
     @staticmethod
-    def _extract_prop_tokens(props: Optional[str]) -> Set[str]:
+    def _extract_prop_tokens(props: str | None) -> set[str]:
         if not props:
             return set()
-        tokens: Set[str] = set()
-        current: List[str] = []
+        tokens: set[str] = set()
+        current: list[str] = []
         for char in props:
             if char.isalpha():
                 current.append(char.lower())
@@ -544,7 +546,7 @@ class ReactComponentAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React component anti-patterns and best practices violations.
 
     Uses data from react_components and related tables for accurate detection

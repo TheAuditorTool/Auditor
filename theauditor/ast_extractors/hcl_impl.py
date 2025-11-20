@@ -8,11 +8,13 @@ Architecture:
 - Zero fallbacks: Hard fail on parse errors
 - Line precision: Uses tree-sitter node.start_point for exact locations
 """
+from __future__ import annotations
+
 
 from typing import List, Dict, Any, Optional
 
 
-def _get_body_node(block_node: Any) -> Optional[Any]:
+def _get_body_node(block_node: Any) -> Any | None:
     """Return the body child node for a block if present."""
     for child in getattr(block_node, 'children', []) or []:
         if child.type == "body":
@@ -20,7 +22,7 @@ def _get_body_node(block_node: Any) -> Optional[Any]:
     return None
 
 
-def extract_hcl_blocks(node: Any, language: str = "hcl") -> List[Dict]:
+def extract_hcl_blocks(node: Any, language: str = "hcl") -> list[dict]:
     """Extract HCL blocks (resources, variables, outputs) from tree-sitter AST.
 
     HCL AST Structure:
@@ -90,7 +92,7 @@ def extract_hcl_blocks(node: Any, language: str = "hcl") -> List[Dict]:
     return blocks
 
 
-def extract_hcl_attributes(node: Any, block_type: str) -> Dict[str, Any]:
+def extract_hcl_attributes(node: Any, block_type: str) -> dict[str, Any]:
     """Extract attributes from an HCL block body.
 
     Args:
@@ -125,7 +127,7 @@ def extract_hcl_attributes(node: Any, block_type: str) -> Dict[str, Any]:
     return attributes
 
 
-def extract_hcl_resources(tree, content: str, file_path: str) -> List[Dict]:
+def extract_hcl_resources(tree, content: str, file_path: str) -> list[dict]:
     """Extract Terraform resources with line numbers.
 
     Args:
@@ -157,7 +159,7 @@ def extract_hcl_resources(tree, content: str, file_path: str) -> List[Dict]:
     return resources
 
 
-def extract_hcl_variables(tree, content: str, file_path: str) -> List[Dict]:
+def extract_hcl_variables(tree, content: str, file_path: str) -> list[dict]:
     """Extract Terraform variables with line numbers and attributes.
 
     Args:
@@ -188,7 +190,7 @@ def extract_hcl_variables(tree, content: str, file_path: str) -> List[Dict]:
     return variables
 
 
-def extract_hcl_outputs(tree, content: str, file_path: str) -> List[Dict]:
+def extract_hcl_outputs(tree, content: str, file_path: str) -> list[dict]:
     """Extract Terraform outputs with line numbers and attributes.
 
     Args:
@@ -219,7 +221,7 @@ def extract_hcl_outputs(tree, content: str, file_path: str) -> List[Dict]:
     return outputs
 
 
-def extract_hcl_data_sources(tree, content: str, file_path: str) -> List[Dict]:
+def extract_hcl_data_sources(tree, content: str, file_path: str) -> list[dict]:
     """Extract Terraform data sources with line numbers.
 
     Args:

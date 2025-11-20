@@ -6,6 +6,8 @@ NO separate parser class (inline parsing).
 
 Follows gold standard: Facts only, direct DB writes, no intermediate dicts.
 """
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -28,7 +30,7 @@ class DockerExtractor(BaseExtractor):
     Security checks are performed by rules/deployment/docker_analyze.py.
     """
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports.
 
         Note: Dockerfiles don't have extensions, we match by filename.
@@ -52,8 +54,8 @@ class DockerExtractor(BaseExtractor):
         return (file_name_lower in dockerfile_patterns or
                 file_name_lower.startswith('dockerfile.'))
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract facts from Dockerfile directly to database.
 
         Uses external dockerfile-parse library for parsing.

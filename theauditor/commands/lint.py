@@ -1,4 +1,6 @@
 """Run linters and normalize output to evidence format."""
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -57,7 +59,7 @@ def lint_command(
     if not db_path.exists():
         return {
             "success": False,
-            "error": f"Database not found: {db_path}. Run 'aud index' first."
+            "error": f"Database not found: {db_path}. Run 'aud full' first."
         }
 
     try:
@@ -167,6 +169,15 @@ def lint(root, workset, workset_path, manifest, timeout, print_plan):
 
     Auto-fix is deprecated - use native linter fix commands instead:
       eslint --fix, ruff --fix, prettier --write, black ."""
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("lint", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.config_runtime import load_runtime_config
     
     # Load configuration

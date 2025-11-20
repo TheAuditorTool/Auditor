@@ -9,7 +9,18 @@ This module contains the IndexerOrchestrator class that coordinates:
 
 The orchestrator implements the main indexing workflow while delegating
 specialized concerns to focused modules (storage, extractors, database).
+
+CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
+1. Add the table definition to the appropriate schema file (e.g., node_schema.py)
+2. Add storage handler to the corresponding storage file (e.g., node_storage.py)
+3. Add database method to the corresponding database file (e.g., node_database.py)
+4. Update table count in schema.py
+5. RUN: python -m theauditor.indexer.schemas.codegen
+   This regenerates generated_cache.py which taint analysis uses for memory loading!
+   WITHOUT THIS STEP, YOUR TABLE WON'T BE ACCESSIBLE TO THE ANALYZER!
 """
+from __future__ import annotations
+
 
 import os
 import sys
@@ -43,7 +54,7 @@ class IndexerOrchestrator:
     def __init__(self, root_path: Path, db_path: str,
                  batch_size: int = DEFAULT_BATCH_SIZE,
                  follow_symlinks: bool = False,
-                 exclude_patterns: Optional[List[str]] = None):
+                 exclude_patterns: list[str] | None = None):
         """Initialize the indexer orchestrator.
 
         Args:
@@ -127,7 +138,7 @@ class IndexerOrchestrator:
         # Initialize DataStorer for storage operations (after counts)
         self.data_storer = DataStorer(self.db_manager, self.counts)
 
-    def _detect_frameworks_inline(self) -> List[Dict]:
+    def _detect_frameworks_inline(self) -> list[dict]:
         """Detect frameworks inline without file dependency.
 
         Replaces file-based loading with direct detection to avoid
@@ -209,12 +220,47 @@ class IndexerOrchestrator:
                         express_id, pattern, sink_type, is_safe, reason
                     )
 
-    def index(self) -> Tuple[Dict[str, int], Dict[str, Any]]:
+    def index(self) -> tuple[dict[str, int], dict[str, Any]]:
         """Run the complete indexing process.
 
         Returns:
             Tuple of (counts, stats) dictionaries
         """
+        # SCHEMA VALIDATION: Ensure generated code is up-to-date before indexing
+        from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
+        from theauditor.utils.exit_codes import ExitCodes
+        from pathlib import Path
+        import sys
+
+        # Get current schema hash
+        current_hash = SchemaCodeGenerator.get_schema_hash()
+
+        # Check generated cache file for its hash
+        cache_file = Path(__file__).parent / 'schemas' / 'generated_cache.py'
+        built_hash = None
+
+        if cache_file.exists():
+            with open(cache_file) as f:
+                lines = f.readlines()
+                if len(lines) >= 2 and 'SCHEMA_HASH:' in lines[1]:
+                    built_hash = lines[1].split('SCHEMA_HASH:')[1].strip()
+
+        # Validate hashes match
+        if current_hash != built_hash:
+            print("[SCHEMA STALE] Schema files have changed but generated code is out of date!", file=sys.stderr)
+            print("[SCHEMA STALE] Regenerating code automatically...", file=sys.stderr)
+
+            try:
+                # Auto-regenerate the schema files
+                output_dir = Path(__file__).parent / 'schemas'
+                SchemaCodeGenerator.write_generated_code(output_dir)
+                print("[SCHEMA FIX] Generated code updated successfully", file=sys.stderr)
+                print("[SCHEMA FIX] Please re-run the indexing command", file=sys.stderr)
+                sys.exit(ExitCodes.SCHEMA_STALE)
+            except Exception as e:
+                print(f"[SCHEMA ERROR] Failed to regenerate code: {e}", file=sys.stderr)
+                raise RuntimeError(f"Schema validation failed and auto-fix failed: {e}")
+
         # Detect frameworks inline (for safe sink detection)
         self.frameworks = self._detect_frameworks_inline()
 
@@ -345,6 +391,17 @@ class IndexerOrchestrator:
         if os.environ.get("THEAUDITOR_DEBUG"):
             print("[INDEXER] PHASE 6: Resolving cross-file parameter names...", file=sys.stderr)
         JavaScriptExtractor.resolve_cross_file_parameters(self.db_manager.db_path)
+        self.db_manager.commit()
+
+        # PHASE 6.7: Resolve router mount hierarchy (ADDED 2025-11-09)
+        # Populate api_endpoints.full_path by resolving router.use() mount statements
+        # CRITICAL: Flush and commit before resolution (opens new connection)
+        self.db_manager.flush_batch()
+        self.db_manager.commit()
+
+        if os.environ.get("THEAUDITOR_DEBUG"):
+            print("[INDEXER] PHASE 6.7: Resolving router mount hierarchy...", file=sys.stderr)
+        JavaScriptExtractor.resolve_router_mount_hierarchy(self.db_manager.db_path)
         self.db_manager.commit()
 
         # Report results with database location
@@ -594,7 +651,7 @@ class IndexerOrchestrator:
 
         return self.counts, stats
 
-    def _process_file(self, file_info: Dict[str, Any], js_ts_cache: Dict[str, Any]):
+    def _process_file(self, file_info: dict[str, Any], js_ts_cache: dict[str, Any]):
         """Process a single file.
 
         Args:
@@ -670,8 +727,8 @@ class IndexerOrchestrator:
             print(f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments", file=sys.stderr)
         self._store_extracted_data(file_info['path'], extracted)
 
-    def _get_or_parse_ast(self, file_info: Dict[str, Any],
-                          file_path: Path, js_ts_cache: Dict[str, Any]) -> Optional[Dict]:
+    def _get_or_parse_ast(self, file_info: dict[str, Any],
+                          file_path: Path, js_ts_cache: dict[str, Any]) -> dict | None:
         """Get AST from cache or parse the file.
 
         Args:
@@ -725,7 +782,7 @@ class IndexerOrchestrator:
         # Use registry for standard extension-based extraction
         return self.extractor_registry.get_extractor(file_path, file_ext)
 
-    def _store_extracted_data(self, file_path: str, extracted: Dict[str, Any]):
+    def _store_extracted_data(self, file_path: str, extracted: dict[str, Any]):
         """Store extracted data in the database - DELEGATED TO DataStorer.
 
         This method now delegates all storage operations to the DataStorer class.

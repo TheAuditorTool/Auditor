@@ -3,6 +3,8 @@
 This module contains add_* methods for INFRASTRUCTURE_TABLES defined in schemas/infrastructure_schema.py.
 Handles 18 infrastructure tables including Docker, Terraform, AWS CDK, and GitHub Actions.
 """
+from __future__ import annotations
+
 
 import json
 import os
@@ -20,8 +22,8 @@ class InfrastructureDatabaseMixin:
     # DOCKER BATCH METHODS
     # ========================================================
 
-    def add_docker_image(self, file_path: str, base_image: Optional[str], exposed_ports: List[str],
-                        env_vars: Dict, build_args: Dict, user: Optional[str], has_healthcheck: bool):
+    def add_docker_image(self, file_path: str, base_image: str | None, exposed_ports: list[str],
+                        env_vars: dict, build_args: dict, user: str | None, has_healthcheck: bool):
         """Add a Docker image record to the batch."""
         ports_json = json.dumps(exposed_ports)
         env_json = json.dumps(env_vars)
@@ -29,19 +31,19 @@ class InfrastructureDatabaseMixin:
         self.generic_batches['docker_images'].append((file_path, base_image, ports_json, env_json,
                                                       args_json, user, has_healthcheck))
 
-    def add_compose_service(self, file_path: str, service_name: str, image: Optional[str],
-                           ports: List[str], volumes: List[str], environment: Dict,
+    def add_compose_service(self, file_path: str, service_name: str, image: str | None,
+                           ports: list[str], volumes: list[str], environment: dict,
                            is_privileged: bool, network_mode: str,
                            # 9 new security fields (Phase 3C)
-                           user: Optional[str] = None,
-                           cap_add: Optional[List[str]] = None,
-                           cap_drop: Optional[List[str]] = None,
-                           security_opt: Optional[List[str]] = None,
-                           restart: Optional[str] = None,
-                           command: Optional[List[str]] = None,
-                           entrypoint: Optional[List[str]] = None,
-                           depends_on: Optional[List[str]] = None,
-                           healthcheck: Optional[Dict] = None):
+                           user: str | None = None,
+                           cap_add: list[str] | None = None,
+                           cap_drop: list[str] | None = None,
+                           security_opt: list[str] | None = None,
+                           restart: str | None = None,
+                           command: list[str] | None = None,
+                           entrypoint: list[str] | None = None,
+                           depends_on: list[str] | None = None,
+                           healthcheck: dict | None = None):
         """Add a Docker Compose service record to the batch.
 
         Args:
@@ -85,7 +87,7 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_nginx_config(self, file_path: str, block_type: str, block_context: str,
-                        directives: Dict, level: int):
+                        directives: dict, level: int):
         """Add an Nginx configuration block to the batch."""
         directives_json = json.dumps(directives)
         # Use a default context if empty to avoid primary key issues
@@ -101,10 +103,10 @@ class InfrastructureDatabaseMixin:
     # TERRAFORM BATCH METHODS
     # ========================================================
 
-    def add_terraform_file(self, file_path: str, module_name: Optional[str] = None,
-                          stack_name: Optional[str] = None, backend_type: Optional[str] = None,
-                          providers_json: Optional[str] = None, is_module: bool = False,
-                          module_source: Optional[str] = None):
+    def add_terraform_file(self, file_path: str, module_name: str | None = None,
+                          stack_name: str | None = None, backend_type: str | None = None,
+                          providers_json: str | None = None, is_module: bool = False,
+                          module_source: str | None = None):
         """Add a Terraform file record to the batch."""
         self.generic_batches['terraform_files'].append((
             file_path, module_name, stack_name, backend_type,
@@ -112,12 +114,12 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_terraform_resource(self, resource_id: str, file_path: str, resource_type: str,
-                               resource_name: str, module_path: Optional[str] = None,
-                               properties_json: Optional[str] = None,
-                               depends_on_json: Optional[str] = None,
-                               sensitive_flags_json: Optional[str] = None,
+                               resource_name: str, module_path: str | None = None,
+                               properties_json: str | None = None,
+                               depends_on_json: str | None = None,
+                               sensitive_flags_json: str | None = None,
                                has_public_exposure: bool = False,
-                               line: Optional[int] = None):
+                               line: int | None = None):
         """Add a Terraform resource record to the batch."""
         self.generic_batches['terraform_resources'].append((
             resource_id, file_path, resource_type, resource_name,
@@ -126,12 +128,12 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_terraform_variable(self, variable_id: str, file_path: str, variable_name: str,
-                               variable_type: Optional[str] = None,
-                               default_json: Optional[str] = None,
+                               variable_type: str | None = None,
+                               default_json: str | None = None,
                                is_sensitive: bool = False,
                                description: str = '',
-                               source_file: Optional[str] = None,
-                               line: Optional[int] = None):
+                               source_file: str | None = None,
+                               line: int | None = None):
         """Add a Terraform variable record to the batch."""
         self.generic_batches['terraform_variables'].append((
             variable_id, file_path, variable_name, variable_type,
@@ -139,8 +141,8 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_terraform_variable_value(self, file_path: str, variable_name: str,
-                                     variable_value_json: Optional[str] = None,
-                                     line: Optional[int] = None,
+                                     variable_value_json: str | None = None,
+                                     line: int | None = None,
                                      is_sensitive_context: bool = False):
         """Add a .tfvars variable value record to the batch."""
         self.generic_batches['terraform_variable_values'].append((
@@ -152,10 +154,10 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_terraform_output(self, output_id: str, file_path: str, output_name: str,
-                            value_json: Optional[str] = None,
+                            value_json: str | None = None,
                             is_sensitive: bool = False,
                             description: str = '',
-                            line: Optional[int] = None):
+                            line: int | None = None):
         """Add a Terraform output record to the batch."""
         self.generic_batches['terraform_outputs'].append((
             output_id, file_path, output_name, value_json,
@@ -163,14 +165,14 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_terraform_finding(self, finding_id: str, file_path: str,
-                             resource_id: Optional[str] = None,
+                             resource_id: str | None = None,
                              category: str = '',
                              severity: str = 'medium',
                              title: str = '',
                              description: str = '',
-                             graph_context_json: Optional[str] = None,
+                             graph_context_json: str | None = None,
                              remediation: str = '',
-                             line: Optional[int] = None):
+                             line: int | None = None):
         """Add a Terraform finding record to the batch."""
         self.generic_batches['terraform_findings'].append((
             finding_id, file_path, resource_id, category,
@@ -183,7 +185,7 @@ class InfrastructureDatabaseMixin:
     # ========================================================================
 
     def add_cdk_construct(self, file_path: str, line: int, cdk_class: str,
-                         construct_name: Optional[str], construct_id: str):
+                         construct_name: str | None, construct_id: str):
         """Add a CDK construct record to the batch.
 
         Args:
@@ -216,13 +218,13 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_cdk_finding(self, finding_id: str, file_path: str,
-                       construct_id: Optional[str] = None,
+                       construct_id: str | None = None,
                        category: str = '',
                        severity: str = 'medium',
                        title: str = '',
                        description: str = '',
                        remediation: str = '',
-                       line: Optional[int] = None):
+                       line: int | None = None):
         """Add a CDK security finding record to the batch.
 
         Args:
@@ -245,9 +247,9 @@ class InfrastructureDatabaseMixin:
     # GitHub Actions CI/CD Workflow Security Methods
     # ========================================================================
 
-    def add_github_workflow(self, workflow_path: str, workflow_name: Optional[str],
-                           on_triggers: str, permissions: Optional[str] = None,
-                           concurrency: Optional[str] = None, env: Optional[str] = None):
+    def add_github_workflow(self, workflow_path: str, workflow_name: str | None,
+                           on_triggers: str, permissions: str | None = None,
+                           concurrency: str | None = None, env: str | None = None):
         """Add a GitHub Actions workflow record to the batch.
 
         Args:
@@ -263,12 +265,12 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_github_job(self, job_id: str, workflow_path: str, job_key: str,
-                      job_name: Optional[str], runs_on: Optional[str],
-                      strategy: Optional[str] = None, permissions: Optional[str] = None,
-                      env: Optional[str] = None, if_condition: Optional[str] = None,
-                      timeout_minutes: Optional[int] = None,
+                      job_name: str | None, runs_on: str | None,
+                      strategy: str | None = None, permissions: str | None = None,
+                      env: str | None = None, if_condition: str | None = None,
+                      timeout_minutes: int | None = None,
                       uses_reusable_workflow: bool = False,
-                      reusable_workflow_path: Optional[str] = None):
+                      reusable_workflow_path: str | None = None):
         """Add a GitHub Actions job record to the batch.
 
         Args:
@@ -303,11 +305,11 @@ class InfrastructureDatabaseMixin:
         ))
 
     def add_github_step(self, step_id: str, job_id: str, sequence_order: int,
-                       step_name: Optional[str], uses_action: Optional[str],
-                       uses_version: Optional[str], run_script: Optional[str],
-                       shell: Optional[str], env: Optional[str],
-                       with_args: Optional[str], if_condition: Optional[str],
-                       timeout_minutes: Optional[int], continue_on_error: bool = False):
+                       step_name: str | None, uses_action: str | None,
+                       uses_version: str | None, run_script: str | None,
+                       shell: str | None, env: str | None,
+                       with_args: str | None, if_condition: str | None,
+                       timeout_minutes: int | None, continue_on_error: bool = False):
         """Add a GitHub Actions step record to the batch.
 
         Args:

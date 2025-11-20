@@ -14,6 +14,8 @@ Database Tables Used:
 - package_configs: Declared dependencies from package files
 - import_styles: Actual import/require statements in code
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -32,7 +34,7 @@ METADATA = RuleMetadata(
 )
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect packages declared in dependencies but never imported.
 
     Args:
@@ -65,7 +67,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _get_declared_with_locations(cursor) -> Dict[str, tuple]:
+def _get_declared_with_locations(cursor) -> dict[str, tuple]:
     """Get declared dependencies with their file locations.
 
     Returns:
@@ -112,7 +114,7 @@ def _get_declared_with_locations(cursor) -> Dict[str, tuple]:
     return declared
 
 
-def _get_imported_package_names(cursor) -> Set[str]:
+def _get_imported_package_names(cursor) -> set[str]:
     """Get all imported package names (normalized).
 
     Returns:
@@ -149,7 +151,7 @@ def _normalize_package_name(package: str) -> str:
     return base.lower()
 
 
-def _find_unused(declared_deps: Dict[str, tuple], imported: Set[str]) -> List[StandardFinding]:
+def _find_unused(declared_deps: dict[str, tuple], imported: set[str]) -> list[StandardFinding]:
     """Find declared dependencies that are never imported.
 
     Args:

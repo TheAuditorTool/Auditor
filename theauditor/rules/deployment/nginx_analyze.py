@@ -16,6 +16,8 @@ Detects:
 
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -102,7 +104,7 @@ class NginxPatterns:
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
-def find_nginx_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_nginx_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Nginx security misconfigurations.
 
     Analyzes nginx_configs table for:
@@ -132,18 +134,18 @@ class NginxAnalyzer:
     def __init__(self, context: StandardRuleContext):
         self.context = context
         self.patterns = NginxPatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
 
         # Track configurations across blocks
-        self.proxy_configs: List[NginxProxyConfig] = []
-        self.rate_limits: List[NginxRateLimit] = []
-        self.security_headers: Dict[str, Set[str]] = {}
-        self.ssl_configs: List[NginxSSLConfig] = []
-        self.location_blocks: List[NginxLocationBlock] = []
-        self.server_tokens: Dict[str, str] = {}
+        self.proxy_configs: list[NginxProxyConfig] = []
+        self.rate_limits: list[NginxRateLimit] = []
+        self.security_headers: dict[str, set[str]] = {}
+        self.ssl_configs: list[NginxSSLConfig] = []
+        self.location_blocks: list[NginxLocationBlock] = []
+        self.server_tokens: dict[str, str] = {}
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete Nginx analysis."""
         # Load and parse configurations
         self._load_nginx_configs()
@@ -287,7 +289,7 @@ class NginxAnalyzer:
         """Check for missing critical security headers."""
         processed_files = set()
 
-        for file_path in set(self.security_headers.keys()) | set(p.file_path for p in self.proxy_configs):
+        for file_path in set(self.security_headers.keys()) | {p.file_path for p in self.proxy_configs}:
             if file_path in processed_files:
                 continue
             processed_files.add(file_path)
@@ -340,7 +342,7 @@ class NginxAnalyzer:
             if ssl_config.ciphers:
                 self._check_ssl_ciphers(ssl_config)
 
-    def _check_ssl_protocols(self, config: 'NginxSSLConfig') -> None:
+    def _check_ssl_protocols(self, config: NginxSSLConfig) -> None:
         """Check for deprecated SSL/TLS protocols."""
         protocols_upper = config.protocols.upper()
 
@@ -357,7 +359,7 @@ class NginxAnalyzer:
                     cwe_id='CWE-327'  # Use of a Broken or Risky Cryptographic Algorithm
                 ))
 
-    def _check_ssl_ciphers(self, config: 'NginxSSLConfig') -> None:
+    def _check_ssl_ciphers(self, config: NginxSSLConfig) -> None:
         """Check for weak SSL ciphers."""
         ciphers_upper = config.ciphers.upper()
 
@@ -395,7 +397,7 @@ class NginxAnalyzer:
             return context.split('>')[-1].strip()
         return context
 
-    def _is_path_protected(self, location: 'NginxLocationBlock') -> bool:
+    def _is_path_protected(self, location: NginxLocationBlock) -> bool:
         """Check if location block properly denies access."""
         directives = location.directives
 
@@ -457,4 +459,4 @@ class NginxLocationBlock:
     """Represents a location block configuration."""
     file_path: str
     context: str
-    directives: Dict[str, Any]
+    directives: dict[str, Any]

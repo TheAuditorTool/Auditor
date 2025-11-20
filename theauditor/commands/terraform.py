@@ -3,6 +3,8 @@
 Commands for analyzing Terraform configurations, building provisioning flow
 graphs, and detecting infrastructure security issues.
 """
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -108,6 +110,15 @@ def provision(root, workset, output, db, graphs_db):
         - resource_dependency: Resource -> Resource (depends_on)
         - output_reference: Resource -> Output (output references resource)
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("terraform", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from ..terraform.graph import TerraformGraphBuilder
 
     try:
@@ -115,7 +126,7 @@ def provision(root, workset, output, db, graphs_db):
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud index' first to extract Terraform resources.", err=True)
+            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
             raise click.Abort()
 
         # Load workset if requested
@@ -225,6 +236,15 @@ def analyze(root, severity, categories, output, db):
       .pf/raw/terraform_findings.json    # JSON findings export
       terraform_findings table           # Database findings for FCE
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("terraform", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from ..terraform.analyzer import TerraformAnalyzer
 
     try:
@@ -232,7 +252,7 @@ def analyze(root, severity, categories, output, db):
         db_path = Path(db)
         if not db_path.exists():
             click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud index' first to extract Terraform resources.", err=True)
+            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
             raise click.Abort()
 
         # Run analyzer
@@ -326,6 +346,15 @@ def report(format, output, severity):
 
     This command will be implemented in Phase 7.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("terraform", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     click.echo("Error: 'terraform report' not yet implemented (Phase 7)", err=True)
     click.echo("Run 'aud terraform provision' to build provisioning graph.", err=True)
     raise click.Abort()

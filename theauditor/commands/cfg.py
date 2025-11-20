@@ -1,4 +1,6 @@
 """Control Flow Graph analysis commands."""
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -109,13 +111,22 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         # Analyze specific function
         aud cfg analyze --function process_payment --output payment_cfg.json
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("cfg", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.graph.cfg_builder import CFGBuilder
     
     try:
         # Check if database exists
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Database not found: {db}. Run 'aud index' first.")
+            click.echo(f"Database not found: {db}. Run 'aud full' first.")
             return
         
         # Initialize CFG builder
@@ -283,13 +294,22 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         # Highlight execution paths
         aud cfg viz --file src/api.py --function handle_request --highlight-paths
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("cfg", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.graph.cfg_builder import CFGBuilder
     
     try:
         # Check if database exists
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Database not found: {db}. Run 'aud index' first.")
+            click.echo(f"Database not found: {db}. Run 'aud full' first.")
             return
         
         # Initialize CFG builder
@@ -301,7 +321,7 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         
         if not cfg['blocks']:
             click.echo(f"No CFG data found for {function} in {file}")
-            click.echo("Make sure the function was indexed with 'aud index'")
+            click.echo("Make sure the function was indexed with 'aud full'")
             return
         
         click.echo(f"Found {len(cfg['blocks'])} blocks and {len(cfg['edges'])} edges")

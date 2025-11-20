@@ -3,6 +3,8 @@
 This module contains add_* methods for NODE_TABLES defined in schemas/node_schema.py.
 Handles 17 Node.js tables including TypeScript, React, Vue, and package management.
 """
+from __future__ import annotations
+
 
 import json
 from typing import Optional, Dict, List
@@ -20,9 +22,9 @@ class NodeDatabaseMixin:
     # ========================================================
 
     def add_class_property(self, file: str, line: int, class_name: str, property_name: str,
-                          property_type: Optional[str] = None, is_optional: bool = False,
-                          is_readonly: bool = False, access_modifier: Optional[str] = None,
-                          has_declare: bool = False, initializer: Optional[str] = None):
+                          property_type: str | None = None, is_optional: bool = False,
+                          is_readonly: bool = False, access_modifier: str | None = None,
+                          has_declare: bool = False, initializer: str | None = None):
         """Add a class property declaration record to the batch.
 
         Args:
@@ -62,8 +64,8 @@ class NodeDatabaseMixin:
 
     def add_react_component(self, file_path: str, name: str, component_type: str,
                            start_line: int, end_line: int, has_jsx: bool,
-                           hooks_used: Optional[List[str]] = None,
-                           props_type: Optional[str] = None):
+                           hooks_used: list[str] | None = None,
+                           props_type: str | None = None):
         """Add a React component to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
@@ -84,10 +86,10 @@ class NodeDatabaseMixin:
                 self.generic_batches['react_component_hooks'].append((file_path, name, hook_name))
 
     def add_react_hook(self, file_path: str, line: int, component_name: str,
-                      hook_name: str, dependency_array: Optional[List[str]] = None,
-                      dependency_vars: Optional[List[str]] = None,
-                      callback_body: Optional[str] = None, has_cleanup: bool = False,
-                      cleanup_type: Optional[str] = None):
+                      hook_name: str, dependency_array: list[str] | None = None,
+                      dependency_vars: list[str] | None = None,
+                      callback_body: str | None = None, has_cleanup: bool = False,
+                      cleanup_type: str | None = None):
         """Add a React hook usage to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
@@ -119,9 +121,9 @@ class NodeDatabaseMixin:
     def add_vue_component(self, file_path: str, name: str, component_type: str,
                          start_line: int, end_line: int, has_template: bool = False,
                          has_style: bool = False, composition_api_used: bool = False,
-                         props_definition: Optional[Dict] = None,
-                         emits_definition: Optional[Dict] = None,
-                         setup_return: Optional[str] = None):
+                         props_definition: dict | None = None,
+                         emits_definition: dict | None = None,
+                         setup_return: str | None = None):
         """Add a Vue component to the batch."""
         props_json = json.dumps(props_definition) if props_definition else None
         emits_json = json.dumps(emits_definition) if emits_definition else None
@@ -131,8 +133,8 @@ class NodeDatabaseMixin:
                                                        setup_return))
 
     def add_vue_hook(self, file_path: str, line: int, component_name: str,
-                    hook_name: str, hook_type: str, dependencies: Optional[List[str]] = None,
-                    return_value: Optional[str] = None, is_async: bool = False):
+                    hook_name: str, hook_type: str, dependencies: list[str] | None = None,
+                    return_value: str | None = None, is_async: bool = False):
         """Add a Vue hook/reactivity usage to the batch."""
         deps_json = json.dumps(dependencies) if dependencies else None
         self.generic_batches['vue_hooks'].append((file_path, line, component_name, hook_name,
@@ -140,14 +142,14 @@ class NodeDatabaseMixin:
 
     def add_vue_directive(self, file_path: str, line: int, directive_name: str,
                          expression: str, in_component: str, has_key: bool = False,
-                         modifiers: Optional[List[str]] = None):
+                         modifiers: list[str] | None = None):
         """Add a Vue directive usage to the batch."""
         modifiers_json = json.dumps(modifiers) if modifiers else None
         self.generic_batches['vue_directives'].append((file_path, line, directive_name, expression,
                                                        in_component, has_key, modifiers_json))
 
     def add_vue_provide_inject(self, file_path: str, line: int, component_name: str,
-                              operation_type: str, key_name: str, value_expr: Optional[str] = None,
+                              operation_type: str, key_name: str, value_expr: str | None = None,
                               is_reactive: bool = False):
         """Add a Vue provide/inject operation to the batch."""
         self.generic_batches['vue_provide_inject'].append((file_path, line, component_name,
@@ -158,9 +160,9 @@ class NodeDatabaseMixin:
     # ========================================================
 
     def add_package_config(self, file_path: str, package_name: str, version: str,
-                          dependencies: Optional[Dict], dev_dependencies: Optional[Dict],
-                          peer_dependencies: Optional[Dict], scripts: Optional[Dict],
-                          engines: Optional[Dict], workspaces: Optional[List],
+                          dependencies: dict | None, dev_dependencies: dict | None,
+                          peer_dependencies: dict | None, scripts: dict | None,
+                          engines: dict | None, workspaces: list | None,
                           is_private: bool = False):
         """Add a package.json configuration to the batch."""
         deps_json = json.dumps(dependencies) if dependencies else None
@@ -176,9 +178,9 @@ class NodeDatabaseMixin:
                                                         is_private))
 
     def add_lock_analysis(self, file_path: str, lock_type: str,
-                         package_manager_version: Optional[str],
-                         total_packages: int, duplicate_packages: Optional[Dict],
-                         lock_file_version: Optional[str]):
+                         package_manager_version: str | None,
+                         total_packages: int, duplicate_packages: dict | None,
+                         lock_file_version: str | None):
         """Add a lock file analysis result to the batch."""
         duplicates_json = json.dumps(duplicate_packages) if duplicate_packages else None
 
@@ -186,8 +188,8 @@ class NodeDatabaseMixin:
                                                       total_packages, duplicates_json, lock_file_version))
 
     def add_import_style(self, file_path: str, line: int, package: str,
-                        import_style: str, imported_names: Optional[List[str]] = None,
-                        alias_name: Optional[str] = None, full_statement: Optional[str] = None):
+                        import_style: str, imported_names: list[str] | None = None,
+                        alias_name: str | None = None, full_statement: str | None = None):
         """Add an import style record to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
@@ -206,6 +208,29 @@ class NodeDatabaseMixin:
                 if not imported_name:  # Skip empty strings (data validation, not fallback)
                     continue
                 self.generic_batches['import_style_names'].append((file_path, line, imported_name))
+
+    # ========================================================
+    # FRONTEND API CALLS BATCH METHODS
+    # ========================================================
+
+    def add_frontend_api_call(self, file: str, line: int, method: str, url_literal: str,
+                              body_variable: str | None = None, function_name: str | None = None):
+        """Add a frontend API call record to the batch.
+
+        Tracks fetch() and axios calls from frontend code to backend APIs.
+        Used for cross-boundary taint flow analysis (frontend -> backend).
+
+        Args:
+            file: Frontend file making the API call
+            line: Line number of the call
+            method: HTTP method (GET, POST, PUT, DELETE, PATCH)
+            url_literal: Static API path (e.g., '/api/users')
+            body_variable: Variable name sent as body (e.g., 'userData')
+            function_name: Function containing the API call
+        """
+        self.generic_batches['frontend_api_calls'].append((
+            file, line, method, url_literal, body_variable, function_name
+        ))
 
     # ========================================================
     # FRAMEWORK DETECTION BATCH METHODS

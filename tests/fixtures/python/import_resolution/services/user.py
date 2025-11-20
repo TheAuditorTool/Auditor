@@ -1,6 +1,5 @@
 """User service making intra-package imports."""
 
-from __future__ import annotations
 
 from typing import Any, Optional
 
@@ -9,7 +8,7 @@ from .repository import UserRepository
 
 
 class UserService:
-    def __init__(self, audit_service: Optional["AuditService"] = None) -> None:
+    def __init__(self, audit_service: AuditService | None = None) -> None:
         self.repository = UserRepository()
         self.audit_service = audit_service
 

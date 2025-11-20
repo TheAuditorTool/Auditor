@@ -44,7 +44,7 @@ PLAN_PHASES = TableSchema(
         Column("phase_number", "INTEGER", nullable=False),
         Column("title", "TEXT", nullable=False),
         Column("description", "TEXT"),
-        Column("problem_solved", "TEXT"),  # WHY this phase exists (justification)
+        Column("success_criteria", "TEXT"),  # What completion looks like (criteria)
         Column("status", "TEXT", nullable=False, default="'pending'"),
         Column("created_at", "TEXT", nullable=False),
     ],
@@ -262,7 +262,7 @@ REFACTOR_HISTORY = TableSchema(
 # PLANNING TABLES REGISTRY
 # ============================================================================
 
-PLANNING_TABLES: Dict[str, TableSchema] = {
+PLANNING_TABLES: dict[str, TableSchema] = {
     "plans": PLANS,
     "plan_phases": PLAN_PHASES,  # NEW: Phase → Task → Job hierarchy
     "plan_tasks": PLAN_TASKS,

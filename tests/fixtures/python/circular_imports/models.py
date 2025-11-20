@@ -26,9 +26,9 @@ class User:
         self.user_id = user_id
         self.username = username
         self.email = email
-        self._service: Optional['UserService'] = None
+        self._service: UserService | None = None
 
-    def get_service(self) -> 'UserService':
+    def get_service(self) -> UserService:
         """
         Lazy load UserService to avoid circular import at runtime.
         Tests: Runtime import resolution inside method.
@@ -64,7 +64,7 @@ class Post:
         self.title = title
         self.content = content
 
-    def get_author(self) -> Optional[User]:
+    def get_author(self) -> User | None:
         """
         Get post author using UserService.
         Tests: Method that imports from circular module.
@@ -95,7 +95,7 @@ class Comment:
         self.author_id = author_id
         self.text = text
 
-    def get_post(self) -> Optional[Post]:
+    def get_post(self) -> Post | None:
         """Get the parent post."""
         from controllers import PostController
         # Would use controller to fetch post

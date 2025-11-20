@@ -21,6 +21,8 @@ Usage:
     storer = DataStorer(db_manager, counts)
     storer.store(file_path, extracted, jsx_pass=False)
 """
+from __future__ import annotations
+
 
 import os
 from typing import Dict, Any
@@ -43,7 +45,7 @@ class DataStorer:
     DO NOT instantiate directly - only used by IndexerOrchestrator.
     """
 
-    def __init__(self, db_manager, counts: Dict[str, int]):
+    def __init__(self, db_manager, counts: dict[str, int]):
         """Initialize DataStorer with database manager and counts dict.
 
         Args:
@@ -67,7 +69,7 @@ class DataStorer:
             **self.infrastructure.handlers,
         }
 
-    def store(self, file_path: str, extracted: Dict[str, Any], jsx_pass: bool = False):
+    def store(self, file_path: str, extracted: dict[str, Any], jsx_pass: bool = False):
         """Store extracted data via domain-specific handlers.
 
         Args:

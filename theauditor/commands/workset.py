@@ -1,4 +1,6 @@
 """Compute target file set from git diff and dependencies."""
+from __future__ import annotations
+
 
 import click
 from theauditor.utils.error_handler import handle_exceptions
@@ -200,6 +202,15 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
     behavior, only which files are analyzed. For maximum confidence, run full analysis
     periodically even if using workset for daily development.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("workset", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.workset import compute_workset
     from theauditor.config_runtime import load_runtime_config
     

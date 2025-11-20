@@ -19,6 +19,8 @@ CWE Coverage:
 - CWE-384: Session Fixation
 - CWE-613: Insufficient Session Expiration
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -97,7 +99,7 @@ SESSION_COOKIE_KEYWORDS = frozenset([
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_session_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_session_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect session and cookie security vulnerabilities.
 
     This is a database-first rule following the gold standard pattern.
@@ -149,7 +151,7 @@ def find_session_issues(context: StandardRuleContext) -> List[StandardFinding]:
 # CHECK 1: Missing httpOnly Flag
 # ============================================================================
 
-def _check_missing_httponly(cursor) -> List[StandardFinding]:
+def _check_missing_httponly(cursor) -> list[StandardFinding]:
     """Detect cookies set without httpOnly flag.
 
     Without httpOnly flag, JavaScript can access cookies via document.cookie,
@@ -213,7 +215,7 @@ def _check_missing_httponly(cursor) -> List[StandardFinding]:
 # CHECK 2: Missing secure Flag
 # ============================================================================
 
-def _check_missing_secure(cursor) -> List[StandardFinding]:
+def _check_missing_secure(cursor) -> list[StandardFinding]:
     """Detect cookies set without secure flag.
 
     Without secure flag, cookies can be transmitted over unencrypted HTTP,
@@ -277,7 +279,7 @@ def _check_missing_secure(cursor) -> List[StandardFinding]:
 # CHECK 3: Missing SameSite Attribute
 # ============================================================================
 
-def _check_missing_samesite(cursor) -> List[StandardFinding]:
+def _check_missing_samesite(cursor) -> list[StandardFinding]:
     """Detect cookies set without SameSite attribute.
 
     Without SameSite attribute, cookies are sent with cross-site requests,
@@ -341,7 +343,7 @@ def _check_missing_samesite(cursor) -> List[StandardFinding]:
 # CHECK 4: Session Fixation
 # ============================================================================
 
-def _check_session_fixation(cursor) -> List[StandardFinding]:
+def _check_session_fixation(cursor) -> list[StandardFinding]:
     """Detect session fixation vulnerabilities.
 
     Session fixation occurs when session ID is not regenerated after login,
@@ -407,7 +409,7 @@ def _check_session_fixation(cursor) -> List[StandardFinding]:
 # CHECK 5: Missing Session Timeout
 # ============================================================================
 
-def _check_missing_timeout(cursor) -> List[StandardFinding]:
+def _check_missing_timeout(cursor) -> list[StandardFinding]:
     """Detect session configuration without timeout/expiration.
 
     Sessions without expiration can be valid indefinitely, increasing

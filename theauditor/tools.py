@@ -1,4 +1,6 @@
 """Tool version detection and reporting."""
+from __future__ import annotations
+
 
 import json
 import os
@@ -25,9 +27,9 @@ def detect_tool_version(cmd: list[str]) -> str:
             result = subprocess.run(cmd, stdout=stdout_fp, stderr=stderr_fp, text=True, timeout=5, check=False)
         
         # Read the outputs back
-        with open(stdout_path, 'r', encoding='utf-8') as f:
+        with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
-        with open(stderr_path, 'r', encoding='utf-8') as f:
+        with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
         
         # Clean up temp files

@@ -1,4 +1,6 @@
 """Run complete audit pipeline."""
+from __future__ import annotations
+
 
 import sys
 import click
@@ -96,6 +98,14 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache):
         Solution: Check .pf/pipeline.log for specific phase errors
 
     Note: Uses intelligent caching - second run is 5-10x faster"""
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        exit_code = execute_in_sandbox("full", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from theauditor.pipelines import run_full_pipeline
     
     # Define log callback for console output

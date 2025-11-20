@@ -35,8 +35,9 @@ function extractSequelizeModels(functions, classes, functionCallArgs, imports) {
     const associations = [];
 
     // Check if Sequelize is imported
+    // BUGFIX (2025-11-09): extractImports() returns imp.module, not imp.source
     const hasSequelize = imports && imports.some(imp =>
-        imp.source === 'sequelize' || imp.source === '@sequelize/core'
+        imp.module === 'sequelize' || imp.module === '@sequelize/core'
     );
 
     if (!hasSequelize) {

@@ -16,7 +16,7 @@ from typing import List, Dict, Any
 from controllers import UserController, PostController, CommentController
 
 
-def get_user_summary(user_id: int) -> Dict[str, Any]:
+def get_user_summary(user_id: int) -> dict[str, Any]:
     """
     Get user summary including posts and comments.
     Tests: Utility function using circular import chain.
@@ -35,7 +35,7 @@ def get_user_summary(user_id: int) -> Dict[str, Any]:
     }
 
 
-def bulk_update_user_emails(user_ids: List[int], new_domain: str) -> List[bool]:
+def bulk_update_user_emails(user_ids: list[int], new_domain: str) -> list[bool]:
     """
     Bulk update user emails.
     Tests: Bulk operation through circular imports.
@@ -56,7 +56,7 @@ def bulk_update_user_emails(user_ids: List[int], new_domain: str) -> List[bool]:
     return results
 
 
-def get_post_with_comments(post_id: int) -> Dict[str, Any]:
+def get_post_with_comments(post_id: int) -> dict[str, Any]:
     """
     Get post with all its comments.
     Tests: Deep traversal through circular imports.
@@ -79,7 +79,7 @@ def get_post_with_comments(post_id: int) -> Dict[str, Any]:
     }
 
 
-def search_users_and_posts(query: str) -> Dict[str, List[Any]]:
+def search_users_and_posts(query: str) -> dict[str, list[Any]]:
     """
     Search across users and posts.
     Tests: Multiple circular import paths in one function.

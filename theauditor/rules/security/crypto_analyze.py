@@ -11,6 +11,8 @@ This implementation:
 - Provides confidence scoring
 - Maps all findings to CWE IDs
 """
+from __future__ import annotations
+
 
 import sqlite3
 from pathlib import Path
@@ -184,7 +186,7 @@ CONSTANT_TIME_COMPARISONS = frozenset([
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_crypto_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_crypto_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect cryptographic vulnerabilities using schema contract patterns.
 
     Implements 15+ crypto vulnerability patterns with unconditional execution.
@@ -326,7 +328,7 @@ def _is_test_file(file_path: str) -> bool:
 # PATTERN 1: Weak Random Number Generation
 # ============================================================================
 
-def _find_weak_random_generation(cursor) -> List[StandardFinding]:
+def _find_weak_random_generation(cursor) -> list[StandardFinding]:
     """Find usage of weak random number generators for security purposes."""
     findings = []
 
@@ -367,7 +369,7 @@ def _find_weak_random_generation(cursor) -> List[StandardFinding]:
 # PATTERN 2: Weak Hash Algorithms
 # ============================================================================
 
-def _find_weak_hash_algorithms(cursor) -> List[StandardFinding]:
+def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
     """Find usage of weak/broken hash algorithms."""
     findings = []
 
@@ -421,7 +423,7 @@ def _find_weak_hash_algorithms(cursor) -> List[StandardFinding]:
 # PATTERN 3: Weak Encryption Algorithms
 # ============================================================================
 
-def _contains_alias(text: Optional[str], alias: str) -> bool:
+def _contains_alias(text: str | None, alias: str) -> bool:
     """Check if text contains a cryptographic alias (no regex)."""
     if not text:
         return False
@@ -440,9 +442,9 @@ def _contains_alias(text: Optional[str], alias: str) -> bool:
     return alias_lower in lowered
 
 
-def _find_weak_encryption_algorithms(cursor) -> List[StandardFinding]:
+def _find_weak_encryption_algorithms(cursor) -> list[StandardFinding]:
     """Find usage of weak/broken encryption algorithms."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     cursor.execute("""
         SELECT DISTINCT file, line, callee_function, argument_expr
@@ -450,7 +452,7 @@ def _find_weak_encryption_algorithms(cursor) -> List[StandardFinding]:
         ORDER BY file, line
     """)
 
-    seen: Set[Tuple[str, int, str]] = set()
+    seen: set[tuple[str, int, str]] = set()
 
     for file, line, callee, argument in cursor.fetchall():
         callee_lower = (callee or '').lower()
@@ -497,7 +499,7 @@ def _find_weak_encryption_algorithms(cursor) -> List[StandardFinding]:
 # PATTERN 4: Missing Salt in Hashing
 # ============================================================================
 
-def _find_missing_salt(cursor) -> List[StandardFinding]:
+def _find_missing_salt(cursor) -> list[StandardFinding]:
     """Find password hashing without salt."""
     findings = []
 
@@ -566,7 +568,7 @@ def _find_missing_salt(cursor) -> List[StandardFinding]:
 # PATTERN 5: Static/Hardcoded Salts
 # ============================================================================
 
-def _find_static_salt(cursor) -> List[StandardFinding]:
+def _find_static_salt(cursor) -> list[StandardFinding]:
     """Find hardcoded salt values."""
     findings = []
 
@@ -615,7 +617,7 @@ def _find_static_salt(cursor) -> List[StandardFinding]:
 # PATTERN 6: Weak KDF Iterations
 # ============================================================================
 
-def _find_weak_kdf_iterations(cursor) -> List[StandardFinding]:
+def _find_weak_kdf_iterations(cursor) -> list[StandardFinding]:
     """Find weak key derivation functions with low iterations."""
     findings = []
 
@@ -668,7 +670,7 @@ def _find_weak_kdf_iterations(cursor) -> List[StandardFinding]:
 # PATTERN 7: ECB Mode Usage
 # ============================================================================
 
-def _find_ecb_mode(cursor) -> List[StandardFinding]:
+def _find_ecb_mode(cursor) -> list[StandardFinding]:
     """Find usage of ECB mode in encryption."""
     findings = []
 
@@ -742,7 +744,7 @@ def _find_ecb_mode(cursor) -> List[StandardFinding]:
 # PATTERN 8: Missing IV/Nonce
 # ============================================================================
 
-def _find_missing_iv(cursor) -> List[StandardFinding]:
+def _find_missing_iv(cursor) -> list[StandardFinding]:
     """Find encryption operations without initialization vector."""
     findings = []
 
@@ -812,7 +814,7 @@ def _find_missing_iv(cursor) -> List[StandardFinding]:
 # PATTERN 9: Static/Hardcoded IV
 # ============================================================================
 
-def _find_static_iv(cursor) -> List[StandardFinding]:
+def _find_static_iv(cursor) -> list[StandardFinding]:
     """Find hardcoded initialization vectors."""
     findings = []
 
@@ -864,7 +866,7 @@ def _find_static_iv(cursor) -> List[StandardFinding]:
 # PATTERN 10: Predictable PRNG Seeds
 # ============================================================================
 
-def _find_predictable_seeds(cursor) -> List[StandardFinding]:
+def _find_predictable_seeds(cursor) -> list[StandardFinding]:
     """Find predictable seeds for random number generators."""
     findings = []
 
@@ -947,7 +949,7 @@ def _find_predictable_seeds(cursor) -> List[StandardFinding]:
 # PATTERN 11: Hardcoded Encryption Keys
 # ============================================================================
 
-def _find_hardcoded_keys(cursor) -> List[StandardFinding]:
+def _find_hardcoded_keys(cursor) -> list[StandardFinding]:
     """Find hardcoded encryption keys."""
     findings = []
 
@@ -1003,7 +1005,7 @@ def _find_hardcoded_keys(cursor) -> List[StandardFinding]:
 # PATTERN 12: Weak Key Sizes
 # ============================================================================
 
-def _find_weak_key_size(cursor) -> List[StandardFinding]:
+def _find_weak_key_size(cursor) -> list[StandardFinding]:
     """Find usage of weak encryption key sizes."""
     findings = []
 
@@ -1065,7 +1067,7 @@ def _find_weak_key_size(cursor) -> List[StandardFinding]:
 # PATTERN 13: Passwords in URLs
 # ============================================================================
 
-def _find_password_in_url(cursor) -> List[StandardFinding]:
+def _find_password_in_url(cursor) -> list[StandardFinding]:
     """Find passwords transmitted in URLs."""
     findings = []
 
@@ -1110,7 +1112,7 @@ def _find_password_in_url(cursor) -> List[StandardFinding]:
 # PATTERN 14: Timing-Vulnerable Comparisons
 # ============================================================================
 
-def _find_timing_vulnerable_compare(cursor) -> List[StandardFinding]:
+def _find_timing_vulnerable_compare(cursor) -> list[StandardFinding]:
     """Find timing-vulnerable string comparisons for secrets."""
     findings = []
 
@@ -1176,7 +1178,7 @@ def _find_timing_vulnerable_compare(cursor) -> List[StandardFinding]:
 # PATTERN 15: Deprecated Crypto Libraries
 # ============================================================================
 
-def _find_deprecated_libraries(cursor) -> List[StandardFinding]:
+def _find_deprecated_libraries(cursor) -> list[StandardFinding]:
     """Find usage of deprecated cryptography libraries."""
     findings = []
 

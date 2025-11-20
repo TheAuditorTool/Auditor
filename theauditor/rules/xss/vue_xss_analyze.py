@@ -3,6 +3,8 @@
 This module detects XSS vulnerabilities specific to Vue.js applications.
 Uses Vue-specific database tables for accurate detection.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -60,7 +62,7 @@ VUE_COMPILE_METHODS = frozenset([
 ])
 
 
-def find_vue_xss(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_xss(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue.js-specific XSS vulnerabilities.
 
     Returns:
@@ -133,7 +135,7 @@ def _is_vue_app(conn) -> bool:
     return False
 
 
-def _check_vhtml_directive(conn) -> List[StandardFinding]:
+def _check_vhtml_directive(conn) -> list[StandardFinding]:
     """Check v-html directives with user input."""
     findings = []
     cursor = conn.cursor()
@@ -203,7 +205,7 @@ def _check_vhtml_directive(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_template_compilation(conn) -> List[StandardFinding]:
+def _check_template_compilation(conn) -> list[StandardFinding]:
     """Check for dynamic template compilation with user input."""
     findings = []
     cursor = conn.cursor()
@@ -280,7 +282,7 @@ def _check_template_compilation(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_render_functions(conn) -> List[StandardFinding]:
+def _check_render_functions(conn) -> list[StandardFinding]:
     """Check render functions for XSS vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -363,7 +365,7 @@ def _check_render_functions(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_component_props_injection(conn) -> List[StandardFinding]:
+def _check_component_props_injection(conn) -> list[StandardFinding]:
     """Check for XSS through component props."""
     findings = []
     cursor = conn.cursor()
@@ -430,7 +432,7 @@ def _check_component_props_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_slot_injection(conn) -> List[StandardFinding]:
+def _check_slot_injection(conn) -> list[StandardFinding]:
     """Check for XSS through slot content."""
     findings = []
     cursor = conn.cursor()
@@ -491,7 +493,7 @@ def _check_slot_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_filter_injection(conn) -> List[StandardFinding]:
+def _check_filter_injection(conn) -> list[StandardFinding]:
     """Check for XSS through Vue filters (Vue 2)."""
     findings = []
     cursor = conn.cursor()
@@ -526,7 +528,7 @@ def _check_filter_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_computed_xss(conn) -> List[StandardFinding]:
+def _check_computed_xss(conn) -> list[StandardFinding]:
     """Check computed properties that might cause XSS."""
     findings = []
     cursor = conn.cursor()
@@ -602,7 +604,7 @@ def _check_computed_xss(conn) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

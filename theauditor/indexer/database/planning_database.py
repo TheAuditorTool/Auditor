@@ -5,11 +5,13 @@ Handles 9 planning tables including plans, phases, tasks, jobs, specs, snapshots
 
 ERIC'S FRAMEWORK INTEGRATION:
     Phase → Task → Job hierarchy enables problem decomposition thinking:
-    - Phases solve specific sub-problems (with "Problem Solved" field)
+    - Phases define success criteria (with "Success Criteria" field)
     - Tasks break down phase goals into actionable steps
     - Jobs are atomic checkbox items within tasks
     - Audit loops at task and phase level enforce loop-until-correct semantics
 """
+from __future__ import annotations
+
 
 from typing import Optional, List, Dict
 
@@ -22,7 +24,7 @@ class PlanningDatabaseMixin:
 
     PLANNING TABLES (9 tables - Eric's Framework Integration):
     - plans: Main planning table (id, name, description, status, metadata)
-    - plan_phases: Phase hierarchy (plan_id FK, phase_number, problem_solved) [NEW]
+    - plan_phases: Phase hierarchy (plan_id FK, phase_number, success_criteria) [NEW]
     - plan_tasks: Tasks within phases (plan_id FK, phase_id FK, task_number, audit_status)
     - plan_jobs: Checkbox items (task_id FK, job_number, completed, is_audit_job) [NEW]
     - plan_specs: Specs for plans (plan_id FK, spec_yaml, spec_type)
@@ -32,7 +34,7 @@ class PlanningDatabaseMixin:
     - refactor_history: Refactor execution history (timestamp, target_file, migrations)
 
     ERIC'S FRAMEWORK METHODS:
-    - add_plan_phase() - Create phase with "Problem Solved" field
+    - add_plan_phase() - Create phase with "Success Criteria" field
     - add_plan_job() - Add checkbox item to task with audit flag
     """
 
@@ -46,10 +48,10 @@ class PlanningDatabaseMixin:
         reason: str,
         severity: str,
         detected_at: str,
-        loc: Optional[int] = None,
-        cyclomatic_complexity: Optional[int] = None,
-        duplication_percent: Optional[float] = None,
-        num_dependencies: Optional[int] = None,
+        loc: int | None = None,
+        cyclomatic_complexity: int | None = None,
+        duplication_percent: float | None = None,
+        num_dependencies: int | None = None,
         metadata_json: str = '{}'
     ):
         """Add a refactor candidate record to the batch.
@@ -86,10 +88,10 @@ class PlanningDatabaseMixin:
         timestamp: str,
         target_file: str,
         refactor_type: str,
-        migrations_found: Optional[int] = None,
-        migrations_complete: Optional[int] = None,
-        schema_consistent: Optional[int] = None,
-        validation_status: Optional[str] = None,
+        migrations_found: int | None = None,
+        migrations_complete: int | None = None,
+        schema_consistent: int | None = None,
+        validation_status: str | None = None,
         details_json: str = '{}'
     ):
         """Add a refactor history record to the batch.
@@ -124,8 +126,8 @@ class PlanningDatabaseMixin:
         plan_id: int,
         phase_number: int,
         title: str,
-        description: Optional[str] = None,
-        problem_solved: Optional[str] = None,
+        description: str | None = None,
+        success_criteria: str | None = None,
         status: str = 'pending',
         created_at: str = ''
     ):
@@ -136,7 +138,7 @@ class PlanningDatabaseMixin:
             phase_number: Sequential phase number (1, 2, 3...)
             title: Phase title (e.g., "Verify File is Active")
             description: What this phase accomplishes
-            problem_solved: Which sub-problem this phase solves (justification)
+            success_criteria: What completion looks like for this phase (criteria)
             status: Phase status (pending, in_progress, completed)
             created_at: ISO timestamp
         """
@@ -145,7 +147,7 @@ class PlanningDatabaseMixin:
             phase_number,
             title,
             description,
-            problem_solved,
+            success_criteria,
             status,
             created_at
         ))

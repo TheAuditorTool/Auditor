@@ -118,7 +118,7 @@ source .venv/bin/activate && python -c "..."  # ❌ bin/ doesn't exist
 # TheAuditor is installed globally - you can use 'aud' directly
 aud --help
 aud context query --symbol foo --show-callers
-aud index
+aud full
 
 # No need for:
 .venv/Scripts/aud.exe --help  # ❌ Too verbose
@@ -141,14 +141,14 @@ TheAuditor is an offline-first, AI-centric SAST (Static Application Security Tes
 ## WHY TWO DATABASES (.pf/repo_index.db + .pf/graphs.db)
 
 **repo_index.db (91MB)**: Raw extracted facts from AST parsing - symbols, calls, assignments, etc.
-- Updated: Every `aud index` (regenerated fresh)
+- Updated: Every `aud full` (regenerated fresh during indexing phase)
 - Used by: Everything (rules, taint, FCE, context queries)
 
 **graphs.db (79MB)**: Pre-computed graph structures built FROM repo_index.db
-- Updated: Explicit `aud graph build` (opt-in, not needed for core analysis)
+- Updated: During `aud full` via `aud graph build` phase (automatic)
 - Used by: Graph commands only (`aud graph query`, `aud graph viz`)
 
-**Why separate?** Different query patterns (point lookups vs graph traversal). Merging would make `aud index` 53% slower to build graphs most users never use. Standard data warehouse design: fact tables vs computed aggregates.
+**Why separate?** Different query patterns (point lookups vs graph traversal). Separate files allow selective loading. Standard data warehouse design: fact tables vs computed aggregates.
 
 **Key insight**: FCE reads from repo_index.db, NOT graphs.db. Graph database is optional for visualization/exploration only.
 

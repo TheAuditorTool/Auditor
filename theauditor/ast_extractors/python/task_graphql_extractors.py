@@ -14,6 +14,9 @@ ARCHITECTURAL CONTRACT:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -28,7 +31,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions (Internal - Duplicated for Self-Containment)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -37,12 +40,12 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        return node.value
     return None
 
 
-def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
+def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
     """Fetch keyword argument by name from AST call.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -53,7 +56,7 @@ def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
     return None
 
 
-def _get_bool_constant(node: Optional[ast.AST]) -> Optional[bool]:
+def _get_bool_constant(node: ast.AST | None) -> bool | None:
     """Return boolean value for constant/literal nodes.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -68,7 +71,7 @@ def _get_bool_constant(node: Optional[ast.AST]) -> Optional[bool]:
     return None
 
 
-def _dependency_name(call: ast.Call) -> Optional[str]:
+def _dependency_name(call: ast.Call) -> str | None:
     """Extract dependency target from Depends() call.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -90,7 +93,7 @@ def _dependency_name(call: ast.Call) -> Optional[str]:
 # Celery Task Queue Extractors
 # ============================================================================
 
-def extract_celery_tasks(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_celery_tasks(context: FileContext) -> list[dict[str, Any]]:
     """Extract Celery task definitions.
 
     Detects:
@@ -110,11 +113,11 @@ def extract_celery_tasks(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Missing time_limit = infinite execution (DoS)
     """
     tasks = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return tasks
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -197,7 +200,7 @@ def extract_celery_tasks(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return tasks
 
 
-def extract_celery_task_calls(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_celery_task_calls(context: FileContext) -> list[dict[str, Any]]:
     """Extract Celery task invocation patterns.
 
     Detects:
@@ -214,17 +217,15 @@ def extract_celery_task_calls(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Queue bypass: apply_async with queue override
     """
     calls = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return calls
 
     # Track which function we're currently in for caller context
     current_function = None
 
-    for node in ast.walk(actual_tree):
-        # Track current function context
-        if isinstance(node, ast.FunctionDef):
-            current_function = node.name
+    for node in context.find_nodes(ast.FunctionDef):
+        current_function = node.name
 
         # Look for Call nodes
         if not isinstance(node, ast.Call):
@@ -299,7 +300,7 @@ def extract_celery_task_calls(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return calls
 
 
-def extract_celery_beat_schedules(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
     """Extract Celery Beat periodic task schedules.
 
     Detects:
@@ -315,82 +316,80 @@ def extract_celery_beat_schedules(tree: Dict, parser_self) -> List[Dict[str, Any
     - Sensitive data operations (backups, cleanups)
     """
     schedules = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return schedules
 
-    for node in ast.walk(actual_tree):
-        # Pattern 1: app.conf.beat_schedule = {...}
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                # Check if assigning to beat_schedule attribute
-                if isinstance(target, ast.Attribute) and target.attr == 'beat_schedule':
-                    # Parse the dictionary value
-                    if isinstance(node.value, ast.Dict):
-                        for i, (key_node, value_node) in enumerate(zip(node.value.keys, node.value.values)):
-                            if not isinstance(key_node, ast.Constant):
-                                continue
+    for node in context.find_nodes(ast.Assign):
+        for target in node.targets:
+            # Check if assigning to beat_schedule attribute
+            if isinstance(target, ast.Attribute) and target.attr == 'beat_schedule':
+                # Parse the dictionary value
+                if isinstance(node.value, ast.Dict):
+                    for i, (key_node, value_node) in enumerate(zip(node.value.keys, node.value.values)):
+                        if not isinstance(key_node, ast.Constant):
+                            continue
 
-                            schedule_name = key_node.value
+                        schedule_name = key_node.value
 
-                            # Extract task info from the dict value
-                            if isinstance(value_node, ast.Dict):
-                                task_name = None
-                                schedule_type = None
-                                schedule_expression = None
-                                args_expr = None
-                                kwargs_expr = None
+                        # Extract task info from the dict value
+                        if isinstance(value_node, ast.Dict):
+                            task_name = None
+                            schedule_type = None
+                            schedule_expression = None
+                            args_expr = None
+                            kwargs_expr = None
 
-                                # Parse the schedule config dict
-                                for sched_key, sched_value in zip(value_node.keys, value_node.values):
-                                    if not isinstance(sched_key, ast.Constant):
-                                        continue
+                            # Parse the schedule config dict
+                            for sched_key, sched_value in zip(value_node.keys, value_node.values):
+                                if not isinstance(sched_key, ast.Constant):
+                                    continue
 
-                                    key_name = sched_key.value
+                                key_name = sched_key.value
 
-                                    if key_name == 'task':
-                                        if isinstance(sched_value, ast.Constant):
-                                            task_name = sched_value.value
-                                    elif key_name == 'schedule':
-                                        # Detect schedule type by call name
-                                        if isinstance(sched_value, ast.Call):
-                                            if isinstance(sched_value.func, ast.Name):
-                                                schedule_type = sched_value.func.id  # 'crontab' or 'schedule'
+                                if key_name == 'task':
+                                    if isinstance(sched_value, ast.Constant):
+                                        task_name = sched_value.value
+                                elif key_name == 'schedule':
+                                    # Detect schedule type by call name
+                                    if isinstance(sched_value, ast.Call):
+                                        if isinstance(sched_value.func, ast.Name):
+                                            schedule_type = sched_value.func.id  # 'crontab' or 'schedule'
 
-                                                # Build expression string
-                                                if schedule_type == 'crontab':
-                                                    # Extract crontab parameters
-                                                    parts = []
-                                                    for keyword in sched_value.keywords:
-                                                        if isinstance(keyword.value, ast.Constant):
-                                                            parts.append(f"{keyword.arg}={keyword.value.value}")
-                                                    schedule_expression = ', '.join(parts) if parts else 'crontab()'
-                                                elif schedule_type == 'schedule':
-                                                    # Extract run_every
-                                                    for keyword in sched_value.keywords:
-                                                        if keyword.arg == 'run_every' and isinstance(keyword.value, ast.Constant):
-                                                            schedule_expression = f"every {keyword.value.value}s"
-                                        elif isinstance(sched_value, ast.Constant):
-                                            # Direct number (seconds)
-                                            schedule_type = 'interval'
-                                            schedule_expression = f"{sched_value.value} seconds"
-                                    elif key_name == 'args':
-                                        # JSON-encode args
-                                        args_expr = ast.unparse(sched_value) if hasattr(ast, 'unparse') else str(sched_value)
-                                    elif key_name == 'kwargs':
-                                        # JSON-encode kwargs
-                                        kwargs_expr = ast.unparse(sched_value) if hasattr(ast, 'unparse') else str(sched_value)
+                                            # Build expression string
+                                            if schedule_type == 'crontab':
+                                                # Extract crontab parameters
+                                                parts = []
+                                                for keyword in sched_value.keywords:
+                                                    if isinstance(keyword.value, ast.Constant):
+                                                        parts.append(f"{keyword.arg}={keyword.value.value}")
+                                                schedule_expression = ', '.join(parts) if parts else 'crontab()'
+                                            elif schedule_type == 'schedule':
+                                                # Extract run_every
+                                                for keyword in sched_value.keywords:
+                                                    if keyword.arg == 'run_every' and isinstance(keyword.value, ast.Constant):
+                                                        schedule_expression = f"every {keyword.value.value}s"
+                                    elif isinstance(sched_value, ast.Constant):
+                                        # Direct number (seconds)
+                                        schedule_type = 'interval'
+                                        schedule_expression = f"{sched_value.value} seconds"
+                                elif key_name == 'args':
+                                    # JSON-encode args
+                                    args_expr = ast.unparse(sched_value) if hasattr(ast, 'unparse') else str(sched_value)
+                                elif key_name == 'kwargs':
+                                    # JSON-encode kwargs
+                                    kwargs_expr = ast.unparse(sched_value) if hasattr(ast, 'unparse') else str(sched_value)
 
-                                if schedule_name and task_name:
-                                    schedules.append({
-                                        "line": node.lineno,
-                                        "schedule_name": schedule_name,
-                                        "task_name": task_name,
-                                        "schedule_type": schedule_type or 'unknown',
-                                        "schedule_expression": schedule_expression,
-                                        "args": args_expr,
-                                        "kwargs": kwargs_expr,
-                                    })
+                            if schedule_name and task_name:
+                                schedules.append({
+                                    "line": node.lineno,
+                                    "schedule_name": schedule_name,
+                                    "task_name": task_name,
+                                    "schedule_type": schedule_type or 'unknown',
+                                    "schedule_expression": schedule_expression,
+                                    "args": args_expr,
+                                    "kwargs": kwargs_expr,
+                                })
 
         # Pattern 2: @periodic_task decorator (deprecated but still used)
         if isinstance(node, ast.FunctionDef):
@@ -421,7 +420,7 @@ def extract_celery_beat_schedules(tree: Dict, parser_self) -> List[Dict[str, Any
 # GraphQL Resolver Extractors
 # ============================================================================
 
-def extract_graphene_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dict[str, Any]]:
+def extract_graphene_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dict[str, Any]]:
     """Extract Graphene GraphQL resolver methods.
 
     Graphene pattern:
@@ -437,62 +436,58 @@ def extract_graphene_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Di
 
     if not tree or tree.get("type") != "python_ast":
         return resolvers
-
-    root_node = tree.get("tree")
     if not root_node:
         return resolvers
 
-    for node in ast.walk(root_node):
-        # Look for classes inheriting from graphene.ObjectType
-        if isinstance(node, ast.ClassDef):
-            # Check if class inherits from graphene patterns
-            is_graphene_type = False
-            for base in node.bases:
-                base_name = get_node_name(base)
-                if 'graphene' in base_name.lower() or 'ObjectType' in base_name:
-                    is_graphene_type = True
-                    break
+    for node in context.find_nodes(ast.ClassDef):
+        # Check if class inherits from graphene patterns
+        is_graphene_type = False
+        for base in node.bases:
+            base_name = get_node_name(base)
+            if 'graphene' in base_name.lower() or 'ObjectType' in base_name:
+                is_graphene_type = True
+                break
 
-            if not is_graphene_type:
-                continue
+        if not is_graphene_type:
+            continue
 
-            # Extract resolve_* methods
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name.startswith('resolve_'):
-                    # Field name is the part after 'resolve_'
-                    field_name = item.name[len('resolve_'):]
+        # Extract resolve_* methods
+        for item in node.body:
+            if isinstance(item, ast.FunctionDef) and item.name.startswith('resolve_'):
+                # Field name is the part after 'resolve_'
+                field_name = item.name[len('resolve_'):]
 
-                    # Extract parameters (skip 'self' and 'info')
-                    params = []
-                    for idx, arg in enumerate(item.args.args):
-                        if arg.arg not in ('self', 'info'):
-                            params.append({
-                                'param_name': arg.arg,
-                                'param_index': idx,
-                                'is_kwargs': False
-                            })
-
-                    # Handle **kwargs
-                    if item.args.kwarg:
+                # Extract parameters (skip 'self' and 'info')
+                params = []
+                for idx, arg in enumerate(item.args.args):
+                    if arg.arg not in ('self', 'info'):
                         params.append({
-                            'param_name': item.args.kwarg.arg,
-                            'param_index': len(item.args.args),
-                            'is_kwargs': True
+                            'param_name': arg.arg,
+                            'param_index': idx,
+                            'is_kwargs': False
                         })
 
-                    resolvers.append({
-                        'line': item.lineno,
-                        'resolver_name': item.name,
-                        'field_name': field_name,
-                        'type_name': node.name,
-                        'binding_style': 'graphene-method',
-                        'params': params
+                # Handle **kwargs
+                if item.args.kwarg:
+                    params.append({
+                        'param_name': item.args.kwarg.arg,
+                        'param_index': len(item.args.args),
+                        'is_kwargs': True
                     })
+
+                resolvers.append({
+                    'line': item.lineno,
+                    'resolver_name': item.name,
+                    'field_name': field_name,
+                    'type_name': node.name,
+                    'binding_style': 'graphene-method',
+                    'params': params
+                })
 
     return resolvers
 
 
-def extract_ariadne_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dict[str, Any]]:
+def extract_ariadne_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dict[str, Any]]:
     """Extract Ariadne GraphQL resolver decorators.
 
     Ariadne patterns:
@@ -510,12 +505,10 @@ def extract_ariadne_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dic
 
     if not tree or tree.get("type") != "python_ast":
         return resolvers
-
-    root_node = tree.get("tree")
     if not root_node:
         return resolvers
 
-    for node in ast.walk(root_node):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -578,7 +571,7 @@ def extract_ariadne_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dic
     return resolvers
 
 
-def extract_strawberry_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[Dict[str, Any]]:
+def extract_strawberry_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dict[str, Any]]:
     """Extract Strawberry GraphQL resolver decorators.
 
     Strawberry patterns:
@@ -596,64 +589,60 @@ def extract_strawberry_resolvers(tree: Dict[str, Any], ast_parser: Any) -> List[
 
     if not tree or tree.get("type") != "python_ast":
         return resolvers
-
-    root_node = tree.get("tree")
     if not root_node:
         return resolvers
 
-    for node in ast.walk(root_node):
-        # Look for classes with @strawberry.type decorator
-        if isinstance(node, ast.ClassDef):
-            is_strawberry_type = False
-            for decorator in node.decorator_list:
-                decorator_name = get_node_name(decorator)
-                if 'strawberry' in decorator_name.lower() and 'type' in decorator_name.lower():
-                    is_strawberry_type = True
-                    break
+    for node in context.find_nodes(ast.ClassDef):
+        is_strawberry_type = False
+        for decorator in node.decorator_list:
+            decorator_name = get_node_name(decorator)
+            if 'strawberry' in decorator_name.lower() and 'type' in decorator_name.lower():
+                is_strawberry_type = True
+                break
 
-            if not is_strawberry_type:
+        if not is_strawberry_type:
+            continue
+
+        # Extract methods with @strawberry.field decorator
+        for item in node.body:
+            if not isinstance(item, ast.FunctionDef):
                 continue
 
-            # Extract methods with @strawberry.field decorator
-            for item in node.body:
-                if not isinstance(item, ast.FunctionDef):
-                    continue
+            is_strawberry_field = False
+            for decorator in item.decorator_list:
+                decorator_name = get_node_name(decorator)
+                if 'strawberry' in decorator_name.lower() and 'field' in decorator_name.lower():
+                    is_strawberry_field = True
+                    break
 
-                is_strawberry_field = False
-                for decorator in item.decorator_list:
-                    decorator_name = get_node_name(decorator)
-                    if 'strawberry' in decorator_name.lower() and 'field' in decorator_name.lower():
-                        is_strawberry_field = True
-                        break
+            if not is_strawberry_field:
+                continue
 
-                if not is_strawberry_field:
-                    continue
-
-                # Extract parameters (skip 'self')
-                params = []
-                for idx, arg in enumerate(item.args.args):
-                    if arg.arg != 'self':
-                        params.append({
-                            'param_name': arg.arg,
-                            'param_index': idx,
-                            'is_kwargs': False
-                        })
-
-                # Handle **kwargs
-                if item.args.kwarg:
+            # Extract parameters (skip 'self')
+            params = []
+            for idx, arg in enumerate(item.args.args):
+                if arg.arg != 'self':
                     params.append({
-                        'param_name': item.args.kwarg.arg,
-                        'param_index': len(item.args.args),
-                        'is_kwargs': True
+                        'param_name': arg.arg,
+                        'param_index': idx,
+                        'is_kwargs': False
                     })
 
-                resolvers.append({
-                    'line': item.lineno,
-                    'resolver_name': item.name,
-                    'field_name': item.name,  # Strawberry uses method name as field name
-                    'type_name': node.name,
-                    'binding_style': 'strawberry-field',
-                    'params': params
+            # Handle **kwargs
+            if item.args.kwarg:
+                params.append({
+                    'param_name': item.args.kwarg.arg,
+                    'param_index': len(item.args.args),
+                    'is_kwargs': True
                 })
+
+            resolvers.append({
+                'line': item.lineno,
+                'resolver_name': item.name,
+                'field_name': item.name,  # Strawberry uses method name as field name
+                'type_name': node.name,
+                'binding_style': 'strawberry-field',
+                'params': params
+            })
 
     return resolvers

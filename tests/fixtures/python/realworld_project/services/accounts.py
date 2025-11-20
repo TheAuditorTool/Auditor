@@ -1,8 +1,9 @@
 """Business logic that coordinates repositories, validators, and email service."""
 
-from __future__ import annotations
 
-from typing import Iterable, List
+from typing import List
+
+from collections.abc import Iterable
 
 from ..config.settings import DEFAULT_EMAIL_SETTINGS
 from ..models.accounts import Profile, User
@@ -52,5 +53,5 @@ class AccountService:
             title=profile.title if profile else None,
         )
 
-    def stream_audit_events(self, limit: int = 10) -> List[AuditLog]:
+    def stream_audit_events(self, limit: int = 10) -> list[AuditLog]:
         return self.repository.recent_events(limit=limit)

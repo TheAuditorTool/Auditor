@@ -54,6 +54,8 @@ TEMPLATE BASED ON: sql_injection_analyze.py (Production Rule)
 RULE METADATA: Declares file targeting to skip frontend files
 ================================================================================
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -140,7 +142,7 @@ class YourRulePatterns:
 # Signature MUST be: (context: StandardRuleContext) -> List[StandardFinding]
 # ============================================================================
 
-def find_your_rule_name(context: StandardRuleContext) -> List[StandardFinding]:
+def find_your_rule_name(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect [YOUR VULNERABILITY TYPE] using database-only approach.
 
     REQUIRED DOCSTRING STRUCTURE:
@@ -201,7 +203,7 @@ def find_your_rule_name(context: StandardRuleContext) -> List[StandardFinding]:
 # Each function queries ONE specific pattern.
 # ============================================================================
 
-def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> List[StandardFinding]:
+def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> list[StandardFinding]:
     """Check for dangerous function calls with user input.
 
     Query pattern:
@@ -261,7 +263,7 @@ def _check_dangerous_calls(cursor, patterns: YourRulePatterns) -> List[StandardF
     return findings
 
 
-def _check_user_input_flow(cursor, patterns: YourRulePatterns) -> List[StandardFinding]:
+def _check_user_input_flow(cursor, patterns: YourRulePatterns) -> list[StandardFinding]:
     """Check for direct user input flow to dangerous sinks.
 
     Uses assignments table to track data flow.

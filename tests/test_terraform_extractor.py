@@ -71,7 +71,7 @@ class TestResourceExtraction:
     def test_extract_simple_resource(self, terraform_extractor, ast_parser):
         """Test extracting aws_instance.web from main.tf."""
         main_tf = FIXTURE_PATH / "main.tf"
-        with open(main_tf, 'r', encoding='utf-8') as f:
+        with open(main_tf, encoding='utf-8') as f:
             content = f.read()
 
         # Parse with tree-sitter
@@ -95,7 +95,7 @@ class TestResourceExtraction:
     def test_extract_resource_with_for_each(self, terraform_extractor, ast_parser):
         """Test extracting aws_route53_record.app_records (with for_each)."""
         main_tf = FIXTURE_PATH / "main.tf"
-        with open(main_tf, 'r', encoding='utf-8') as f:
+        with open(main_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(main_tf, language="hcl")
@@ -114,7 +114,7 @@ class TestResourceExtraction:
     def test_extract_resource_with_count(self, terraform_extractor, ast_parser):
         """Test extracting aws_subnet.public (with count) from vpc module."""
         vpc_main = FIXTURE_PATH / "modules" / "vpc" / "main.tf"
-        with open(vpc_main, 'r', encoding='utf-8') as f:
+        with open(vpc_main, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(vpc_main, language="hcl")
@@ -133,7 +133,7 @@ class TestResourceExtraction:
     def test_extract_public_s3_violation(self, terraform_extractor, ast_parser):
         """Test extracting aws_s3_bucket.public_read from security violations."""
         public_s3 = FIXTURE_PATH / "security_violations" / "public_s3.tf"
-        with open(public_s3, 'r', encoding='utf-8') as f:
+        with open(public_s3, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(public_s3, language="hcl")
@@ -157,7 +157,7 @@ class TestVariableExtraction:
     def test_extract_sensitive_variable(self, terraform_extractor, ast_parser):
         """Test extracting var.db_password with is_sensitive = True."""
         variables_tf = FIXTURE_PATH / "variables.tf"
-        with open(variables_tf, 'r', encoding='utf-8') as f:
+        with open(variables_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(variables_tf, language="hcl")
@@ -179,7 +179,7 @@ class TestVariableExtraction:
     def test_extract_map_variable(self, terraform_extractor, ast_parser):
         """Test extracting var.common_tags with variable_type = map(string)."""
         variables_tf = FIXTURE_PATH / "variables.tf"
-        with open(variables_tf, 'r', encoding='utf-8') as f:
+        with open(variables_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(variables_tf, language="hcl")
@@ -199,7 +199,7 @@ class TestVariableExtraction:
     def test_extract_list_variable(self, terraform_extractor, ast_parser):
         """Test extracting var.ami_id_list with variable_type = list(string)."""
         variables_tf = FIXTURE_PATH / "variables.tf"
-        with open(variables_tf, 'r', encoding='utf-8') as f:
+        with open(variables_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(variables_tf, language="hcl")
@@ -222,7 +222,7 @@ class TestOutputExtraction:
     def test_extract_resource_output(self, terraform_extractor, ast_parser):
         """Test extracting output.web_instance_id."""
         outputs_tf = FIXTURE_PATH / "outputs.tf"
-        with open(outputs_tf, 'r', encoding='utf-8') as f:
+        with open(outputs_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(outputs_tf, language="hcl")
@@ -242,7 +242,7 @@ class TestOutputExtraction:
     def test_extract_sensitive_output_violation(self, terraform_extractor, ast_parser):
         """Test extracting output.database_password (NOT marked sensitive - violation)."""
         sensitive_output = FIXTURE_PATH / "security_violations" / "sensitive_output.tf"
-        with open(sensitive_output, 'r', encoding='utf-8') as f:
+        with open(sensitive_output, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(sensitive_output, language="hcl")
@@ -266,7 +266,7 @@ class TestDataSourceExtraction:
     def test_extract_ami_data_source(self, terraform_extractor, ast_parser):
         """Test extracting data.aws_ami.amazon_linux."""
         data_tf = FIXTURE_PATH / "data.tf"
-        with open(data_tf, 'r', encoding='utf-8') as f:
+        with open(data_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(data_tf, language="hcl")
@@ -287,7 +287,7 @@ class TestDataSourceExtraction:
     def test_extract_iam_policy_document_data(self, terraform_extractor, ast_parser):
         """Test extracting data.aws_iam_policy_document.wildcard_policy."""
         iam_tf = FIXTURE_PATH / "security_violations" / "overly_permissive_iam.tf"
-        with open(iam_tf, 'r', encoding='utf-8') as f:
+        with open(iam_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(iam_tf, language="hcl")
@@ -309,7 +309,7 @@ class TestTfvarsExtraction:
     def test_extract_standard_tfvars(self, terraform_extractor):
         """Test parsing terraform.tfvars for string, number, and map assignments."""
         tfvars = FIXTURE_PATH / "terraform.tfvars"
-        with open(tfvars, 'r', encoding='utf-8') as f:
+        with open(tfvars, encoding='utf-8') as f:
             content = f.read()
 
         result = terraform_extractor._extract_tfvars(str(tfvars), content, None)
@@ -330,7 +330,7 @@ class TestTfvarsExtraction:
     def test_extract_sensitive_tfvars(self, terraform_extractor):
         """Test parsing sensitive.auto.tfvars with is_sensitive_context = True."""
         sensitive_tfvars = FIXTURE_PATH / "sensitive.auto.tfvars"
-        with open(sensitive_tfvars, 'r', encoding='utf-8') as f:
+        with open(sensitive_tfvars, encoding='utf-8') as f:
             content = f.read()
 
         result = terraform_extractor._extract_tfvars(str(sensitive_tfvars), content, None)
@@ -356,7 +356,7 @@ class TestModuleExtraction:
     def test_extract_module_networking(self, terraform_extractor, ast_parser):
         """FAILING TEST: Extract module.networking block including source and inputs."""
         main_tf = FIXTURE_PATH / "main.tf"
-        with open(main_tf, 'r', encoding='utf-8') as f:
+        with open(main_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(main_tf, language="hcl")
@@ -384,7 +384,7 @@ class TestProviderBackendExtraction:
     def test_extract_backend_s3(self, terraform_extractor, ast_parser):
         """FAILING TEST: Extract terraform { backend "s3" { ... } } from versions.tf."""
         versions_tf = FIXTURE_PATH / "versions.tf"
-        with open(versions_tf, 'r', encoding='utf-8') as f:
+        with open(versions_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(versions_tf, language="hcl")
@@ -416,7 +416,7 @@ class TestFullExtractorIntegration:
     def test_extract_main_tf(self, terraform_extractor, ast_parser):
         """Test full extraction of main.tf file."""
         main_tf = FIXTURE_PATH / "main.tf"
-        with open(main_tf, 'r', encoding='utf-8') as f:
+        with open(main_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(main_tf, language="hcl")
@@ -437,7 +437,7 @@ class TestFullExtractorIntegration:
     def test_extract_variables_tf(self, terraform_extractor, ast_parser):
         """Test full extraction of variables.tf file."""
         variables_tf = FIXTURE_PATH / "variables.tf"
-        with open(variables_tf, 'r', encoding='utf-8') as f:
+        with open(variables_tf, encoding='utf-8') as f:
             content = f.read()
 
         tree = ast_parser.parse_file(variables_tf, language="hcl")

@@ -1,4 +1,6 @@
 """Pure Python venv creation and TheAuditor installation."""
+from __future__ import annotations
+
 
 import json
 import os
@@ -40,14 +42,14 @@ NODE_CHECKSUMS = {
 }
 
 
-def _extract_pyproject_dependencies(pyproject_path: Path) -> List[str]:
+def _extract_pyproject_dependencies(pyproject_path: Path) -> list[str]:
     """Extract dependency strings from pyproject.toml for offline vulnerability DB seeding."""
     try:
         data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
     except Exception:
         return []
 
-    dependencies: List[str] = []
+    dependencies: list[str] = []
 
     # PEP 621 project dependencies
     project = data.get("project")
@@ -167,7 +169,7 @@ Copied during `aud setup-ai` from TheAuditor source.
             print(f"    {check_mark} Injected agent triggers into AGENTS.md")
 
 
-def get_venv_paths(venv_path: Path) -> Tuple[Path, Path]:
+def get_venv_paths(venv_path: Path) -> tuple[Path, Path]:
     """
     Get platform-specific paths for venv Python and aud executables.
     
@@ -234,7 +236,7 @@ def create_venv(target_dir: Path, force: bool = False) -> Path:
     return venv_path
 
 
-def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path] = None) -> bool:
+def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = None) -> bool:
     """
     Install TheAuditor in editable mode into the venv.
     
@@ -274,9 +276,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
                 timeout=30
             )
         
-        with open(stdout_path, 'r', encoding='utf-8') as f:
+        with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
-        with open(stderr_path, 'r', encoding='utf-8') as f:
+        with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
         
         # Clean up temp files
@@ -302,7 +304,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
         "-m", "pip",
         "install",
         "--no-cache-dir",
-        f"-e", f"{theauditor_root}[dev]"
+        # Install with [all] extra to get BOTH runtime AND dev dependencies
+        # This ensures the sandbox has everything needed for analysis + development
+        f"-e", f"{theauditor_root}[all]"
     ]
     
     try:
@@ -322,9 +326,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
                 cwd=str(venv_path.parent)
             )
         
-        with open(stdout_path, 'r', encoding='utf-8') as f:
+        with open(stdout_path, encoding='utf-8') as f:
             result.stdout = f.read()
-        with open(stderr_path, 'r', encoding='utf-8') as f:
+        with open(stderr_path, encoding='utf-8') as f:
             result.stderr = f.read()
         
         # Clean up temp files
@@ -363,9 +367,9 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Optional[Path]
                     timeout=10
                 )
             
-            with open(stdout_path, 'r', encoding='utf-8') as f:
+            with open(stdout_path, encoding='utf-8') as f:
                 verify_result.stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 verify_result.stderr = f.read()
             
             # Clean up temp files
@@ -407,7 +411,7 @@ def _self_update_package_json(package_json_path: Path) -> int:
     """
     try:
         # Read current package.json
-        with open(package_json_path, 'r') as f:
+        with open(package_json_path) as f:
             data = json.load(f)
         
         updated_count = 0
@@ -618,7 +622,7 @@ def download_portable_node(sandbox_dir: Path) -> Path:
         raise RuntimeError(f"Failed to install Node.js: {e}")
 
 
-def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
+def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
     """
     Download and install OSV-Scanner binary for vulnerability detection.
 
@@ -674,7 +678,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
     print(f"    Downloading OSV-Scanner from GitHub releases...", flush=True)
     print(f"    URL: {url}")
 
-    temp_files: List[Path] = []
+    temp_files: list[Path] = []
 
     try:
         # Download binary
@@ -877,7 +881,7 @@ def setup_osv_scanner(sandbox_dir: Path) -> Optional[Path]:
         return None
 
 
-def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, bool]:
+def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, bool]:
     """
     Complete venv setup: create and install TheAuditor + ALL linting tools.
     
@@ -930,9 +934,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                         timeout=300  # Increased to 5 minutes for checking many dependencies
                     )
                 
-                with open(stdout_path, 'r', encoding='utf-8') as f:
+                with open(stdout_path, encoding='utf-8') as f:
                     result.stdout = f.read()
-                with open(stderr_path, 'r', encoding='utf-8') as f:
+                with open(stderr_path, encoding='utf-8') as f:
                     result.stderr = f.read()
                 
                 # Clean up temp files
@@ -980,9 +984,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                     timeout=300  # Increased to 5 minutes for slower systems
                 )
             
-            with open(stdout_path, 'r', encoding='utf-8') as f:
+            with open(stdout_path, encoding='utf-8') as f:
                 result.stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 result.stderr = f.read()
             
             # Clean up temp files
@@ -1018,9 +1022,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                         timeout=300
                     )
 
-                with open(stdout_path2, 'r', encoding='utf-8') as f:
+                with open(stdout_path2, encoding='utf-8') as f:
                     result2.stdout = f.read()
-                with open(stderr_path2, 'r', encoding='utf-8') as f:
+                with open(stderr_path2, encoding='utf-8') as f:
                     result2.stderr = f.read()
 
                 # Clean up temp files
@@ -1235,9 +1239,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> Tuple[Path, boo
                     shell=False  # No shell needed with absolute paths!
                 )
             
-            with open(stdout_path, 'r', encoding='utf-8') as f:
+            with open(stdout_path, encoding='utf-8') as f:
                 result.stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8') as f:
+            with open(stderr_path, encoding='utf-8') as f:
                 result.stderr = f.read()
             
             # Clean up temp files

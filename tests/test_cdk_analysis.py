@@ -181,8 +181,8 @@ def test_python_typescript_parity():
             f"Python has {len(python_constructs)} constructs, TypeScript has {len(ts_constructs)} - expected parity"
 
         # Verify both have same construct types (normalized)
-        python_types = set(c[1].split('.')[-1] for c in python_constructs)  # e.g., 'Bucket' from 's3.Bucket'
-        ts_types = set(c[1].split('.')[-1] for c in ts_constructs)
+        python_types = {c[1].split('.')[-1] for c in python_constructs}  # e.g., 'Bucket' from 's3.Bucket'
+        ts_types = {c[1].split('.')[-1] for c in ts_constructs}
         assert python_types == ts_types, \
             f"Construct types don't match: Python={python_types}, TypeScript={ts_types}"
 

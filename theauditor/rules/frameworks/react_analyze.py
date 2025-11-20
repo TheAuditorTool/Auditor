@@ -9,6 +9,8 @@ Follows schema contract architecture (v1.1+):
 - Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -114,7 +116,7 @@ class ReactPatterns:
 # MAIN RULE FUNCTION (Standardized Interface)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React security vulnerabilities.
 
     Analyzes database for:
@@ -149,14 +151,14 @@ class ReactAnalyzer:
     def __init__(self, context: StandardRuleContext):
         self.context = context
         self.patterns = ReactPatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
 
         # Track React-specific data
-        self.react_files: List[str] = []
+        self.react_files: list[str] = []
         self.has_react = False
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete React analysis."""
         # Check if this is a React project
         if not self._detect_react_project():
