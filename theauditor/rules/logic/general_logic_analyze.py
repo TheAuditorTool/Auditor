@@ -16,6 +16,8 @@ Detects 12 types of issues:
 
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -165,7 +167,7 @@ LOCK_RELEASE = frozenset([
 ])
 
 
-def find_logic_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_logic_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect common logic and resource management issues using indexed data.
 
     Detects:

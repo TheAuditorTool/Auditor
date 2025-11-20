@@ -1,4 +1,6 @@
 """Detect and record tool versions."""
+from __future__ import annotations
+
 
 import click
 

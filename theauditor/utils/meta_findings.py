@@ -5,6 +5,8 @@ This module provides utilities to format meta-analysis findings (from graph,
 CFG, churn, coverage analyzers) into the standard findings_consolidated format
 for dual-write pattern: database (FCE performance) + JSON (AI consumption).
 """
+from __future__ import annotations
+
 
 from datetime import datetime, UTC
 from typing import Dict, Any, List, Optional
@@ -19,8 +21,8 @@ def format_meta_finding(
     category: str = "architectural",
     confidence: float = 1.0,
     tool: str = "meta-analysis",
-    additional_info: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    additional_info: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Format a meta-analysis finding into standard findings_consolidated schema.
 
@@ -84,7 +86,7 @@ def format_meta_finding(
     }
 
 
-def format_hotspot_finding(hotspot: Dict[str, Any]) -> Dict[str, Any]:
+def format_hotspot_finding(hotspot: dict[str, Any]) -> dict[str, Any]:
     """
     Format a graph hotspot into a standard finding.
 
@@ -129,7 +131,7 @@ def format_hotspot_finding(hotspot: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-def format_cycle_finding(cycle: Dict[str, Any]) -> List[Dict[str, Any]]:
+def format_cycle_finding(cycle: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Format a dependency cycle into findings (one per file in cycle).
 
@@ -173,7 +175,7 @@ def format_cycle_finding(cycle: Dict[str, Any]) -> List[Dict[str, Any]]:
     return findings
 
 
-def format_complexity_finding(func_data: Dict[str, Any]) -> Dict[str, Any]:
+def format_complexity_finding(func_data: dict[str, Any]) -> dict[str, Any]:
     """
     Format a high-complexity function into a standard finding.
 
@@ -218,7 +220,7 @@ def format_complexity_finding(func_data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-def format_churn_finding(file_data: Dict[str, Any], threshold: int = 50) -> Optional[Dict[str, Any]]:
+def format_churn_finding(file_data: dict[str, Any], threshold: int = 50) -> dict[str, Any] | None:
     """
     Format a high-churn file into a standard finding.
 
@@ -266,7 +268,7 @@ def format_churn_finding(file_data: Dict[str, Any], threshold: int = 50) -> Opti
     )
 
 
-def format_coverage_finding(file_data: Dict[str, Any], threshold: float = 50.0) -> Optional[Dict[str, Any]]:
+def format_coverage_finding(file_data: dict[str, Any], threshold: float = 50.0) -> dict[str, Any] | None:
     """
     Format a low-coverage file into a standard finding.
 

@@ -9,6 +9,8 @@ Follows schema contract architecture (v1.1+):
 - Assume all contracted tables exist (crash if missing)
 - Proper confidence levels
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set
@@ -146,7 +148,7 @@ class AsyncConcurrencyAnalyzer:
         self.patterns = ConcurrencyPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -190,7 +192,7 @@ class AsyncConcurrencyAnalyzer:
             # This will raise ValueError if table doesn't exist
             get_table_schema(table_name)
 
-    def _validate_columns(self, table_name: str, columns: List[str]):
+    def _validate_columns(self, table_name: str, columns: list[str]):
         """Validate columns exist in table schema.
 
         Args:
@@ -770,7 +772,7 @@ class AsyncConcurrencyAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Python async and concurrency issues.
 
     Args:

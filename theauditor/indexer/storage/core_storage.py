@@ -13,6 +13,8 @@ This module contains handlers for code patterns that apply across all languages:
 
 Handler Count: 21
 """
+from __future__ import annotations
+
 
 import json
 import os
@@ -28,7 +30,7 @@ logger = logging.getLogger(__name__)
 class CoreStorage(BaseStorage):
     """Core storage handlers for language-agnostic patterns."""
 
-    def __init__(self, db_manager, counts: Dict[str, int]):
+    def __init__(self, db_manager, counts: dict[str, int]):
         super().__init__(db_manager, counts)
 
         # Register core handlers
@@ -58,7 +60,7 @@ class CoreStorage(BaseStorage):
             'package_configs': self._store_package_configs,
         }
 
-    def _store_imports(self, file_path: str, imports: List, jsx_pass: bool):
+    def _store_imports(self, file_path: str, imports: list, jsx_pass: bool):
         """Store imports/references."""
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] Processing {len(imports)} imports for {file_path}")
@@ -75,7 +77,7 @@ class CoreStorage(BaseStorage):
             self.db_manager.add_ref(file_path, kind, resolved, line)
             self.counts['refs'] += 1
 
-    def _store_routes(self, file_path: str, routes: List, jsx_pass: bool):
+    def _store_routes(self, file_path: str, routes: list, jsx_pass: bool):
         """Store routes (api_endpoints with all 8 fields)."""
         for route in routes:
             if isinstance(route, dict):
@@ -94,7 +96,7 @@ class CoreStorage(BaseStorage):
                 self.db_manager.add_endpoint(file_path, method, pattern, controls)
             self.counts['routes'] += 1
 
-    def _store_router_mounts(self, file_path: str, router_mounts: List, jsx_pass: bool):
+    def _store_router_mounts(self, file_path: str, router_mounts: list, jsx_pass: bool):
         """Store router mount points (PHASE 6.7 - AST-based route resolution)."""
         for mount in router_mounts:
             if isinstance(mount, dict):
@@ -109,7 +111,7 @@ class CoreStorage(BaseStorage):
                     self.counts['router_mounts'] = 0
                 self.counts['router_mounts'] += 1
 
-    def _store_express_middleware_chains(self, file_path: str, express_middleware_chains: List, jsx_pass: bool):
+    def _store_express_middleware_chains(self, file_path: str, express_middleware_chains: list, jsx_pass: bool):
         """Store Express middleware chains (PHASE 5).
 
         Each chain record represents one handler in a route definition's execution order.
@@ -134,13 +136,13 @@ class CoreStorage(BaseStorage):
                     self.counts['express_middleware_chains'] = 0
                 self.counts['express_middleware_chains'] += 1
 
-    def _store_sql_objects(self, file_path: str, sql_objects: List, jsx_pass: bool):
+    def _store_sql_objects(self, file_path: str, sql_objects: list, jsx_pass: bool):
         """Store SQL objects."""
         for kind, name in sql_objects:
             self.db_manager.add_sql_object(file_path, kind, name)
             self.counts['sql'] += 1
 
-    def _store_sql_queries(self, file_path: str, sql_queries: List, jsx_pass: bool):
+    def _store_sql_queries(self, file_path: str, sql_queries: list, jsx_pass: bool):
         """Store SQL queries."""
         for query in sql_queries:
             self.db_manager.add_sql_query(
@@ -150,7 +152,7 @@ class CoreStorage(BaseStorage):
             )
             self.counts['sql_queries'] += 1
 
-    def _store_cdk_constructs(self, file_path: str, cdk_constructs: List, jsx_pass: bool):
+    def _store_cdk_constructs(self, file_path: str, cdk_constructs: list, jsx_pass: bool):
         """Store CDK constructs (AWS Infrastructure-as-Code)."""
         for construct in cdk_constructs:
             line = construct.get('line', 0)
@@ -183,7 +185,7 @@ class CoreStorage(BaseStorage):
                 self.counts['cdk_constructs'] = 0
             self.counts['cdk_constructs'] += 1
 
-    def _store_symbols(self, file_path: str, symbols: List, jsx_pass: bool):
+    def _store_symbols(self, file_path: str, symbols: list, jsx_pass: bool):
         """Store symbols."""
         for symbol in symbols:
             if jsx_pass:
@@ -207,7 +209,7 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts['symbols'] += 1
 
-    def _store_type_annotations(self, file_path: str, type_annotations: List, jsx_pass: bool):
+    def _store_type_annotations(self, file_path: str, type_annotations: list, jsx_pass: bool):
         """Store TypeScript type annotations."""
         for annotation in type_annotations:
             self.db_manager.add_type_annotation(
@@ -245,7 +247,7 @@ class CoreStorage(BaseStorage):
 
             self.counts['type_annotations'] += 1
 
-    def _store_orm_queries(self, file_path: str, orm_queries: List, jsx_pass: bool):
+    def _store_orm_queries(self, file_path: str, orm_queries: list, jsx_pass: bool):
         """Store ORM queries."""
         for query in orm_queries:
             self.db_manager.add_orm_query(
@@ -255,7 +257,7 @@ class CoreStorage(BaseStorage):
             )
             self.counts['orm'] += 1
 
-    def _store_validation_framework_usage(self, file_path: str, validation_framework_usage: List, jsx_pass: bool):
+    def _store_validation_framework_usage(self, file_path: str, validation_framework_usage: list, jsx_pass: bool):
         """Store validation framework usage (for taint analysis sanitizer detection)."""
         if os.environ.get("THEAUDITOR_VALIDATION_DEBUG") and file_path.endswith('validate.ts'):
             print(f"[PY-DEBUG] Extracted keys for {file_path}: {list(self._current_extracted.keys())}", file=sys.stderr)
@@ -274,7 +276,7 @@ class CoreStorage(BaseStorage):
         if len(self.db_manager.generic_batches['validation_framework_usage']) >= self.db_manager.batch_size:
             self.db_manager.flush_generic_batch('validation_framework_usage')
 
-    def _store_assignments(self, file_path: str, assignments: List, jsx_pass: bool):
+    def _store_assignments(self, file_path: str, assignments: list, jsx_pass: bool):
         """Store data flow information for taint analysis."""
         if assignments:
             logger.info(f"[DEBUG] Found {len(assignments)} assignments in {file_path}")
@@ -299,7 +301,7 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts['assignments'] += 1
 
-    def _store_function_calls(self, file_path: str, function_calls: List, jsx_pass: bool):
+    def _store_function_calls(self, file_path: str, function_calls: list, jsx_pass: bool):
         """Store function calls."""
         for call in function_calls:
             callee = call['callee_function']
@@ -365,7 +367,7 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts['function_calls'] += 1
 
-    def _store_returns(self, file_path: str, returns: List, jsx_pass: bool):
+    def _store_returns(self, file_path: str, returns: list, jsx_pass: bool):
         """Store return statements."""
         for ret in returns:
             if jsx_pass:
@@ -385,7 +387,7 @@ class CoreStorage(BaseStorage):
                 )
                 self.counts['returns'] += 1
 
-    def _store_cfg(self, file_path: str, cfg: List, jsx_pass: bool):
+    def _store_cfg(self, file_path: str, cfg: list, jsx_pass: bool):
         """Store control flow graph data to main or _jsx tables."""
         for function_cfg in cfg:
             if not function_cfg:
@@ -461,7 +463,7 @@ class CoreStorage(BaseStorage):
                 self.counts['cfg_functions'] = 0
             self.counts['cfg_functions'] += 1
 
-    def _store_jwt_patterns(self, file_path: str, jwt_patterns: List, jsx_pass: bool):
+    def _store_jwt_patterns(self, file_path: str, jwt_patterns: list, jsx_pass: bool):
         """Store dedicated JWT patterns."""
         for pattern in jwt_patterns:
             self.db_manager.add_jwt_pattern(
@@ -474,7 +476,7 @@ class CoreStorage(BaseStorage):
             )
             self.counts['jwt'] = self.counts.get('jwt', 0) + 1
 
-    def _store_react_components(self, file_path: str, react_components: List, jsx_pass: bool):
+    def _store_react_components(self, file_path: str, react_components: list, jsx_pass: bool):
         """Store React-specific data."""
         for component in react_components:
             self.db_manager.add_react_component(
@@ -489,7 +491,7 @@ class CoreStorage(BaseStorage):
             )
             self.counts['react_components'] += 1
 
-    def _store_class_properties(self, file_path: str, class_properties: List, jsx_pass: bool):
+    def _store_class_properties(self, file_path: str, class_properties: list, jsx_pass: bool):
         """Store class property declarations (TypeScript/JavaScript ES2022+)."""
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG INDEXER] Found {len(class_properties)} class_properties for {file_path}")
@@ -512,7 +514,7 @@ class CoreStorage(BaseStorage):
                 self.counts['class_properties'] = 0
             self.counts['class_properties'] += 1
 
-    def _store_env_var_usage(self, file_path: str, env_var_usage: List, jsx_pass: bool):
+    def _store_env_var_usage(self, file_path: str, env_var_usage: list, jsx_pass: bool):
         """Store environment variable usage (process.env.X)."""
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
@@ -529,7 +531,7 @@ class CoreStorage(BaseStorage):
                 self.counts['env_var_usage'] = 0
             self.counts['env_var_usage'] += 1
 
-    def _store_orm_relationships(self, file_path: str, orm_relationships: List, jsx_pass: bool):
+    def _store_orm_relationships(self, file_path: str, orm_relationships: list, jsx_pass: bool):
         """Store ORM relationship declarations (hasMany, belongsTo, etc.)."""
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG INDEXER] Found {len(orm_relationships)} orm_relationships for {file_path}")
@@ -548,7 +550,7 @@ class CoreStorage(BaseStorage):
                 self.counts['orm_relationships'] = 0
             self.counts['orm_relationships'] += 1
 
-    def _store_variable_usage(self, file_path: str, variable_usage: List, jsx_pass: bool):
+    def _store_variable_usage(self, file_path: str, variable_usage: list, jsx_pass: bool):
         """Store variable usage."""
         for var in variable_usage:
             self.db_manager.add_variable_usage(
@@ -562,7 +564,7 @@ class CoreStorage(BaseStorage):
             )
             self.counts['variable_usage'] += 1
 
-    def _store_object_literals(self, file_path: str, object_literals: List, jsx_pass: bool):
+    def _store_object_literals(self, file_path: str, object_literals: list, jsx_pass: bool):
         """Store object literal storage (PHASE 3)."""
         for obj_lit in object_literals:
             self.db_manager.add_object_literal(
@@ -577,7 +579,7 @@ class CoreStorage(BaseStorage):
             )
             self.counts['object_literals'] += 1
 
-    def _store_package_configs(self, file_path: str, package_configs: List, jsx_pass: bool):
+    def _store_package_configs(self, file_path: str, package_configs: list, jsx_pass: bool):
         """Store build analysis data."""
         for pkg_config in package_configs:
             self.db_manager.add_package_config(

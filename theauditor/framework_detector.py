@@ -1,4 +1,6 @@
 """Framework detection for various languages and ecosystems."""
+from __future__ import annotations
+
 
 import json
 import re
@@ -184,14 +186,14 @@ class FrameworkDetector:
                         parsed_data[manifest_key] = parser.parse_requirements_txt(path)
                     elif filename == 'Gemfile' or filename == 'Gemfile.lock':
                         # Parse Gemfile as text for now
-                        with open(path, 'r', encoding='utf-8') as f:
+                        with open(path, encoding='utf-8') as f:
                             parsed_data[manifest_key] = f.read()
                     elif filename.endswith('.xml') or filename.endswith('.gradle') or filename.endswith('.kts') or filename.endswith('.mod'):
                         # Parse as text content for now
-                        with open(path, 'r', encoding='utf-8') as f:
+                        with open(path, encoding='utf-8') as f:
                             parsed_data[manifest_key] = f.read()
                     elif filename == 'setup.py':
-                        with open(path, 'r', encoding='utf-8') as f:
+                        with open(path, encoding='utf-8') as f:
                             parsed_data[manifest_key] = f.read()
                 except Exception as e:
                     print(f"Warning: Failed to parse {manifest_key}: {e}")

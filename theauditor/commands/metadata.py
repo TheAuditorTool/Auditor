@@ -1,4 +1,6 @@
 """Metadata collection commands for churn and coverage analysis."""
+from __future__ import annotations
+
 
 import click
 from pathlib import Path

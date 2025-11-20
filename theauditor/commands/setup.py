@@ -1,4 +1,6 @@
 """Setup commands for TheAuditor - AI development environment integration."""
+from __future__ import annotations
+
 
 import platform
 from pathlib import Path

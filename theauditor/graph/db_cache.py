@@ -23,6 +23,8 @@ Example:
     >>> len(imports)
     15
 """
+from __future__ import annotations
+
 
 import sqlite3
 from pathlib import Path
@@ -67,9 +69,9 @@ class GraphDatabaseCache:
             )
 
         # In-memory caches
-        self.known_files: Set[str] = set()
-        self.imports_by_file: Dict[str, List[Dict[str, Any]]] = {}
-        self.exports_by_file: Dict[str, List[Dict[str, Any]]] = {}
+        self.known_files: set[str] = set()
+        self.imports_by_file: dict[str, list[dict[str, Any]]] = {}
+        self.exports_by_file: dict[str, list[dict[str, Any]]] = {}
 
         # Load all data in one pass
         self._load_cache()
@@ -155,7 +157,7 @@ class GraphDatabaseCache:
               f"{sum(len(v) for v in self.imports_by_file.values())} import records, "
               f"{sum(len(v) for v in self.exports_by_file.values())} export records")
 
-    def get_imports(self, file_path: str) -> List[Dict[str, Any]]:
+    def get_imports(self, file_path: str) -> list[dict[str, Any]]:
         """Get all imports for a file (O(1) lookup).
 
         Args:
@@ -173,7 +175,7 @@ class GraphDatabaseCache:
         normalized = self._normalize_path(file_path)
         return self.imports_by_file.get(normalized, [])
 
-    def get_exports(self, file_path: str) -> List[Dict[str, Any]]:
+    def get_exports(self, file_path: str) -> list[dict[str, Any]]:
         """Get all exports for a file (O(1) lookup).
 
         Args:
@@ -211,7 +213,7 @@ class GraphDatabaseCache:
         normalized = self._normalize_path(file_path)
         return normalized in self.known_files
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get cache statistics.
 
         Returns:

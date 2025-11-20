@@ -3,6 +3,8 @@
 Commands for analyzing AWS CDK (Python, TypeScript, JavaScript) code, detecting
 infrastructure security misconfigurations before deployment.
 """
+from __future__ import annotations
+
 
 import json
 from pathlib import Path

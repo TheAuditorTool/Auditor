@@ -12,6 +12,8 @@ Attack Pattern:
 
 CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -37,7 +39,7 @@ METADATA = RuleMetadata(
 )
 
 
-def find_external_reusable_with_secrets(context: StandardRuleContext) -> List[StandardFinding]:
+def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect external reusable workflows with secret access.
 
     Detection Logic:
@@ -52,7 +54,7 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> List[St
     Returns:
         List of security findings
     """
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings

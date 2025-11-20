@@ -5,6 +5,8 @@ Uses frozensets for O(1) lookups following Golden Standard pattern.
 
 NO AST TRAVERSAL. NO FILE I/O. Pure database queries.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, FrozenSet, Set
@@ -83,7 +85,7 @@ COMMON_SANITIZERS = frozenset([
 # If tables are missing, the rule MUST crash to expose indexer bugs.
 
 
-def find_xss_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Main XSS detection with framework awareness.
 
     Returns:
@@ -120,7 +122,7 @@ def find_xss_issues(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _get_detected_frameworks(conn) -> Set[str]:
+def _get_detected_frameworks(conn) -> set[str]:
     """Query frameworks table for detected frameworks."""
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT name FROM frameworks WHERE is_primary = 1")
@@ -133,7 +135,7 @@ def _get_detected_frameworks(conn) -> Set[str]:
     return frameworks
 
 
-def _build_framework_safe_sinks(conn, frameworks: Set[str]) -> FrozenSet[str]:
+def _build_framework_safe_sinks(conn, frameworks: set[str]) -> frozenset[str]:
     """Build comprehensive safe sink list based on detected frameworks."""
     safe_sinks = set()
 
@@ -171,7 +173,7 @@ def _build_framework_safe_sinks(conn, frameworks: Set[str]) -> FrozenSet[str]:
 # CHECK 1: Response Methods (Express/Node.js)
 # ============================================================================
 
-def _check_response_methods(conn, safe_sinks: FrozenSet[str], frameworks: Set[str]) -> List[StandardFinding]:
+def _check_response_methods(conn, safe_sinks: frozenset[str], frameworks: set[str]) -> list[StandardFinding]:
     """Check response methods with framework awareness."""
     findings = []
     cursor = conn.cursor()
@@ -231,7 +233,7 @@ def _check_response_methods(conn, safe_sinks: FrozenSet[str], frameworks: Set[st
 # CHECK 2: DOM Manipulation (innerHTML, document.write)
 # ============================================================================
 
-def _check_dom_manipulation(conn, safe_sinks: FrozenSet[str]) -> List[StandardFinding]:
+def _check_dom_manipulation(conn, safe_sinks: frozenset[str]) -> list[StandardFinding]:
     """Check dangerous DOM manipulation with user input."""
     findings = []
     cursor = conn.cursor()
@@ -328,7 +330,7 @@ def _check_dom_manipulation(conn, safe_sinks: FrozenSet[str]) -> List[StandardFi
 # CHECK 3: Dangerous Functions (eval, Function, setTimeout with strings)
 # ============================================================================
 
-def _check_dangerous_functions(conn) -> List[StandardFinding]:
+def _check_dangerous_functions(conn) -> list[StandardFinding]:
     """Check eval() and similar dangerous functions."""
     findings = []
     cursor = conn.cursor()
@@ -395,7 +397,7 @@ def _check_dangerous_functions(conn) -> List[StandardFinding]:
 # CHECK 4: React dangerouslySetInnerHTML
 # ============================================================================
 
-def _check_react_dangerouslysetinnerhtml(conn) -> List[StandardFinding]:
+def _check_react_dangerouslysetinnerhtml(conn) -> list[StandardFinding]:
     """Check React dangerouslySetInnerHTML with user input."""
     findings = []
     cursor = conn.cursor()
@@ -476,7 +478,7 @@ def _check_react_dangerouslysetinnerhtml(conn) -> List[StandardFinding]:
 # CHECK 5: Vue v-html directive
 # ============================================================================
 
-def _check_vue_vhtml_directive(conn) -> List[StandardFinding]:
+def _check_vue_vhtml_directive(conn) -> list[StandardFinding]:
     """Check Vue v-html directives with user input.
 
     NO FALLBACKS. Schema contract guarantees vue_directives table exists.
@@ -518,7 +520,7 @@ def _check_vue_vhtml_directive(conn) -> List[StandardFinding]:
 # CHECK 6: Angular bypassSecurityTrust
 # ============================================================================
 
-def _check_angular_bypass(conn) -> List[StandardFinding]:
+def _check_angular_bypass(conn) -> list[StandardFinding]:
     """Check Angular security bypass methods."""
     findings = []
     cursor = conn.cursor()
@@ -571,7 +573,7 @@ def _check_angular_bypass(conn) -> List[StandardFinding]:
 # CHECK 7: jQuery Methods
 # ============================================================================
 
-def _check_jquery_methods(conn) -> List[StandardFinding]:
+def _check_jquery_methods(conn) -> list[StandardFinding]:
     """Check jQuery DOM manipulation methods."""
     findings = []
     cursor = conn.cursor()
@@ -628,7 +630,7 @@ def _check_jquery_methods(conn) -> List[StandardFinding]:
 # CHECK 8: Template Injection
 # ============================================================================
 
-def _check_template_injection(conn, frameworks: Set[str]) -> List[StandardFinding]:
+def _check_template_injection(conn, frameworks: set[str]) -> list[StandardFinding]:
     """Check for template injection vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -693,7 +695,7 @@ def _check_template_injection(conn, frameworks: Set[str]) -> List[StandardFindin
 # CHECK 9: Direct User Input to Sink
 # ============================================================================
 
-def _check_direct_user_input_to_sink(conn, safe_sinks: FrozenSet[str]) -> List[StandardFinding]:
+def _check_direct_user_input_to_sink(conn, safe_sinks: frozenset[str]) -> list[StandardFinding]:
     """Check for direct user input passed to dangerous sinks."""
     findings = []
     cursor = conn.cursor()
@@ -744,7 +746,7 @@ def _check_direct_user_input_to_sink(conn, safe_sinks: FrozenSet[str]) -> List[S
 # CHECK 10: JavaScript Protocol in URLs
 # ============================================================================
 
-def _check_url_javascript_protocol(conn) -> List[StandardFinding]:
+def _check_url_javascript_protocol(conn) -> list[StandardFinding]:
     """Check for javascript: protocol in URLs."""
     findings = []
     cursor = conn.cursor()
@@ -823,7 +825,7 @@ def _check_url_javascript_protocol(conn) -> List[StandardFinding]:
 # CHECK 11: PostMessage XSS
 # ============================================================================
 
-def _check_postmessage_xss(conn) -> List[StandardFinding]:
+def _check_postmessage_xss(conn) -> list[StandardFinding]:
     """Check for PostMessage XSS vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -914,7 +916,7 @@ def _check_postmessage_xss(conn) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

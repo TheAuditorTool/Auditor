@@ -23,13 +23,15 @@ CONSUMERS:
 CRITICAL: build_scope_map (line ~353) fixes "100% anonymous caller" bug
 by providing O(1) line-to-function lookups for accurate scope resolution.
 """
+from __future__ import annotations
+
 
 import os
 import sys
 from typing import Any, List, Dict, Optional
 
 
-def _strip_comment_prefix(text: Optional[str]) -> str:
+def _strip_comment_prefix(text: str | None) -> str:
     """Return the first non-comment, non-empty line from the given text."""
     if not text:
         return ""
@@ -51,7 +53,7 @@ def _identifier_from_node(node: Any) -> str:
         return ""
 
     # Preferred fields in priority order
-    candidates: List[str] = []
+    candidates: list[str] = []
 
     text_value = node.get("text")
     if isinstance(text_value, str):
@@ -128,7 +130,7 @@ def _canonical_member_name(node: Any) -> str:
     return _identifier_from_node(node)
 
 
-def _canonical_callee_from_call(node: Dict[str, Any]) -> str:
+def _canonical_callee_from_call(node: dict[str, Any]) -> str:
     """Return a sanitized callee name for a CallExpression node."""
     if not isinstance(node, dict):
         return ""
@@ -368,7 +370,7 @@ def check_for_jsx(node, depth=0):
     return detect_jsx_in_node(node, depth)
 
 
-def build_scope_map(ast_root: Dict) -> Dict[int, str]:
+def build_scope_map(ast_root: dict) -> dict[int, str]:
     """Build a map of line numbers to containing function names.
 
     This solves the core problem: traverse() loses track of which function it's in.
@@ -555,7 +557,7 @@ def build_scope_map(ast_root: Dict) -> Dict[int, str]:
     return scope_map
 
 
-def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Dict]:
+def extract_typescript_functions_for_symbols(tree: dict, parser_self) -> list[dict]:
     """Extract function metadata from TypeScript semantic AST for symbol table.
 
     PHASE 5: EXTRACTION-FIRST ARCHITECTURE
@@ -764,12 +766,12 @@ def extract_typescript_functions_for_symbols(tree: Dict, parser_self) -> List[Di
     return deduped_functions
 
 
-def extract_typescript_functions(tree: Dict, parser_self) -> List[Dict]:
+def extract_typescript_functions(tree: dict, parser_self) -> list[dict]:
     """For backward compatibility, returns metadata for symbols."""
     return extract_typescript_functions_for_symbols(tree, parser_self)
 
 
-def extract_typescript_function_nodes(tree: Dict, parser_self) -> List[Dict]:
+def extract_typescript_function_nodes(tree: dict, parser_self) -> list[dict]:
     """Extract COMPLETE function AST nodes from TypeScript semantic AST.
     
     This returns the full AST node for each function, including its body,
@@ -820,7 +822,7 @@ def extract_typescript_function_nodes(tree: Dict, parser_self) -> List[Dict]:
     return functions
 
 
-def extract_typescript_classes(tree: Dict, parser_self) -> List[Dict]:
+def extract_typescript_classes(tree: dict, parser_self) -> list[dict]:
     """Extract class definitions from TypeScript semantic AST.
 
     PHASE 2: Rewritten to use single-pass AST traversal instead of filtered symbols.
@@ -898,7 +900,7 @@ def extract_typescript_classes(tree: Dict, parser_self) -> List[Dict]:
     return deduped_classes
 
 
-def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
+def extract_typescript_calls(tree: dict, parser_self) -> list[dict]:
     """Extract function calls from TypeScript semantic AST.
 
     PHASE 5: EXTRACTION-FIRST ARCHITECTURE
@@ -933,7 +935,7 @@ def extract_typescript_calls(tree: Dict, parser_self) -> List[Dict]:
     return calls
 
 
-def extract_typescript_imports(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_typescript_imports(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract import statements from TypeScript semantic AST.
 
     PHASE 5: EXTRACTION-FIRST ARCHITECTURE
@@ -1004,7 +1006,7 @@ def extract_typescript_imports(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return imports
 
 
-def extract_typescript_exports(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_typescript_exports(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract export statements from TypeScript semantic AST.
     
     Currently returns empty list - exports aren't extracted by semantic parser yet.
@@ -1012,7 +1014,7 @@ def extract_typescript_exports(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return []
 
 
-def extract_typescript_properties(tree: Dict, parser_self) -> List[Dict]:
+def extract_typescript_properties(tree: dict, parser_self) -> list[dict]:
     """Extract property accesses from TypeScript semantic AST."""
     properties = []
     

@@ -14,6 +14,9 @@ All extraction functions:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 from typing import Dict, List, Any
@@ -23,7 +26,7 @@ from typing import Dict, List, Any
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_parent_map(tree: ast.AST) -> Dict[ast.AST, ast.AST]:
+def _get_parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
     """Build a map from each node to its parent node."""
     parent_map = {}
     for parent in ast.walk(tree):
@@ -32,7 +35,7 @@ def _get_parent_map(tree: ast.AST) -> Dict[ast.AST, ast.AST]:
     return parent_map
 
 
-def _get_enclosing_function(node: ast.AST, parent_map: Dict) -> str:
+def _get_enclosing_function(node: ast.AST, parent_map: dict) -> str:
     """Get the name of the enclosing function or 'global'."""
     current = node
     while current in parent_map:
@@ -48,7 +51,7 @@ def _get_enclosing_function(node: ast.AST, parent_map: Dict) -> str:
 # 1. NAMESPACE PACKAGES DETECTION
 # ============================================================================
 
-def extract_namespace_packages(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
     """Extract namespace package patterns (pkgutil.extend_path usage).
 
     Detects:
@@ -64,24 +67,21 @@ def extract_namespace_packages(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
     parent_map = _get_parent_map(tree_obj)
 
-    for node in ast.walk(tree_obj):
-        # pkgutil.extend_path() calls
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                if (isinstance(node.func.value, ast.Name) and
-                    node.func.value.id == 'pkgutil' and
-                    node.func.attr == 'extend_path'):
-                    results.append({
-                        'line': node.lineno,
-                        'pattern': 'extend_path',
-                        'in_function': _get_enclosing_function(node, parent_map),
-                    })
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            if (isinstance(node.func.value, ast.Name) and
+                node.func.value.id == 'pkgutil' and
+                node.func.attr == 'extend_path'):
+                results.append({
+                    'line': node.lineno,
+                    'pattern': 'extend_path',
+                    'in_function': _get_enclosing_function(node, parent_map),
+                })
 
         # __path__ manipulation
         if isinstance(node, ast.Assign):
@@ -100,7 +100,7 @@ def extract_namespace_packages(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # 2. CACHED_PROPERTY DETECTION
 # ============================================================================
 
-def extract_cached_property(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
     """Extract @cached_property decorator usage.
 
     Detects:
@@ -117,34 +117,32 @@ def extract_cached_property(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
-    for node in ast.walk(tree_obj):
-        if isinstance(node, ast.ClassDef):
-            class_name = node.name
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    for dec in item.decorator_list:
-                        decorator_name = None
-                        is_functools = False
+    for node in context.find_nodes(ast.ClassDef):
+        class_name = node.name
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for dec in item.decorator_list:
+                    decorator_name = None
+                    is_functools = False
 
-                        if isinstance(dec, ast.Name):
-                            decorator_name = dec.id
-                        elif isinstance(dec, ast.Attribute):
-                            if isinstance(dec.value, ast.Name):
-                                if dec.value.id == 'functools' and dec.attr == 'cached_property':
-                                    decorator_name = 'cached_property'
-                                    is_functools = True
+                    if isinstance(dec, ast.Name):
+                        decorator_name = dec.id
+                    elif isinstance(dec, ast.Attribute):
+                        if isinstance(dec.value, ast.Name):
+                            if dec.value.id == 'functools' and dec.attr == 'cached_property':
+                                decorator_name = 'cached_property'
+                                is_functools = True
 
-                        if decorator_name and 'cached_property' in decorator_name.lower():
-                            results.append({
-                                'line': item.lineno,
-                                'method_name': item.name,
-                                'in_class': class_name,
-                                'is_functools': is_functools,
-                            })
+                    if decorator_name and 'cached_property' in decorator_name.lower():
+                        results.append({
+                            'line': item.lineno,
+                            'method_name': item.name,
+                            'in_class': class_name,
+                            'is_functools': is_functools,
+                        })
 
     return results
 
@@ -153,7 +151,7 @@ def extract_cached_property(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # 3. DESCRIPTOR PROTOCOL
 # ============================================================================
 
-def extract_descriptor_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_descriptor_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract descriptor protocol implementations (__get__, __set__, __delete__).
 
     Returns:
@@ -168,35 +166,33 @@ def extract_descriptor_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
-    for node in ast.walk(tree_obj):
-        if isinstance(node, ast.ClassDef):
-            has_get = False
-            has_set = False
-            has_delete = False
+    for node in context.find_nodes(ast.ClassDef):
+        has_get = False
+        has_set = False
+        has_delete = False
 
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if item.name == '__get__':
-                        has_get = True
-                    elif item.name == '__set__':
-                        has_set = True
-                    elif item.name == '__delete__':
-                        has_delete = True
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if item.name == '__get__':
+                    has_get = True
+                elif item.name == '__set__':
+                    has_set = True
+                elif item.name == '__delete__':
+                    has_delete = True
 
-            # Only record if it's actually a descriptor
-            if has_get or has_set or has_delete:
-                results.append({
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'has_get': has_get,
-                    'has_set': has_set,
-                    'has_delete': has_delete,
-                    'is_data_descriptor': has_set or has_delete,
-                })
+        # Only record if it's actually a descriptor
+        if has_get or has_set or has_delete:
+            results.append({
+                'line': node.lineno,
+                'class_name': node.name,
+                'has_get': has_get,
+                'has_set': has_set,
+                'has_delete': has_delete,
+                'is_data_descriptor': has_set or has_delete,
+            })
 
     return results
 
@@ -205,7 +201,7 @@ def extract_descriptor_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # 4. ATTRIBUTE ACCESS PROTOCOL
 # ============================================================================
 
-def extract_attribute_access_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_attribute_access_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract attribute access protocol (__getattr__, __setattr__, __delattr__, __getattribute__).
 
     Returns:
@@ -220,38 +216,36 @@ def extract_attribute_access_protocol(tree: Dict, parser_self) -> List[Dict[str,
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
-    for node in ast.walk(tree_obj):
-        if isinstance(node, ast.ClassDef):
-            has_getattr = False
-            has_setattr = False
-            has_delattr = False
-            has_getattribute = False
+    for node in context.find_nodes(ast.ClassDef):
+        has_getattr = False
+        has_setattr = False
+        has_delattr = False
+        has_getattribute = False
 
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if item.name == '__getattr__':
-                        has_getattr = True
-                    elif item.name == '__setattr__':
-                        has_setattr = True
-                    elif item.name == '__delattr__':
-                        has_delattr = True
-                    elif item.name == '__getattribute__':
-                        has_getattribute = True
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if item.name == '__getattr__':
+                    has_getattr = True
+                elif item.name == '__setattr__':
+                    has_setattr = True
+                elif item.name == '__delattr__':
+                    has_delattr = True
+                elif item.name == '__getattribute__':
+                    has_getattribute = True
 
-            # Only record if it implements at least one method
-            if has_getattr or has_setattr or has_delattr or has_getattribute:
-                results.append({
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'has_getattr': has_getattr,
-                    'has_setattr': has_setattr,
-                    'has_delattr': has_delattr,
-                    'has_getattribute': has_getattribute,
-                })
+        # Only record if it implements at least one method
+        if has_getattr or has_setattr or has_delattr or has_getattribute:
+            results.append({
+                'line': node.lineno,
+                'class_name': node.name,
+                'has_getattr': has_getattr,
+                'has_setattr': has_setattr,
+                'has_delattr': has_delattr,
+                'has_getattribute': has_getattribute,
+            })
 
     return results
 
@@ -260,7 +254,7 @@ def extract_attribute_access_protocol(tree: Dict, parser_self) -> List[Dict[str,
 # 5. COPY PROTOCOL
 # ============================================================================
 
-def extract_copy_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_copy_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract copy protocol (__copy__, __deepcopy__).
 
     Returns:
@@ -273,30 +267,28 @@ def extract_copy_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
-    for node in ast.walk(tree_obj):
-        if isinstance(node, ast.ClassDef):
-            has_copy = False
-            has_deepcopy = False
+    for node in context.find_nodes(ast.ClassDef):
+        has_copy = False
+        has_deepcopy = False
 
-            for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if item.name == '__copy__':
-                        has_copy = True
-                    elif item.name == '__deepcopy__':
-                        has_deepcopy = True
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if item.name == '__copy__':
+                    has_copy = True
+                elif item.name == '__deepcopy__':
+                    has_deepcopy = True
 
-            # Only record if it implements at least one method
-            if has_copy or has_deepcopy:
-                results.append({
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'has_copy': has_copy,
-                    'has_deepcopy': has_deepcopy,
-                })
+        # Only record if it implements at least one method
+        if has_copy or has_deepcopy:
+            results.append({
+                'line': node.lineno,
+                'class_name': node.name,
+                'has_copy': has_copy,
+                'has_deepcopy': has_deepcopy,
+            })
 
     return results
 
@@ -305,7 +297,7 @@ def extract_copy_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # 6. ELLIPSIS USAGE
 # ============================================================================
 
-def extract_ellipsis_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract Ellipsis (...) usage patterns.
 
     Detects:
@@ -322,30 +314,29 @@ def extract_ellipsis_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
     parent_map = _get_parent_map(tree_obj)
 
-    for node in ast.walk(tree_obj):
+    for node in context.walk_tree():
         if isinstance(node, ast.Constant) and node.value is ...:
-            context = 'expression'
+            ellipsis_context = 'expression'
 
             # Check if in type annotation
             parent = parent_map.get(node)
             if parent and isinstance(parent, (ast.AnnAssign, ast.arg)):
-                context = 'type_hint'
+                ellipsis_context = 'type_hint'
             # Check if in slice
             elif parent and isinstance(parent, ast.Slice):
-                context = 'slice'
+                ellipsis_context = 'slice'
             # Check if used as pass placeholder
             elif isinstance(parent, ast.Expr):
-                context = 'pass_placeholder'
+                ellipsis_context = 'pass_placeholder'
 
             results.append({
                 'line': node.lineno,
-                'context': context,
+                'context': ellipsis_context,
                 'in_function': _get_enclosing_function(node, parent_map),
             })
 
@@ -356,7 +347,7 @@ def extract_ellipsis_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # 7. BYTES/BYTEARRAY OPERATIONS
 # ============================================================================
 
-def extract_bytes_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract bytes/bytearray operations.
 
     Detects:
@@ -374,42 +365,39 @@ def extract_bytes_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
     parent_map = _get_parent_map(tree_obj)
 
-    for node in ast.walk(tree_obj):
-        # bytes() and bytearray() calls
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                if node.func.id == 'bytes':
-                    results.append({
-                        'line': node.lineno,
-                        'operation': 'bytes',
-                        'in_function': _get_enclosing_function(node, parent_map),
-                    })
-                elif node.func.id == 'bytearray':
-                    results.append({
-                        'line': node.lineno,
-                        'operation': 'bytearray',
-                        'in_function': _get_enclosing_function(node, parent_map),
-                    })
-            # .encode()/.decode() method calls
-            elif isinstance(node.func, ast.Attribute):
-                if node.func.attr == 'encode':
-                    results.append({
-                        'line': node.lineno,
-                        'operation': 'encode',
-                        'in_function': _get_enclosing_function(node, parent_map),
-                    })
-                elif node.func.attr == 'decode':
-                    results.append({
-                        'line': node.lineno,
-                        'operation': 'decode',
-                        'in_function': _get_enclosing_function(node, parent_map),
-                    })
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Name):
+            if node.func.id == 'bytes':
+                results.append({
+                    'line': node.lineno,
+                    'operation': 'bytes',
+                    'in_function': _get_enclosing_function(node, parent_map),
+                })
+            elif node.func.id == 'bytearray':
+                results.append({
+                    'line': node.lineno,
+                    'operation': 'bytearray',
+                    'in_function': _get_enclosing_function(node, parent_map),
+                })
+        # .encode()/.decode() method calls
+        elif isinstance(node.func, ast.Attribute):
+            if node.func.attr == 'encode':
+                results.append({
+                    'line': node.lineno,
+                    'operation': 'encode',
+                    'in_function': _get_enclosing_function(node, parent_map),
+                })
+            elif node.func.attr == 'decode':
+                results.append({
+                    'line': node.lineno,
+                    'operation': 'decode',
+                    'in_function': _get_enclosing_function(node, parent_map),
+                })
 
         # Bytes literals
         if isinstance(node, ast.Constant):
@@ -427,7 +415,7 @@ def extract_bytes_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # 8. EXEC/EVAL/COMPILE USAGE
 # ============================================================================
 
-def extract_exec_eval_compile(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_exec_eval_compile(context: FileContext) -> list[dict[str, Any]]:
     """Extract exec/eval/compile dynamic execution patterns.
 
     SECURITY NOTE: These patterns are security-sensitive and should be
@@ -444,41 +432,39 @@ def extract_exec_eval_compile(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     results = []
-    tree_obj = tree.get('tree')
     if not tree_obj:
         return results
 
     parent_map = _get_parent_map(tree_obj)
 
-    for node in ast.walk(tree_obj):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                operation = None
-                if node.func.id == 'exec':
-                    operation = 'exec'
-                elif node.func.id == 'eval':
-                    operation = 'eval'
-                elif node.func.id == 'compile':
-                    operation = 'compile'
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Name):
+            operation = None
+            if node.func.id == 'exec':
+                operation = 'exec'
+            elif node.func.id == 'eval':
+                operation = 'eval'
+            elif node.func.id == 'compile':
+                operation = 'compile'
 
-                if operation:
-                    # Check if globals/locals are provided
-                    has_globals = len(node.args) >= 2
-                    has_locals = len(node.args) >= 3
+            if operation:
+                # Check if globals/locals are provided
+                has_globals = len(node.args) >= 2
+                has_locals = len(node.args) >= 3
 
-                    # Also check keyword arguments
-                    for kw in node.keywords:
-                        if kw.arg == 'globals':
-                            has_globals = True
-                        elif kw.arg == 'locals':
-                            has_locals = True
+                # Also check keyword arguments
+                for kw in node.keywords:
+                    if kw.arg == 'globals':
+                        has_globals = True
+                    elif kw.arg == 'locals':
+                        has_locals = True
 
-                    results.append({
-                        'line': node.lineno,
-                        'operation': operation,
-                        'has_globals': has_globals,
-                        'has_locals': has_locals,
-                        'in_function': _get_enclosing_function(node, parent_map),
-                    })
+                results.append({
+                    'line': node.lineno,
+                    'operation': operation,
+                    'has_globals': has_globals,
+                    'has_locals': has_locals,
+                    'in_function': _get_enclosing_function(node, parent_map),
+                })
 
     return results

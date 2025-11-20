@@ -9,6 +9,8 @@ Follows golden standard patterns:
 - Schema contract compliance (v1.1+ - uses build_query())
 - Proper confidence levels
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -143,7 +145,7 @@ PROPERTY_CHAIN_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect performance anti-patterns and inefficiencies.
 
     Detects:
@@ -225,7 +227,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_queries_in_loops(cursor) -> List[StandardFinding]:
+def _find_queries_in_loops(cursor) -> list[StandardFinding]:
     """Find database queries executed inside loops (N+1 problem)."""
     findings = []
 
@@ -314,7 +316,7 @@ def _find_queries_in_loops(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
+def _find_expensive_operations_in_loops(cursor) -> list[StandardFinding]:
     """Find expensive operations that should be moved outside loops."""
     findings = []
 
@@ -373,7 +375,7 @@ def _find_expensive_operations_in_loops(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
+def _find_inefficient_string_concat(cursor) -> list[StandardFinding]:
     """Find inefficient string concatenation in loops (O(n²) complexity)."""
     findings = []
 
@@ -427,7 +429,7 @@ def _find_inefficient_string_concat(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_synchronous_io_patterns(cursor) -> List[StandardFinding]:
+def _find_synchronous_io_patterns(cursor) -> list[StandardFinding]:
     """Find synchronous I/O operations that block the event loop."""
     findings = []
 
@@ -478,7 +480,7 @@ def _find_synchronous_io_patterns(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_unbounded_operations(cursor) -> List[StandardFinding]:
+def _find_unbounded_operations(cursor) -> list[StandardFinding]:
     """Find operations without proper limits that could cause memory issues."""
     findings = []
 
@@ -569,7 +571,7 @@ def _find_unbounded_operations(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_deep_property_chains(cursor) -> List[StandardFinding]:
+def _find_deep_property_chains(cursor) -> list[StandardFinding]:
     """Find deep property access chains that impact performance."""
     findings = []
 
@@ -630,7 +632,7 @@ def _find_deep_property_chains(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_unoptimized_taint_flows(cursor) -> List[StandardFinding]:
+def _find_unoptimized_taint_flows(cursor) -> list[StandardFinding]:
     """Find unoptimized taint flows (e.g., req.body → res.send without validation)."""
     findings = []
 
@@ -683,7 +685,7 @@ def _find_unoptimized_taint_flows(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_repeated_expensive_calls(cursor) -> List[StandardFinding]:
+def _find_repeated_expensive_calls(cursor) -> list[StandardFinding]:
     """Find expensive functions called multiple times in same context."""
     findings = []
 
@@ -725,7 +727,7 @@ def _find_repeated_expensive_calls(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_large_object_operations(cursor) -> List[StandardFinding]:
+def _find_large_object_operations(cursor) -> list[StandardFinding]:
     """Find operations on large objects that could cause performance issues."""
     findings = []
 

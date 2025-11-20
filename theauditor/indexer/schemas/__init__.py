@@ -27,7 +27,7 @@ from .graphs_schema import GRAPH_TABLES
 # Merge all domain-specific registries into single export
 # ============================================================================
 
-TABLES: Dict[str, TableSchema] = {
+TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,
     **SECURITY_TABLES,
     **FRAMEWORKS_TABLES,

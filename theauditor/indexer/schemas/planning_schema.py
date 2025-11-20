@@ -262,7 +262,7 @@ REFACTOR_HISTORY = TableSchema(
 # PLANNING TABLES REGISTRY
 # ============================================================================
 
-PLANNING_TABLES: Dict[str, TableSchema] = {
+PLANNING_TABLES: dict[str, TableSchema] = {
     "plans": PLANS,
     "plan_phases": PLAN_PHASES,  # NEW: Phase → Task → Job hierarchy
     "plan_tasks": PLAN_TASKS,

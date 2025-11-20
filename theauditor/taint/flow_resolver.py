@@ -13,6 +13,8 @@ Architecture:
     - Uses graph node IDs: file::function::variable (matches dfg_builder.py)
     - Memory optimized: No redundant visited sets, DFS stack instead of BFS queue
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -92,7 +94,7 @@ class FlowResolver:
         logger.info(f"Flow resolution complete: {self.flows_resolved} flows resolved")
         return self.flows_resolved
 
-    def _get_entry_nodes(self) -> List[str]:
+    def _get_entry_nodes(self) -> list[str]:
         """Get all entry points from the unified graph.
 
         Entry points include:
@@ -197,7 +199,7 @@ class FlowResolver:
 
         return entry_nodes
 
-    def _get_exit_nodes(self) -> Set[str]:
+    def _get_exit_nodes(self) -> set[str]:
         """Get all exit points from the unified graph.
 
         Exit points are nodes in the graph that represent sinks:
@@ -369,7 +371,7 @@ class FlowResolver:
 
         return exit_nodes
 
-    def _trace_from_entry(self, entry_id: str, exit_nodes: Set[str]) -> None:
+    def _trace_from_entry(self, entry_id: str, exit_nodes: set[str]) -> None:
         """Trace all flows from a single entry point using DFS (memory-efficient).
 
         Args:
@@ -387,7 +389,7 @@ class FlowResolver:
         # - No path undercounting (unlike global visited_states) ✅
         # - Memory: O(E) where E = edge count in graph
         worklist = [(entry_id, [entry_id])]  # (current_node, path)
-        visited_edges: Set[Tuple[str, str]] = set()  # Edge-based tracking
+        visited_edges: set[tuple[str, str]] = set()  # Edge-based tracking
         flows_from_this_entry = 0
 
         while worklist and self.flows_resolved < self.max_flows and flows_from_this_entry < self.max_flows_per_entry:
@@ -425,7 +427,7 @@ class FlowResolver:
                     new_path = path + [successor_id]
                     worklist.append((successor_id, new_path))
 
-    def _get_successors(self, node_id: str) -> List[str]:
+    def _get_successors(self, node_id: str) -> list[str]:
         """Get successor nodes from the unified data flow graph.
 
         Args:
@@ -446,7 +448,7 @@ class FlowResolver:
 
         return [row[0] for row in cursor.fetchall()]
 
-    def _classify_flow(self, path: List[str]) -> Tuple[str, Optional[Dict]]:
+    def _classify_flow(self, path: list[str]) -> tuple[str, dict | None]:
         """Classify a flow path based on sanitization.
 
         Checks if the path goes through any sanitizers (validation frameworks
@@ -472,7 +474,7 @@ class FlowResolver:
             # Default to VULNERABLE - rules will determine if actually vulnerable
             return ("VULNERABLE", None)
 
-    def _record_flow(self, source: str, sink: str, path: List[str], status: str, sanitizer_meta: Optional[Dict]) -> None:
+    def _record_flow(self, source: str, sink: str, path: list[str], status: str, sanitizer_meta: dict | None) -> None:
         """Write resolved flow to resolved_flow_audit table.
 
         Args:
@@ -586,7 +588,7 @@ class FlowResolver:
         result = cursor.fetchone()
         return result[0] if result else "unknown"
 
-    def _parse_argument_variable(self, arg_expr: str) -> Optional[str]:
+    def _parse_argument_variable(self, arg_expr: str) -> str | None:
         """Extract variable name from argument expression.
 
         Args:

@@ -37,6 +37,9 @@ Expected extraction from TheAuditor codebase:
 - ~25 class decorators
 Total: ~900 protocol records
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -51,7 +54,7 @@ logger = logging.getLogger(__name__)
 # Helper Functions
 # ============================================================================
 
-def _build_function_ranges(tree: ast.AST) -> List:
+def _build_function_ranges(tree: ast.AST) -> list:
     """Build list of function ranges for context tracking."""
     function_ranges = []
     for node in ast.walk(tree):
@@ -65,7 +68,7 @@ def _build_function_ranges(tree: ast.AST) -> List:
     return function_ranges
 
 
-def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
+def _find_containing_function(node: ast.AST, function_ranges: list) -> str:
     """Find the function containing this node."""
     if not hasattr(node, 'lineno'):
         return 'global'
@@ -77,7 +80,7 @@ def _find_containing_function(node: ast.AST, function_ranges: List) -> str:
     return 'global'
 
 
-def _get_class_methods(class_node: ast.ClassDef) -> Dict[str, ast.FunctionDef]:
+def _get_class_methods(class_node: ast.ClassDef) -> dict[str, ast.FunctionDef]:
     """Extract methods from a class definition."""
     methods = {}
     for item in class_node.body:
@@ -102,7 +105,7 @@ PICKLE_METHODS = {'__getstate__', '__setstate__', '__reduce__', '__reduce_ex__'}
 # Iterator Protocol Extractors
 # ============================================================================
 
-def extract_iterator_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract iterator protocol implementations.
 
     Detects:
@@ -123,52 +126,49 @@ def extract_iterator_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     iterator_protocols = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return iterator_protocols
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            methods = _get_class_methods(node)
+    for node in context.find_nodes(ast.ClassDef):
+        methods = _get_class_methods(node)
 
-            # Check for iterator protocol methods
-            has_iter = '__iter__' in methods
-            has_next = '__next__' in methods
+        # Check for iterator protocol methods
+        has_iter = '__iter__' in methods
+        has_next = '__next__' in methods
 
-            if has_iter or has_next:
-                # Check for StopIteration
-                raises_stopiteration = False
-                if '__next__' in methods:
-                    next_method = methods['__next__']
-                    for subnode in ast.walk(next_method):
-                        if isinstance(subnode, ast.Raise):
-                            if isinstance(subnode.exc, ast.Call):
-                                if isinstance(subnode.exc.func, ast.Name):
-                                    if subnode.exc.func.id == 'StopIteration':
-                                        raises_stopiteration = True
-                            elif isinstance(subnode.exc, ast.Name):
-                                if subnode.exc.id == 'StopIteration':
-                                    raises_stopiteration = True
+        if has_iter or has_next:
+            # Check for StopIteration
+            raises_stopiteration = False
+            if '__next__' in methods:
+                next_method = methods['__next__']
+                for subnode in context.find_nodes(ast.Raise):
+                    if isinstance(subnode.exc, ast.Call):
+                        if isinstance(subnode.exc.func, ast.Name):
+                            if subnode.exc.func.id == 'StopIteration':
+                                raises_stopiteration = True
+                    elif isinstance(subnode.exc, ast.Name):
+                        if subnode.exc.id == 'StopIteration':
+                            raises_stopiteration = True
 
-                # Check if __iter__ is a generator
-                is_generator = False
-                if '__iter__' in methods:
-                    iter_method = methods['__iter__']
-                    for subnode in ast.walk(iter_method):
-                        if isinstance(subnode, (ast.Yield, ast.YieldFrom)):
-                            is_generator = True
-                            break
+            # Check if __iter__ is a generator
+            is_generator = False
+            if '__iter__' in methods:
+                iter_method = methods['__iter__']
+                for subnode in context.find_nodes((ast.Yield, ast.YieldFrom)):
+                    is_generator = True
+                    break
 
-                iterator_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'has_iter': has_iter,
-                    'has_next': has_next,
-                    'raises_stopiteration': raises_stopiteration,
-                    'is_generator': is_generator,
-                }
-                iterator_protocols.append(iterator_data)
+            iterator_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'has_iter': has_iter,
+                'has_next': has_next,
+                'raises_stopiteration': raises_stopiteration,
+                'is_generator': is_generator,
+            }
+            iterator_protocols.append(iterator_data)
 
     return iterator_protocols
 
@@ -177,7 +177,7 @@ def extract_iterator_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Container Protocol Extractors
 # ============================================================================
 
-def extract_container_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract container protocol implementations.
 
     Detects:
@@ -199,55 +199,54 @@ def extract_container_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     container_protocols = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return container_protocols
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            methods = _get_class_methods(node)
+    for node in context.find_nodes(ast.ClassDef):
+        methods = _get_class_methods(node)
 
-            # Check for container protocol methods
-            has_len = '__len__' in methods
-            has_getitem = '__getitem__' in methods
-            has_setitem = '__setitem__' in methods
-            has_delitem = '__delitem__' in methods
-            has_contains = '__contains__' in methods
+        # Check for container protocol methods
+        has_len = '__len__' in methods
+        has_getitem = '__getitem__' in methods
+        has_setitem = '__setitem__' in methods
+        has_delitem = '__delitem__' in methods
+        has_contains = '__contains__' in methods
 
-            if any([has_len, has_getitem, has_setitem, has_delitem, has_contains]):
-                # Try to distinguish sequence vs mapping
-                # Sequence: __getitem__ with int index
-                # Mapping: __getitem__ with any key type
-                is_sequence = False
-                is_mapping = False
+        if any([has_len, has_getitem, has_setitem, has_delitem, has_contains]):
+            # Try to distinguish sequence vs mapping
+            # Sequence: __getitem__ with int index
+            # Mapping: __getitem__ with any key type
+            is_sequence = False
+            is_mapping = False
 
-                if '__getitem__' in methods:
-                    getitem_method = methods['__getitem__']
-                    # Simple heuristic: check if method signature uses 'index' or 'key'
-                    if getitem_method.args.args:
-                        param_name = getitem_method.args.args[-1].arg
-                        if 'index' in param_name or 'idx' in param_name or 'i' == param_name:
-                            is_sequence = True
-                        elif 'key' in param_name or 'k' == param_name:
-                            is_mapping = True
-                        else:
-                            # Default: if has __len__, assume sequence
-                            is_sequence = has_len
-                            is_mapping = not has_len
+            if '__getitem__' in methods:
+                getitem_method = methods['__getitem__']
+                # Simple heuristic: check if method signature uses 'index' or 'key'
+                if getitem_method.args.args:
+                    param_name = getitem_method.args.args[-1].arg
+                    if 'index' in param_name or 'idx' in param_name or 'i' == param_name:
+                        is_sequence = True
+                    elif 'key' in param_name or 'k' == param_name:
+                        is_mapping = True
+                    else:
+                        # Default: if has __len__, assume sequence
+                        is_sequence = has_len
+                        is_mapping = not has_len
 
-                container_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'has_len': has_len,
-                    'has_getitem': has_getitem,
-                    'has_setitem': has_setitem,
-                    'has_delitem': has_delitem,
-                    'has_contains': has_contains,
-                    'is_sequence': is_sequence,
-                    'is_mapping': is_mapping,
-                }
-                container_protocols.append(container_data)
+            container_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'has_len': has_len,
+                'has_getitem': has_getitem,
+                'has_setitem': has_setitem,
+                'has_delitem': has_delitem,
+                'has_contains': has_contains,
+                'is_sequence': is_sequence,
+                'is_mapping': is_mapping,
+            }
+            container_protocols.append(container_data)
 
     return container_protocols
 
@@ -256,7 +255,7 @@ def extract_container_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Callable Protocol Extractors
 # ============================================================================
 
-def extract_callable_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_callable_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract callable protocol implementations (__call__).
 
     Detects:
@@ -275,33 +274,32 @@ def extract_callable_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     callable_protocols = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return callable_protocols
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            methods = _get_class_methods(node)
+    for node in context.find_nodes(ast.ClassDef):
+        methods = _get_class_methods(node)
 
-            if '__call__' in methods:
-                call_method = methods['__call__']
+        if '__call__' in methods:
+            call_method = methods['__call__']
 
-                # Count parameters (excluding self)
-                param_count = len(call_method.args.args) - 1  # Exclude 'self'
+            # Count parameters (excluding self)
+            param_count = len(call_method.args.args) - 1  # Exclude 'self'
 
-                # Check for *args and **kwargs
-                has_args = call_method.args.vararg is not None
-                has_kwargs = call_method.args.kwarg is not None
+            # Check for *args and **kwargs
+            has_args = call_method.args.vararg is not None
+            has_kwargs = call_method.args.kwarg is not None
 
-                callable_data = {
-                    'line': call_method.lineno,
-                    'class_name': node.name,
-                    'param_count': param_count,
-                    'has_args': has_args,
-                    'has_kwargs': has_kwargs,
-                }
-                callable_protocols.append(callable_data)
+            callable_data = {
+                'line': call_method.lineno,
+                'class_name': node.name,
+                'param_count': param_count,
+                'has_args': has_args,
+                'has_kwargs': has_kwargs,
+            }
+            callable_protocols.append(callable_data)
 
     return callable_protocols
 
@@ -310,7 +308,7 @@ def extract_callable_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Comparison Protocol Extractors
 # ============================================================================
 
-def extract_comparison_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_comparison_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract comparison protocol implementations.
 
     Detects:
@@ -329,40 +327,39 @@ def extract_comparison_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     comparison_protocols = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return comparison_protocols
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            methods = _get_class_methods(node)
+    for node in context.find_nodes(ast.ClassDef):
+        methods = _get_class_methods(node)
 
-            # Find comparison methods
-            comparison_methods_found = [m for m in COMPARISON_METHODS if m in methods]
+        # Find comparison methods
+        comparison_methods_found = [m for m in COMPARISON_METHODS if m in methods]
 
-            if comparison_methods_found:
-                # Check for @total_ordering decorator
-                is_total_ordering = False
-                for decorator in node.decorator_list:
-                    if isinstance(decorator, ast.Name):
-                        if decorator.id == 'total_ordering':
-                            is_total_ordering = True
-                    elif isinstance(decorator, ast.Attribute):
-                        if decorator.attr == 'total_ordering':
-                            is_total_ordering = True
+        if comparison_methods_found:
+            # Check for @total_ordering decorator
+            is_total_ordering = False
+            for decorator in node.decorator_list:
+                if isinstance(decorator, ast.Name):
+                    if decorator.id == 'total_ordering':
+                        is_total_ordering = True
+                elif isinstance(decorator, ast.Attribute):
+                    if decorator.attr == 'total_ordering':
+                        is_total_ordering = True
 
-                # Check if all rich comparison methods are present
-                has_all_rich = len(comparison_methods_found) == len(COMPARISON_METHODS)
+            # Check if all rich comparison methods are present
+            has_all_rich = len(comparison_methods_found) == len(COMPARISON_METHODS)
 
-                comparison_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'methods': ', '.join(sorted(comparison_methods_found)),
-                    'is_total_ordering': is_total_ordering,
-                    'has_all_rich': has_all_rich,
-                }
-                comparison_protocols.append(comparison_data)
+            comparison_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'methods': ', '.join(sorted(comparison_methods_found)),
+                'is_total_ordering': is_total_ordering,
+                'has_all_rich': has_all_rich,
+            }
+            comparison_protocols.append(comparison_data)
 
     return comparison_protocols
 
@@ -371,7 +368,7 @@ def extract_comparison_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # Arithmetic Protocol Extractors
 # ============================================================================
 
-def extract_arithmetic_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_arithmetic_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract arithmetic protocol implementations.
 
     Detects:
@@ -390,33 +387,32 @@ def extract_arithmetic_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]
         }
     """
     arithmetic_protocols = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return arithmetic_protocols
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            methods = _get_class_methods(node)
+    for node in context.find_nodes(ast.ClassDef):
+        methods = _get_class_methods(node)
 
-            # Find arithmetic methods
-            arithmetic_methods_found = [m for m in ARITHMETIC_METHODS if m in methods]
+        # Find arithmetic methods
+        arithmetic_methods_found = [m for m in ARITHMETIC_METHODS if m in methods]
 
-            if arithmetic_methods_found:
-                # Check for reflected methods
-                has_reflected = any(m.startswith('__r') for m in arithmetic_methods_found)
+        if arithmetic_methods_found:
+            # Check for reflected methods
+            has_reflected = any(m.startswith('__r') for m in arithmetic_methods_found)
 
-                # Check for in-place methods
-                has_inplace = any(m.startswith('__i') for m in arithmetic_methods_found)
+            # Check for in-place methods
+            has_inplace = any(m.startswith('__i') for m in arithmetic_methods_found)
 
-                arithmetic_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'methods': ', '.join(sorted(arithmetic_methods_found)),
-                    'has_reflected': has_reflected,
-                    'has_inplace': has_inplace,
-                }
-                arithmetic_protocols.append(arithmetic_data)
+            arithmetic_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'methods': ', '.join(sorted(arithmetic_methods_found)),
+                'has_reflected': has_reflected,
+                'has_inplace': has_inplace,
+            }
+            arithmetic_protocols.append(arithmetic_data)
 
     return arithmetic_protocols
 
@@ -425,7 +421,7 @@ def extract_arithmetic_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]
 # Pickle Protocol Extractors
 # ============================================================================
 
-def extract_pickle_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_pickle_protocol(context: FileContext) -> list[dict[str, Any]]:
     """Extract pickle protocol implementations.
 
     Detects:
@@ -443,31 +439,30 @@ def extract_pickle_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     pickle_protocols = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return pickle_protocols
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            methods = _get_class_methods(node)
+    for node in context.find_nodes(ast.ClassDef):
+        methods = _get_class_methods(node)
 
-            # Check for pickle protocol methods
-            has_getstate = '__getstate__' in methods
-            has_setstate = '__setstate__' in methods
-            has_reduce = '__reduce__' in methods
-            has_reduce_ex = '__reduce_ex__' in methods
+        # Check for pickle protocol methods
+        has_getstate = '__getstate__' in methods
+        has_setstate = '__setstate__' in methods
+        has_reduce = '__reduce__' in methods
+        has_reduce_ex = '__reduce_ex__' in methods
 
-            if any([has_getstate, has_setstate, has_reduce, has_reduce_ex]):
-                pickle_data = {
-                    'line': node.lineno,
-                    'class_name': node.name,
-                    'has_getstate': has_getstate,
-                    'has_setstate': has_setstate,
-                    'has_reduce': has_reduce,
-                    'has_reduce_ex': has_reduce_ex,
-                }
-                pickle_protocols.append(pickle_data)
+        if any([has_getstate, has_setstate, has_reduce, has_reduce_ex]):
+            pickle_data = {
+                'line': node.lineno,
+                'class_name': node.name,
+                'has_getstate': has_getstate,
+                'has_setstate': has_setstate,
+                'has_reduce': has_reduce,
+                'has_reduce_ex': has_reduce_ex,
+            }
+            pickle_protocols.append(pickle_data)
 
     return pickle_protocols
 
@@ -476,7 +471,7 @@ def extract_pickle_protocol(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Weakref Usage Extractors
 # ============================================================================
 
-def extract_weakref_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_weakref_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract weakref module usage.
 
     Detects:
@@ -493,38 +488,37 @@ def extract_weakref_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     weakref_usage = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return weakref_usage
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            usage_type = None
+    for node in context.find_nodes(ast.Call):
+        usage_type = None
 
-            # Check for weakref.function() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'weakref':
-                        attr_name = node.func.attr
-                        if attr_name in ('ref', 'proxy', 'WeakValueDictionary', 'WeakKeyDictionary'):
-                            usage_type = attr_name
+        # Check for weakref.function() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'weakref':
+                    attr_name = node.func.attr
+                    if attr_name in ('ref', 'proxy', 'WeakValueDictionary', 'WeakKeyDictionary'):
+                        usage_type = attr_name
 
-            # Check for direct calls (after from weakref import ...)
-            elif isinstance(node.func, ast.Name):
-                func_name = node.func.id
-                if func_name in ('ref', 'proxy', 'WeakValueDictionary', 'WeakKeyDictionary'):
-                    usage_type = func_name
+        # Check for direct calls (after from weakref import ...)
+        elif isinstance(node.func, ast.Name):
+            func_name = node.func.id
+            if func_name in ('ref', 'proxy', 'WeakValueDictionary', 'WeakKeyDictionary'):
+                usage_type = func_name
 
-            if usage_type:
-                weakref_data = {
-                    'line': node.lineno,
-                    'usage_type': usage_type,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                weakref_usage.append(weakref_data)
+        if usage_type:
+            weakref_data = {
+                'line': node.lineno,
+                'usage_type': usage_type,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            weakref_usage.append(weakref_data)
 
     return weakref_usage
 
@@ -533,7 +527,7 @@ def extract_weakref_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Context Variable Extractors
 # ============================================================================
 
-def extract_contextvar_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_contextvar_usage(context: FileContext) -> list[dict[str, Any]]:
     """Extract contextvars module usage.
 
     Detects:
@@ -550,46 +544,45 @@ def extract_contextvar_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     contextvar_usage = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return contextvar_usage
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            operation = None
+    for node in context.find_nodes(ast.Call):
+        operation = None
 
-            # Check for contextvars.ContextVar() calls
-            if isinstance(node.func, ast.Attribute):
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == 'contextvars':
-                        attr_name = node.func.attr
-                        if attr_name in ('ContextVar', 'Token'):
-                            operation = attr_name
+        # Check for contextvars.ContextVar() calls
+        if isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'contextvars':
+                    attr_name = node.func.attr
+                    if attr_name in ('ContextVar', 'Token'):
+                        operation = attr_name
 
-            # Check for direct calls (after from contextvars import ...)
-            elif isinstance(node.func, ast.Name):
-                func_name = node.func.id
-                if func_name in ('ContextVar', 'Token'):
-                    operation = func_name
+        # Check for direct calls (after from contextvars import ...)
+        elif isinstance(node.func, ast.Name):
+            func_name = node.func.id
+            if func_name in ('ContextVar', 'Token'):
+                operation = func_name
 
-            # Check for .get()/.set() calls on ContextVar instances
-            if isinstance(node.func, ast.Attribute):
-                attr_name = node.func.attr
-                if attr_name in ('get', 'set'):
-                    # Heuristic: if method is get/set, might be ContextVar
-                    # (This is best-effort without type analysis)
-                    operation = attr_name
+        # Check for .get()/.set() calls on ContextVar instances
+        if isinstance(node.func, ast.Attribute):
+            attr_name = node.func.attr
+            if attr_name in ('get', 'set'):
+                # Heuristic: if method is get/set, might be ContextVar
+                # (This is best-effort without type analysis)
+                operation = attr_name
 
-            if operation:
-                contextvar_data = {
-                    'line': node.lineno,
-                    'operation': operation,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                contextvar_usage.append(contextvar_data)
+        if operation:
+            contextvar_data = {
+                'line': node.lineno,
+                'operation': operation,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            contextvar_usage.append(contextvar_data)
 
     return contextvar_usage
 
@@ -598,7 +591,7 @@ def extract_contextvar_usage(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Module Attribute Extractors
 # ============================================================================
 
-def extract_module_attributes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_module_attributes(context: FileContext) -> list[dict[str, Any]]:
     """Extract module-level attribute usage.
 
     Detects:
@@ -615,50 +608,37 @@ def extract_module_attributes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     module_attributes = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return module_attributes
 
-    function_ranges = _build_function_ranges(actual_tree)
+    function_ranges = context.function_ranges
 
     # Track assignment targets
     assignment_targets = set()
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    assignment_targets.add((target.lineno, target.id))
+    for node in context.find_nodes(ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                assignment_targets.add((target.lineno, target.id))
 
     # Find module attribute usage
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Name):
-            if node.id in ('__name__', '__file__', '__doc__', '__all__'):
-                # Determine usage type
-                usage_type = 'read'
-                if (node.lineno, node.id) in assignment_targets:
-                    usage_type = 'write'
-                elif isinstance(node.ctx, ast.Store):
-                    usage_type = 'write'
+    for node in context.find_nodes(ast.Name):
+        if node.id in ('__name__', '__file__', '__doc__', '__all__'):
+            # Determine usage type
+            usage_type = 'read'
+            if (node.lineno, node.id) in assignment_targets:
+                usage_type = 'write'
+            elif isinstance(node.ctx, ast.Store):
+                usage_type = 'write'
 
-                module_attr_data = {
-                    'line': node.lineno,
-                    'attribute': node.id,
-                    'usage_type': usage_type,
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                module_attributes.append(module_attr_data)
-
-        # Check for if __name__ == '__main__' pattern
-        elif isinstance(node, ast.Compare):
-            if isinstance(node.left, ast.Name) and node.left.id == '__name__':
-                module_attr_data = {
-                    'line': node.lineno,
-                    'attribute': '__name__',
-                    'usage_type': 'check',
-                    'in_function': _find_containing_function(node, function_ranges),
-                }
-                module_attributes.append(module_attr_data)
+            module_attr_data = {
+                'line': node.lineno,
+                'attribute': node.id,
+                'usage_type': usage_type,
+                'in_function': _find_containing_function(node, function_ranges),
+            }
+            module_attributes.append(module_attr_data)
 
     return module_attributes
 
@@ -667,7 +647,7 @@ def extract_module_attributes(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 # Class Decorator Extractors
 # ============================================================================
 
-def extract_class_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_class_decorators(context: FileContext) -> list[dict[str, Any]]:
     """Extract class decorators (separate from method decorators).
 
     Detects:
@@ -685,48 +665,47 @@ def extract_class_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         }
     """
     class_decorators = []
-    actual_tree = tree.get("tree")
+    context.tree = tree.get("tree")
 
-    if not isinstance(actual_tree, ast.AST):
+    if not isinstance(context.tree, ast.AST):
         return class_decorators
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.ClassDef):
-            for decorator in node.decorator_list:
-                decorator_name = None
-                has_arguments = False
+    for node in context.find_nodes(ast.ClassDef):
+        for decorator in node.decorator_list:
+            decorator_name = None
+            has_arguments = False
 
-                # Simple decorator: @name
-                if isinstance(decorator, ast.Name):
-                    decorator_name = decorator.id
+            # Simple decorator: @name
+            if isinstance(decorator, ast.Name):
+                decorator_name = decorator.id
 
-                # Decorator with arguments: @name(...)
-                elif isinstance(decorator, ast.Call):
-                    has_arguments = True
-                    if isinstance(decorator.func, ast.Name):
-                        decorator_name = decorator.func.id
-                    elif isinstance(decorator.func, ast.Attribute):
-                        decorator_name = decorator.func.attr
+            # Decorator with arguments: @name(...)
+            elif isinstance(decorator, ast.Call):
+                has_arguments = True
+                if isinstance(decorator.func, ast.Name):
+                    decorator_name = decorator.func.id
+                elif isinstance(decorator.func, ast.Attribute):
+                    decorator_name = decorator.func.attr
 
-                # Attribute decorator: @module.name
-                elif isinstance(decorator, ast.Attribute):
-                    decorator_name = decorator.attr
+            # Attribute decorator: @module.name
+            elif isinstance(decorator, ast.Attribute):
+                decorator_name = decorator.attr
 
-                if decorator_name:
-                    # Classify decorator type
-                    decorator_type = 'custom'
-                    if decorator_name == 'dataclass':
-                        decorator_type = 'dataclass'
-                    elif decorator_name == 'total_ordering':
-                        decorator_type = 'total_ordering'
+            if decorator_name:
+                # Classify decorator type
+                decorator_type = 'custom'
+                if decorator_name == 'dataclass':
+                    decorator_type = 'dataclass'
+                elif decorator_name == 'total_ordering':
+                    decorator_type = 'total_ordering'
 
-                    class_decorator_data = {
-                        'line': decorator.lineno,
-                        'class_name': node.name,
-                        'decorator': decorator_name,
-                        'decorator_type': decorator_type,
-                        'has_arguments': has_arguments,
-                    }
-                    class_decorators.append(class_decorator_data)
+                class_decorator_data = {
+                    'line': decorator.lineno,
+                    'class_name': node.name,
+                    'decorator': decorator_name,
+                    'decorator_type': decorator_type,
+                    'has_arguments': has_arguments,
+                }
+                class_decorators.append(class_decorator_data)
 
     return class_decorators

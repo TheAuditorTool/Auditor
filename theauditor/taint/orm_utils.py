@@ -1,10 +1,13 @@
 """Utilities for Python ORM-aware taint analysis enhancements."""
-
 from __future__ import annotations
+
+
 
 from dataclasses import dataclass, field
 import sqlite3
-from typing import Dict, List, Optional, Set, Tuple, Iterable, TYPE_CHECKING
+from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+
+from collections.abc import Iterable
 
 from theauditor.indexer.schema import build_query
 
@@ -16,18 +19,18 @@ if TYPE_CHECKING:
 class PythonOrmContext:
     """Lightweight view of Python ORM metadata for taint propagation."""
 
-    model_names: Set[str] = field(default_factory=set)
-    table_to_model: Dict[str, str] = field(default_factory=dict)
-    relationships: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
-    fk_fields: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
-    param_types: Dict[Tuple[str, str, str], str] = field(default_factory=dict)
-    cache_assignments_lookup: Optional[Dict[Tuple[str, str], List[Dict[str, str]]]] = None
-    cache: Optional["MemoryCache"] = None
-    cursor: Optional["sqlite3.Cursor"] = None
-    _assignment_cache: Dict[Tuple[str, str], List[Dict[str, str]]] = field(default_factory=dict)
+    model_names: set[str] = field(default_factory=set)
+    table_to_model: dict[str, str] = field(default_factory=dict)
+    relationships: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+    fk_fields: dict[str, list[dict[str, str]]] = field(default_factory=dict)
+    param_types: dict[tuple[str, str, str], str] = field(default_factory=dict)
+    cache_assignments_lookup: dict[tuple[str, str], list[dict[str, str]]] | None = None
+    cache: MemoryCache | None = None
+    cursor: sqlite3.Cursor | None = None
+    _assignment_cache: dict[tuple[str, str], list[dict[str, str]]] = field(default_factory=dict)
 
     @classmethod
-    def from_cache(cls, cache: "MemoryCache", cursor: Optional["sqlite3.Cursor"]) -> "PythonOrmContext":
+    def from_cache(cls, cache: MemoryCache, cursor: sqlite3.Cursor | None) -> PythonOrmContext:
         return cls(
             model_names=set(cache.python_model_names),
             table_to_model=dict(cache.python_table_to_model),
@@ -40,7 +43,7 @@ class PythonOrmContext:
         )
 
     @classmethod
-    def from_database(cls, cursor: "sqlite3.Cursor") -> "PythonOrmContext":
+    def from_database(cls, cursor: sqlite3.Cursor) -> PythonOrmContext:
         context = cls(cursor=cursor)
         context._load_models()
         context._load_relationships()
@@ -60,8 +63,8 @@ class PythonOrmContext:
         file_path: str,
         function_names: Iterable[str],
         var_name: str,
-        bindings: Optional[Dict[str, str]] = None,
-    ) -> Optional[str]:
+        bindings: dict[str, str] | None = None,
+    ) -> str | None:
         if not var_name:
             return None
         if bindings and var_name in bindings:
@@ -94,12 +97,12 @@ class PythonOrmContext:
                         return inferred
         return None
 
-    def get_relationships(self, model_name: str) -> List[Dict[str, str]]:
+    def get_relationships(self, model_name: str) -> list[dict[str, str]]:
         if self.cache:
             return self.cache.get_python_relationships(model_name)
         return self.relationships.get(model_name, [])
 
-    def get_fk_fields(self, model_name: str) -> List[Dict[str, str]]:
+    def get_fk_fields(self, model_name: str) -> list[dict[str, str]]:
         if self.cache:
             return self.cache.get_python_fk_fields(model_name)
         return self.fk_fields.get(model_name, [])
@@ -172,8 +175,8 @@ class PythonOrmContext:
     # ----------------------------
     # Helpers shared between paths
     # ----------------------------
-    def _build_function_candidates(self, function_names: Iterable[str]) -> List[str]:
-        candidates: List[str] = []
+    def _build_function_candidates(self, function_names: Iterable[str]) -> list[str]:
+        candidates: list[str] = []
         for func in function_names or []:
             if not func:
                 continue
@@ -182,13 +185,13 @@ class PythonOrmContext:
             candidates.append("global")
         return candidates
 
-    def _generate_function_name_candidates(self, func_name: str) -> List[str]:
+    def _generate_function_name_candidates(self, func_name: str) -> list[str]:
         if not func_name:
             return ["global"]
         parts = [segment for segment in func_name.split(".") if segment]
         if not parts:
             return [func_name]
-        variants: List[str] = []
+        variants: list[str] = []
         for i in range(len(parts)):
             candidate = ".".join(parts[i:])
             if candidate:
@@ -201,7 +204,7 @@ class PythonOrmContext:
             variants.append(tail)
         return variants
 
-    def _split_symbol_name(self, symbol_name: str) -> Optional[Tuple[str, str]]:
+    def _split_symbol_name(self, symbol_name: str) -> tuple[str, str] | None:
         symbol_name = symbol_name.strip()
         if not symbol_name or "." not in symbol_name:
             return None
@@ -212,13 +215,13 @@ class PythonOrmContext:
             return None
         return func_name, param_name
 
-    def _generate_param_type_keys(self, file_path: str, func_name: str, param_name: str) -> List[Tuple[str, str, str]]:
+    def _generate_param_type_keys(self, file_path: str, func_name: str, param_name: str) -> list[tuple[str, str, str]]:
         keys = []
         for candidate in self._generate_function_name_candidates(func_name):
             keys.append((file_path, candidate, param_name))
         return keys
 
-    def _resolve_model_from_annotation(self, annotation: Optional[str]) -> Optional[str]:
+    def _resolve_model_from_annotation(self, annotation: str | None) -> str | None:
         if not annotation:
             return None
 
@@ -238,7 +241,7 @@ class PythonOrmContext:
                 return capitalized
         return None
 
-    def _resolve_model_from_fk_target(self, fk_target: Optional[str]) -> Optional[str]:
+    def _resolve_model_from_fk_target(self, fk_target: str | None) -> str | None:
         if not fk_target:
             return None
         normalized = fk_target.strip().strip("'").strip('"')
@@ -255,7 +258,7 @@ class PythonOrmContext:
             return cap
         return None
 
-    def _infer_model_from_assignment(self, source_expr: str) -> Optional[str]:
+    def _infer_model_from_assignment(self, source_expr: str) -> str | None:
         # NO REGEX - use simple string operations to extract constructor call
         if not source_expr:
             return None
@@ -276,7 +279,7 @@ class PythonOrmContext:
             return candidate
         return None
 
-    def _get_assignments(self, file_path: str, func_name: str) -> List[Dict[str, str]]:
+    def _get_assignments(self, file_path: str, func_name: str) -> list[dict[str, str]]:
         if self.cache_assignments_lookup is not None:
             return self.cache_assignments_lookup.get((file_path, func_name), [])
         key = (file_path, func_name)
@@ -297,9 +300,9 @@ class PythonOrmContext:
 
 
 def enhance_python_fk_taint(
-    cursor: "sqlite3.Cursor",
-    cache: Optional["MemoryCache"],
-    tainted_by_function: Dict[str, Dict[str, any]],
+    cursor: sqlite3.Cursor,
+    cache: MemoryCache | None,
+    tainted_by_function: dict[str, dict[str, any]],
 ) -> None:
     """Augment tainted variable sets using Python ORM relationship metadata."""
     if not tainted_by_function:
@@ -310,7 +313,7 @@ def enhance_python_fk_taint(
         return
 
     for func_name, info in tainted_by_function.items():
-        vars_set: Set[str] = info.get("vars", set())
+        vars_set: set[str] = info.get("vars", set())
         if not vars_set:
             continue
 
@@ -321,8 +324,8 @@ def enhance_python_fk_taint(
         display_names = list(info.get("displays", []))
         function_candidates = display_names + ([func_name] if func_name else [])
 
-        bindings: Dict[str, str] = dict(info.get("python_model_bindings", {}))
-        processed: Set[str] = set()
+        bindings: dict[str, str] = dict(info.get("python_model_bindings", {}))
+        processed: set[str] = set()
         changed = True
 
         while changed:

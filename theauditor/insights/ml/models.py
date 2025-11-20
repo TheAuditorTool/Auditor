@@ -8,6 +8,8 @@ Handles:
 - Model training (GradientBoosting + Ridge + Calibration)
 - Model persistence (save/load)
 """
+from __future__ import annotations
+
 
 import json
 from collections import defaultdict
@@ -179,7 +181,7 @@ def build_feature_matrix(
     db_features: dict,
     historical_data: dict,
     intelligent_features: dict = None,
-) -> tuple["np.ndarray", dict[str, int]]:
+) -> tuple[np.ndarray, dict[str, int]]:
     """Build feature matrix for files.
 
     Args:
@@ -376,7 +378,7 @@ def build_labels(
     file_paths: list[str],
     journal_stats: dict,
     rca_stats: dict,
-) -> tuple["np.ndarray", "np.ndarray", "np.ndarray"]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Build label vectors for training."""
     if not ML_AVAILABLE:
         return None, None, None
@@ -407,12 +409,12 @@ def build_labels(
 
 
 def train_models(
-    features: "np.ndarray",
-    root_cause_labels: "np.ndarray",
-    next_edit_labels: "np.ndarray",
-    risk_labels: "np.ndarray",
+    features: np.ndarray,
+    root_cause_labels: np.ndarray,
+    next_edit_labels: np.ndarray,
+    risk_labels: np.ndarray,
     seed: int = 13,
-    sample_weight: "np.ndarray" = None,
+    sample_weight: np.ndarray = None,
 ) -> tuple[Any, Any, Any, Any, Any, Any]:
     """
     Train the three models with optional sample weighting for human feedback

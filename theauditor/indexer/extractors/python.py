@@ -17,6 +17,8 @@ See indexer/__init__.py:619-564 for _store_extracted_data() implementation.
 
 This separation ensures single source of truth for file paths.
 """
+from __future__ import annotations
+
 
 import ast
 import json
@@ -28,6 +30,7 @@ from .sql import parse_sql_query
 from theauditor.ast_extractors import python as python_impl
 from theauditor.ast_extractors.base import get_node_name
 from theauditor.ast_extractors.python import (
+from theauditor.ast_extractors.python.utils.context import build_file_context
     advanced_extractors,  # Python Coverage V2 - Advanced
     async_extractors,
     behavioral_extractors,
@@ -56,11 +59,11 @@ from theauditor.ast_extractors.python import (
 class PythonExtractor(BaseExtractor):
     """Extractor for Python files."""
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.py', '.pyx']
 
-    def _extract_with_visitor(self, file_path: str, tree: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    def _extract_with_visitor(self, file_path: str, tree: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
         """Extract data using the UnifiedPythonVisitor (Phase 2 - Single-pass extraction).
 
         This is the NEW extraction path using the Visitor pattern.
@@ -191,8 +194,23 @@ class PythonExtractor(BaseExtractor):
 
         return legacy_output
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
+
+
+        # [AUTO-PATCH] Build FileContext for NodeIndex optimization
+
+        # This replaces 300+ ast.walk calls with 1 walk + O(1) lookups
+
+        if tree and tree.get("type") == "python_ast":
+
+            actual_tree = tree.get("tree")
+
+            if actual_tree:
+
+                from theauditor.ast_extractors.python.utils.context import build_file_context
+
+                context = build_file_context(actual_tree, content, str(file_info['path']))
         """Extract all relevant information from a Python file.
 
         Args:
@@ -476,7 +494,7 @@ class PythonExtractor(BaseExtractor):
                         seen_symbols.add(key)
                         result['symbols'].append(symbol_entry)
                 # Class/module attribute annotations
-                attribute_annotations = core_extractors.extract_python_attribute_annotations(tree, self.ast_parser)
+                attribute_annotations = core_extractors.extract_python_attribute_annotations(context)
                 if attribute_annotations:
                     result['type_annotations'].extend(attribute_annotations)
                 
@@ -509,7 +527,7 @@ class PythonExtractor(BaseExtractor):
                         result['symbols'].append(symbol_entry)
 
                 # ORM metadata (SQLAlchemy & Django)
-                sql_models, sql_fields, sql_relationships = framework_extractors.extract_sqlalchemy_definitions(tree, self.ast_parser)
+                sql_models, sql_fields, sql_relationships = framework_extractors.extract_sqlalchemy_definitions(context)
                 if sql_models:
                     result['python_orm_models'].extend(sql_models)
                 if sql_fields:
@@ -517,562 +535,562 @@ class PythonExtractor(BaseExtractor):
                 if sql_relationships:
                     result['orm_relationships'].extend(sql_relationships)
 
-                django_models, django_relationships = framework_extractors.extract_django_definitions(tree, self.ast_parser)
+                django_models, django_relationships = framework_extractors.extract_django_definitions(context)
                 if django_models:
                     result['python_orm_models'].extend(django_models)
                 if django_relationships:
                     result['orm_relationships'].extend(django_relationships)
 
                 # Django Class-Based Views
-                django_cbvs = framework_extractors.extract_django_cbvs(tree, self.ast_parser)
+                django_cbvs = framework_extractors.extract_django_cbvs(context)
                 if django_cbvs:
                     result['python_django_views'].extend(django_cbvs)
 
                 # Django Forms
-                django_forms = framework_extractors.extract_django_forms(tree, self.ast_parser)
+                django_forms = framework_extractors.extract_django_forms(context)
                 if django_forms:
                     result['python_django_forms'].extend(django_forms)
 
                 # Django Form Fields
-                django_form_fields = framework_extractors.extract_django_form_fields(tree, self.ast_parser)
+                django_form_fields = framework_extractors.extract_django_form_fields(context)
                 if django_form_fields:
                     result['python_django_form_fields'].extend(django_form_fields)
 
                 # Django Admin
-                django_admins = framework_extractors.extract_django_admin(tree, self.ast_parser)
+                django_admins = framework_extractors.extract_django_admin(context)
                 if django_admins:
                     result['python_django_admin'].extend(django_admins)
 
                 # Django Middleware
-                django_middlewares = framework_extractors.extract_django_middleware(tree, self.ast_parser)
+                django_middlewares = framework_extractors.extract_django_middleware(context)
                 if django_middlewares:
                     result['python_django_middleware'].extend(django_middlewares)
 
                 # Marshmallow Schemas
-                marshmallow_schemas = framework_extractors.extract_marshmallow_schemas(tree, self.ast_parser)
+                marshmallow_schemas = framework_extractors.extract_marshmallow_schemas(context)
                 if marshmallow_schemas:
                     result['python_marshmallow_schemas'].extend(marshmallow_schemas)
 
                 # Marshmallow Fields
-                marshmallow_fields = framework_extractors.extract_marshmallow_fields(tree, self.ast_parser)
+                marshmallow_fields = framework_extractors.extract_marshmallow_fields(context)
                 if marshmallow_fields:
                     result['python_marshmallow_fields'].extend(marshmallow_fields)
 
                 # DRF Serializers
-                drf_serializers = framework_extractors.extract_drf_serializers(tree, self.ast_parser)
+                drf_serializers = framework_extractors.extract_drf_serializers(context)
                 if drf_serializers:
                     result['python_drf_serializers'].extend(drf_serializers)
 
                 # DRF Serializer Fields
-                drf_serializer_fields = framework_extractors.extract_drf_serializer_fields(tree, self.ast_parser)
+                drf_serializer_fields = framework_extractors.extract_drf_serializer_fields(context)
                 if drf_serializer_fields:
                     result['python_drf_serializer_fields'].extend(drf_serializer_fields)
 
                 # WTForms
-                wtforms_forms = framework_extractors.extract_wtforms_forms(tree, self.ast_parser)
+                wtforms_forms = framework_extractors.extract_wtforms_forms(context)
                 if wtforms_forms:
                     result['python_wtforms_forms'].extend(wtforms_forms)
 
                 # WTForms Fields
-                wtforms_fields = framework_extractors.extract_wtforms_fields(tree, self.ast_parser)
+                wtforms_fields = framework_extractors.extract_wtforms_fields(context)
                 if wtforms_fields:
                     result['python_wtforms_fields'].extend(wtforms_fields)
 
                 # Celery Tasks
-                celery_tasks = framework_extractors.extract_celery_tasks(tree, self.ast_parser)
+                celery_tasks = framework_extractors.extract_celery_tasks(context)
                 if celery_tasks:
                     result['python_celery_tasks'].extend(celery_tasks)
 
                 # Celery Task Calls
-                celery_task_calls = framework_extractors.extract_celery_task_calls(tree, self.ast_parser)
+                celery_task_calls = framework_extractors.extract_celery_task_calls(context)
                 if celery_task_calls:
                     result['python_celery_task_calls'].extend(celery_task_calls)
 
                 # Celery Beat Schedules
-                celery_beat_schedules = framework_extractors.extract_celery_beat_schedules(tree, self.ast_parser)
+                celery_beat_schedules = framework_extractors.extract_celery_beat_schedules(context)
                 if celery_beat_schedules:
                     result['python_celery_beat_schedules'].extend(celery_beat_schedules)
 
                 # Generators
-                generators = core_extractors.extract_generators(tree, self.ast_parser)
+                generators = core_extractors.extract_generators(context)
                 if generators:
                     result['python_generators'].extend(generators)
 
                 # Flask Framework (Phase 3.1)
-                flask_apps = flask_extractors.extract_flask_app_factories(tree, self.ast_parser)
+                flask_apps = flask_extractors.extract_flask_app_factories(context)
                 if flask_apps:
                     result['python_flask_apps'].extend(flask_apps)
 
-                flask_extensions = flask_extractors.extract_flask_extensions(tree, self.ast_parser)
+                flask_extensions = flask_extractors.extract_flask_extensions(context)
                 if flask_extensions:
                     result['python_flask_extensions'].extend(flask_extensions)
 
-                flask_hooks = flask_extractors.extract_flask_request_hooks(tree, self.ast_parser)
+                flask_hooks = flask_extractors.extract_flask_request_hooks(context)
                 if flask_hooks:
                     result['python_flask_hooks'].extend(flask_hooks)
 
-                flask_error_handlers = flask_extractors.extract_flask_error_handlers(tree, self.ast_parser)
+                flask_error_handlers = flask_extractors.extract_flask_error_handlers(context)
                 if flask_error_handlers:
                     result['python_flask_error_handlers'].extend(flask_error_handlers)
 
-                flask_websockets = flask_extractors.extract_flask_websocket_handlers(tree, self.ast_parser)
+                flask_websockets = flask_extractors.extract_flask_websocket_handlers(context)
                 if flask_websockets:
                     result['python_flask_websockets'].extend(flask_websockets)
 
-                flask_cli_commands = flask_extractors.extract_flask_cli_commands(tree, self.ast_parser)
+                flask_cli_commands = flask_extractors.extract_flask_cli_commands(context)
                 if flask_cli_commands:
                     result['python_flask_cli_commands'].extend(flask_cli_commands)
 
-                flask_cors = flask_extractors.extract_flask_cors_configs(tree, self.ast_parser)
+                flask_cors = flask_extractors.extract_flask_cors_configs(context)
                 if flask_cors:
                     result['python_flask_cors'].extend(flask_cors)
 
-                flask_rate_limits = flask_extractors.extract_flask_rate_limits(tree, self.ast_parser)
+                flask_rate_limits = flask_extractors.extract_flask_rate_limits(context)
                 if flask_rate_limits:
                     result['python_flask_rate_limits'].extend(flask_rate_limits)
 
-                flask_cache = flask_extractors.extract_flask_cache_decorators(tree, self.ast_parser)
+                flask_cache = flask_extractors.extract_flask_cache_decorators(context)
                 if flask_cache:
                     result['python_flask_cache'].extend(flask_cache)
 
                 # Testing Ecosystem (Phase 3.2)
-                unittest_test_cases = testing_extractors.extract_unittest_test_cases(tree, self.ast_parser)
+                unittest_test_cases = testing_extractors.extract_unittest_test_cases(context)
                 if unittest_test_cases:
                     result['python_unittest_test_cases'].extend(unittest_test_cases)
 
-                assertion_patterns = testing_extractors.extract_assertion_patterns(tree, self.ast_parser)
+                assertion_patterns = testing_extractors.extract_assertion_patterns(context)
                 if assertion_patterns:
                     result['python_assertion_patterns'].extend(assertion_patterns)
 
-                pytest_plugin_hooks = testing_extractors.extract_pytest_plugin_hooks(tree, self.ast_parser)
+                pytest_plugin_hooks = testing_extractors.extract_pytest_plugin_hooks(context)
                 if pytest_plugin_hooks:
                     result['python_pytest_plugin_hooks'].extend(pytest_plugin_hooks)
 
-                hypothesis_strategies = testing_extractors.extract_hypothesis_strategies(tree, self.ast_parser)
+                hypothesis_strategies = testing_extractors.extract_hypothesis_strategies(context)
                 if hypothesis_strategies:
                     result['python_hypothesis_strategies'].extend(hypothesis_strategies)
 
                 # Security Patterns (Phase 3.3 - OWASP Top 10)
-                auth_decorators = security_extractors.extract_auth_decorators(tree, self.ast_parser)
+                auth_decorators = security_extractors.extract_auth_decorators(context)
                 if auth_decorators:
                     result['python_auth_decorators'].extend(auth_decorators)
 
-                password_hashing = security_extractors.extract_password_hashing(tree, self.ast_parser)
+                password_hashing = security_extractors.extract_password_hashing(context)
                 if password_hashing:
                     result['python_password_hashing'].extend(password_hashing)
 
-                jwt_operations = security_extractors.extract_jwt_operations(tree, self.ast_parser)
+                jwt_operations = security_extractors.extract_jwt_operations(context)
                 if jwt_operations:
                     result['python_jwt_operations'].extend(jwt_operations)
 
-                sql_injection = security_extractors.extract_sql_injection_patterns(tree, self.ast_parser)
+                sql_injection = security_extractors.extract_sql_injection_patterns(context)
                 if sql_injection:
                     result['python_sql_injection'].extend(sql_injection)
 
-                command_injection = security_extractors.extract_command_injection_patterns(tree, self.ast_parser)
+                command_injection = security_extractors.extract_command_injection_patterns(context)
                 if command_injection:
                     result['python_command_injection'].extend(command_injection)
 
-                path_traversal = security_extractors.extract_path_traversal_patterns(tree, self.ast_parser)
+                path_traversal = security_extractors.extract_path_traversal_patterns(context)
                 if path_traversal:
                     result['python_path_traversal'].extend(path_traversal)
 
-                dangerous_eval = security_extractors.extract_dangerous_eval_exec(tree, self.ast_parser)
+                dangerous_eval = security_extractors.extract_dangerous_eval_exec(context)
                 if dangerous_eval:
                     result['python_dangerous_eval'].extend(dangerous_eval)
 
-                crypto_operations = security_extractors.extract_crypto_operations(tree, self.ast_parser)
+                crypto_operations = security_extractors.extract_crypto_operations(context)
                 if crypto_operations:
                     result['python_crypto_operations'].extend(crypto_operations)
 
                 # Phase 3.4: Django Advanced Patterns
-                django_signals = django_advanced_extractors.extract_django_signals(tree, self.ast_parser)
+                django_signals = django_advanced_extractors.extract_django_signals(context)
                 if django_signals:
                     result['python_django_signals'].extend(django_signals)
 
-                django_receivers = django_advanced_extractors.extract_django_receivers(tree, self.ast_parser)
+                django_receivers = django_advanced_extractors.extract_django_receivers(context)
                 if django_receivers:
                     result['python_django_receivers'].extend(django_receivers)
 
-                django_managers = django_advanced_extractors.extract_django_managers(tree, self.ast_parser)
+                django_managers = django_advanced_extractors.extract_django_managers(context)
                 if django_managers:
                     result['python_django_managers'].extend(django_managers)
 
-                django_querysets = django_advanced_extractors.extract_django_querysets(tree, self.ast_parser)
+                django_querysets = django_advanced_extractors.extract_django_querysets(context)
                 if django_querysets:
                     result['python_django_querysets'].extend(django_querysets)
 
                 # Causal Learning Patterns (Week 1 - Side Effect Detection)
-                instance_mutations = state_mutation_extractors.extract_instance_mutations(tree, self.ast_parser)
+                instance_mutations = state_mutation_extractors.extract_instance_mutations(context)
                 if instance_mutations:
                     result['python_instance_mutations'].extend(instance_mutations)
 
-                class_mutations = state_mutation_extractors.extract_class_mutations(tree, self.ast_parser)
+                class_mutations = state_mutation_extractors.extract_class_mutations(context)
                 if class_mutations:
                     result['python_class_mutations'].extend(class_mutations)
 
-                global_mutations = state_mutation_extractors.extract_global_mutations(tree, self.ast_parser)
+                global_mutations = state_mutation_extractors.extract_global_mutations(context)
                 if global_mutations:
                     result['python_global_mutations'].extend(global_mutations)
 
-                argument_mutations = state_mutation_extractors.extract_argument_mutations(tree, self.ast_parser)
+                argument_mutations = state_mutation_extractors.extract_argument_mutations(context)
                 if argument_mutations:
                     result['python_argument_mutations'].extend(argument_mutations)
 
-                augmented_assignments = state_mutation_extractors.extract_augmented_assignments(tree, self.ast_parser)
+                augmented_assignments = state_mutation_extractors.extract_augmented_assignments(context)
                 if augmented_assignments:
                     result['python_augmented_assignments'].extend(augmented_assignments)
 
                 # Exception flow patterns (Priority 1 - Causal Learning Week 1)
-                exception_raises = exception_flow_extractors.extract_exception_raises(tree, self.ast_parser)
+                exception_raises = exception_flow_extractors.extract_exception_raises(context)
                 if exception_raises:
                     result['python_exception_raises'].extend(exception_raises)
 
-                exception_catches = exception_flow_extractors.extract_exception_catches(tree, self.ast_parser)
+                exception_catches = exception_flow_extractors.extract_exception_catches(context)
                 if exception_catches:
                     result['python_exception_catches'].extend(exception_catches)
 
-                finally_blocks = exception_flow_extractors.extract_finally_blocks(tree, self.ast_parser)
+                finally_blocks = exception_flow_extractors.extract_finally_blocks(context)
                 if finally_blocks:
                     result['python_finally_blocks'].extend(finally_blocks)
 
-                context_managers_enhanced = exception_flow_extractors.extract_context_managers(tree, self.ast_parser)
+                context_managers_enhanced = exception_flow_extractors.extract_context_managers(context)
                 if context_managers_enhanced:
                     result['python_context_managers_enhanced'].extend(context_managers_enhanced)
 
                 # Data flow patterns (Priority 3 - Causal Learning Week 2)
-                io_operations = data_flow_extractors.extract_io_operations(tree, self.ast_parser)
+                io_operations = data_flow_extractors.extract_io_operations(context)
                 if io_operations:
                     result['python_io_operations'].extend(io_operations)
 
-                parameter_return_flow = data_flow_extractors.extract_parameter_return_flow(tree, self.ast_parser)
+                parameter_return_flow = data_flow_extractors.extract_parameter_return_flow(context)
                 if parameter_return_flow:
                     result['python_parameter_return_flow'].extend(parameter_return_flow)
 
-                closure_captures = data_flow_extractors.extract_closure_captures(tree, self.ast_parser)
+                closure_captures = data_flow_extractors.extract_closure_captures(context)
                 if closure_captures:
                     result['python_closure_captures'].extend(closure_captures)
 
-                nonlocal_access = data_flow_extractors.extract_nonlocal_access(tree, self.ast_parser)
+                nonlocal_access = data_flow_extractors.extract_nonlocal_access(context)
                 if nonlocal_access:
                     result['python_nonlocal_access'].extend(nonlocal_access)
 
-                conditional_calls = data_flow_extractors.extract_conditional_calls(tree, self.ast_parser)
+                conditional_calls = data_flow_extractors.extract_conditional_calls(context)
                 if conditional_calls:
                     result['python_conditional_calls'].extend(conditional_calls)
 
                 # Behavioral patterns (Priority 5 - Causal Learning Week 3)
-                recursion_patterns = behavioral_extractors.extract_recursion_patterns(tree, self.ast_parser)
+                recursion_patterns = behavioral_extractors.extract_recursion_patterns(context)
                 if recursion_patterns:
                     result['python_recursion_patterns'].extend(recursion_patterns)
 
-                generator_yields = behavioral_extractors.extract_generator_yields(tree, self.ast_parser)
+                generator_yields = behavioral_extractors.extract_generator_yields(context)
                 if generator_yields:
                     result['python_generator_yields'].extend(generator_yields)
 
-                property_patterns = behavioral_extractors.extract_property_patterns(tree, self.ast_parser)
+                property_patterns = behavioral_extractors.extract_property_patterns(context)
                 if property_patterns:
                     result['python_property_patterns'].extend(property_patterns)
 
-                dynamic_attributes = behavioral_extractors.extract_dynamic_attributes(tree, self.ast_parser)
+                dynamic_attributes = behavioral_extractors.extract_dynamic_attributes(context)
                 if dynamic_attributes:
                     result['python_dynamic_attributes'].extend(dynamic_attributes)
 
                 # Performance patterns (Priority 7 - Causal Learning Week 4)
-                loop_complexity = performance_extractors.extract_loop_complexity(tree, self.ast_parser)
+                loop_complexity = performance_extractors.extract_loop_complexity(context)
                 if loop_complexity:
                     result['python_loop_complexity'].extend(loop_complexity)
 
-                resource_usage = performance_extractors.extract_resource_usage(tree, self.ast_parser)
+                resource_usage = performance_extractors.extract_resource_usage(context)
                 if resource_usage:
                     result['python_resource_usage'].extend(resource_usage)
 
-                memoization_patterns = performance_extractors.extract_memoization_patterns(tree, self.ast_parser)
+                memoization_patterns = performance_extractors.extract_memoization_patterns(context)
                 if memoization_patterns:
                     result['python_memoization_patterns'].extend(memoization_patterns)
 
                 # Python Coverage V2 - Week 1: Fundamental patterns
-                comprehensions = fundamental_extractors.extract_comprehensions(tree, self.ast_parser)
+                comprehensions = fundamental_extractors.extract_comprehensions(context)
                 if comprehensions:
                     result['python_comprehensions'].extend(comprehensions)
 
-                lambda_functions = fundamental_extractors.extract_lambda_functions(tree, self.ast_parser)
+                lambda_functions = fundamental_extractors.extract_lambda_functions(context)
                 if lambda_functions:
                     result['python_lambda_functions'].extend(lambda_functions)
 
-                slice_operations = fundamental_extractors.extract_slice_operations(tree, self.ast_parser)
+                slice_operations = fundamental_extractors.extract_slice_operations(context)
                 if slice_operations:
                     result['python_slice_operations'].extend(slice_operations)
 
-                tuple_operations = fundamental_extractors.extract_tuple_operations(tree, self.ast_parser)
+                tuple_operations = fundamental_extractors.extract_tuple_operations(context)
                 if tuple_operations:
                     result['python_tuple_operations'].extend(tuple_operations)
 
-                unpacking_patterns = fundamental_extractors.extract_unpacking_patterns(tree, self.ast_parser)
+                unpacking_patterns = fundamental_extractors.extract_unpacking_patterns(context)
                 if unpacking_patterns:
                     result['python_unpacking_patterns'].extend(unpacking_patterns)
 
-                none_patterns = fundamental_extractors.extract_none_patterns(tree, self.ast_parser)
+                none_patterns = fundamental_extractors.extract_none_patterns(context)
                 if none_patterns:
                     result['python_none_patterns'].extend(none_patterns)
 
-                truthiness_patterns = fundamental_extractors.extract_truthiness_patterns(tree, self.ast_parser)
+                truthiness_patterns = fundamental_extractors.extract_truthiness_patterns(context)
                 if truthiness_patterns:
                     result['python_truthiness_patterns'].extend(truthiness_patterns)
 
-                string_formatting = fundamental_extractors.extract_string_formatting(tree, self.ast_parser)
+                string_formatting = fundamental_extractors.extract_string_formatting(context)
                 if string_formatting:
                     result['python_string_formatting'].extend(string_formatting)
 
                 # Python Coverage V2 - Week 2: Operators and expressions
-                operators = operator_extractors.extract_operators(tree, self.ast_parser)
+                operators = operator_extractors.extract_operators(context)
                 if operators:
                     result['python_operators'].extend(operators)
 
-                membership_tests = operator_extractors.extract_membership_tests(tree, self.ast_parser)
+                membership_tests = operator_extractors.extract_membership_tests(context)
                 if membership_tests:
                     result['python_membership_tests'].extend(membership_tests)
 
-                chained_comparisons = operator_extractors.extract_chained_comparisons(tree, self.ast_parser)
+                chained_comparisons = operator_extractors.extract_chained_comparisons(context)
                 if chained_comparisons:
                     result['python_chained_comparisons'].extend(chained_comparisons)
 
-                ternary_expressions = operator_extractors.extract_ternary_expressions(tree, self.ast_parser)
+                ternary_expressions = operator_extractors.extract_ternary_expressions(context)
                 if ternary_expressions:
                     result['python_ternary_expressions'].extend(ternary_expressions)
 
-                walrus_operators = operator_extractors.extract_walrus_operators(tree, self.ast_parser)
+                walrus_operators = operator_extractors.extract_walrus_operators(context)
                 if walrus_operators:
                     result['python_walrus_operators'].extend(walrus_operators)
 
-                matrix_multiplication = operator_extractors.extract_matrix_multiplication(tree, self.ast_parser)
+                matrix_multiplication = operator_extractors.extract_matrix_multiplication(context)
                 if matrix_multiplication:
                     result['python_matrix_multiplication'].extend(matrix_multiplication)
 
                 # Python Coverage V2 - Week 3: Collections and methods
-                dict_operations = collection_extractors.extract_dict_operations(tree, self.ast_parser)
+                dict_operations = collection_extractors.extract_dict_operations(context)
                 if dict_operations:
                     result['python_dict_operations'].extend(dict_operations)
 
-                list_mutations = collection_extractors.extract_list_mutations(tree, self.ast_parser)
+                list_mutations = collection_extractors.extract_list_mutations(context)
                 if list_mutations:
                     result['python_list_mutations'].extend(list_mutations)
 
-                set_operations = collection_extractors.extract_set_operations(tree, self.ast_parser)
+                set_operations = collection_extractors.extract_set_operations(context)
                 if set_operations:
                     result['python_set_operations'].extend(set_operations)
 
-                string_methods = collection_extractors.extract_string_methods(tree, self.ast_parser)
+                string_methods = collection_extractors.extract_string_methods(context)
                 if string_methods:
                     result['python_string_methods'].extend(string_methods)
 
-                builtin_usage = collection_extractors.extract_builtin_usage(tree, self.ast_parser)
+                builtin_usage = collection_extractors.extract_builtin_usage(context)
                 if builtin_usage:
                     result['python_builtin_usage'].extend(builtin_usage)
 
-                itertools_usage = collection_extractors.extract_itertools_usage(tree, self.ast_parser)
+                itertools_usage = collection_extractors.extract_itertools_usage(context)
                 if itertools_usage:
                     result['python_itertools_usage'].extend(itertools_usage)
 
-                functools_usage = collection_extractors.extract_functools_usage(tree, self.ast_parser)
+                functools_usage = collection_extractors.extract_functools_usage(context)
                 if functools_usage:
                     result['python_functools_usage'].extend(functools_usage)
 
-                collections_usage = collection_extractors.extract_collections_usage(tree, self.ast_parser)
+                collections_usage = collection_extractors.extract_collections_usage(context)
                 if collections_usage:
                     result['python_collections_usage'].extend(collections_usage)
 
                 # Python Coverage V2 - Week 4: Advanced class features
-                metaclasses = class_feature_extractors.extract_metaclasses(tree, self.ast_parser)
+                metaclasses = class_feature_extractors.extract_metaclasses(context)
                 if metaclasses:
                     result['python_metaclasses'].extend(metaclasses)
 
-                descriptors = class_feature_extractors.extract_descriptors(tree, self.ast_parser)
+                descriptors = class_feature_extractors.extract_descriptors(context)
                 if descriptors:
                     result['python_descriptors'].extend(descriptors)
 
-                dataclasses = class_feature_extractors.extract_dataclasses(tree, self.ast_parser)
+                dataclasses = class_feature_extractors.extract_dataclasses(context)
                 if dataclasses:
                     result['python_dataclasses'].extend(dataclasses)
 
-                enums = class_feature_extractors.extract_enums(tree, self.ast_parser)
+                enums = class_feature_extractors.extract_enums(context)
                 if enums:
                     result['python_enums'].extend(enums)
 
-                slots = class_feature_extractors.extract_slots(tree, self.ast_parser)
+                slots = class_feature_extractors.extract_slots(context)
                 if slots:
                     result['python_slots'].extend(slots)
 
-                abstract_classes = class_feature_extractors.extract_abstract_classes(tree, self.ast_parser)
+                abstract_classes = class_feature_extractors.extract_abstract_classes(context)
                 if abstract_classes:
                     result['python_abstract_classes'].extend(abstract_classes)
 
-                method_types = class_feature_extractors.extract_method_types(tree, self.ast_parser)
+                method_types = class_feature_extractors.extract_method_types(context)
                 if method_types:
                     result['python_method_types'].extend(method_types)
 
-                multiple_inheritance = class_feature_extractors.extract_multiple_inheritance(tree, self.ast_parser)
+                multiple_inheritance = class_feature_extractors.extract_multiple_inheritance(context)
                 if multiple_inheritance:
                     result['python_multiple_inheritance'].extend(multiple_inheritance)
 
-                dunder_methods = class_feature_extractors.extract_dunder_methods(tree, self.ast_parser)
+                dunder_methods = class_feature_extractors.extract_dunder_methods(context)
                 if dunder_methods:
                     result['python_dunder_methods'].extend(dunder_methods)
 
-                visibility_conventions = class_feature_extractors.extract_visibility_conventions(tree, self.ast_parser)
+                visibility_conventions = class_feature_extractors.extract_visibility_conventions(context)
                 if visibility_conventions:
                     result['python_visibility_conventions'].extend(visibility_conventions)
 
                 # Python Coverage V2 - Week 4: Stdlib patterns
-                regex_patterns = stdlib_pattern_extractors.extract_regex_patterns(tree, self.ast_parser)
+                regex_patterns = stdlib_pattern_extractors.extract_regex_patterns(context)
                 if regex_patterns:
                     result['python_regex_patterns'].extend(regex_patterns)
 
-                json_operations = stdlib_pattern_extractors.extract_json_operations(tree, self.ast_parser)
+                json_operations = stdlib_pattern_extractors.extract_json_operations(context)
                 if json_operations:
                     result['python_json_operations'].extend(json_operations)
 
-                datetime_operations = stdlib_pattern_extractors.extract_datetime_operations(tree, self.ast_parser)
+                datetime_operations = stdlib_pattern_extractors.extract_datetime_operations(context)
                 if datetime_operations:
                     result['python_datetime_operations'].extend(datetime_operations)
 
-                path_operations = stdlib_pattern_extractors.extract_path_operations(tree, self.ast_parser)
+                path_operations = stdlib_pattern_extractors.extract_path_operations(context)
                 if path_operations:
                     result['python_path_operations'].extend(path_operations)
 
-                logging_patterns = stdlib_pattern_extractors.extract_logging_patterns(tree, self.ast_parser)
+                logging_patterns = stdlib_pattern_extractors.extract_logging_patterns(context)
                 if logging_patterns:
                     result['python_logging_patterns'].extend(logging_patterns)
 
-                threading_patterns = stdlib_pattern_extractors.extract_threading_patterns(tree, self.ast_parser)
+                threading_patterns = stdlib_pattern_extractors.extract_threading_patterns(context)
                 if threading_patterns:
                     result['python_threading_patterns'].extend(threading_patterns)
 
-                contextlib_patterns = stdlib_pattern_extractors.extract_contextlib_patterns(tree, self.ast_parser)
+                contextlib_patterns = stdlib_pattern_extractors.extract_contextlib_patterns(context)
                 if contextlib_patterns:
                     result['python_contextlib_patterns'].extend(contextlib_patterns)
 
-                type_checking = stdlib_pattern_extractors.extract_type_checking(tree, self.ast_parser)
+                type_checking = stdlib_pattern_extractors.extract_type_checking(context)
                 if type_checking:
                     result['python_type_checking'].extend(type_checking)
 
                 # Python Coverage V2 - Week 5: Control flow patterns
-                for_loops = control_flow_extractors.extract_for_loops(tree, self.ast_parser)
+                for_loops = control_flow_extractors.extract_for_loops(context)
                 if for_loops:
                     result['python_for_loops'].extend(for_loops)
 
-                while_loops = control_flow_extractors.extract_while_loops(tree, self.ast_parser)
+                while_loops = control_flow_extractors.extract_while_loops(context)
                 if while_loops:
                     result['python_while_loops'].extend(while_loops)
 
-                async_for_loops = control_flow_extractors.extract_async_for_loops(tree, self.ast_parser)
+                async_for_loops = control_flow_extractors.extract_async_for_loops(context)
                 if async_for_loops:
                     result['python_async_for_loops'].extend(async_for_loops)
 
-                if_statements = control_flow_extractors.extract_if_statements(tree, self.ast_parser)
+                if_statements = control_flow_extractors.extract_if_statements(context)
                 if if_statements:
                     result['python_if_statements'].extend(if_statements)
 
-                match_statements = control_flow_extractors.extract_match_statements(tree, self.ast_parser)
+                match_statements = control_flow_extractors.extract_match_statements(context)
                 if match_statements:
                     result['python_match_statements'].extend(match_statements)
 
-                break_continue_pass = control_flow_extractors.extract_break_continue_pass(tree, self.ast_parser)
+                break_continue_pass = control_flow_extractors.extract_break_continue_pass(context)
                 if break_continue_pass:
                     result['python_break_continue_pass'].extend(break_continue_pass)
 
-                assert_statements = control_flow_extractors.extract_assert_statements(tree, self.ast_parser)
+                assert_statements = control_flow_extractors.extract_assert_statements(context)
                 if assert_statements:
                     result['python_assert_statements'].extend(assert_statements)
 
-                del_statements = control_flow_extractors.extract_del_statements(tree, self.ast_parser)
+                del_statements = control_flow_extractors.extract_del_statements(context)
                 if del_statements:
                     result['python_del_statements'].extend(del_statements)
 
-                import_statements = control_flow_extractors.extract_import_statements(tree, self.ast_parser)
+                import_statements = control_flow_extractors.extract_import_statements(context)
                 if import_statements:
                     result['python_import_statements'].extend(import_statements)
 
-                with_statements = control_flow_extractors.extract_with_statements(tree, self.ast_parser)
+                with_statements = control_flow_extractors.extract_with_statements(context)
                 if with_statements:
                     result['python_with_statements'].extend(with_statements)
 
                 # Python Coverage V2 - Week 6: Protocol patterns
-                iterator_protocol = protocol_extractors.extract_iterator_protocol(tree, self.ast_parser)
+                iterator_protocol = protocol_extractors.extract_iterator_protocol(context)
                 if iterator_protocol:
                     result['python_iterator_protocol'].extend(iterator_protocol)
 
-                container_protocol = protocol_extractors.extract_container_protocol(tree, self.ast_parser)
+                container_protocol = protocol_extractors.extract_container_protocol(context)
                 if container_protocol:
                     result['python_container_protocol'].extend(container_protocol)
 
-                callable_protocol = protocol_extractors.extract_callable_protocol(tree, self.ast_parser)
+                callable_protocol = protocol_extractors.extract_callable_protocol(context)
                 if callable_protocol:
                     result['python_callable_protocol'].extend(callable_protocol)
 
-                comparison_protocol = protocol_extractors.extract_comparison_protocol(tree, self.ast_parser)
+                comparison_protocol = protocol_extractors.extract_comparison_protocol(context)
                 if comparison_protocol:
                     result['python_comparison_protocol'].extend(comparison_protocol)
 
-                arithmetic_protocol = protocol_extractors.extract_arithmetic_protocol(tree, self.ast_parser)
+                arithmetic_protocol = protocol_extractors.extract_arithmetic_protocol(context)
                 if arithmetic_protocol:
                     result['python_arithmetic_protocol'].extend(arithmetic_protocol)
 
-                pickle_protocol = protocol_extractors.extract_pickle_protocol(tree, self.ast_parser)
+                pickle_protocol = protocol_extractors.extract_pickle_protocol(context)
                 if pickle_protocol:
                     result['python_pickle_protocol'].extend(pickle_protocol)
 
-                weakref_usage = protocol_extractors.extract_weakref_usage(tree, self.ast_parser)
+                weakref_usage = protocol_extractors.extract_weakref_usage(context)
                 if weakref_usage:
                     result['python_weakref_usage'].extend(weakref_usage)
 
-                contextvar_usage = protocol_extractors.extract_contextvar_usage(tree, self.ast_parser)
+                contextvar_usage = protocol_extractors.extract_contextvar_usage(context)
                 if contextvar_usage:
                     result['python_contextvar_usage'].extend(contextvar_usage)
 
-                module_attributes = protocol_extractors.extract_module_attributes(tree, self.ast_parser)
+                module_attributes = protocol_extractors.extract_module_attributes(context)
                 if module_attributes:
                     result['python_module_attributes'].extend(module_attributes)
 
-                class_decorators = protocol_extractors.extract_class_decorators(tree, self.ast_parser)
+                class_decorators = protocol_extractors.extract_class_decorators(context)
                 if class_decorators:
                     result['python_class_decorators'].extend(class_decorators)
 
                 # Python Coverage V2 - Advanced patterns (8)
-                namespace_packages = advanced_extractors.extract_namespace_packages(tree, self.ast_parser)
+                namespace_packages = advanced_extractors.extract_namespace_packages(context)
                 if namespace_packages:
                     result['python_namespace_packages'].extend(namespace_packages)
 
-                cached_property = advanced_extractors.extract_cached_property(tree, self.ast_parser)
+                cached_property = advanced_extractors.extract_cached_property(context)
                 if cached_property:
                     result['python_cached_property'].extend(cached_property)
 
-                descriptor_protocol = advanced_extractors.extract_descriptor_protocol(tree, self.ast_parser)
+                descriptor_protocol = advanced_extractors.extract_descriptor_protocol(context)
                 if descriptor_protocol:
                     result['python_descriptor_protocol'].extend(descriptor_protocol)
 
-                attribute_access_protocol = advanced_extractors.extract_attribute_access_protocol(tree, self.ast_parser)
+                attribute_access_protocol = advanced_extractors.extract_attribute_access_protocol(context)
                 if attribute_access_protocol:
                     result['python_attribute_access_protocol'].extend(attribute_access_protocol)
 
-                copy_protocol = advanced_extractors.extract_copy_protocol(tree, self.ast_parser)
+                copy_protocol = advanced_extractors.extract_copy_protocol(context)
                 if copy_protocol:
                     result['python_copy_protocol'].extend(copy_protocol)
 
-                ellipsis_usage = advanced_extractors.extract_ellipsis_usage(tree, self.ast_parser)
+                ellipsis_usage = advanced_extractors.extract_ellipsis_usage(context)
                 if ellipsis_usage:
                     result['python_ellipsis_usage'].extend(ellipsis_usage)
 
-                bytes_operations = advanced_extractors.extract_bytes_operations(tree, self.ast_parser)
+                bytes_operations = advanced_extractors.extract_bytes_operations(context)
                 if bytes_operations:
                     result['python_bytes_operations'].extend(bytes_operations)
 
-                exec_eval_compile = advanced_extractors.extract_exec_eval_compile(tree, self.ast_parser)
+                exec_eval_compile = advanced_extractors.extract_exec_eval_compile(context)
                 if exec_eval_compile:
                     result['python_exec_eval_compile'].extend(exec_eval_compile)
 
                 # AWS CDK Infrastructure-as-Code constructs
-                cdk_constructs = cdk_extractor.extract_python_cdk_constructs(tree, self.ast_parser)
+                cdk_constructs = cdk_extractor.extract_python_cdk_constructs(context)
                 if cdk_constructs:
                     # Return raw CDK construct data - indexer generates composite keys
                     result['cdk_constructs'] = cdk_constructs
@@ -1091,11 +1109,7 @@ class PythonExtractor(BaseExtractor):
                 # Extract function calls with arguments
                 # CRITICAL: Call Python extractor directly to pass resolved_imports for cross-file taint analysis
                 function_params = self.ast_parser._extract_function_parameters(tree, 'python')
-                calls_with_args = core_extractors.extract_python_calls_with_args(
-                    tree,
-                    function_params,
-                    self.ast_parser,
-                    resolved_imports=result.get('resolved_imports', {})
+                calls_with_args = core_extractors.extract_python_calls_with_args(context)
                 )
                 for call in calls_with_args:
                     # Skip calls with empty callee_function (violates CHECK constraint)
@@ -1158,72 +1172,72 @@ class PythonExtractor(BaseExtractor):
 
         # Pydantic validators & Flask blueprints are AST-driven; safe to extract outside parser guard
         if tree and isinstance(tree, dict):
-            validators = framework_extractors.extract_pydantic_validators(tree, self.ast_parser)
+            validators = framework_extractors.extract_pydantic_validators(context)
             if validators:
                 result['python_validators'].extend(validators)
-            blueprints = framework_extractors.extract_flask_blueprints(tree, self.ast_parser)
+            blueprints = framework_extractors.extract_flask_blueprints(context)
             if blueprints:
                 result['python_blueprints'].extend(blueprints)
 
         # Phase 2.2A: Extract new Python patterns (decorators, async, testing, advanced types)
         if tree and isinstance(tree, dict):
             # Core patterns: decorators and context managers
-            decorators = core_extractors.extract_python_decorators(tree, self.ast_parser)
+            decorators = core_extractors.extract_python_decorators(context)
             if decorators:
                 result['python_decorators'].extend(decorators)
 
-            context_managers = core_extractors.extract_python_context_managers(tree, self.ast_parser)
+            context_managers = core_extractors.extract_python_context_managers(context)
             if context_managers:
                 result['python_context_managers'].extend(context_managers)
 
             # Async patterns
-            async_functions = async_extractors.extract_async_functions(tree, self.ast_parser)
+            async_functions = async_extractors.extract_async_functions(context)
             if async_functions:
                 result['python_async_functions'].extend(async_functions)
 
-            await_expressions = async_extractors.extract_await_expressions(tree, self.ast_parser)
+            await_expressions = async_extractors.extract_await_expressions(context)
             if await_expressions:
                 result['python_await_expressions'].extend(await_expressions)
 
-            async_generators = async_extractors.extract_async_generators(tree, self.ast_parser)
+            async_generators = async_extractors.extract_async_generators(context)
             if async_generators:
                 result['python_async_generators'].extend(async_generators)
 
             # Testing patterns
-            pytest_fixtures = testing_extractors.extract_pytest_fixtures(tree, self.ast_parser)
+            pytest_fixtures = testing_extractors.extract_pytest_fixtures(context)
             if pytest_fixtures:
                 result['python_pytest_fixtures'].extend(pytest_fixtures)
 
-            pytest_parametrize = testing_extractors.extract_pytest_parametrize(tree, self.ast_parser)
+            pytest_parametrize = testing_extractors.extract_pytest_parametrize(context)
             if pytest_parametrize:
                 result['python_pytest_parametrize'].extend(pytest_parametrize)
 
-            pytest_markers = testing_extractors.extract_pytest_markers(tree, self.ast_parser)
+            pytest_markers = testing_extractors.extract_pytest_markers(context)
             if pytest_markers:
                 result['python_pytest_markers'].extend(pytest_markers)
 
-            mock_patterns = testing_extractors.extract_mock_patterns(tree, self.ast_parser)
+            mock_patterns = testing_extractors.extract_mock_patterns(context)
             if mock_patterns:
                 result['python_mock_patterns'].extend(mock_patterns)
 
             # Advanced type patterns
-            protocols = type_extractors.extract_protocols(tree, self.ast_parser)
+            protocols = type_extractors.extract_protocols(context)
             if protocols:
                 result['python_protocols'].extend(protocols)
 
-            generics = type_extractors.extract_generics(tree, self.ast_parser)
+            generics = type_extractors.extract_generics(context)
             if generics:
                 result['python_generics'].extend(generics)
 
-            typed_dicts = type_extractors.extract_typed_dicts(tree, self.ast_parser)
+            typed_dicts = type_extractors.extract_typed_dicts(context)
             if typed_dicts:
                 result['python_typed_dicts'].extend(typed_dicts)
 
-            literals = type_extractors.extract_literals(tree, self.ast_parser)
+            literals = type_extractors.extract_literals(context)
             if literals:
                 result['python_literals'].extend(literals)
 
-            overloads = type_extractors.extract_overloads(tree, self.ast_parser)
+            overloads = type_extractors.extract_overloads(context)
             if overloads:
                 result['python_overloads'].extend(overloads)
 
@@ -1265,9 +1279,9 @@ class PythonExtractor(BaseExtractor):
 
         return result
     
-    def _resolve_imports(self, file_info: Dict[str, Any], tree: Dict[str, Any]) -> Dict[str, str]:
+    def _resolve_imports(self, file_info: dict[str, Any], tree: dict[str, Any]) -> dict[str, str]:
         """Resolve Python import targets to absolute module/file paths."""
-        resolved: Dict[str, str] = {}
+        resolved: dict[str, str] = {}
         actual_tree = tree.get("tree")
 
         if not isinstance(actual_tree, ast.AST):
@@ -1281,7 +1295,7 @@ class PythonExtractor(BaseExtractor):
         def normalize_path(path: Path) -> str:
             return str(path).replace("\\", "/")
 
-        def module_parts_to_path(parts: List[str]) -> Optional[str]:
+        def module_parts_to_path(parts: list[str]) -> str | None:
             if not parts:
                 return None
             candidate_file = Path(*parts).with_suffix('.py')
@@ -1293,7 +1307,7 @@ class PythonExtractor(BaseExtractor):
                 return normalize_path(candidate_init)
             return None
 
-        def resolve_dotted(module_name: str) -> Optional[str]:
+        def resolve_dotted(module_name: str) -> str | None:
             if not module_name:
                 return None
             return module_parts_to_path(module_name.split('.'))
@@ -1351,7 +1365,7 @@ class PythonExtractor(BaseExtractor):
 
         return resolved
     
-    def _extract_routes_ast(self, tree: Dict[str, Any], file_path: str) -> List[Dict]:
+    def _extract_routes_ast(self, tree: dict[str, Any], file_path: str) -> list[dict]:
         """Extract Flask/FastAPI routes using Python AST.
 
         Args:
@@ -1385,7 +1399,7 @@ class PythonExtractor(BaseExtractor):
         for node in ast.walk(tree["tree"]):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 has_auth = False
-                controls: List[str] = []
+                controls: list[str] = []
                 framework = None
                 blueprint_name = None
                 method = 'GET'
@@ -1405,8 +1419,8 @@ class PythonExtractor(BaseExtractor):
                                 path_node = decorator.args[0]
                                 if isinstance(path_node, ast.Constant):
                                     pattern = str(path_node.value)
-                                elif hasattr(ast, "Str") and isinstance(path_node, ast.Str):
-                                    pattern = path_node.s
+                                elif hasattr(ast, "Str") and (isinstance(path_node, ast.Constant) and isinstance(path_node.value, str)):
+                                    pattern = path_node.value
 
                             if method_name == 'route':
                                 method = 'GET'
@@ -1448,7 +1462,7 @@ class PythonExtractor(BaseExtractor):
 
         return routes
 
-    def _extract_imports_ast(self, tree: Dict[str, Any]) -> List[tuple]:
+    def _extract_imports_ast(self, tree: dict[str, Any]) -> list[tuple]:
         """Extract imports from Python AST.
 
         Uses Python's ast module to accurately extract import statements,
@@ -1529,7 +1543,7 @@ class PythonExtractor(BaseExtractor):
         # Default: direct database execution
         return 'code_execute'
 
-    def _resolve_sql_literal(self, node: ast.AST) -> Optional[str]:
+    def _resolve_sql_literal(self, node: ast.AST) -> str | None:
         """Resolve AST node to static SQL string.
 
         Handles:
@@ -1544,8 +1558,8 @@ class PythonExtractor(BaseExtractor):
         # Plain string literal
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
-        elif isinstance(node, ast.Str):  # Python 3.7
-            return node.s
+        elif (isinstance(node, ast.Constant) and isinstance(node.value, str)):  # Python 3.7
+            return node.value
 
         # F-string: f"SELECT * FROM {table}"
         elif isinstance(node, ast.JoinedStr):
@@ -1596,7 +1610,7 @@ class PythonExtractor(BaseExtractor):
 
         return None
 
-    def _extract_sql_queries_ast(self, tree: Dict[str, Any], content: str, file_path: str = '') -> List[Dict]:
+    def _extract_sql_queries_ast(self, tree: dict[str, Any], content: str, file_path: str = '') -> list[dict]:
         """Extract SQL queries from database execution calls using AST.
 
         Detects actual SQL execution calls like:
@@ -1680,7 +1694,7 @@ class PythonExtractor(BaseExtractor):
 
         return queries
 
-    def _extract_jwt_from_ast(self, tree: Dict[str, Any], file_path: str) -> List[Dict]:
+    def _extract_jwt_from_ast(self, tree: dict[str, Any], file_path: str) -> list[dict]:
         """Extract JWT patterns from PyJWT library calls using AST.
 
         NO REGEX. This uses Python AST analysis to detect JWT library usage.
@@ -1760,13 +1774,13 @@ class PythonExtractor(BaseExtractor):
                     if keyword.arg == 'algorithm':
                         if isinstance(keyword.value, ast.Constant):
                             algorithm = keyword.value.value
-                        elif isinstance(keyword.value, ast.Str):  # Python 3.7 compat
-                            algorithm = keyword.value.s
+                        elif (isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)):  # Python 3.7 compat
+                            algorithm = keyword.value.value
 
                 # Categorize secret source
                 secret_type = 'unknown'
                 if secret_node:
-                    if isinstance(secret_node, (ast.Constant, ast.Str)):
+                    if isinstance(secret_node, ast.Constant):
                         # Hardcoded string literal
                         secret_type = 'hardcoded'
                     elif isinstance(secret_node, ast.Subscript):
@@ -1818,8 +1832,8 @@ class PythonExtractor(BaseExtractor):
                                 first_algo = keyword.value.elts[0]
                                 if isinstance(first_algo, ast.Constant):
                                     algorithm = first_algo.value
-                                elif isinstance(first_algo, ast.Str):
-                                    algorithm = first_algo.s
+                                elif (isinstance(first_algo, ast.Constant) and isinstance(first_algo.value, str)):
+                                    algorithm = first_algo.value
 
                 full_match = f"jwt.decode(...)"
 
@@ -1833,7 +1847,7 @@ class PythonExtractor(BaseExtractor):
 
         return patterns
 
-    def _extract_variable_usage(self, tree: Dict[str, Any], content: str) -> List[Dict]:
+    def _extract_variable_usage(self, tree: dict[str, Any], content: str) -> list[dict]:
         """Extract ALL variable usage for complete data flow analysis.
 
         This is critical for taint analysis, dead code detection, and

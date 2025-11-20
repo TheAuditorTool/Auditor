@@ -1,4 +1,6 @@
 """Internal archive command for segregating history by run type."""
+from __future__ import annotations
+
 
 import shutil
 import sys

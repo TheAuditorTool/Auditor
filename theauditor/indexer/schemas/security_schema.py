@@ -230,7 +230,7 @@ RESOLVED_FLOW_AUDIT = TableSchema(
 # SECURITY TABLES REGISTRY
 # ============================================================================
 
-SECURITY_TABLES: Dict[str, TableSchema] = {
+SECURITY_TABLES: dict[str, TableSchema] = {
     "env_var_usage": ENV_VAR_USAGE,
     "sql_objects": SQL_OBJECTS,
     "sql_queries": SQL_QUERIES,

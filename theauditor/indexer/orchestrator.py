@@ -19,6 +19,8 @@ CRITICAL SCHEMA NOTE: When adding new tables to any schema file:
    This regenerates generated_cache.py which taint analysis uses for memory loading!
    WITHOUT THIS STEP, YOUR TABLE WON'T BE ACCESSIBLE TO THE ANALYZER!
 """
+from __future__ import annotations
+
 
 import os
 import sys
@@ -52,7 +54,7 @@ class IndexerOrchestrator:
     def __init__(self, root_path: Path, db_path: str,
                  batch_size: int = DEFAULT_BATCH_SIZE,
                  follow_symlinks: bool = False,
-                 exclude_patterns: Optional[List[str]] = None):
+                 exclude_patterns: list[str] | None = None):
         """Initialize the indexer orchestrator.
 
         Args:
@@ -136,7 +138,7 @@ class IndexerOrchestrator:
         # Initialize DataStorer for storage operations (after counts)
         self.data_storer = DataStorer(self.db_manager, self.counts)
 
-    def _detect_frameworks_inline(self) -> List[Dict]:
+    def _detect_frameworks_inline(self) -> list[dict]:
         """Detect frameworks inline without file dependency.
 
         Replaces file-based loading with direct detection to avoid
@@ -218,7 +220,7 @@ class IndexerOrchestrator:
                         express_id, pattern, sink_type, is_safe, reason
                     )
 
-    def index(self) -> Tuple[Dict[str, int], Dict[str, Any]]:
+    def index(self) -> tuple[dict[str, int], dict[str, Any]]:
         """Run the complete indexing process.
 
         Returns:
@@ -238,7 +240,7 @@ class IndexerOrchestrator:
         built_hash = None
 
         if cache_file.exists():
-            with open(cache_file, 'r') as f:
+            with open(cache_file) as f:
                 lines = f.readlines()
                 if len(lines) >= 2 and 'SCHEMA_HASH:' in lines[1]:
                     built_hash = lines[1].split('SCHEMA_HASH:')[1].strip()
@@ -649,7 +651,7 @@ class IndexerOrchestrator:
 
         return self.counts, stats
 
-    def _process_file(self, file_info: Dict[str, Any], js_ts_cache: Dict[str, Any]):
+    def _process_file(self, file_info: dict[str, Any], js_ts_cache: dict[str, Any]):
         """Process a single file.
 
         Args:
@@ -725,8 +727,8 @@ class IndexerOrchestrator:
             print(f"[TRACE] _store_extracted_data() called for {file_info['path']}: {num_assignments} assignments", file=sys.stderr)
         self._store_extracted_data(file_info['path'], extracted)
 
-    def _get_or_parse_ast(self, file_info: Dict[str, Any],
-                          file_path: Path, js_ts_cache: Dict[str, Any]) -> Optional[Dict]:
+    def _get_or_parse_ast(self, file_info: dict[str, Any],
+                          file_path: Path, js_ts_cache: dict[str, Any]) -> dict | None:
         """Get AST from cache or parse the file.
 
         Args:
@@ -780,7 +782,7 @@ class IndexerOrchestrator:
         # Use registry for standard extension-based extraction
         return self.extractor_registry.get_extractor(file_path, file_ext)
 
-    def _store_extracted_data(self, file_path: str, extracted: Dict[str, Any]):
+    def _store_extracted_data(self, file_path: str, extracted: dict[str, Any]):
         """Store extracted data in the database - DELEGATED TO DataStorer.
 
         This method now delegates all storage operations to the DataStorer class.

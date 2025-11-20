@@ -5,6 +5,8 @@ business logic, refactoring contexts, and semantic patterns.
 
 Example: During OAuth migration, mark all JWT findings as "obsolete".
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -24,7 +26,7 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option("--verbose", "-v", is_flag=True,
               help="Show detailed findings in report")
 @handle_exceptions
-def context(context_file: str, output: Optional[str], verbose: bool):
+def context(context_file: str, output: str | None, verbose: bool):
     """Apply user-defined semantic rules to classify findings based on business logic and refactoring context.
 
     Enables project-specific interpretation of analysis findings through YAML rules that classify
@@ -372,7 +374,7 @@ def _extract_semantic_chunks(json_file: Path, readthis_dir: Path, context_name: 
     import json
 
     # Load the JSON file
-    with open(json_file, 'r', encoding='utf-8') as f:
+    with open(json_file, encoding='utf-8') as f:
         data = json.load(f)
 
     # Calculate size

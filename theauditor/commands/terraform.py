@@ -3,6 +3,8 @@
 Commands for analyzing Terraform configurations, building provisioning flow
 graphs, and detecting infrastructure security issues.
 """
+from __future__ import annotations
+
 
 import json
 from pathlib import Path

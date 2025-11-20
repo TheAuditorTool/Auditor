@@ -18,6 +18,8 @@ Extracted data:
 - Steps: actions, run scripts, env vars, with args
 - References: ${{ }} expressions (github.*, secrets.*, etc.)
 """
+from __future__ import annotations
+
 
 import json
 import re
@@ -31,7 +33,7 @@ from . import BaseExtractor
 class GitHubWorkflowExtractor(BaseExtractor):
     """Extractor for GitHub Actions workflow files."""
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.yml', '.yaml']
 
@@ -49,8 +51,8 @@ class GitHubWorkflowExtractor(BaseExtractor):
         path_normalized = Path(file_path).as_posix().lower()
         return '.github/workflows/' in path_normalized
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract GitHub Actions workflow directly to database.
 
         Uses inline YAML parsing (like generic.py for Docker Compose).
@@ -99,7 +101,7 @@ class GitHubWorkflowExtractor(BaseExtractor):
             'symbols': []
         }
 
-    def _extract_workflow(self, workflow_path: str, workflow_data: Dict):
+    def _extract_workflow(self, workflow_path: str, workflow_data: dict):
         """Extract workflow-level metadata to database.
 
         Args:
@@ -148,7 +150,7 @@ class GitHubWorkflowExtractor(BaseExtractor):
             env=env_json
         )
 
-    def _extract_jobs(self, workflow_path: str, jobs_data: Dict):
+    def _extract_jobs(self, workflow_path: str, jobs_data: dict):
         """Extract jobs and their steps to database.
 
         Args:
@@ -235,7 +237,7 @@ class GitHubWorkflowExtractor(BaseExtractor):
             if isinstance(steps, list):
                 self._extract_steps(workflow_path, job_id, steps)
 
-    def _extract_steps(self, workflow_path: str, job_id: str, steps: List[Dict]):
+    def _extract_steps(self, workflow_path: str, job_id: str, steps: list[dict]):
         """Extract steps and their references to database.
 
         Args:
@@ -323,7 +325,7 @@ class GitHubWorkflowExtractor(BaseExtractor):
                 for with_key, with_value in with_args.items():
                     self._extract_references(step_id, 'with', str(with_value))
 
-    def _extract_references(self, step_id: str, location: str, text: Optional[str]):
+    def _extract_references(self, step_id: str, location: str, text: str | None):
         """Extract ${{ }} expression references from text.
 
         Parses GitHub Actions expressions like:

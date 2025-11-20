@@ -3,6 +3,8 @@
 This module contains all pattern matching and query logic for the AST parser.
 It provides pattern-based search capabilities across different AST types.
 """
+from __future__ import annotations
+
 
 import ast
 from typing import Any, Optional, List, Dict, TYPE_CHECKING
@@ -21,7 +23,7 @@ else:
         end_line: int
         start_col: int
         snippet: str
-        metadata: Dict[str, Any] = None
+        metadata: dict[str, Any] = None
 
 
 class ASTPatternMixin:
@@ -31,7 +33,7 @@ class ASTPatternMixin:
         """Initialize pattern mixin."""
         super().__init__()
 
-    def query_ast(self, tree: Any, query_string: str) -> List[ASTMatch]:
+    def query_ast(self, tree: Any, query_string: str) -> list[ASTMatch]:
         """Execute a Tree-sitter query on the AST.
 
         Args:
@@ -103,7 +105,7 @@ class ASTPatternMixin:
         
         return matches
 
-    def _query_to_pattern(self, query_string: str) -> Optional[Dict]:
+    def _query_to_pattern(self, query_string: str) -> dict | None:
         """Convert a Tree-sitter query to a simple pattern dict.
         
         This is a fallback for Python's built-in AST.
@@ -117,7 +119,7 @@ class ASTPatternMixin:
             return {"node_type": "class_def", "contains": []}
         return None
 
-    def find_ast_matches(self, tree: Any, ast_pattern: dict, file_hash: str = None) -> List[ASTMatch]:
+    def find_ast_matches(self, tree: Any, ast_pattern: dict, file_hash: str = None) -> list[ASTMatch]:
         """Find matches in AST based on pattern.
 
         Args:
@@ -163,7 +165,7 @@ class ASTPatternMixin:
 
         return matches
 
-    def _find_tree_sitter_matches(self, node: Any, pattern: dict) -> List[ASTMatch]:
+    def _find_tree_sitter_matches(self, node: Any, pattern: dict) -> list[ASTMatch]:
         """Find matches in Tree-sitter AST using structural patterns."""
         matches = []
 
@@ -215,7 +217,7 @@ class ASTPatternMixin:
 
         return matches
     
-    def _find_semantic_ast_matches(self, tree: Dict[str, Any], pattern: dict) -> List[ASTMatch]:
+    def _find_semantic_ast_matches(self, tree: dict[str, Any], pattern: dict) -> list[ASTMatch]:
         """Find matches in Semantic AST from TypeScript Compiler API.
         
         This provides the highest fidelity analysis with full type information.
@@ -268,7 +270,7 @@ class ASTPatternMixin:
         
         return matches
     
-    def _find_eslint_ast_matches(self, tree: Dict[str, Any], pattern: dict) -> List[ASTMatch]:
+    def _find_eslint_ast_matches(self, tree: dict[str, Any], pattern: dict) -> list[ASTMatch]:
         """Find matches in ESLint AST.
         
         ESLint provides a full JavaScript/TypeScript AST with high fidelity.
@@ -287,7 +289,7 @@ class ASTPatternMixin:
         return matches
     
 
-    def _find_python_ast_matches(self, node: ast.AST, pattern: dict) -> List[ASTMatch]:
+    def _find_python_ast_matches(self, node: ast.AST, pattern: dict) -> list[ASTMatch]:
         """Find matches in Python built-in AST."""
         matches = []
 

@@ -1,4 +1,6 @@
 """Graph store module - persistence and database operations for graphs."""
+from __future__ import annotations
+
 
 import json
 import sqlite3

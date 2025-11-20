@@ -1,4 +1,6 @@
 """Parse Claude Code session JSONL files into structured data."""
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -13,7 +15,7 @@ class ToolCall:
     tool_name: str
     timestamp: str
     uuid: str
-    input_params: Dict[str, Any] = field(default_factory=dict)
+    input_params: dict[str, Any] = field(default_factory=dict)
 
     @property
     def datetime(self) -> datetime:
@@ -41,9 +43,9 @@ class AssistantMessage:
     timestamp: str
     uuid: str
     text_content: str
-    tool_calls: List[ToolCall] = field(default_factory=list)
+    tool_calls: list[ToolCall] = field(default_factory=list)
     model: str = ""
-    tokens_used: Dict[str, int] = field(default_factory=dict)
+    tokens_used: dict[str, int] = field(default_factory=dict)
 
     @property
     def datetime(self) -> datetime:
@@ -57,11 +59,11 @@ class Session:
     agent_id: str
     cwd: str
     git_branch: str
-    user_messages: List[UserMessage] = field(default_factory=list)
-    assistant_messages: List[AssistantMessage] = field(default_factory=list)
+    user_messages: list[UserMessage] = field(default_factory=list)
+    assistant_messages: list[AssistantMessage] = field(default_factory=list)
 
     @property
-    def all_tool_calls(self) -> List[ToolCall]:
+    def all_tool_calls(self) -> list[ToolCall]:
         """Flatten all tool calls from all assistant messages."""
         calls = []
         for msg in self.assistant_messages:
@@ -69,7 +71,7 @@ class Session:
         return calls
 
     @property
-    def files_touched(self) -> Dict[str, List[str]]:
+    def files_touched(self) -> dict[str, list[str]]:
         """Return files touched by each tool type."""
         touched = {}
         for call in self.all_tool_calls:
@@ -111,7 +113,7 @@ class SessionParser:
 
         return session_dir
 
-    def list_sessions(self, session_dir: Path) -> List[Path]:
+    def list_sessions(self, session_dir: Path) -> list[Path]:
         """List all JSONL session files in directory."""
         if not session_dir.exists():
             return []
@@ -189,7 +191,7 @@ class SessionParser:
 
         return session
 
-    def parse_all_sessions(self, session_dir: Path) -> List[Session]:
+    def parse_all_sessions(self, session_dir: Path) -> list[Session]:
         """Parse all sessions in a directory."""
         sessions = []
         for jsonl_file in self.list_sessions(session_dir):
@@ -207,7 +209,7 @@ def load_session(jsonl_path: str | Path) -> Session:
     return parser.parse_session(Path(jsonl_path))
 
 
-def load_project_sessions(project_path: str) -> List[Session]:
+def load_project_sessions(project_path: str) -> list[Session]:
     """Load all sessions for a given project path."""
     parser = SessionParser()
     session_dir = parser.find_project_sessions(project_path)

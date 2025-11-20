@@ -10,6 +10,8 @@ Integration Points:
 
 NO FALLBACKS. Hard failure if spec YAML is malformed or database query fails.
 """
+from __future__ import annotations
+
 
 from pathlib import Path
 from typing import List, Dict
@@ -74,7 +76,7 @@ def verify_task_spec(spec_yaml: str, db_path: Path, repo_root: Path) -> ProfileE
     return evaluation
 
 
-def find_analogous_patterns(root: Path, pattern_spec: Dict) -> List[Dict]:
+def find_analogous_patterns(root: Path, pattern_spec: dict) -> list[dict]:
     """Find similar code patterns for greenfield tasks.
 
     Args:

@@ -8,6 +8,8 @@ Detects:
 
 Pattern: Multi-table JOINs like taint tracking (see rules/progress.md).
 """
+from __future__ import annotations
+
 
 import sqlite3
 from pathlib import Path
@@ -36,15 +38,15 @@ class DeadCode:
     reason: str
     confidence: str  # 'high' | 'medium' | 'low'
     lines_estimated: int = 0  # For rule compatibility
-    cluster_id: Optional[int] = None  # For zombie cluster tracking
+    cluster_id: int | None = None  # For zombie cluster tracking
 
 
 def detect_all(
     db_path: str,
     path_filter: str = None,
-    exclude_patterns: List[str] = None,
+    exclude_patterns: list[str] = None,
     include_tests: bool = False
-) -> List[DeadCode]:
+) -> list[DeadCode]:
     """Detect ALL types of dead code using multi-table analysis.
 
     Algorithm:
@@ -79,9 +81,9 @@ def detect_all(
 def _detect_isolated_modules(
     conn: sqlite3.Connection,
     path_filter: str = None,
-    exclude_patterns: List[str] = None,
+    exclude_patterns: list[str] = None,
     include_tests: bool = False
-) -> List[DeadCode]:
+) -> list[DeadCode]:
     """Find modules NEVER referenced anywhere in the codebase.
 
     Checks:
@@ -246,9 +248,9 @@ def _detect_isolated_modules(
 def _detect_dead_functions(
     conn: sqlite3.Connection,
     path_filter: str = None,
-    exclude_patterns: List[str] = None,
+    exclude_patterns: list[str] = None,
     include_tests: bool = False
-) -> List[DeadCode]:
+) -> list[DeadCode]:
     """Find functions defined but NEVER called.
 
     Query: symbols.type='function' BUT name NOT IN function_call_args.callee_function
@@ -319,9 +321,9 @@ def _detect_dead_functions(
 def _detect_dead_classes(
     conn: sqlite3.Connection,
     path_filter: str = None,
-    exclude_patterns: List[str] = None,
+    exclude_patterns: list[str] = None,
     include_tests: bool = False
-) -> List[DeadCode]:
+) -> list[DeadCode]:
     """Find classes defined but NEVER instantiated.
 
     Query: symbols.type='class' BUT name NOT IN function_call_args.callee_function
@@ -381,7 +383,7 @@ def _detect_dead_classes(
     return findings
 
 
-def _classify_module(path: str, symbol_count: int) -> Tuple[str, str]:
+def _classify_module(path: str, symbol_count: int) -> tuple[str, str]:
     """Classify module confidence and reason.
 
     Returns:
@@ -409,7 +411,7 @@ def _classify_module(path: str, symbol_count: int) -> Tuple[str, str]:
 def detect_isolated_modules(
     db_path: str,
     path_filter: str = None,
-    exclude_patterns: List[str] = None
-) -> List[DeadCode]:
+    exclude_patterns: list[str] = None
+) -> list[DeadCode]:
     """Legacy function for backward compatibility. Use detect_all() instead."""
     return detect_all(db_path, path_filter, exclude_patterns)

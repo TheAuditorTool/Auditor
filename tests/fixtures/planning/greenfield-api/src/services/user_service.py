@@ -19,7 +19,7 @@ def get_database_connection():
     return sqlite3.connect(db_path)
 
 
-def get_user_role(user_id: int) -> Optional[str]:
+def get_user_role(user_id: int) -> str | None:
     """
     Get user role by ID using raw SQL.
 
@@ -51,7 +51,7 @@ def get_user_role(user_id: int) -> Optional[str]:
     return result[0] if result else None
 
 
-def get_user_by_email(email: str) -> Optional[Dict]:
+def get_user_by_email(email: str) -> dict | None:
     """
     Fetch user by email using raw SQL.
 
@@ -91,7 +91,7 @@ def get_user_by_email(email: str) -> Optional[Dict]:
     return None
 
 
-def get_admin_users() -> List[Dict]:
+def get_admin_users() -> list[dict]:
     """
     Fetch all admin users using raw SQL.
 
@@ -127,7 +127,7 @@ def get_admin_users() -> List[Dict]:
     ]
 
 
-def search_users(search_term: str, role_filter: Optional[str] = None) -> List[Dict]:
+def search_users(search_term: str, role_filter: str | None = None) -> list[dict]:
     """
     Search users with dynamic query building.
 
@@ -185,7 +185,7 @@ def search_users(search_term: str, role_filter: Optional[str] = None) -> List[Di
     ]
 
 
-def get_user_order_stats(user_id: int) -> Dict:
+def get_user_order_stats(user_id: int) -> dict:
     """
     Get user order statistics using raw SQL with aggregation.
 

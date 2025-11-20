@@ -1,6 +1,5 @@
 """Pydantic models that exercise field and root validators."""
 
-from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
@@ -12,7 +11,7 @@ class AccountPayload(BaseModel):
     email: EmailStr
     organization_id: int
     timezone: str = Field(default="UTC", description="IANA timezone string")
-    title: Optional[str] = None
+    title: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     @validator("timezone")
@@ -36,4 +35,4 @@ class AccountResponse(BaseModel):
     email: EmailStr
     organization_id: int
     timezone: str
-    title: Optional[str]
+    title: str | None

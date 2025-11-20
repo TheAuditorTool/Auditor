@@ -3,6 +3,8 @@
 This module detects DOM-based XSS vulnerabilities that occur in client-side JavaScript.
 These are particularly dangerous as they can bypass server-side protections.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -85,7 +87,7 @@ EVAL_SINKS = frozenset([
 ])
 
 
-def find_dom_xss(context: StandardRuleContext) -> List[StandardFinding]:
+def find_dom_xss(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect DOM-based XSS vulnerabilities.
 
     Returns:
@@ -115,7 +117,7 @@ def find_dom_xss(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _check_direct_dom_flows(conn) -> List[StandardFinding]:
+def _check_direct_dom_flows(conn) -> list[StandardFinding]:
     """Check for direct data flows from sources to sinks."""
     findings = []
     cursor = conn.cursor()
@@ -198,7 +200,7 @@ def _check_direct_dom_flows(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_url_manipulation(conn) -> List[StandardFinding]:
+def _check_url_manipulation(conn) -> list[StandardFinding]:
     """Check for URL-based DOM XSS."""
     findings = []
     cursor = conn.cursor()
@@ -279,7 +281,7 @@ def _check_url_manipulation(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_event_handler_injection(conn) -> List[StandardFinding]:
+def _check_event_handler_injection(conn) -> list[StandardFinding]:
     """Check for event handler injection vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -358,7 +360,7 @@ def _check_event_handler_injection(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_dom_clobbering(conn) -> List[StandardFinding]:
+def _check_dom_clobbering(conn) -> list[StandardFinding]:
     """Check for DOM clobbering vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -435,7 +437,7 @@ def _check_dom_clobbering(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_client_side_templates(conn) -> List[StandardFinding]:
+def _check_client_side_templates(conn) -> list[StandardFinding]:
     """Check for client-side template injection."""
     findings = []
     cursor = conn.cursor()
@@ -518,7 +520,7 @@ def _check_client_side_templates(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_web_messaging(conn) -> List[StandardFinding]:
+def _check_web_messaging(conn) -> list[StandardFinding]:
     """Check for postMessage XSS vulnerabilities."""
     findings = []
     cursor = conn.cursor()
@@ -625,7 +627,7 @@ def _check_web_messaging(conn) -> List[StandardFinding]:
     return findings
 
 
-def _check_dom_purify_bypass(conn) -> List[StandardFinding]:
+def _check_dom_purify_bypass(conn) -> list[StandardFinding]:
     """Check for potential DOMPurify bypass patterns."""
     findings = []
     cursor = conn.cursor()
@@ -703,7 +705,7 @@ def _check_dom_purify_bypass(conn) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

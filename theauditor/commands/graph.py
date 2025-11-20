@@ -1,4 +1,6 @@
 """Cross-project dependency and call graph analysis."""
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -166,7 +168,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         manifest_path = Path(config["paths"]["manifest"])
         if manifest_path.exists():
             click.echo("Loading file manifest...")
-            with open(manifest_path, 'r', encoding='utf-8') as f:
+            with open(manifest_path, encoding='utf-8') as f:
                 manifest_data = json.load(f)
             
             # Apply workset filtering if active

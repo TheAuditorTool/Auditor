@@ -18,6 +18,8 @@ See indexer/__init__.py:948-962 for object literal storage example:
 
 This separation ensures single source of truth for file paths.
 """
+from __future__ import annotations
+
 
 from typing import Dict, Any, List, Optional
 import os
@@ -29,12 +31,12 @@ from .sql import parse_sql_query
 class JavaScriptExtractor(BaseExtractor):
     """Extractor for JavaScript and TypeScript files."""
 
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
         return ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.vue']
 
-    def extract(self, file_info: Dict[str, Any], content: str,
-                tree: Optional[Any] = None) -> Dict[str, Any]:
+    def extract(self, file_info: dict[str, Any], content: str,
+                tree: Any | None = None) -> dict[str, Any]:
         """Extract all JavaScript/TypeScript information.
 
         Args:
@@ -803,7 +805,7 @@ class JavaScriptExtractor(BaseExtractor):
 
         return result
 
-    def _analyze_import_styles(self, imports: List[Dict], file_path: str) -> List[Dict]:
+    def _analyze_import_styles(self, imports: list[dict], file_path: str) -> list[dict]:
         """Analyze import statements to determine import style.
 
         Classifies imports into categories for tree-shaking analysis:
@@ -906,7 +908,7 @@ class JavaScriptExtractor(BaseExtractor):
         # Default: direct database execution in code (highest risk)
         return 'code_execute'
 
-    def _extract_sql_from_function_calls(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+    def _extract_sql_from_function_calls(self, function_calls: list[dict], file_path: str) -> list[dict]:
         """Extract SQL queries from database execution method calls.
 
         Uses already-extracted function_calls data to find SQL execution calls
@@ -984,7 +986,7 @@ class JavaScriptExtractor(BaseExtractor):
 
         return queries
 
-    def _extract_jwt_from_function_calls(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+    def _extract_jwt_from_function_calls(self, function_calls: list[dict], file_path: str) -> list[dict]:
         """Extract JWT patterns from function calls using AST data.
 
         NO REGEX. This uses function_calls data from the AST parser.
@@ -1137,7 +1139,7 @@ class JavaScriptExtractor(BaseExtractor):
 
         return patterns
 
-    def _extract_routes_from_ast(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+    def _extract_routes_from_ast(self, function_calls: list[dict], file_path: str) -> list[dict]:
         """Extract API route definitions from Express/Fastify function calls.
 
         Detects patterns like:
@@ -1244,7 +1246,7 @@ class JavaScriptExtractor(BaseExtractor):
 
         return routes
 
-    def _extract_router_mounts(self, function_calls: List[Dict], file_path: str) -> List[Dict]:
+    def _extract_router_mounts(self, function_calls: list[dict], file_path: str) -> list[dict]:
         """Extract router.use() mount statements from function calls.
 
         ADDED 2025-11-09: Phase 6.7 - AST-based route resolution

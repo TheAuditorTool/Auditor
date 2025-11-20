@@ -13,6 +13,8 @@ Attack Pattern:
 
 CWE-494: Download of Code Without Integrity Check
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -38,7 +40,7 @@ METADATA = RuleMetadata(
 )
 
 
-def find_artifact_poisoning_risk(context: StandardRuleContext) -> List[StandardFinding]:
+def find_artifact_poisoning_risk(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect artifact poisoning via untrusted build → trusted deploy chain.
 
     Detection Logic:
@@ -54,7 +56,7 @@ def find_artifact_poisoning_risk(context: StandardRuleContext) -> List[StandardF
     Returns:
         List of security findings
     """
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -142,7 +144,7 @@ def find_artifact_poisoning_risk(context: StandardRuleContext) -> List[StandardF
     return findings
 
 
-def _check_job_dependency(download_job_id: str, upload_jobs: List[str],
+def _check_job_dependency(download_job_id: str, upload_jobs: list[str],
                           cursor) -> bool:
     """Check if download job depends on any upload job.
 
@@ -165,7 +167,7 @@ def _check_job_dependency(download_job_id: str, upload_jobs: List[str],
     return any(upload_job in dependencies for upload_job in upload_jobs)
 
 
-def _check_dangerous_operations(job_id: str, cursor) -> List[str]:
+def _check_dangerous_operations(job_id: str, cursor) -> list[str]:
     """Check if job performs dangerous operations on downloaded artifacts.
 
     Args:
@@ -214,8 +216,8 @@ def _parse_permissions(permissions_json: str) -> dict:
 
 
 def _build_artifact_poisoning_finding(workflow_path: str, workflow_name: str,
-                                      upload_jobs: List[str], download_job_key: str,
-                                      dangerous_ops: List[str], permissions: dict,
+                                      upload_jobs: list[str], download_job_key: str,
+                                      dangerous_ops: list[str], permissions: dict,
                                       has_dependency: bool) -> StandardFinding:
     """Build finding for artifact poisoning vulnerability.
 

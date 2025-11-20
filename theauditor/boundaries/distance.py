@@ -20,6 +20,8 @@ Example:
 
 Truth Courier Design: Reports factual distance measurements, not recommendations.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import Optional, List, Tuple, Dict
@@ -32,7 +34,7 @@ def calculate_distance(
     entry_line: int,
     control_file: str,
     control_line: int
-) -> Optional[int]:
+) -> int | None:
     """
     Calculate call-chain distance between entry point and control point.
 
@@ -83,7 +85,7 @@ def calculate_distance(
         conn.close()
 
 
-def _find_containing_function(cursor, file_path: str, line: int) -> Optional[str]:
+def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
     """
     Find function containing the given file:line location.
 
@@ -109,7 +111,7 @@ def _find_containing_function(cursor, file_path: str, line: int) -> Optional[str
     return None
 
 
-def _bfs_distance(cursor, start_func: str, target_func: str, max_depth: int = 10) -> Optional[int]:
+def _bfs_distance(cursor, start_func: str, target_func: str, max_depth: int = 10) -> int | None:
     """
     BFS through call graph to find distance from start to target.
 
@@ -170,9 +172,9 @@ def find_all_paths_to_controls(
     db_path: str,
     entry_file: str,
     entry_line: int,
-    control_patterns: List[str],
+    control_patterns: list[str],
     max_depth: int = 5
-) -> List[Dict]:
+) -> list[dict]:
     """
     Find all control points reachable from entry point and their distances.
 
@@ -286,7 +288,7 @@ def find_all_paths_to_controls(
     return results
 
 
-def measure_boundary_quality(controls: List[Dict]) -> Dict:
+def measure_boundary_quality(controls: list[dict]) -> dict:
     """
     Assess boundary quality based on control distances.
 

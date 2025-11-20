@@ -16,6 +16,8 @@ If you're tempted to add regex:
 
 This is a deliberate architectural decision to maintain extraction purity.
 """
+from __future__ import annotations
+
 
 import ast
 from typing import Any, List, Optional
@@ -39,7 +41,7 @@ def get_node_name(node: Any) -> str:
         return "unknown"
 
 
-def extract_vars_from_expr(node: ast.AST) -> List[str]:
+def extract_vars_from_expr(node: ast.AST) -> list[str]:
     """Extract all variable names from a Python expression.
 
     Walks the AST to find all Name and Attribute nodes.
@@ -61,7 +63,7 @@ def extract_vars_from_expr(node: ast.AST) -> List[str]:
     return vars_list
 
 
-def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> List[str]:
+def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> list[str]:
     """Extract all variable names from a TypeScript/JavaScript AST node.
 
     This is the AST-pure replacement for the gutted extract_vars_from_tree_sitter_expr().
@@ -150,7 +152,7 @@ def sanitize_call_name(name: Any) -> str:
     return cleaned
 
 
-def find_containing_function_python(tree: ast.AST, line: int) -> Optional[str]:
+def find_containing_function_python(tree: ast.AST, line: int) -> str | None:
     """Find the function containing a given line in Python AST."""
     containing_func = None
     
@@ -165,7 +167,7 @@ def find_containing_function_python(tree: ast.AST, line: int) -> Optional[str]:
     return containing_func[0] if containing_func else None
 
 
-def find_containing_class_python(tree: ast.AST, line: int) -> Optional[str]:
+def find_containing_class_python(tree: ast.AST, line: int) -> str | None:
     """Find the class containing a given line in Python AST."""
     containing_class = None
 
@@ -179,7 +181,7 @@ def find_containing_class_python(tree: ast.AST, line: int) -> Optional[str]:
     return containing_class[0] if containing_class else None
 
 
-def find_containing_function_tree_sitter(node: Any, content: str, language: str) -> Optional[str]:
+def find_containing_function_tree_sitter(node: Any, content: str, language: str) -> str | None:
     """Find the function containing a node in Tree-sitter AST.
     
     Walks up the tree to find parent function, handling all modern JS/TS patterns.
@@ -261,7 +263,7 @@ def find_containing_function_tree_sitter(node: Any, content: str, language: str)
     return "global"
 
 
-def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> List[str]:
+def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> list[str]:
     """Extract all variable names from a Rust tree-sitter AST node.
 
     This is the AST-pure extraction for Rust, matching the pattern of

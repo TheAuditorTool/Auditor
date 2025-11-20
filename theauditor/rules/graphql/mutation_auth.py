@@ -3,6 +3,8 @@
 Detects mutations without authentication directives or resolver protections.
 Pure SQL queries - NO file I/O.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from dataclasses import dataclass

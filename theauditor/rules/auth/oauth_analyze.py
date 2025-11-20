@@ -15,6 +15,8 @@ CWE Coverage:
 - CWE-601: URL Redirection to Untrusted Site ('Open Redirect')
 - CWE-598: Use of GET Request Method With Sensitive Query Strings
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -116,7 +118,7 @@ TOKEN_URL_PATTERNS = frozenset([
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_oauth_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_oauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect OAuth and SSO security vulnerabilities.
 
     This is a database-first rule following the gold standard pattern.
@@ -162,7 +164,7 @@ def find_oauth_issues(context: StandardRuleContext) -> List[StandardFinding]:
 # CHECK 1: Missing OAuth State Parameter
 # ============================================================================
 
-def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
+def _check_missing_oauth_state(cursor) -> list[StandardFinding]:
     """Detect OAuth flows without state parameter.
 
     The state parameter prevents CSRF attacks in OAuth flows by:
@@ -241,7 +243,7 @@ def _check_missing_oauth_state(cursor) -> List[StandardFinding]:
 # CHECK 2: Redirect URI Validation Bypass
 # ============================================================================
 
-def _check_redirect_validation(cursor) -> List[StandardFinding]:
+def _check_redirect_validation(cursor) -> list[StandardFinding]:
     """Detect OAuth redirect URI validation issues.
 
     Open redirect vulnerabilities in OAuth callbacks allow attackers to:
@@ -354,7 +356,7 @@ def _check_redirect_validation(cursor) -> List[StandardFinding]:
 # CHECK 3: OAuth Token in URL Fragment/Parameter
 # ============================================================================
 
-def _check_token_in_url(cursor) -> List[StandardFinding]:
+def _check_token_in_url(cursor) -> list[StandardFinding]:
     """Detect OAuth tokens in URL fragments or parameters.
 
     Tokens in URLs are exposed in:

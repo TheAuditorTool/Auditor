@@ -25,8 +25,8 @@ from typing import List, Dict, Optional
 # ============================================================================
 
 class Order:
-    def __init__(self, order_id: str, customer_id: str, items: List[Dict],
-                 discount_code: Optional[str] = None):
+    def __init__(self, order_id: str, customer_id: str, items: list[dict],
+                 discount_code: str | None = None):
         self.order_id = order_id
         self.customer_id = customer_id
         self.items = items
@@ -51,7 +51,7 @@ class PaymentProcessor:
         self.api_key = api_key
         self.endpoint = endpoint
 
-    def charge(self, amount: Decimal, payment_method: str) -> Dict:
+    def charge(self, amount: Decimal, payment_method: str) -> dict:
         # External payment API call
         raise NotImplementedError("Must mock in tests")
 
@@ -75,10 +75,10 @@ class InventoryService:
 
 
 class ShippingService:
-    def create_shipment(self, order: Order, address: Dict) -> str:
+    def create_shipment(self, order: Order, address: dict) -> str:
         raise NotImplementedError("Must mock in tests")
 
-    def track_shipment(self, tracking_number: str) -> Dict:
+    def track_shipment(self, tracking_number: str) -> dict:
         raise NotImplementedError("Must mock in tests")
 
 
@@ -90,7 +90,7 @@ class OrderProcessor:
         self.shipping = shipping
 
     def process_order(self, order: Order, payment_method: str,
-                     shipping_address: Dict) -> Dict:
+                     shipping_address: dict) -> dict:
         # Check inventory
         for item in order.items:
             if not self.inventory.check_availability(item['product_id'], item['quantity']):

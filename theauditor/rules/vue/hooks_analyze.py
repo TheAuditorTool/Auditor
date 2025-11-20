@@ -9,6 +9,8 @@ Follows v1.1+ gold standard patterns:
 - Direct database queries (crash on missing tables to expose indexer bugs)
 - Proper confidence levels via Confidence enum
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set
@@ -85,7 +87,7 @@ MEMORY_LEAK_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_hooks_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue Composition API hooks misuse and issues.
 
     Detects:
@@ -139,7 +141,7 @@ def find_vue_hooks_issues(context: StandardRuleContext) -> List[StandardFinding]
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_composition_api_files(cursor) -> Set[str]:
+def _get_composition_api_files(cursor) -> set[str]:
     """Get all files using Vue Composition API.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -178,7 +180,7 @@ def _get_composition_api_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_hooks_outside_setup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_hooks_outside_setup(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find Composition API hooks called outside setup()."""
     findings = []
 
@@ -222,7 +224,7 @@ def _find_hooks_outside_setup(cursor, vue_files: Set[str]) -> List[StandardFindi
     return findings
 
 
-def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_cleanup(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find lifecycle hooks with missing cleanup."""
     findings = []
 
@@ -266,7 +268,7 @@ def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_watch_issues(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_watch_issues(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find watch/watchEffect issues."""
     findings = []
 
@@ -339,7 +341,7 @@ def _find_watch_issues(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_memory_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_memory_leaks(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find potential memory leaks from refs/reactive."""
     findings = []
 
@@ -417,7 +419,7 @@ def _find_memory_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_incorrect_hook_order(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find incorrect lifecycle hook ordering."""
     findings = []
 
@@ -470,7 +472,7 @@ def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_excessive_reactivity(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_excessive_reactivity(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find excessive use of reactivity (performance issue)."""
     findings = []
 
@@ -501,7 +503,7 @@ def _find_excessive_reactivity(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_missing_error_boundaries(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_error_boundaries(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find missing error handling in hooks."""
     findings = []
 
@@ -541,7 +543,7 @@ def _find_missing_error_boundaries(cursor, vue_files: Set[str]) -> List[Standard
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

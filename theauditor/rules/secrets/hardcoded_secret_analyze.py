@@ -12,6 +12,8 @@ Follows gold standard patterns (v1.1+ schema contract compliance):
 - Proper Severity and Confidence enums
 - Standardized finding generation with correct parameter names
 """
+from __future__ import annotations
+
 
 import sqlite3
 import re
@@ -167,7 +169,7 @@ KEYBOARD_PATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_hardcoded_secrets(context: StandardRuleContext) -> List[StandardFinding]:
+def find_hardcoded_secrets(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect hardcoded secrets using hybrid approach.
 
     Detects:
@@ -239,7 +241,7 @@ def find_hardcoded_secrets(context: StandardRuleContext) -> List[StandardFinding
 # DATABASE-BASED DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_secret_assignments(cursor) -> List[StandardFinding]:
+def _find_secret_assignments(cursor) -> list[StandardFinding]:
     """Find variable assignments that look like secrets."""
     findings = []
 
@@ -307,7 +309,7 @@ def _find_secret_assignments(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_connection_strings(cursor) -> List[StandardFinding]:
+def _find_connection_strings(cursor) -> list[StandardFinding]:
     """Find database connection strings with embedded passwords."""
     findings = []
 
@@ -353,7 +355,7 @@ def _find_connection_strings(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_env_fallbacks(cursor) -> List[StandardFinding]:
+def _find_env_fallbacks(cursor) -> list[StandardFinding]:
     """Find environment variable fallbacks with hardcoded secrets."""
     findings = []
 
@@ -403,7 +405,7 @@ def _find_env_fallbacks(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_dict_secrets(cursor) -> List[StandardFinding]:
+def _find_dict_secrets(cursor) -> list[StandardFinding]:
     """Find secrets in dictionary/object literals."""
     findings = []
 
@@ -447,7 +449,7 @@ def _find_dict_secrets(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
+def _find_api_keys_in_urls(cursor) -> list[StandardFinding]:
     """Find API keys embedded in URLs."""
     findings = []
 
@@ -501,7 +503,7 @@ def _find_api_keys_in_urls(cursor) -> List[StandardFinding]:
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_suspicious_files(cursor) -> List[str]:
+def _get_suspicious_files(cursor) -> list[str]:
     """Get list of files likely to contain secrets."""
     suspicious_files = []
 
@@ -703,7 +705,7 @@ def _is_base64_secret(value: str) -> bool:
         return False
 
 
-def _scan_file_patterns(file_path: Path, relative_path: str) -> List[StandardFinding]:
+def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFinding]:
     """Scan file content for secret patterns.
 
     This is justified file I/O because:
@@ -714,7 +716,7 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> List[StandardFin
     findings = []
 
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(file_path, encoding='utf-8', errors='ignore') as f:
             lines = f.readlines()
 
         # Limit to first 5000 lines for performance

@@ -50,7 +50,7 @@ async def async_with_params(user_id: int, timeout: float = 1.0):
 # Await Call Chains (Function Awaits Function Awaits Function)
 # ==============================================================================
 
-async def fetch_user_profile(profile_id: int) -> Dict[str, Any]:
+async def fetch_user_profile(profile_id: int) -> dict[str, Any]:
     """
     Fetch user profile from database (simulated).
     Tests: Leaf async function in call chain.
@@ -63,7 +63,7 @@ async def fetch_user_profile(profile_id: int) -> Dict[str, Any]:
     }
 
 
-async def fetch_user_permissions(user_id: int) -> List[str]:
+async def fetch_user_permissions(user_id: int) -> list[str]:
     """
     Fetch user permissions from auth service (simulated).
     Tests: Another leaf async function.
@@ -72,7 +72,7 @@ async def fetch_user_permissions(user_id: int) -> List[str]:
     return ["read", "write", "admin"]
 
 
-async def fetch_user_data(user_id: int) -> Dict[str, Any]:
+async def fetch_user_data(user_id: int) -> dict[str, Any]:
     """
     Fetch core user data from database.
     Tests: Intermediate async function - awaits another async function.
@@ -90,7 +90,7 @@ async def fetch_user_data(user_id: int) -> Dict[str, Any]:
     }
 
 
-async def fetch_user(user_id: int) -> Dict[str, Any]:
+async def fetch_user(user_id: int) -> dict[str, Any]:
     """
     Fetch complete user object (3-level await chain).
     Tests: Top-level async function that chains multiple awaits.
@@ -125,7 +125,7 @@ async def process_item(item_id: int) -> str:
     return f"Processed item {item_id}"
 
 
-async def process_batch(items: List[int]) -> List[str]:
+async def process_batch(items: list[int]) -> list[str]:
     """
     Process multiple items in parallel using asyncio.gather.
     Tests: Parallel async execution - multiple await points.
@@ -139,7 +139,7 @@ async def process_batch(items: List[int]) -> List[str]:
     return results
 
 
-async def fetch_user_and_posts(user_id: int) -> Dict[str, Any]:
+async def fetch_user_and_posts(user_id: int) -> dict[str, Any]:
     """
     Fetch user and their posts in parallel.
     Tests: Multiple independent await calls (parallel pattern).
@@ -156,7 +156,7 @@ async def fetch_user_and_posts(user_id: int) -> Dict[str, Any]:
     }
 
 
-async def fetch_posts_for_user(user_id: int) -> List[Dict[str, Any]]:
+async def fetch_posts_for_user(user_id: int) -> list[dict[str, Any]]:
     """
     Fetch all posts for a user.
     Tests: Async function returning list of dicts.
@@ -199,7 +199,7 @@ class AsyncDatabaseConnection:
         await asyncio.sleep(0.02)  # Simulate connection teardown
         self.connected = False
 
-    async def execute(self, query: str) -> List[Dict[str, Any]]:
+    async def execute(self, query: str) -> list[dict[str, Any]]:
         """
         Execute database query.
         Tests: Async method on context manager class.
@@ -228,7 +228,7 @@ async def get_db_connection(connection_string: str):
         await connection.__aexit__(None, None, None)
 
 
-async def query_database(query: str) -> List[Dict[str, Any]]:
+async def query_database(query: str) -> list[dict[str, Any]]:
     """
     Query database using async context manager.
     Tests: async with statement - context manager usage.
@@ -238,7 +238,7 @@ async def query_database(query: str) -> List[Dict[str, Any]]:
         return results
 
 
-async def query_with_decorator_context_manager(query: str) -> List[Dict[str, Any]]:
+async def query_with_decorator_context_manager(query: str) -> list[dict[str, Any]]:
     """
     Query using decorator-based context manager.
     Tests: async with using @asynccontextmanager.
@@ -461,7 +461,7 @@ class AsyncService:
         await asyncio.sleep(0.1)
         print(f"{self.service_name} initialized")
 
-    async def fetch_data(self, data_id: int) -> Dict[str, Any]:
+    async def fetch_data(self, data_id: int) -> dict[str, Any]:
         """
         Async data fetching method.
         Tests: Async instance method with return value.
@@ -469,7 +469,7 @@ class AsyncService:
         await asyncio.sleep(0.1)
         return {"data_id": data_id, "service": self.service_name}
 
-    async def process(self, items: List[int]) -> List[str]:
+    async def process(self, items: list[int]) -> list[str]:
         """
         Process multiple items asynchronously.
         Tests: Async method calling other async methods.
@@ -490,7 +490,7 @@ class AsyncService:
         return value.upper()
 
     @classmethod
-    async def from_config(cls, config: Dict[str, Any]):
+    async def from_config(cls, config: dict[str, Any]):
         """
         Async class method (factory pattern).
         Tests: @classmethod with async def.
@@ -552,17 +552,17 @@ class AsyncAPIClient:
         await asyncio.sleep(0.02)
         self.session = None
 
-    async def get(self, endpoint: str) -> Dict[str, Any]:
+    async def get(self, endpoint: str) -> dict[str, Any]:
         """GET request."""
         await asyncio.sleep(0.1)
         return {"endpoint": endpoint, "method": "GET"}
 
-    async def post(self, endpoint: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def post(self, endpoint: str, data: dict[str, Any]) -> dict[str, Any]:
         """POST request."""
         await asyncio.sleep(0.1)
         return {"endpoint": endpoint, "method": "POST", "data": data}
 
-    async def fetch_multiple(self, endpoints: List[str]) -> List[Dict[str, Any]]:
+    async def fetch_multiple(self, endpoints: list[str]) -> list[dict[str, Any]]:
         """
         Fetch multiple endpoints in parallel.
         Tests: asyncio.gather in method.

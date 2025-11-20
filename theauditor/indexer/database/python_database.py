@@ -5,6 +5,8 @@ Handles 34 Python-specific tables including ORM models, routes, decorators, asyn
 testing frameworks (pytest), validation frameworks (Pydantic, Marshmallow, WTForms),
 web frameworks (Django, DRF), and task queues (Celery).
 """
+from __future__ import annotations
+
 
 import json
 from typing import List, Optional
@@ -18,14 +20,14 @@ class PythonDatabaseMixin:
     """
 
     def add_python_orm_model(self, file_path: str, line: int, model_name: str,
-                             table_name: Optional[str], orm_type: str = 'sqlalchemy'):
+                             table_name: str | None, orm_type: str = 'sqlalchemy'):
         """Add a Python ORM model definition to the batch."""
         self.generic_batches['python_orm_models'].append((file_path, line, model_name, table_name, orm_type))
 
     def add_python_orm_field(self, file_path: str, line: int, model_name: str,
-                             field_name: str, field_type: Optional[str],
+                             field_name: str, field_type: str | None,
                              is_primary_key: bool = False, is_foreign_key: bool = False,
-                             foreign_key_target: Optional[str] = None):
+                             foreign_key_target: str | None = None):
         """Add a Python ORM field definition to the batch."""
         self.generic_batches['python_orm_fields'].append((
             file_path,
@@ -40,7 +42,7 @@ class PythonDatabaseMixin:
 
     def add_python_route(self, file_path: str, line: int, framework: str, method: str,
                          pattern: str, handler_function: str, has_auth: bool = False,
-                         dependencies: Optional[List[str]] = None, blueprint: Optional[str] = None):
+                         dependencies: list[str] | None = None, blueprint: str | None = None):
         """Add a Python framework route (Flask/FastAPI) to the batch."""
         dependencies_json = json.dumps(dependencies) if dependencies else None
         self.generic_batches['python_routes'].append((
@@ -56,7 +58,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_blueprint(self, file_path: str, line: int, blueprint_name: str,
-                             url_prefix: Optional[str], subdomain: Optional[str]):
+                             url_prefix: str | None, subdomain: str | None):
         """Add a Flask blueprint definition to the batch."""
         self.generic_batches['python_blueprints'].append((
             file_path,
@@ -67,7 +69,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_validator(self, file_path: str, line: int, model_name: str,
-                             field_name: Optional[str], validator_method: str,
+                             field_name: str | None, validator_method: str,
                              validator_type: str):
         """Add a Pydantic validator definition to the batch."""
         self.generic_batches['python_validators'].append((
@@ -80,9 +82,9 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_package_config(self, file_path: str, file_type: str,
-                                   project_name: Optional[str], project_version: Optional[str],
+                                   project_name: str | None, project_version: str | None,
                                    dependencies: str, optional_dependencies: str,
-                                   build_system: Optional[str]):
+                                   build_system: str | None):
         """Add a Python package configuration (pyproject.toml/requirements.txt) to the batch.
 
         Args:
@@ -185,7 +187,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_context_manager(self, file_path: str, line: int, context_type: str,
-                                   context_expr: Optional[str], as_name: Optional[str],
+                                   context_expr: str | None, as_name: str | None,
                                    is_async: bool, is_custom: bool):
         """Add a Python context manager usage to the batch."""
         self.generic_batches['python_context_managers'].append((
@@ -213,7 +215,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_await_expression(self, file_path: str, line: int, await_expr: str,
-                                    containing_function: Optional[str]):
+                                    containing_function: str | None):
         """Add a Python await expression to the batch."""
         self.generic_batches['python_await_expressions'].append((
             file_path,
@@ -223,8 +225,8 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_async_generator(self, file_path: str, line: int, generator_type: str,
-                                   target_vars: Optional[str], iterable_expr: Optional[str],
-                                   function_name: Optional[str]):
+                                   target_vars: str | None, iterable_expr: str | None,
+                                   function_name: str | None):
         """Add a Python async generator pattern to the batch."""
         self.generic_batches['python_async_generators'].append((
             file_path,
@@ -259,7 +261,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_pytest_marker(self, file_path: str, line: int, test_function: str,
-                                 marker_name: str, marker_args: Optional[str]):
+                                 marker_name: str, marker_args: str | None):
         """Add a pytest marker to the batch."""
         self.generic_batches['python_pytest_markers'].append((
             file_path,
@@ -270,7 +272,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_mock_pattern(self, file_path: str, line: int, mock_type: str,
-                                target: Optional[str], in_function: Optional[str],
+                                target: str | None, in_function: str | None,
                                 is_decorator: bool):
         """Add a Python mock pattern to the batch."""
         self.generic_batches['python_mock_patterns'].append((
@@ -294,7 +296,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_generic(self, file_path: str, line: int, class_name: str,
-                          type_params: Optional[str]):
+                          type_params: str | None):
         """Add a Python Generic class to the batch."""
         self.generic_batches['python_generics'].append((
             file_path,
@@ -314,7 +316,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_literal(self, file_path: str, line: int, usage_context: str,
-                          name: Optional[str], literal_type: str):
+                          name: str | None, literal_type: str):
         """Add a Python Literal type usage to the batch."""
         self.generic_batches['python_literals'].append((
             file_path,
@@ -335,9 +337,9 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_django_view(self, file_path: str, line: int, view_class_name: str,
-                              view_type: str, base_view_class: Optional[str],
-                              model_name: Optional[str], template_name: Optional[str],
-                              has_permission_check: bool, http_method_names: Optional[str],
+                              view_type: str, base_view_class: str | None,
+                              model_name: str | None, template_name: str | None,
+                              has_permission_check: bool, http_method_names: str | None,
                               has_get_queryset_override: bool):
         """Add a Django Class-Based View to the batch."""
         self.generic_batches['python_django_views'].append((
@@ -354,7 +356,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_django_form(self, file_path: str, line: int, form_class_name: str,
-                               is_model_form: bool, model_name: Optional[str],
+                               is_model_form: bool, model_name: str | None,
                                field_count: int, has_custom_clean: bool):
         """Add a Django Form or ModelForm to the batch."""
         self.generic_batches['python_django_forms'].append((
@@ -369,7 +371,7 @@ class PythonDatabaseMixin:
 
     def add_python_django_form_field(self, file_path: str, line: int, form_class_name: str,
                                      field_name: str, field_type: str,
-                                     required: bool, max_length: Optional[int],
+                                     required: bool, max_length: int | None,
                                      has_custom_validator: bool):
         """Add a Django form field to the batch."""
         self.generic_batches['python_django_form_fields'].append((
@@ -384,9 +386,9 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_django_admin(self, file_path: str, line: int, admin_class_name: str,
-                                model_name: Optional[str], list_display: Optional[str],
-                                list_filter: Optional[str], search_fields: Optional[str],
-                                readonly_fields: Optional[str], has_custom_actions: bool):
+                                model_name: str | None, list_display: str | None,
+                                list_filter: str | None, search_fields: str | None,
+                                readonly_fields: str | None, has_custom_actions: bool):
         """Add a Django ModelAdmin configuration to the batch."""
         self.generic_batches['python_django_admin'].append((
             file_path,
@@ -870,9 +872,9 @@ class PythonDatabaseMixin:
     # CAUSAL LEARNING: EXCEPTION FLOW PATTERNS (Week 1, Block 1.2)
     # ============================================================================
 
-    def add_python_exception_raise(self, file_path: str, line: int, exception_type: Optional[str],
-                                    message: Optional[str], from_exception: Optional[str],
-                                    in_function: str, condition: Optional[str], is_re_raise: bool):
+    def add_python_exception_raise(self, file_path: str, line: int, exception_type: str | None,
+                                    message: str | None, from_exception: str | None,
+                                    in_function: str, condition: str | None, is_re_raise: bool):
         """Add a Python exception raise pattern to the batch."""
         self.generic_batches['python_exception_raises'].append((
             file_path,
@@ -886,7 +888,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_exception_catch(self, file_path: str, line: int, exception_types: str,
-                                    variable_name: Optional[str], handling_strategy: str,
+                                    variable_name: str | None, handling_strategy: str,
                                     in_function: str):
         """Add a Python exception catch pattern to the batch."""
         self.generic_batches['python_exception_catches'].append((
@@ -898,7 +900,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_finally_block(self, file_path: str, line: int, cleanup_calls: Optional[str],
+    def add_python_finally_block(self, file_path: str, line: int, cleanup_calls: str | None,
                                   has_cleanup: bool, in_function: str):
         """Add a Python finally block pattern to the batch."""
         self.generic_batches['python_finally_blocks'].append((
@@ -910,8 +912,8 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_context_manager_enhanced(self, file_path: str, line: int, context_expr: str,
-                                             variable_name: Optional[str], in_function: str,
-                                             is_async: bool, resource_type: Optional[str]):
+                                             variable_name: str | None, in_function: str,
+                                             is_async: bool, resource_type: str | None):
         """Add a Python context manager enhanced pattern to the batch."""
         self.generic_batches['python_context_managers_enhanced'].append((
             file_path,
@@ -928,7 +930,7 @@ class PythonDatabaseMixin:
     # ============================================================================
 
     def add_python_io_operation(self, file_path: str, line: int, io_type: str,
-                                 operation: str, target: Optional[str],
+                                 operation: str, target: str | None,
                                  is_static: bool, in_function: str):
         """Add a Python I/O operation pattern to the batch."""
         self.generic_batches['python_io_operations'].append((
@@ -979,7 +981,7 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_conditional_call(self, file_path: str, line: int, function_call: str,
-                                     condition_expr: Optional[str], condition_type: str,
+                                     condition_expr: str | None, condition_type: str,
                                      in_function: str, nesting_level: int):
         """Add a Python conditional call pattern to the batch."""
         self.generic_batches['python_conditional_calls'].append((
@@ -998,7 +1000,7 @@ class PythonDatabaseMixin:
 
     def add_python_recursion_pattern(self, file_path: str, line: int, function_name: str,
                                       recursion_type: str, calls_function: str,
-                                      base_case_line: Optional[int], is_async: bool):
+                                      base_case_line: int | None, is_async: bool):
         """Add a Python recursion pattern to the batch."""
         self.generic_batches['python_recursion_patterns'].append((
             file_path,
@@ -1011,8 +1013,8 @@ class PythonDatabaseMixin:
         ))
 
     def add_python_generator_yield(self, file_path: str, line: int, generator_function: str,
-                                    yield_type: str, yield_expr: Optional[str],
-                                    condition: Optional[str], in_loop: bool):
+                                    yield_type: str, yield_expr: str | None,
+                                    condition: str | None, in_loop: bool):
         """Add a Python generator yield pattern to the batch."""
         self.generic_batches['python_generator_yields'].append((
             file_path,
@@ -1082,7 +1084,7 @@ class PythonDatabaseMixin:
 
     def add_python_memoization_pattern(self, file_path: str, line: int, function_name: str,
                                         has_memoization: bool, memoization_type: str,
-                                        is_recursive: bool, cache_size: Optional[int]):
+                                        is_recursive: bool, cache_size: int | None):
         """Add a Python memoization pattern to the batch."""
         self.generic_batches['python_memoization_patterns'].append((
             file_path,
@@ -1097,7 +1099,7 @@ class PythonDatabaseMixin:
     # Python Coverage V2 Database Methods (40 methods)
     # ================================================================
 
-    def add_python_comprehension(self, file: str, line: int, comp_type: str, result_expr: Optional[str], iteration_var: Optional[str], iteration_source: Optional[str], has_filter: bool, filter_expr: Optional[str], nesting_level: Optional[int], in_function: str):
+    def add_python_comprehension(self, file: str, line: int, comp_type: str, result_expr: str | None, iteration_var: str | None, iteration_source: str | None, has_filter: bool, filter_expr: str | None, nesting_level: int | None, in_function: str):
         """Add a python comprehensions record to the batch."""
         self.generic_batches['python_comprehensions'].append((
             file,
@@ -1112,7 +1114,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_lambda_function(self, file: str, line: int, parameter_count: Optional[int], body: Optional[str], captures_closure: bool, used_in: Optional[str], in_function: str):
+    def add_python_lambda_function(self, file: str, line: int, parameter_count: int | None, body: str | None, captures_closure: bool, used_in: str | None, in_function: str):
         """Add a python lambda functions record to the batch."""
         self.generic_batches['python_lambda_functions'].append((
             file,
@@ -1124,7 +1126,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_slice_operation(self, file: str, line: int, target: Optional[str], has_start: bool, has_stop: bool, has_step: bool, is_assignment: bool, in_function: str):
+    def add_python_slice_operation(self, file: str, line: int, target: str | None, has_start: bool, has_stop: bool, has_step: bool, is_assignment: bool, in_function: str):
         """Add a python slice operations record to the batch."""
         self.generic_batches['python_slice_operations'].append((
             file,
@@ -1137,7 +1139,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_tuple_operation(self, file: str, line: int, operation: str, element_count: Optional[int], in_function: str):
+    def add_python_tuple_operation(self, file: str, line: int, operation: str, element_count: int | None, in_function: str):
         """Add a python tuple operations record to the batch."""
         self.generic_batches['python_tuple_operations'].append((
             file,
@@ -1147,7 +1149,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_unpacking_pattern(self, file: str, line: int, unpack_type: str, target_count: Optional[int], has_rest: bool, in_function: str):
+    def add_python_unpacking_pattern(self, file: str, line: int, unpack_type: str, target_count: int | None, has_rest: bool, in_function: str):
         """Add a python unpacking patterns record to the batch."""
         self.generic_batches['python_unpacking_patterns'].append((
             file,
@@ -1168,7 +1170,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_truthiness_pattern(self, file: str, line: int, pattern: str, expression: Optional[str], in_function: str):
+    def add_python_truthiness_pattern(self, file: str, line: int, pattern: str, expression: str | None, in_function: str):
         """Add a python truthiness patterns record to the batch."""
         self.generic_batches['python_truthiness_patterns'].append((
             file,
@@ -1178,7 +1180,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_string_formatting(self, file: str, line: int, format_type: str, has_expressions: bool, var_count: Optional[int], in_function: str):
+    def add_python_string_formatting(self, file: str, line: int, format_type: str, has_expressions: bool, var_count: int | None, in_function: str):
         """Add a python string formatting record to the batch."""
         self.generic_batches['python_string_formatting'].append((
             file,
@@ -1199,7 +1201,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_membership_test(self, file: str, line: int, operator: str, container_type: Optional[str], in_function: str):
+    def add_python_membership_test(self, file: str, line: int, operator: str, container_type: str | None, in_function: str):
         """Add a python membership tests record to the batch."""
         self.generic_batches['python_membership_tests'].append((
             file,
@@ -1209,7 +1211,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_chained_comparison(self, file: str, line: int, chain_length: int, operators: Optional[str], in_function: str):
+    def add_python_chained_comparison(self, file: str, line: int, chain_length: int, operators: str | None, in_function: str):
         """Add a python chained comparisons record to the batch."""
         self.generic_batches['python_chained_comparisons'].append((
             file,
@@ -1314,7 +1316,7 @@ class PythonDatabaseMixin:
             in_function
         ))
 
-    def add_python_collections_usage(self, file: str, line: int, collection_type: str, default_factory: Optional[str], in_function: str):
+    def add_python_collections_usage(self, file: str, line: int, collection_type: str, default_factory: str | None, in_function: str):
         """Add a python collections usage record to the batch."""
         self.generic_batches['python_collections_usage'].append((
             file,
@@ -1346,7 +1348,7 @@ class PythonDatabaseMixin:
             descriptor_type
         ))
 
-    def add_python_dataclasse(self, file: str, line: int, class_name: str, frozen: bool, field_count: Optional[int]):
+    def add_python_dataclasse(self, file: str, line: int, class_name: str, frozen: bool, field_count: int | None):
         """Add a python dataclasses record to the batch."""
         self.generic_batches['python_dataclasses'].append((
             file,
@@ -1356,7 +1358,7 @@ class PythonDatabaseMixin:
             field_count
         ))
 
-    def add_python_enum(self, file: str, line: int, enum_name: str, enum_type: str, member_count: Optional[int]):
+    def add_python_enum(self, file: str, line: int, enum_name: str, enum_type: str, member_count: int | None):
         """Add a python enums record to the batch."""
         self.generic_batches['python_enums'].append((
             file,
@@ -1366,7 +1368,7 @@ class PythonDatabaseMixin:
             member_count
         ))
 
-    def add_python_slot(self, file: str, line: int, class_name: str, slot_count: Optional[int]):
+    def add_python_slot(self, file: str, line: int, class_name: str, slot_count: int | None):
         """Add a python slots record to the batch."""
         self.generic_batches['python_slots'].append((
             file,
@@ -1375,7 +1377,7 @@ class PythonDatabaseMixin:
             slot_count
         ))
 
-    def add_python_abstract_classe(self, file: str, line: int, class_name: str, abstract_method_count: Optional[int]):
+    def add_python_abstract_classe(self, file: str, line: int, class_name: str, abstract_method_count: int | None):
         """Add a python abstract classes record to the batch."""
         self.generic_batches['python_abstract_classes'].append((
             file,
@@ -1394,7 +1396,7 @@ class PythonDatabaseMixin:
             in_class
         ))
 
-    def add_python_multiple_inheritance(self, file: str, line: int, class_name: str, base_count: int, base_classes: Optional[str]):
+    def add_python_multiple_inheritance(self, file: str, line: int, class_name: str, base_count: int, base_classes: str | None):
         """Add a python multiple inheritance record to the batch."""
         self.generic_batches['python_multiple_inheritance'].append((
             file,

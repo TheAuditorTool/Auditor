@@ -9,6 +9,8 @@ This module contains the BaseDatabaseManager class which provides:
 
 All language-specific add_* methods are provided by mixin classes.
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -48,15 +50,15 @@ class BaseDatabaseManager:
 
         # Generic batch system: {table_name: [tuple, tuple, ...]}
         # Replaces 58 individual batch lists with single dictionary
-        self.generic_batches: Dict[str, List[tuple]] = defaultdict(list)
+        self.generic_batches: dict[str, list[tuple]] = defaultdict(list)
 
         # CFG special case: ID mapping for AUTOINCREMENT
         # Maps temporary negative IDs to real database IDs
-        self.cfg_id_mapping: Dict[int, int] = {}
+        self.cfg_id_mapping: dict[int, int] = {}
 
         # JWT special case: Batch list for dict-based interface
         # Kept for backward compatibility with add_jwt_pattern signature
-        self.jwt_patterns_batch: List[Dict] = []
+        self.jwt_patterns_batch: list[dict] = []
 
     def begin_transaction(self):
         """Start a new transaction."""
@@ -253,7 +255,7 @@ class BaseDatabaseManager:
         # Clear batch after flush
         self.generic_batches[table_name] = []
 
-    def flush_batch(self, batch_idx: Optional[int] = None):
+    def flush_batch(self, batch_idx: int | None = None):
         """Execute all pending batch inserts using schema-driven approach.
 
         ARCHITECTURE: Hybrid flushing strategy.
@@ -588,7 +590,7 @@ class BaseDatabaseManager:
         ])
         self.jwt_patterns_batch.clear()
 
-    def write_findings_batch(self, findings: List[dict], tool_name: str):
+    def write_findings_batch(self, findings: list[dict], tool_name: str):
         """Write findings to database using batch insert for dual-write pattern.
 
         This method implements the dual-write architecture where findings are written

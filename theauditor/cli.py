@@ -1,4 +1,6 @@
 """TheAuditor CLI - Main entry point and command registration hub."""
+from __future__ import annotations
+
 
 import platform
 import subprocess

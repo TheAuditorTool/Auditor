@@ -7,6 +7,8 @@ This module implements the core correlation logic that maps:
 
 NO FALLBACKS. Hard fail if database is wrong.
 """
+from __future__ import annotations
+
 
 import json
 import logging

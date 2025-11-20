@@ -6,6 +6,8 @@ Schema Contract:
     All queries use build_query() for schema compliance.
     Table existence is guaranteed by schema contract - no checks needed.
 """
+from __future__ import annotations
+
 
 import sys
 import json
@@ -44,9 +46,9 @@ class TaintRegistry:
 
     def __init__(self):
         # Language-aware nested structure: sources[language][category] = [patterns]
-        self.sources: Dict[str, Dict[str, List[str]]] = {}
-        self.sinks: Dict[str, Dict[str, List[str]]] = {}
-        self.sanitizers: Dict[str, List[str]] = {}
+        self.sources: dict[str, dict[str, list[str]]] = {}
+        self.sinks: dict[str, dict[str, list[str]]] = {}
+        self.sanitizers: dict[str, list[str]] = {}
 
     def register_source(self, pattern: str, category: str, language: str):
         """Register a taint source pattern for a specific language.
@@ -109,7 +111,7 @@ class TaintRegistry:
             return True
         return False
 
-    def get_sources_for_language(self, language: str) -> Dict[str, List[str]]:
+    def get_sources_for_language(self, language: str) -> dict[str, list[str]]:
         """Get all source patterns for a specific language.
 
         Args:
@@ -120,7 +122,7 @@ class TaintRegistry:
         """
         return self.sources.get(language, {})
 
-    def get_sinks_for_language(self, language: str) -> Dict[str, List[str]]:
+    def get_sinks_for_language(self, language: str) -> dict[str, list[str]]:
         """Get all sink patterns for a specific language.
 
         Args:
@@ -131,7 +133,7 @@ class TaintRegistry:
         """
         return self.sinks.get(language, {})
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """Get registry statistics for debugging.
 
         Returns:
@@ -165,7 +167,7 @@ class TaintRegistry:
 # UTILITY FUNCTIONS (Moved from propagation.py during cleanup)
 # ============================================================================
 
-def has_sanitizer_between(cursor: sqlite3.Cursor, source: Dict[str, Any], sink: Dict[str, Any]) -> bool:
+def has_sanitizer_between(cursor: sqlite3.Cursor, source: dict[str, Any], sink: dict[str, Any]) -> bool:
     """Check if there's a sanitizer call between source and sink in the same function.
 
     Schema Contract:
@@ -194,14 +196,14 @@ def has_sanitizer_between(cursor: sqlite3.Cursor, source: Dict[str, Any], sink: 
     return False
 
 
-def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
+def deduplicate_paths(paths: list[Any]) -> list[Any]:  # Returns List[TaintPath]
     """Deduplicate taint paths while preserving the most informative flow for each source-sink pair.
 
     Key rule: Prefer cross-file / multi-hop and flow-sensitive paths over shorter, same-file variants.
     This prevents the Stage 2 direct path (2 steps) from overwriting Stage 3 multi-hop results.
     """
 
-    def _path_score(path: Any) -> Tuple[int, int, int]:
+    def _path_score(path: Any) -> tuple[int, int, int]:
         """Score paths so we keep the most informative version per source/sink pair.
 
         Score dimensions (higher is better):
@@ -239,7 +241,7 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
         return (cross_hops, 1 if uses_cfg else 0, length_component)
 
     # Phase 1: retain the best path for each unique source/sink pairing.
-    unique_source_sink: Dict[Tuple[str, str], Tuple[Any, Tuple[int, int, int]]] = {}
+    unique_source_sink: dict[tuple[str, str], tuple[Any, tuple[int, int, int]]] = {}
 
     for path in paths:
         key = (
@@ -255,13 +257,13 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
         return []
 
     # Phase 2: group by sink location so we only emit one finding per sink line.
-    sink_groups: Dict[Tuple[str, int], List[Any]] = {}
+    sink_groups: dict[tuple[str, int], list[Any]] = {}
     for path, _score in unique_source_sink.values():
         sink = path.sink
         sink_key = (sink.get("file", "unknown_file"), sink.get("line", 0))
         sink_groups.setdefault(sink_key, []).append(path)
 
-    deduped_paths: List[Any] = []
+    deduped_paths: list[Any] = []
     for sink_key, sink_paths in sink_groups.items():
         if not sink_paths:
             continue
@@ -291,8 +293,8 @@ def deduplicate_paths(paths: List[Any]) -> List[Any]:  # Returns List[TaintPath]
 
 def trace_taint(db_path: str, max_depth: int = 10, registry=None,
                 use_memory_cache: bool = True, memory_limit_mb: int = 12000,
-                cache: Optional['MemoryCache'] = None,
-                graph_db_path: str = None, mode: str = "backward") -> Dict[str, Any]:
+                cache: MemoryCache | None = None,
+                graph_db_path: str = None, mode: str = "backward") -> dict[str, Any]:
     """
     Perform taint analysis by tracing data flow from sources to sinks.
 
@@ -466,14 +468,14 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
     # Merge all language-specific patterns into flat structure for discovery
     # Orchestrator has already filtered rules by detected frameworks,
     # so registry only contains patterns for languages present in the project
-    merged_sources: Dict[str, List[str]] = {}
+    merged_sources: dict[str, list[str]] = {}
     for lang_sources in registry.sources.values():
         for category, patterns in lang_sources.items():
             if category not in merged_sources:
                 merged_sources[category] = []
             merged_sources[category].extend(patterns)
 
-    merged_sinks: Dict[str, List[str]] = {}
+    merged_sinks: dict[str, list[str]] = {}
     for lang_sinks in registry.sinks.values():
         for category, patterns in lang_sinks.items():
             if category not in merged_sinks:
@@ -498,7 +500,7 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         built_hash = None
 
         if cache_file.exists():
-            with open(cache_file, 'r') as f:
+            with open(cache_file) as f:
                 lines = f.readlines()
                 if len(lines) >= 2 and 'SCHEMA_HASH:' in lines[1]:
                     built_hash = lines[1].split('SCHEMA_HASH:')[1].strip()
@@ -865,7 +867,7 @@ def trace_taint(db_path: str, max_depth: int = 10, registry=None,
         # No need to restore globals - we never modified them!
 
 
-def save_taint_analysis(analysis_result: Dict[str, Any], output_path: str = "./.pf/taint_analysis.json"):
+def save_taint_analysis(analysis_result: dict[str, Any], output_path: str = "./.pf/taint_analysis.json"):
     """Save taint analysis results to JSON file with normalized structure."""
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -884,7 +886,7 @@ def save_taint_analysis(analysis_result: Dict[str, Any], output_path: str = "./.
         json.dump(analysis_result, f, indent=2, sort_keys=True)
 
 
-def normalize_taint_path(path: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_taint_path(path: dict[str, Any]) -> dict[str, Any]:
     """Normalize a taint path dictionary to ensure all required keys exist."""
     # Debug: Check if we're losing multi-file paths
     src_file_before = path.get("source", {}).get("file", "MISSING")

@@ -14,6 +14,9 @@ ARCHITECTURAL CONTRACT:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -52,7 +55,7 @@ DJANGO_CBV_TYPES = {
 # Helper Functions (Internal - Duplicated for Self-Containment)
 # ============================================================================
 
-def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
+def _get_str_constant(node: ast.AST | None) -> str | None:
     """Return string value for constant nodes.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -61,12 +64,12 @@ def _get_str_constant(node: Optional[ast.AST]) -> Optional[str]:
         return None
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Str):
-        return node.s
+    if (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        return node.value
     return None
 
 
-def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
+def _keyword_arg(call: ast.Call, name: str) -> ast.AST | None:
     """Fetch keyword argument by name from AST call.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -77,7 +80,7 @@ def _keyword_arg(call: ast.Call, name: str) -> Optional[ast.AST]:
     return None
 
 
-def _extract_list_of_strings(node) -> Optional[str]:
+def _extract_list_of_strings(node) -> str | None:
     """Helper: Extract list/tuple of string constants as comma-separated string.
 
     Internal helper - duplicated across framework extractor files for self-containment.
@@ -98,7 +101,7 @@ def _extract_list_of_strings(node) -> Optional[str]:
 # Django Web Extractors
 # ============================================================================
 
-def extract_django_cbvs(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django Class-Based View definitions.
 
     Detects:
@@ -115,11 +118,11 @@ def extract_django_cbvs(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - http_method_names = attack surface enumeration
     """
     cbvs = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return cbvs
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -235,7 +238,7 @@ def extract_django_cbvs(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return cbvs
 
 
-def extract_django_forms(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django Form and ModelForm definitions.
 
     Detects:
@@ -250,11 +253,11 @@ def extract_django_forms(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - ModelForm without validators = direct DB write risk
     """
     forms = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return forms
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -306,7 +309,7 @@ def extract_django_forms(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return forms
 
 
-def extract_django_form_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django form field definitions.
 
     Detects:
@@ -321,11 +324,11 @@ def extract_django_form_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Fields without custom validators = missing business logic checks
     """
     fields = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return fields
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -387,7 +390,7 @@ def extract_django_form_fields(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return fields
 
 
-def extract_django_admin(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_admin(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django ModelAdmin customizations.
 
     Detects:
@@ -406,26 +409,25 @@ def extract_django_admin(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - search_fields without validation = SQL injection
     """
     admins = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return admins
 
     # Track admin registrations to link ModelAdmin to models
     register_calls = {}  # {admin_class_name: model_name}
 
     # First pass: Find admin.site.register(Model, ModelAdmin) calls
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.Call):
-            func_name = get_node_name(node.func)
-            if 'register' in func_name and len(node.args) >= 2:
-                # admin.site.register(Article, ArticleAdmin)
-                model_arg = get_node_name(node.args[0])
-                admin_class_arg = get_node_name(node.args[1])
-                if admin_class_arg:
-                    register_calls[admin_class_arg] = model_arg
+    for node in context.find_nodes(ast.Call):
+        func_name = get_node_name(node.func)
+        if 'register' in func_name and len(node.args) >= 2:
+            # admin.site.register(Article, ArticleAdmin)
+            model_arg = get_node_name(node.args[0])
+            admin_class_arg = get_node_name(node.args[1])
+            if admin_class_arg:
+                register_calls[admin_class_arg] = model_arg
 
     # Second pass: Extract ModelAdmin classes and check for @admin.register() decorators
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 
@@ -499,7 +501,7 @@ def extract_django_admin(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return admins
 
 
-def extract_django_middleware(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_django_middleware(context: FileContext) -> list[dict[str, Any]]:
     """Extract Django middleware class definitions.
 
     Detects:
@@ -517,11 +519,11 @@ def extract_django_middleware(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Missing middleware hooks = incomplete security layer
     """
     middlewares = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return middlewares
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.ClassDef):
             continue
 

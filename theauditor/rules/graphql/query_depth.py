@@ -1,4 +1,6 @@
 """GraphQL Query Depth Check - Prevent DoS via nested queries."""
+from __future__ import annotations
+
 
 import sqlite3
 

@@ -13,6 +13,8 @@ Follows v1.1+ schema contract compliance for database queries:
 - Proper confidence levels
 - Minimal file I/O (last 5KB only for build artifacts)
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -121,7 +123,7 @@ class SourcemapAnalyzer:
         self.findings = []
         self.seen_files = set()  # Deduplication
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point using hybrid approach.
 
         Returns:
@@ -421,7 +423,7 @@ class SourcemapAnalyzer:
             # 2. Check JavaScript files for source map references
             self._scan_javascript_files(build_dir, project_root)
 
-    def _find_build_directories(self, project_root: Path) -> List[Path]:
+    def _find_build_directories(self, project_root: Path) -> list[Path]:
         """Find production build directories."""
         build_dirs = []
 
@@ -482,7 +484,7 @@ class SourcemapAnalyzer:
                     # Check if it's a JavaScript source map by reading first line
                     is_js_map = False
                     try:
-                        with open(map_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        with open(map_file, encoding='utf-8', errors='ignore') as f:
                             first_line = f.read(200)  # Read first 200 chars
                             if '"sources"' in first_line or '"mappings"' in first_line:
                                 is_js_map = True
@@ -618,7 +620,7 @@ class SourcemapAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_sourcemap_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_sourcemap_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect source map exposure vulnerabilities.
 
     Uses hybrid approach:

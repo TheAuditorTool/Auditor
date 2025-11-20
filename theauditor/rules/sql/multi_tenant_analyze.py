@@ -5,6 +5,8 @@ Focuses on PostgreSQL RLS (Row Level Security) patterns for multi-tenant applica
 
 Truth Courier Design: Reports facts about tenant isolation patterns, not recommendations.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List
@@ -63,7 +65,7 @@ class MultiTenantPatterns:
     ])
 
 
-def find_multi_tenant_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_multi_tenant_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect multi-tenant security issues using database queries.
 
     Detection strategy:
@@ -116,7 +118,7 @@ def find_multi_tenant_issues(context: StandardRuleContext) -> List[StandardFindi
     return findings
 
 
-def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find queries on sensitive tables without tenant filtering."""
     findings = []
 
@@ -192,7 +194,7 @@ def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -
     return findings
 
 
-def _find_rls_policies_without_using(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_rls_policies_without_using(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find CREATE POLICY statements without proper USING clause."""
     findings = []
 
@@ -242,7 +244,7 @@ def _find_rls_policies_without_using(cursor, patterns: MultiTenantPatterns) -> L
     return findings
 
 
-def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find queries accessing records by ID without tenant validation."""
     findings = []
 
@@ -292,7 +294,7 @@ def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> List[Standa
     return findings
 
 
-def _find_missing_rls_context(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_missing_rls_context(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find transactions without SET LOCAL for RLS context."""
     findings = []
 
@@ -364,7 +366,7 @@ def _find_missing_rls_context(cursor, patterns: MultiTenantPatterns) -> List[Sta
     return findings
 
 
-def _find_superuser_connections(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_superuser_connections(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find usage of superuser database connections that bypass RLS."""
     findings = []
 
@@ -403,7 +405,7 @@ def _find_superuser_connections(cursor, patterns: MultiTenantPatterns) -> List[S
     return findings
 
 
-def _find_raw_query_without_transaction(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_raw_query_without_transaction(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find raw SQL queries executed outside transaction context."""
     findings = []
 
@@ -464,7 +466,7 @@ def _find_raw_query_without_transaction(cursor, patterns: MultiTenantPatterns) -
     return findings
 
 
-def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find ORM queries without tenant filtering using orm_queries table."""
     findings = []
 
@@ -536,7 +538,7 @@ def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> Lis
     return findings
 
 
-def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find bulk INSERT/UPDATE/DELETE operations without tenant field."""
     findings = []
 
@@ -610,7 +612,7 @@ def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) 
     return findings
 
 
-def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find JOINs between tables without tenant field in ON clause."""
     findings = []
 
@@ -673,7 +675,7 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> List[Stan
     return findings
 
 
-def _find_subquery_without_tenant(cursor, patterns: MultiTenantPatterns) -> List[StandardFinding]:
+def _find_subquery_without_tenant(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
     """Find subqueries on sensitive tables without tenant filtering."""
     findings = []
 

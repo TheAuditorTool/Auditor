@@ -1,4 +1,6 @@
 """Pipeline execution module for TheAuditor."""
+from __future__ import annotations
+
 
 import json
 import os
@@ -13,7 +15,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, List, Tuple
+from typing import Any, List, Tuple
+
+from collections.abc import Callable
 
 # Import our custom temp manager to avoid WSL2/Windows issues
 try:
@@ -46,7 +50,7 @@ COMMAND_TIMEOUTS = {
 # Allow environment variable override for all timeouts
 DEFAULT_TIMEOUT = int(os.environ.get('THEAUDITOR_TIMEOUT_SECONDS', '1800'))  # Default 30 minutes
 
-def get_command_timeout(cmd: List[str]) -> int:
+def get_command_timeout(cmd: list[str]) -> int:
     """
     Determine appropriate timeout for a command based on its name.
     
@@ -144,7 +148,7 @@ def run_subprocess_with_interrupt(cmd, stdout_fp, stderr_fp, cwd, shell=False, t
     return result
 
 
-def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_name: str) -> dict:
+def run_command_chain(commands: list[tuple[str, list[str]]], root: str, chain_name: str) -> dict:
     """
     Execute a chain of commands sequentially and capture their output.
     Used for parallel execution of independent command tracks.
@@ -234,9 +238,9 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
                 )
             
             # Read outputs
-            with open(stdout_file, 'r', encoding='utf-8') as f:
+            with open(stdout_file, encoding='utf-8') as f:
                 stdout = f.read()
-            with open(stderr_file, 'r', encoding='utf-8') as f:
+            with open(stderr_file, encoding='utf-8') as f:
                 stderr = f.read()
             
             # Clean up temp files
@@ -763,9 +767,9 @@ def run_full_pipeline(
             
             # Read outputs (only for subprocess path)
             if "index" not in " ".join(cmd):
-                with open(stdout_file, 'r', encoding='utf-8') as f:
+                with open(stdout_file, encoding='utf-8') as f:
                     result.stdout = f.read()
-                with open(stderr_file, 'r', encoding='utf-8') as f:
+                with open(stderr_file, encoding='utf-8') as f:
                     result.stderr = f.read()
 
                 # Clean up temp files
@@ -901,9 +905,9 @@ def run_full_pipeline(
                     )
                 
                 # Read outputs
-                with open(stdout_file, 'r', encoding='utf-8') as f:
+                with open(stdout_file, encoding='utf-8') as f:
                     result.stdout = f.read()
-                with open(stderr_file, 'r', encoding='utf-8') as f:
+                with open(stderr_file, encoding='utf-8') as f:
                     result.stderr = f.read()
                 
                 # Clean up temp files
@@ -1288,7 +1292,7 @@ def run_full_pipeline(
                             log_output(f"[DEBUG] No status files found in {status_dir}")
                         for status_file in status_files:
                             try:
-                                with open(status_file, 'r', encoding='utf-8') as f:
+                                with open(status_file, encoding='utf-8') as f:
                                     status_data = json.loads(f.read().strip())
                                     track = status_data.get("track", "Unknown")
                                     completed = status_data.get("completed", 0)
@@ -1420,9 +1424,9 @@ def run_full_pipeline(
                         )
                     
                     # Read outputs
-                    with open(stdout_file, 'r', encoding='utf-8') as f:
+                    with open(stdout_file, encoding='utf-8') as f:
                         result.stdout = f.read()
-                    with open(stderr_file, 'r', encoding='utf-8') as f:
+                    with open(stderr_file, encoding='utf-8') as f:
                         result.stderr = f.read()
                     
                     # Clean up temp files

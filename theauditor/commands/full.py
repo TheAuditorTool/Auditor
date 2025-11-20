@@ -1,4 +1,6 @@
 """Run complete audit pipeline."""
+from __future__ import annotations
+
 
 import sys
 import click

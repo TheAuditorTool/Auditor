@@ -8,6 +8,8 @@ Provides shared infrastructure:
 All domain storage modules (CoreStorage, PythonStorage, etc.) inherit from
 this base class to access shared dependencies without duplication.
 """
+from __future__ import annotations
+
 
 from typing import Dict, Any
 
@@ -15,7 +17,7 @@ from typing import Dict, Any
 class BaseStorage:
     """Base class for domain-specific storage handlers."""
 
-    def __init__(self, db_manager, counts: Dict[str, int]):
+    def __init__(self, db_manager, counts: dict[str, int]):
         self.db_manager = db_manager
         self.counts = counts
         self._current_extracted = {}  # Set by DataStorer.store()

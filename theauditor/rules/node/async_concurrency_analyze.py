@@ -7,6 +7,8 @@ MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
 Signature: context: StandardRuleContext -> List[StandardFinding]
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -135,7 +137,7 @@ class AsyncPatterns:
 # MAIN ENTRY POINT (Orchestrator Pattern)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect async and concurrency issues in JavaScript/TypeScript.
 
     This is the main entry point called by the orchestrator.
@@ -161,10 +163,10 @@ class AsyncConcurrencyAnalyzer:
         """Initialize analyzer with context."""
         self.context = context
         self.patterns = AsyncPatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete async/concurrency analysis."""
         if not self._is_javascript_project():
             return self.findings

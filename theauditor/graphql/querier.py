@@ -2,6 +2,8 @@
 
 Stub implementation for querying GraphQL types, fields, and resolver mappings.
 """
+from __future__ import annotations
+
 
 import logging
 import sqlite3

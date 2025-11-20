@@ -173,7 +173,7 @@ def finally_with_assignment():
 
 def file_context_manager():
     """Test file context manager."""
-    with open("data.txt", "r") as f:  # Expected: resource_type='file', variable_name='f', is_async=False
+    with open("data.txt") as f:  # Expected: resource_type='file', variable_name='f', is_async=False
         data = f.read()
     return data
 
@@ -220,7 +220,7 @@ def complex_exception_handling(file_path):
     """Test all patterns together."""
     # Context manager
     try:
-        with open(file_path, "r") as f:  # Context manager
+        with open(file_path) as f:  # Context manager
             data = f.read()
 
             if not data:

@@ -6,6 +6,8 @@ Detects zombie clusters (circular dead code) and orphaned features.
 NO FALLBACKS. Hard fail if graphs.db missing or malformed.
 Databases are regenerated fresh every run - missing data = BUG.
 """
+from __future__ import annotations
+
 
 import sqlite3
 import networkx as nx
@@ -51,8 +53,8 @@ class GraphDeadCodeDetector:
         self._validate_schema()
 
         # Loaded lazily
-        self.import_graph: Optional[nx.DiGraph] = None
-        self.call_graph: Optional[nx.DiGraph] = None
+        self.import_graph: nx.DiGraph | None = None
+        self.call_graph: nx.DiGraph | None = None
 
     def _validate_schema(self):
         """Validate database schema. CRASH if wrong (NO FALLBACK)."""
@@ -87,10 +89,10 @@ class GraphDeadCodeDetector:
 
     def analyze(
         self,
-        path_filter: Optional[str] = None,
-        exclude_patterns: Optional[List[str]] = None,
+        path_filter: str | None = None,
+        exclude_patterns: list[str] | None = None,
         analyze_symbols: bool = False
-    ) -> List[DeadCode]:
+    ) -> list[DeadCode]:
         """Run full dead code analysis.
 
         Args:
@@ -141,7 +143,7 @@ class GraphDeadCodeDetector:
 
         return findings
 
-    def _build_import_graph(self, path_filter: Optional[str] = None) -> nx.DiGraph:
+    def _build_import_graph(self, path_filter: str | None = None) -> nx.DiGraph:
         """Build import graph from graphs.db.
 
         Optimization: Bulk add_edges_from for 10x speedup.
@@ -174,7 +176,7 @@ class GraphDeadCodeDetector:
 
         return graph
 
-    def _build_call_graph(self, path_filter: Optional[str], live_modules: Set[str]) -> nx.DiGraph:
+    def _build_call_graph(self, path_filter: str | None, live_modules: set[str]) -> nx.DiGraph:
         """Build call graph for symbol-level analysis.
 
         Only includes functions/classes within live modules.
@@ -211,7 +213,7 @@ class GraphDeadCodeDetector:
         graph.add_edges_from(edges_data)
         return graph
 
-    def _find_entry_points(self, graph: nx.DiGraph) -> Set[str]:
+    def _find_entry_points(self, graph: nx.DiGraph) -> set[str]:
         """Multi-strategy entry point detection.
 
         Strategies:
@@ -242,7 +244,7 @@ class GraphDeadCodeDetector:
 
         return entry_points
 
-    def _find_decorated_entry_points(self) -> Set[str]:
+    def _find_decorated_entry_points(self) -> set[str]:
         """Query repo_index.db for decorator-based entry points.
 
         NO FALLBACK - crashes if table missing (Phase 0 verified it exists).
@@ -265,7 +267,7 @@ class GraphDeadCodeDetector:
 
         return entry_points
 
-    def _find_framework_entry_points(self) -> Set[str]:
+    def _find_framework_entry_points(self) -> set[str]:
         """Query repo_index.db for framework-specific entry points.
 
         NO FALLBACK - crashes if tables missing.
@@ -292,9 +294,9 @@ class GraphDeadCodeDetector:
     def _find_dead_nodes(
         self,
         graph: nx.DiGraph,
-        entry_points: Set[str],
-        exclude_patterns: List[str]
-    ) -> List[DeadCode]:
+        entry_points: set[str],
+        exclude_patterns: list[str]
+    ) -> list[DeadCode]:
         """Find dead nodes using graph reachability.
 
         Algorithm:
@@ -355,9 +357,9 @@ class GraphDeadCodeDetector:
     def _find_dead_symbols(
         self,
         call_graph: nx.DiGraph,
-        live_modules: Set[str],
-        exclude_patterns: List[str]
-    ) -> List[DeadCode]:
+        live_modules: set[str],
+        exclude_patterns: list[str]
+    ) -> list[DeadCode]:
         """Find dead functions/classes within live modules.
 
         Algorithm:
@@ -422,7 +424,7 @@ class GraphDeadCodeDetector:
         cursor.execute("SELECT COUNT(*) FROM symbols WHERE path = ?", (file_path,))
         return cursor.fetchone()[0]
 
-    def _classify_dead_node(self, path: str, cluster_size: int) -> Tuple[str, str]:
+    def _classify_dead_node(self, path: str, cluster_size: int) -> tuple[str, str]:
         """Classify confidence and reason for dead module."""
         confidence = 'high'
         reason = 'Module never imported'
@@ -439,7 +441,7 @@ class GraphDeadCodeDetector:
 
         return confidence, reason
 
-    def _classify_dead_symbol(self, name: str, symbol_type: str) -> Tuple[str, str]:
+    def _classify_dead_symbol(self, name: str, symbol_type: str) -> tuple[str, str]:
         """Classify confidence and reason for dead function/class."""
         confidence = 'high'
         reason = f'{symbol_type.capitalize()} defined but never called'
@@ -456,7 +458,7 @@ class GraphDeadCodeDetector:
 
         return confidence, reason
 
-    def export_cluster_dot(self, cluster_id: int, findings: List[DeadCode], output_path: str):
+    def export_cluster_dot(self, cluster_id: int, findings: list[DeadCode], output_path: str):
         """Export zombie cluster as DOT file for visualization.
 
         NO FALLBACK - crashes if pydot not installed.

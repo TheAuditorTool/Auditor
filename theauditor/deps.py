@@ -1,4 +1,6 @@
 """Dependency parser for multiple ecosystems."""
+from __future__ import annotations
+
 
 import glob
 import http.client
@@ -26,7 +28,7 @@ RATE_LIMIT_DOCKER = 0.2   # Docker Hub: 300 req/min for tag checks
 RATE_LIMIT_BACKOFF = 15   # Backoff on 429/disconnect (15s gives APIs time to reset)
 
 
-def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
+def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
     """
     Parse dependencies from various package managers.
 
@@ -233,7 +235,7 @@ def parse_dependencies(root_path: str = ".") -> List[Dict[str, Any]]:
     return deps
 
 
-def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> List[Dict[str, Any]]:
+def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list[dict[str, Any]]:
     """Read npm dependencies from package_configs table.
 
     Args:
@@ -320,7 +322,7 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> List
         return []
 
 
-def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> List[Dict[str, Any]]:
+def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> list[dict[str, Any]]:
     """Read Python dependencies from python_package_configs table.
 
     Args:
@@ -418,7 +420,7 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> L
         return []
 
 
-def _parse_standalone_package_json(path: Path) -> List[Dict[str, Any]]:
+def _parse_standalone_package_json(path: Path) -> list[dict[str, Any]]:
     """Parse dependencies from a single package.json file without workspace detection."""
     deps = []
     try:
@@ -450,12 +452,12 @@ def _parse_standalone_package_json(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
-def _parse_package_json(path: Path) -> List[Dict[str, Any]]:
+def _parse_package_json(path: Path) -> list[dict[str, Any]]:
     """Parse dependencies from package.json, with monorepo support."""
     deps = []
     processed_packages = set()  # Track processed packages to avoid duplicates
     
-    def parse_single_package(pkg_path: Path, workspace_path: str = "package.json") -> List[Dict[str, Any]]:
+    def parse_single_package(pkg_path: Path, workspace_path: str = "package.json") -> list[dict[str, Any]]:
         """Parse a single package.json file."""
         local_deps = []
         try:
@@ -626,7 +628,7 @@ def _parse_package_json(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
-def _parse_pyproject_toml(path: Path) -> List[Dict[str, Any]]:
+def _parse_pyproject_toml(path: Path) -> list[dict[str, Any]]:
     """Parse dependencies from pyproject.toml."""
     deps = []
     try:
@@ -683,7 +685,7 @@ def _parse_pyproject_toml(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
-def _parse_requirements_txt(path: Path) -> List[Dict[str, Any]]:
+def _parse_requirements_txt(path: Path) -> list[dict[str, Any]]:
     """Parse dependencies from requirements.txt."""
     deps = []
     try:
@@ -723,7 +725,7 @@ def _parse_requirements_txt(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
-def _parse_python_dep_spec(spec: str) -> tuple[str, Optional[str]]:
+def _parse_python_dep_spec(spec: str) -> tuple[str, str | None]:
     """
     Parse a Python dependency specification.
     Returns (name, version) tuple.
@@ -780,7 +782,7 @@ def _clean_version(version_spec: str) -> str:
     return version.strip()
 
 
-def _parse_docker_compose(path: Path) -> List[Dict[str, Any]]:
+def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
     """Parse Docker base images from docker-compose.yml files."""
     deps = []
     try:
@@ -831,7 +833,7 @@ def _parse_docker_compose(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
-def _parse_dockerfile(path: Path) -> List[Dict[str, Any]]:
+def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
     """Parse Docker base images from Dockerfile."""
     deps = []
     try:
@@ -882,7 +884,7 @@ def _parse_dockerfile(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
-def _parse_cargo_deps(deps_dict: Dict[str, Any], kind: str) -> List[Dict[str, Any]]:
+def _parse_cargo_deps(deps_dict: dict[str, Any], kind: str) -> list[dict[str, Any]]:
     """Parse a Cargo.toml dependency section.
 
     Args:
@@ -919,7 +921,7 @@ def _parse_cargo_deps(deps_dict: Dict[str, Any], kind: str) -> List[Dict[str, An
     return deps
 
 
-def _parse_cargo_toml(path: Path) -> List[Dict[str, Any]]:
+def _parse_cargo_toml(path: Path) -> list[dict[str, Any]]:
     """Parse dependencies from Cargo.toml."""
     import logging
     logger = logging.getLogger(__name__)
@@ -950,7 +952,7 @@ def _parse_cargo_toml(path: Path) -> List[Dict[str, Any]]:
     return deps
 
 
-def write_deps_json(deps: List[Dict[str, Any]], output_path: str = "./.pf/deps.json") -> None:
+def write_deps_json(deps: list[dict[str, Any]], output_path: str = "./.pf/deps.json") -> None:
     """Write dependencies to JSON file."""
     try:
         output = sanitize_path(output_path, ".")
@@ -963,12 +965,12 @@ def write_deps_json(deps: List[Dict[str, Any]], output_path: str = "./.pf/deps.j
 
 
 def check_latest_versions(
-    deps: List[Dict[str, Any]],
+    deps: list[dict[str, Any]],
     allow_net: bool = True,
     offline: bool = False,
     cache_file: str = "./.pf/deps_cache.json",
     allow_prerelease: bool = False
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """
     Check latest versions from registries with caching.
 
@@ -1137,7 +1139,7 @@ def check_latest_versions(
     return latest_info
 
 
-def _load_deps_cache(cache_file: str) -> Dict[str, Dict[str, Any]]:
+def _load_deps_cache(cache_file: str) -> dict[str, dict[str, Any]]:
     """
     Load the dependency cache from runtime database.
 
@@ -1204,7 +1206,7 @@ def _load_deps_cache(cache_file: str) -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-def _save_deps_cache(latest_info: Dict[str, Dict[str, Any]], cache_file: str) -> None:
+def _save_deps_cache(latest_info: dict[str, dict[str, Any]], cache_file: str) -> None:
     """
     Save the dependency cache to runtime database.
     Merges with existing cache to preserve data for packages not in current check.
@@ -1263,7 +1265,7 @@ def _save_deps_cache(latest_info: Dict[str, Dict[str, Any]], cache_file: str) ->
         pass  # Fail silently if can't write cache
 
 
-def _is_cache_valid(cached_item: Dict[str, Any], hours: int = 24) -> bool:
+def _is_cache_valid(cached_item: dict[str, Any], hours: int = 24) -> bool:
     """
     Check if a cached item is still valid based on age.
     Default is 24 hours for dependency version checks.
@@ -1278,7 +1280,7 @@ def _is_cache_valid(cached_item: Dict[str, Any], hours: int = 24) -> bool:
         return False
 
 
-def _check_npm_latest(package_name: str) -> Optional[str]:
+def _check_npm_latest(package_name: str) -> str | None:
     """Fetch latest version from npm registry."""
     import urllib.request
     import urllib.error
@@ -1367,7 +1369,7 @@ def _parse_pypi_version(version_str: str) -> tuple:
     return (0, 0, 0, 0)
 
 
-def _check_pypi_latest(package_name: str, allow_prerelease: bool = False) -> Optional[str]:
+def _check_pypi_latest(package_name: str, allow_prerelease: bool = False) -> str | None:
     """
     Fetch latest stable version from PyPI using semantic version comparison.
 
@@ -1428,7 +1430,7 @@ def _check_pypi_latest(package_name: str, allow_prerelease: bool = False) -> Opt
         return None
 
 
-def _parse_docker_tag(tag: str) -> Optional[Dict[str, Any]]:
+def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
     """
     Parse Docker tag into semantic components for proper version comparison.
 
@@ -1518,7 +1520,7 @@ def _extract_base_preference(current_tag: str) -> str:
     return ''  # No recognizable base
 
 
-def _check_dockerhub_latest(image_name: str, current_tag: str = "", allow_prerelease: bool = False) -> Optional[str]:
+def _check_dockerhub_latest(image_name: str, current_tag: str = "", allow_prerelease: bool = False) -> str | None:
     """
     Fetch latest stable version from Docker Hub with semantic version comparison.
 
@@ -1666,7 +1668,7 @@ def _calculate_version_delta(locked: str, latest: str) -> str:
 
 
 def write_deps_latest_json(
-    latest_info: Dict[str, Dict[str, Any]], 
+    latest_info: dict[str, dict[str, Any]], 
     output_path: str = "./.pf/deps_latest.json"
 ) -> None:
     """Write latest version info to JSON file."""
@@ -1715,9 +1717,9 @@ def _create_versioned_backup(path: Path) -> Path:
 
 def upgrade_all_deps(
     root_path: str,
-    latest_info: Dict[str, Dict[str, Any]],
-    deps_list: List[Dict[str, Any]]
-) -> Dict[str, int]:
+    latest_info: dict[str, dict[str, Any]],
+    deps_list: list[dict[str, Any]]
+) -> dict[str, int]:
     """
     YOLO MODE: Upgrade all dependencies to latest versions.
     Rewrites requirements.txt, package.json, and pyproject.toml with latest versions.
@@ -1860,8 +1862,8 @@ def upgrade_all_deps(
 
 def _upgrade_requirements_txt(
     path: Path,
-    latest_info: Dict[str, Dict[str, Any]],
-    deps: List[Dict[str, Any]]
+    latest_info: dict[str, dict[str, Any]],
+    deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade a requirements.txt file to latest versions."""
     # Sanitize path
@@ -1874,7 +1876,7 @@ def _upgrade_requirements_txt(
     backup_path = _create_versioned_backup(safe_path)
     
     # Read current file
-    with open(safe_path, "r", encoding="utf-8") as f:
+    with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
     
     # Build package name to latest version map
@@ -1916,8 +1918,8 @@ def _upgrade_requirements_txt(
 
 def _upgrade_package_json(
     path: Path,
-    latest_info: Dict[str, Dict[str, Any]],
-    deps: List[Dict[str, Any]]
+    latest_info: dict[str, dict[str, Any]],
+    deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade package.json to latest versions."""
     import shutil
@@ -1932,7 +1934,7 @@ def _upgrade_package_json(
     backup_path = _create_versioned_backup(safe_path)
     
     # Read current file
-    with open(safe_path, "r", encoding="utf-8") as f:
+    with open(safe_path, encoding="utf-8") as f:
         data = json.load(f)
     
     count = 0
@@ -1963,8 +1965,8 @@ def _upgrade_package_json(
 
 def _upgrade_pyproject_toml(
     path: Path,
-    latest_info: Dict[str, Dict[str, Any]],
-    deps: List[Dict[str, Any]]
+    latest_info: dict[str, dict[str, Any]],
+    deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade pyproject.toml to latest versions - handles ALL sections."""
     import shutil
@@ -1980,7 +1982,7 @@ def _upgrade_pyproject_toml(
     backup_path = _create_versioned_backup(safe_path)
     
     # Read entire file as string for regex replacement
-    with open(safe_path, "r", encoding="utf-8") as f:
+    with open(safe_path, encoding="utf-8") as f:
         content = f.read()
     
     count = 0
@@ -2042,8 +2044,8 @@ def _upgrade_pyproject_toml(
 
 def _upgrade_docker_compose(
     path: Path,
-    latest_info: Dict[str, Dict[str, Any]],
-    deps: List[Dict[str, Any]]
+    latest_info: dict[str, dict[str, Any]],
+    deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade docker-compose.yml to latest Docker image versions."""
     # Sanitize path
@@ -2056,7 +2058,7 @@ def _upgrade_docker_compose(
     backup_path = _create_versioned_backup(safe_path)
 
     # Read current file
-    with open(safe_path, "r", encoding="utf-8") as f:
+    with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
 
     # Build image name to latest version map
@@ -2132,8 +2134,8 @@ def _upgrade_docker_compose(
 
 def _upgrade_dockerfile(
     path: Path,
-    latest_info: Dict[str, Dict[str, Any]],
-    deps: List[Dict[str, Any]]
+    latest_info: dict[str, dict[str, Any]],
+    deps: list[dict[str, Any]]
 ) -> int:
     """Upgrade Dockerfile to latest Docker base image versions."""
     # Sanitize path
@@ -2146,7 +2148,7 @@ def _upgrade_dockerfile(
     backup_path = _create_versioned_backup(safe_path)
 
     # Read current file
-    with open(safe_path, "r", encoding="utf-8") as f:
+    with open(safe_path, encoding="utf-8") as f:
         lines = f.readlines()
 
     # Build image name to latest version map

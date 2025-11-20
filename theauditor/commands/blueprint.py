@@ -3,6 +3,8 @@
 Truth courier mode: Shows facts about code architecture with NO recommendations.
 Supports drill-down flags for specific analysis areas.
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -168,7 +170,7 @@ def blueprint(structure, graph, security, taint, all, output_format):
             _show_top_level_overview(data)
 
 
-def _gather_all_data(cursor, graphs_db_path: Path) -> Dict:
+def _gather_all_data(cursor, graphs_db_path: Path) -> dict:
     """Gather all blueprint data from database."""
     data = {}
 
@@ -202,7 +204,7 @@ def _gather_all_data(cursor, graphs_db_path: Path) -> Dict:
     return data
 
 
-def _get_structure(cursor) -> Dict:
+def _get_structure(cursor) -> dict:
     """Get codebase structure facts."""
     structure = {
         'total_files': 0,
@@ -250,7 +252,7 @@ def _get_structure(cursor) -> Dict:
     return structure
 
 
-def _get_naming_conventions(cursor) -> Dict:
+def _get_naming_conventions(cursor) -> dict:
     """Analyze naming conventions from indexed symbols using optimized SQL JOIN."""
 
     # Optimized query: JOIN with files table for indexed extension lookup
@@ -318,7 +320,7 @@ def _get_naming_conventions(cursor) -> Dict:
     return conventions
 
 
-def _build_pattern_result(snake_count: int, camel_count: int, pascal_count: int, total: int) -> Dict:
+def _build_pattern_result(snake_count: int, camel_count: int, pascal_count: int, total: int) -> dict:
     """Build pattern analysis result from counts."""
     if total == 0:
         return {}
@@ -350,7 +352,7 @@ def _build_pattern_result(snake_count: int, camel_count: int, pascal_count: int,
     return results
 
 
-def _get_architectural_precedents(cursor) -> List[Dict]:
+def _get_architectural_precedents(cursor) -> list[dict]:
     """Detect plugin loader patterns from import graph (refs table).
 
     A precedent is a code relationship where a consumer file imports 3+ modules
@@ -421,7 +423,7 @@ def _get_architectural_precedents(cursor) -> List[Dict]:
     return precedents
 
 
-def _get_hot_files(cursor) -> List[Dict]:
+def _get_hot_files(cursor) -> list[dict]:
     """Get most-called functions (call graph centrality)."""
     hot_files = []
 
@@ -458,7 +460,7 @@ def _get_hot_files(cursor) -> List[Dict]:
     return hot_files
 
 
-def _get_security_surface(cursor) -> Dict:
+def _get_security_surface(cursor) -> dict:
     """Get security pattern counts (truth courier - no recommendations)."""
     security = {
         'jwt': {'sign': 0, 'verify': 0},
@@ -521,7 +523,7 @@ def _get_security_surface(cursor) -> Dict:
     return security
 
 
-def _get_data_flow(cursor) -> Dict:
+def _get_data_flow(cursor) -> dict:
     """Get taint flow statistics."""
     data_flow = {
         'taint_sources': 0,
@@ -550,7 +552,7 @@ def _get_data_flow(cursor) -> Dict:
     return data_flow
 
 
-def _get_import_graph(graphs_db_path: Path) -> Dict:
+def _get_import_graph(graphs_db_path: Path) -> dict:
     """Get import graph statistics."""
     imports = {'total': 0, 'external': 0, 'internal': 0, 'circular': 0}
 
@@ -572,7 +574,7 @@ def _get_import_graph(graphs_db_path: Path) -> Dict:
     return imports
 
 
-def _get_performance(cursor, db_path: Path) -> Dict:
+def _get_performance(cursor, db_path: Path) -> dict:
     """Get analysis metrics."""
     metrics = {'db_size_mb': 0, 'total_rows': 0, 'files_indexed': 0, 'symbols_extracted': 0}
 
@@ -605,7 +607,7 @@ def _get_performance(cursor, db_path: Path) -> Dict:
     return metrics
 
 
-def _show_top_level_overview(data: Dict):
+def _show_top_level_overview(data: dict):
     """Show top-level overview with tree structure (truth courier mode)."""
     lines = []
 
@@ -694,7 +696,7 @@ def _show_top_level_overview(data: Dict):
     click.echo("\n".join(lines))
 
 
-def _show_structure_drilldown(data: Dict):
+def _show_structure_drilldown(data: dict):
     """Drill down: SURGICAL structure analysis - scope understanding."""
     struct = data['structure']
 
@@ -867,7 +869,7 @@ def _show_structure_drilldown(data: Dict):
     click.echo("\n" + "=" * 80 + "\n")
 
 
-def _show_graph_drilldown(data: Dict):
+def _show_graph_drilldown(data: dict):
     """Drill down: SURGICAL dependency mapping - what depends on what."""
     click.echo("\n📊 GRAPH DRILL-DOWN")
     click.echo("=" * 80)
@@ -926,7 +928,7 @@ def _show_graph_drilldown(data: Dict):
     click.echo("\n" + "=" * 80 + "\n")
 
 
-def _show_security_drilldown(data: Dict):
+def _show_security_drilldown(data: dict):
     """Drill down: SURGICAL attack surface mapping - what's vulnerable."""
     # Get database connection for detailed queries
     pf_dir = Path.cwd() / ".pf"
@@ -1052,7 +1054,7 @@ def _show_security_drilldown(data: Dict):
     click.echo("\n" + "=" * 80 + "\n")
 
 
-def _show_taint_drilldown(data: Dict):
+def _show_taint_drilldown(data: dict):
     """Drill down: SURGICAL data flow mapping - where does user data flow."""
     # Get database connection for detailed queries
     pf_dir = Path.cwd() / ".pf"

@@ -3,6 +3,8 @@
 This command runs interpretive analysis modules (ML, graph health, taint severity)
 on top of existing raw audit data, generating insights and predictions.
 """
+from __future__ import annotations
+
 
 import json
 import sys
@@ -243,7 +245,7 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
     sys.exit(1 if errors else 0)
 
 
-def run_ml_insights(train: bool, topk: int, output_dir: Path) -> Dict[str, Any]:
+def run_ml_insights(train: bool, topk: int, output_dir: Path) -> dict[str, Any]:
     """Run ML insights generation."""
     try:
         from theauditor.ml import check_ml_available, learn, suggest
@@ -278,7 +280,7 @@ def run_ml_insights(train: bool, topk: int, output_dir: Path) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def run_graph_insights(output_dir: Path) -> Dict[str, Any]:
+def run_graph_insights(output_dir: Path) -> dict[str, Any]:
     """Run graph health insights."""
     try:
         from theauditor.graph.insights import GraphInsights
@@ -351,7 +353,7 @@ def run_graph_insights(output_dir: Path) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def run_taint_insights(output_dir: Path) -> Dict[str, Any]:
+def run_taint_insights(output_dir: Path) -> dict[str, Any]:
     """Run taint severity insights."""
     try:
         from datetime import datetime, UTC
@@ -415,7 +417,7 @@ def run_taint_insights(output_dir: Path) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def run_impact_insights(output_dir: Path) -> Dict[str, Any]:
+def run_impact_insights(output_dir: Path) -> dict[str, Any]:
     """Run impact analysis insights."""
     try:
         # Check if workset exists
@@ -444,7 +446,7 @@ def run_impact_insights(output_dir: Path) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def aggregate_insights(results: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
+def aggregate_insights(results: dict[str, Any], output_dir: Path) -> dict[str, Any]:
     """Aggregate all insights into unified summary."""
     summary = {
         "insights_generated": list(results.keys()),
@@ -492,7 +494,7 @@ def aggregate_insights(results: Dict[str, Any], output_dir: Path) -> Dict[str, A
     return summary
 
 
-def print_insights_summary(summary: Dict[str, Any]) -> None:
+def print_insights_summary(summary: dict[str, Any]) -> None:
     """Print insights summary to console."""
     click.echo(f"\n{'='*60}")
     click.echo("INSIGHTS SUMMARY")

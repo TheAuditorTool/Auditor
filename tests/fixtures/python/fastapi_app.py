@@ -26,7 +26,7 @@ class UserCreate(BaseModel):
     password: str
 
 
-@router.get("/users", response_model=List[UserResponse])
+@router.get("/users", response_model=list[UserResponse])
 def list_users(db=Depends(get_db)):
     del db
     return []
@@ -51,7 +51,7 @@ def create_user(payload: UserCreate, db=Depends(get_db)):
 @router.patch("/users/{user_id}")
 def patch_user(
     user_id: int,
-    updates: Dict[str, str] = Body(default_factory=dict),
+    updates: dict[str, str] = Body(default_factory=dict),
     db=Depends(get_db),
 ):
     del db

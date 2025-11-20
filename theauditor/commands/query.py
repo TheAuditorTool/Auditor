@@ -3,6 +3,8 @@
 Direct SQL queries over TheAuditor's indexed code relationships.
 NO file reading, NO parsing, NO inference - just exact database lookups.
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -411,7 +413,7 @@ def query(symbol, file, api, component, variable, pattern, category, search, lis
             aud query --api "/users" --show-api-coverage
 
             # Find unprotected endpoints (grep for OPEN)
-            aud query --show-api-coverage | grep "\[OPEN\]"
+            aud query --show-api-coverage | grep "\\[OPEN\\]"
 
         Task 7: Cross-Function Taint Analysis
             # Find where validateUser's returns flow to

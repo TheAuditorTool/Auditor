@@ -1,4 +1,6 @@
 """Analyze the impact radius of code changes using the AST symbol graph."""
+from __future__ import annotations
+
 
 import platform
 import click

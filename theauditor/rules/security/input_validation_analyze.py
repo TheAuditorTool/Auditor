@@ -10,6 +10,8 @@ Follows v1.1+ schema contract compliance:
 - Uses parameterized queries (no SQL injection)
 - Proper confidence levels
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -151,7 +153,7 @@ class InputValidationAnalyzer:
         self.findings = []
         self.seen_issues = set()  # Deduplication
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -859,7 +861,7 @@ class InputValidationAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_input_validation_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_input_validation_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect input validation vulnerabilities.
 
     Detects:

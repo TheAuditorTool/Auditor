@@ -1,4 +1,6 @@
 """Parse and analyze project dependencies."""
+from __future__ import annotations
+
 
 import platform
 from pathlib import Path

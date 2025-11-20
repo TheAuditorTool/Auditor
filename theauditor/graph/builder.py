@@ -1,4 +1,6 @@
 """Graph builder module - constructs dependency and call graphs."""
+from __future__ import annotations
+
 
 import os
 import platform

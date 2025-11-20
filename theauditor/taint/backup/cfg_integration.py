@@ -7,6 +7,8 @@ Schema Contract:
     All queries use build_query() for schema compliance.
     Table existence is guaranteed by schema contract - no checks needed.
 """
+from __future__ import annotations
+
 
 import os
 import sys
@@ -36,9 +38,9 @@ class BlockTaintState:
     allowing for path-sensitive analysis.
     """
     block_id: int
-    tainted_vars: Set[str] = field(default_factory=set)
-    sanitized_vars: Set[str] = field(default_factory=set)
-    conditions: List[str] = field(default_factory=list)  # Path conditions to reach this block
+    tainted_vars: set[str] = field(default_factory=set)
+    sanitized_vars: set[str] = field(default_factory=set)
+    conditions: list[str] = field(default_factory=list)  # Path conditions to reach this block
     
     def is_tainted(self, var_name: str) -> bool:
         """Check if a variable is tainted in this block."""
@@ -53,7 +55,7 @@ class BlockTaintState:
         """Mark a variable as sanitized."""
         self.sanitized_vars.add(var_name)
     
-    def merge(self, other: 'BlockTaintState') -> 'BlockTaintState':
+    def merge(self, other: BlockTaintState) -> BlockTaintState:
         """Merge taint state from another block (for join points)."""
         # Conservative: variable is tainted if tainted in ANY incoming path
         merged = BlockTaintState(self.block_id)
@@ -63,7 +65,7 @@ class BlockTaintState:
         merged.conditions = list(set(self.conditions + other.conditions))
         return merged
     
-    def copy(self) -> 'BlockTaintState':
+    def copy(self) -> BlockTaintState:
         """Create a deep copy of this state."""
         return BlockTaintState(
             block_id=self.block_id,
@@ -134,7 +136,7 @@ class PathAnalyzer:
         return func_name
 
     def find_vulnerable_paths(self, source_line: int, sink_line: int,
-                            initial_tainted_var: str, max_paths: int = 100) -> List[Dict[str, Any]]:
+                            initial_tainted_var: str, max_paths: int = 100) -> list[dict[str, Any]]:
         """
         Find all paths from source to sink where taint reaches sink.
         
@@ -207,8 +209,8 @@ class PathAnalyzer:
         
         return vulnerable_paths
     
-    def _analyze_path_taint(self, path_blocks: List[int], tainted_var: str,
-                           source_line: int, sink_line: int) -> Tuple[bool, Dict[str, Any]]:
+    def _analyze_path_taint(self, path_blocks: list[int], tainted_var: str,
+                           source_line: int, sink_line: int) -> tuple[bool, dict[str, Any]]:
         """
         Analyze if taint propagates along a specific path.
         
@@ -268,7 +270,7 @@ class PathAnalyzer:
         return is_vulnerable, path_info
     
     def _process_block_for_sanitizers(self, state: BlockTaintState,
-                                     block: Dict[str, Any]) -> BlockTaintState:
+                                     block: dict[str, Any]) -> BlockTaintState:
         """
         Check if block contains sanitizers that clean tainted data.
 
@@ -316,9 +318,9 @@ class PathAnalyzer:
 
         return new_state
     
-    def _analyze_path_taint_enhanced(self, path_blocks: List[int], tainted_var: str,
+    def _analyze_path_taint_enhanced(self, path_blocks: list[int], tainted_var: str,
                                     source_line: int, sink_line: int,
-                                    join_point_states: Dict[int, List[BlockTaintState]]) -> Tuple[bool, Dict[str, Any]]:
+                                    join_point_states: dict[int, list[BlockTaintState]]) -> tuple[bool, dict[str, Any]]:
         """
         Stage 2: Enhanced path analysis with better condition tracking and join point merging.
         
@@ -483,7 +485,7 @@ class PathAnalyzer:
 
         return is_vulnerable, path_info
     
-    def _summarize_conditions(self, conditions: List[Dict[str, Any]]) -> str:
+    def _summarize_conditions(self, conditions: list[dict[str, Any]]) -> str:
         """
         Stage 2: Create a human-readable summary of path conditions.
         
@@ -510,7 +512,7 @@ class PathAnalyzer:
         return " AND ".join(summary_parts) if summary_parts else "Unknown conditions"
     
     def _process_block_for_assignments(self, state: BlockTaintState,
-                                      block: Dict[str, Any]) -> BlockTaintState:
+                                      block: dict[str, Any]) -> BlockTaintState:
         """
         Track taint propagation through assignments in block.
 
@@ -562,7 +564,7 @@ class PathAnalyzer:
     # Calls _is_taint_propagating_operation() and _propagate_loop_taint() which parse statement text
     # Loop analysis rarely used and broken - delete to enforce database-query approach
     
-    def _get_loop_body_blocks(self, loop_block_id: int) -> List[int]:
+    def _get_loop_body_blocks(self, loop_block_id: int) -> list[int]:
         """Get all blocks that are part of the loop body."""
         loop_blocks = []
         
@@ -587,7 +589,7 @@ class PathAnalyzer:
         
         return loop_blocks
     
-    def _get_block_statements(self, block_id: int) -> List[Dict[str, Any]]:
+    def _get_block_statements(self, block_id: int) -> list[dict[str, Any]]:
         """Get statements in a block from the database.
 
         Schema Contract:
@@ -613,7 +615,7 @@ class PathAnalyzer:
     # Parsed statement text with string operations: text.split("+=")[0].strip()
     # Should query assignments table instead
     
-    def _apply_widening(self, state: BlockTaintState, loop_blocks: List[int]) -> BlockTaintState:
+    def _apply_widening(self, state: BlockTaintState, loop_blocks: list[int]) -> BlockTaintState:
         """
         Conservative widening when fixed-point doesn't converge.
 
@@ -644,9 +646,9 @@ class PathAnalyzer:
         return widened_state
 
 
-def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
-                        sink: Dict[str, Any], source_function: Dict[str, Any],
-                        max_paths: int = 100) -> List[Dict[str, Any]]:
+def trace_flow_sensitive(cursor: sqlite3.Cursor, source: dict[str, Any],
+                        sink: dict[str, Any], source_function: dict[str, Any],
+                        max_paths: int = 100) -> list[dict[str, Any]]:
     """
     Perform flow-sensitive taint analysis using CFG.
     
@@ -777,8 +779,8 @@ def trace_flow_sensitive(cursor: sqlite3.Cursor, source: Dict[str, Any],
     return taint_paths
 
 
-def should_use_cfg(cursor: sqlite3.Cursor, source: Dict[str, Any],
-                  sink: Dict[str, Any]) -> bool:
+def should_use_cfg(cursor: sqlite3.Cursor, source: dict[str, Any],
+                  sink: dict[str, Any]) -> bool:
     """
     Determine if CFG analysis should be used for this source-sink pair.
 
@@ -817,11 +819,11 @@ def should_use_cfg(cursor: sqlite3.Cursor, source: Dict[str, Any],
 
 def verify_unsanitized_cfg_paths(
     cursor: sqlite3.Cursor,
-    source: Dict[str, Any],
-    sink: Dict[str, Any],
-    source_function: Dict[str, Any],
+    source: dict[str, Any],
+    sink: dict[str, Any],
+    source_function: dict[str, Any],
     max_paths: int = 100
-) -> Optional[List[TaintPath]]:
+) -> list[TaintPath] | None:
     """
     Verify that at least one unsanitized CFG path connects source to sink.
 

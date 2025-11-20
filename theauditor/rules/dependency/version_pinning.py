@@ -12,6 +12,8 @@ Detection Strategy:
 Database Tables Used:
 - package_configs: Dependency version specifications
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -30,7 +32,7 @@ METADATA = RuleMetadata(
 )
 
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect unpinned version ranges in production dependencies.
 
     Args:

@@ -3,6 +3,8 @@
 Moved from core.py to break circular dependency (core.py ↔ ifds_analyzer.py).
 This is a pure data model with no external dependencies.
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Any, Optional
 
@@ -10,7 +12,7 @@ from typing import Dict, List, Any, Optional
 class TaintPath:
     """Represents a taint flow path from source to sink."""
 
-    def __init__(self, source: Dict[str, Any], sink: Dict[str, Any], path: List[Dict[str, Any]]):
+    def __init__(self, source: dict[str, Any], sink: dict[str, Any], path: list[dict[str, Any]]):
         self.source = source
         self.sink = sink
         self.path = path
@@ -23,12 +25,12 @@ class TaintPath:
         self.path_complexity = 0
         self.tainted_vars = []
         self.sanitized_vars = []
-        self.related_sources: List[Dict[str, Any]] = []
+        self.related_sources: list[dict[str, Any]] = []
 
         # PHASE 6: Sanitizer metadata (added by ifds_analyzer when path is sanitized)
-        self.sanitizer_file: Optional[str] = None
-        self.sanitizer_line: Optional[int] = None
-        self.sanitizer_method: Optional[str] = None
+        self.sanitizer_file: str | None = None
+        self.sanitizer_line: int | None = None
+        self.sanitizer_method: str | None = None
 
     def _classify_vulnerability(self) -> str:
         """Classify the vulnerability based on sink type - factual categorization.
@@ -51,7 +53,7 @@ class TaintPath:
 
         return category_map.get(sink_category, "Data Exposure")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization with guaranteed structure."""
         # Ensure source dict has all required keys
         source_dict = self.source or {}
@@ -91,7 +93,7 @@ class TaintPath:
 
         return result
 
-    def add_related_path(self, other: "TaintPath") -> None:
+    def add_related_path(self, other: TaintPath) -> None:
         """Attach additional source/path metadata that reaches the same sink."""
         related_entry = {
             "source": {

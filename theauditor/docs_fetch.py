@@ -1,4 +1,6 @@
 """Documentation fetcher for version-correct package docs."""
+from __future__ import annotations
+
 
 import json
 import re
@@ -48,12 +50,12 @@ RATE_LIMIT_BACKOFF = 15  # Backoff on 429/disconnect (15s gives APIs time to res
 
 
 def fetch_docs(
-    deps: List[Dict[str, Any]],
+    deps: list[dict[str, Any]],
     allow_net: bool = True,
-    allowlist: Optional[List[str]] = None,
+    allowlist: list[str] | None = None,
     offline: bool = False,
     output_dir: str = "./.pf/context/docs"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Fetch version-correct documentation for dependencies.
     
@@ -173,7 +175,7 @@ def fetch_docs(
     return stats
 
 
-def _check_cache_for_dep(dep: Dict[str, Any], output_dir: Path) -> Dict[str, bool]:
+def _check_cache_for_dep(dep: dict[str, Any], output_dir: Path) -> dict[str, bool]:
     """
     Quick cache check for a dependency without making network calls.
     Returns {"cached": True/False}
@@ -219,10 +221,10 @@ def _check_cache_for_dep(dep: Dict[str, Any], output_dir: Path) -> Dict[str, boo
 
 
 def _fetch_npm_docs(
-    dep: Dict[str, Any],
+    dep: dict[str, Any],
     output_dir: Path,
-    allowlist: List[str]
-) -> Dict[str, Any]:
+    allowlist: list[str]
+) -> dict[str, Any]:
     """Fetch documentation for an npm package."""
     name = dep["name"]
     version = dep["version"]
@@ -314,7 +316,7 @@ def _fetch_npm_docs(
 
             # Add usage examples if not in README
             if "## Usage" not in readme and "## Example" not in readme:
-                f.write("\n\n## Installation\n\n```bash\nnpm install {name}\n```\n".format(name=name))
+                f.write(f"\n\n## Installation\n\n```bash\nnpm install {name}\n```\n")
 
         # Write metadata
         meta = {
@@ -338,10 +340,10 @@ def _fetch_npm_docs(
 
 
 def _fetch_pypi_docs(
-    dep: Dict[str, Any],
+    dep: dict[str, Any],
     output_dir: Path,
-    allowlist: List[str]
-) -> Dict[str, Any]:
+    allowlist: list[str]
+) -> dict[str, Any]:
     """Fetch documentation for a PyPI package."""
     name = dep["name"].strip()  # Strip any whitespace from name
     version = dep["version"]
@@ -573,7 +575,7 @@ def _fetch_pypi_docs(
         return {"status": "error", "error": str(e)}
 
 
-def _fetch_github_readme(repo_url: str, allowlist: List[str]) -> Optional[str]:
+def _fetch_github_readme(repo_url: str, allowlist: list[str]) -> str | None:
     """
     Fetch README from GitHub repository.
     Converts repository URL to raw GitHub URL for README.
@@ -625,7 +627,7 @@ def _fetch_github_readme(repo_url: str, allowlist: List[str]) -> Optional[str]:
     return None
 
 
-def _is_url_allowed(url: str, allowlist: List[str]) -> bool:
+def _is_url_allowed(url: str, allowlist: list[str]) -> bool:
     """Check if URL is in the allowlist."""
     for allowed in allowlist:
         if url.startswith(allowed):
@@ -633,7 +635,7 @@ def _is_url_allowed(url: str, allowlist: List[str]) -> bool:
     return False
 
 
-def _enhance_npm_readme(data: Dict[str, Any], readme: str) -> str:
+def _enhance_npm_readme(data: dict[str, Any], readme: str) -> str:
     """Enhance minimal npm README with package metadata."""
     enhanced = readme if readme else ""
 
@@ -662,7 +664,7 @@ def _enhance_npm_readme(data: Dict[str, Any], readme: str) -> str:
     return enhanced
 
 
-def _fetch_and_convert_html(url: str, allowlist: List[str], timeout: int = 10) -> Optional[str]:
+def _fetch_and_convert_html(url: str, allowlist: list[str], timeout: int = 10) -> str | None:
     """
     Fetch HTML from URL and convert to clean markdown using BeautifulSoup.
 
@@ -774,8 +776,8 @@ def _crawl_docs_site(
     package_name: str,
     version: str,
     max_pages: int = 10,
-    allowlist: Optional[List[str]] = None
-) -> Dict[str, str]:
+    allowlist: list[str] | None = None
+) -> dict[str, str]:
     """
     Crawl documentation site for multiple pages.
 
@@ -800,7 +802,7 @@ def _crawl_docs_site(
     if allowlist is None:
         allowlist = DEFAULT_ALLOWLIST
 
-    results: Dict[str, str] = {}
+    results: dict[str, str] = {}
     pages_fetched = 0
 
     # Priority pages to fetch (in order of importance)
@@ -865,7 +867,7 @@ def _crawl_docs_site(
     return results
 
 
-def _fetch_readthedocs(url: str, allowlist: List[str]) -> Optional[str]:
+def _fetch_readthedocs(url: str, allowlist: list[str]) -> str | None:
     """
     Fetch documentation from ReadTheDocs.
     Tries to get the main index page content.
@@ -914,7 +916,7 @@ def _fetch_readthedocs(url: str, allowlist: List[str]) -> Optional[str]:
         return None
 
 
-def _fetch_pypi_web_readme(name: str, version: str, allowlist: List[str]) -> Optional[str]:
+def _fetch_pypi_web_readme(name: str, version: str, allowlist: list[str]) -> str | None:
     """
     Fetch the rendered README from PyPI's web interface.
     The web interface shows the full README that's often missing from the API.
@@ -1005,7 +1007,7 @@ def _fetch_pypi_web_readme(name: str, version: str, allowlist: List[str]) -> Opt
     return None
 
 
-def _enhance_pypi_description(info: Dict[str, Any], description: str, summary: str) -> str:
+def _enhance_pypi_description(info: dict[str, Any], description: str, summary: str) -> str:
     """Enhance minimal PyPI description with package metadata."""
     enhanced = description if description else ""
 
@@ -1047,11 +1049,11 @@ def _enhance_pypi_description(info: Dict[str, Any], description: str, summary: s
 
 
 def check_latest(
-    deps: List[Dict[str, Any]],
+    deps: list[dict[str, Any]],
     allow_net: bool = True,
     offline: bool = False,
     output_path: str = "./.pf/deps_latest.json"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Check latest versions and compare to locked versions.
     

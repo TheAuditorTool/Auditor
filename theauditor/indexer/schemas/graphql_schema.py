@@ -254,7 +254,7 @@ GRAPHQL_FINDINGS_CACHE = TableSchema(
 # GRAPHQL TABLES REGISTRY
 # ============================================================================
 
-GRAPHQL_TABLES: Dict[str, TableSchema] = {
+GRAPHQL_TABLES: dict[str, TableSchema] = {
     "graphql_schemas": GRAPHQL_SCHEMAS,
     "graphql_types": GRAPHQL_TYPES,
     "graphql_fields": GRAPHQL_FIELDS,
