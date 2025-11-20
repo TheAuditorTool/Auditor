@@ -124,36 +124,6 @@ def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> List[str]:
     return result
 
 
-def extract_vars_from_tree_sitter_expr(expr: str) -> List[str]:
-    """DEPRECATED: DO NOT USE - This is a legacy regex fallback that violates AST purity.
-
-    ARCHITECTURAL DECISION: We have the AST - extract variables from AST nodes, NOT text.
-
-    This function was removed to enforce proper AST traversal. If you're calling this,
-    you're doing text parsing when you should be traversing the AST structure.
-
-    Why this is wrong:
-    - We already parsed the code into an AST
-    - Text parsing is fragile and misses context
-    - Regex cannot understand scope, destructuring, or complex expressions
-    - This creates a "lazy escape hatch" that prevents proper structural analysis
-
-    What to do instead:
-    - For assignments: The AST node already has source node - traverse it
-    - For returns: The AST node already has expression node - traverse it
-    - Use proper visitor patterns, not text matching
-
-    If source_vars are critical for your use case, extract them from the AST node
-    that you already have. Don't convert to text and re-parse with regex.
-
-    CRITICAL: DO NOT add regex back. If this breaks something, fix the caller
-    to use proper AST traversal, not text parsing.
-    """
-    # Return empty list to force callers to handle the absence of this data
-    # This will surface edge cases where source_vars are actually needed
-    return []
-
-
 def sanitize_call_name(name: Any) -> str:
     """Normalize call expression names for downstream analysis.
 
