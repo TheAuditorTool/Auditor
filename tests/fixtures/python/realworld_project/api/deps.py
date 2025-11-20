@@ -1,8 +1,7 @@
 """Dependency helpers referenced by FastAPI routes."""
 
-from __future__ import annotations
 
-from typing import Generator
+from collections.abc import Generator
 
 from ..repositories.accounts import AccountRepository
 from ..services.emails import SupportEmailService
@@ -22,7 +21,7 @@ class _InMemorySession:
         return self._closed
 
 
-def get_db() -> Generator[_InMemorySession, None, None]:
+def get_db() -> Generator[_InMemorySession]:
     """Yield a fake session so dependency graphs see a database handle."""
 
     session = _InMemorySession()

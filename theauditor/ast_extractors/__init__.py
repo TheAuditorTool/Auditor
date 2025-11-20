@@ -36,6 +36,8 @@ Example flow for object literals:
 WHY: This separation ensures single source of truth for file paths and prevents
 architectural violations where implementations incorrectly attempt to track files.
 """
+from __future__ import annotations
+
 
 import os
 from typing import Any, List, Dict, Optional, TYPE_CHECKING
@@ -70,7 +72,7 @@ else:
         end_line: int
         start_col: int
         snippet: str
-        metadata: Dict[str, Any] = None
+        metadata: dict[str, Any] = None
 
 
 class ASTExtractorMixin:
@@ -80,7 +82,7 @@ class ASTExtractorMixin:
     language-specific implementation modules.
     """
     
-    def extract_functions(self, tree: Any, language: str = None) -> List[Dict]:
+    def extract_functions(self, tree: Any, language: str = None) -> list[dict]:
         """Extract function definitions from AST.
 
         Args:
@@ -99,15 +101,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
             
             if tree_type == "python_ast":
-                return python_impl.extract_python_functions(tree, self)
+                return python_impl.extract_python_functions(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_functions(tree, self)
+                return typescript_impl.extract_typescript_functions(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_functions(tree, self, language)
         
         return []
 
-    def extract_classes(self, tree: Any, language: str = None) -> List[Dict]:
+    def extract_classes(self, tree: Any, language: str = None) -> list[dict]:
         """Extract class definitions from AST."""
         if not tree:
             return []
@@ -117,15 +119,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
             
             if tree_type == "python_ast":
-                return python_impl.extract_python_classes(tree, self)
+                return python_impl.extract_python_classes(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_classes(tree, self)
+                return typescript_impl.extract_typescript_classes(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_classes(tree, self, language)
         
         return []
 
-    def extract_calls(self, tree: Any, language: str = None) -> List[Dict]:
+    def extract_calls(self, tree: Any, language: str = None) -> list[dict]:
         """Extract function calls from AST."""
         if not tree:
             return []
@@ -135,15 +137,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
             
             if tree_type == "python_ast":
-                return python_impl.extract_python_calls(tree, self)
+                return python_impl.extract_python_calls(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_calls(tree, self)
+                return typescript_impl.extract_typescript_calls(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_calls(tree, self, language)
         
         return []
 
-    def extract_imports(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
+    def extract_imports(self, tree: Any, language: str = None) -> list[dict[str, Any]]:
         """Extract import statements from AST."""
         if not tree:
             return []
@@ -153,15 +155,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
             
             if tree_type == "python_ast":
-                return python_impl.extract_python_imports(tree, self)
+                return python_impl.extract_python_imports(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_imports(tree, self)
+                return typescript_impl.extract_typescript_imports(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_imports(tree, self, language)
         
         return []
 
-    def extract_exports(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
+    def extract_exports(self, tree: Any, language: str = None) -> list[dict[str, Any]]:
         """Extract export statements from AST."""
         if not tree:
             return []
@@ -171,15 +173,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
             
             if tree_type == "python_ast":
-                return python_impl.extract_python_exports(tree, self)
+                return python_impl.extract_python_exports(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_exports(tree, self)
+                return typescript_impl.extract_typescript_exports(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_exports(tree, self, language)
         
         return []
 
-    def extract_properties(self, tree: Any, language: str = None) -> List[Dict]:
+    def extract_properties(self, tree: Any, language: str = None) -> list[dict]:
         """Extract property accesses from AST (e.g., req.body, req.query).
         
         This is critical for taint analysis to find JavaScript property access patterns.
@@ -192,15 +194,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
             
             if tree_type == "python_ast":
-                return python_impl.extract_python_properties(tree, self)
+                return python_impl.extract_python_properties(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_properties(tree, self)
+                return typescript_impl.extract_typescript_properties(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_properties(tree, self, language)
         
         return []
 
-    def extract_assignments(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
+    def extract_assignments(self, tree: Any, language: str = None) -> list[dict[str, Any]]:
         """Extract variable assignments for data flow analysis."""
         if not tree:
             return []
@@ -214,7 +216,7 @@ class ASTExtractorMixin:
                 print(f"[TRACE] extract_assignments() tree_type={tree_type}, language={language}", file=sys.stderr)
 
             if tree_type == "python_ast":
-                return python_impl.extract_python_assignments(tree, self)
+                return python_impl.extract_python_assignments(context)
             elif tree_type == "semantic_ast":
                 # The semantic result is nested in tree["tree"]
                 result = typescript_impl.extract_typescript_assignments(tree.get("tree", {}), self)
@@ -226,7 +228,7 @@ class ASTExtractorMixin:
 
         return []
 
-    def extract_function_calls_with_args(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
+    def extract_function_calls_with_args(self, tree: Any, language: str = None) -> list[dict[str, Any]]:
         """Extract function calls with argument mapping for data flow analysis.
 
         This is a two-pass analysis:
@@ -283,7 +285,7 @@ class ASTExtractorMixin:
 
         return calls_with_args
 
-    def _extract_function_parameters(self, tree: Any, language: str = None) -> Dict[str, List[str]]:
+    def _extract_function_parameters(self, tree: Any, language: str = None) -> dict[str, list[str]]:
         """Extract function definitions and their parameter names.
 
         Returns:
@@ -316,12 +318,12 @@ class ASTExtractorMixin:
                 print(f"[DEBUG __init__.py:274] tree_type = {tree_type}, language = {language}", file=sys.stderr)
 
             if tree_type == "python_ast":
-                result = python_impl.extract_python_function_params(tree, self)
+                result = python_impl.extract_python_function_params(context)
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG __init__.py:274] Python extraction returned {len(result)} functions", file=sys.stderr)
                 return result
             elif tree_type == "semantic_ast":
-                result = typescript_impl.extract_typescript_function_params(tree, self)
+                result = typescript_impl.extract_typescript_function_params(context)
                 if os.environ.get("THEAUDITOR_DEBUG"):
                     print(f"[DEBUG __init__.py:274] TypeScript extraction returned {len(result)} functions", file=sys.stderr)
                     if result:
@@ -339,7 +341,7 @@ class ASTExtractorMixin:
 
         return {}
 
-    def extract_returns(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
+    def extract_returns(self, tree: Any, language: str = None) -> list[dict[str, Any]]:
         """Extract return statements for data flow analysis."""
         if not tree:
             return []
@@ -349,15 +351,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
             
             if tree_type == "python_ast":
-                return python_impl.extract_python_returns(tree, self)
+                return python_impl.extract_python_returns(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_returns(tree, self)
+                return typescript_impl.extract_typescript_returns(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_returns(tree, self, language)
         
         return []
 
-    def extract_cfg(self, tree: Any, language: str = None) -> List[Dict[str, Any]]:
+    def extract_cfg(self, tree: Any, language: str = None) -> list[dict[str, Any]]:
         """Extract control flow graphs for all functions in AST.
 
         Returns:
@@ -371,15 +373,15 @@ class ASTExtractorMixin:
             language = tree.get("language", language)
 
             if tree_type == "python_ast":
-                return python_impl.extract_python_cfg(tree, self)
+                return python_impl.extract_python_cfg(context)
             elif tree_type == "semantic_ast":
-                return typescript_impl.extract_typescript_cfg(tree, self)
+                return typescript_impl.extract_typescript_cfg(context)
             elif tree_type == "tree_sitter" and self.has_tree_sitter:
                 return treesitter_impl.extract_treesitter_cfg(tree, self, language)
 
         return []
 
-    def extract_object_literals(self, tree: Any) -> List[Dict[str, Any]]:
+    def extract_object_literals(self, tree: Any) -> list[dict[str, Any]]:
         """Extract object literal properties from AST."""
         if not tree or not isinstance(tree, dict):
             return []
@@ -388,11 +390,11 @@ class ASTExtractorMixin:
 
         if tree_type == "semantic_ast":
             # The new, correct path for TypeScript/JavaScript
-            return typescript_impl.extract_typescript_object_literals(tree, self)
+            return typescript_impl.extract_typescript_object_literals(context)
 
         elif tree_type == "python_ast":
             # Python dict literal extraction
-            return python_impl.extract_python_dicts(tree, self)
+            return python_impl.extract_python_dicts(context)
 
         return []
 

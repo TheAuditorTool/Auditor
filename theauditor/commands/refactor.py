@@ -5,13 +5,17 @@ references removed/renamed fields and tables, reporting potential breaking chang
 
 NO pattern detection. NO FCE. Just direct database queries.
 """
+from __future__ import annotations
+
 
 import json
 import re
 import sqlite3
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, List, Set, Any, Optional, Iterable, Tuple
+from typing import Dict, List, Set, Any, Optional, Tuple
+
+from collections.abc import Iterable
 
 import click
 
@@ -35,8 +39,8 @@ SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 def refactor(
     migration_dir: str,
     migration_limit: int,
-    profile_file: Optional[str],
-    output: Optional[str],
+    profile_file: str | None,
+    output: str | None,
 ) -> None:
     """Detect incomplete refactorings and breaking changes from database schema migrations.
 
@@ -189,6 +193,15 @@ def refactor(
     NOTE: This command detects syntactic mismatches only, not semantic issues.
     Code may still break if schema change affects data types or constraints.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("refactor", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     # Find repository root
     repo_root = Path.cwd()
     while repo_root != repo_root.parent:
@@ -200,7 +213,7 @@ def refactor(
     db_path = pf_dir / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: No index found. Run 'aud index' first.", err=True)
+        click.echo("Error: No index found. Run 'aud full' first.", err=True)
         raise click.Abort()
 
     click.echo("\n" + "=" * 70)
@@ -331,7 +344,7 @@ def refactor(
     click.echo("")
 
 
-def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: int) -> Dict[str, Any]:
+def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: int) -> dict[str, Any]:
     """Parse migrations to find schema changes.
 
     Returns dict with:
@@ -386,7 +399,7 @@ def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: in
 
     for mig_file in migrations:
         try:
-            with open(mig_file, 'r', encoding='utf-8') as f:
+            with open(mig_file, encoding='utf-8') as f:
                 content = f.read()
 
             # Find dropped tables
@@ -431,7 +444,7 @@ def _analyze_migrations(repo_root: Path, migration_dir: str, migration_limit: in
     }
 
 
-def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) -> Dict[str, List[Dict]]:
+def _find_code_references(db_path: Path, schema_changes: dict, repo_root: Path) -> dict[str, list[dict]]:
     """Query database for code that references removed schema items.
 
     Returns dict with:
@@ -551,7 +564,7 @@ def _find_code_references(db_path: Path, schema_changes: Dict, repo_root: Path) 
 
 def _print_profile_report(
     report: ProfileEvaluation,
-    schema_counts: Optional[Dict[str, Dict[str, int]]] = None
+    schema_counts: dict[str, dict[str, int]] | None = None
 ) -> None:
     """Pretty-print YAML profile evaluation."""
     click.echo(f"  Description: {report.profile.description}")
@@ -571,7 +584,7 @@ def _print_profile_report(
     _print_missing_expectations(report.rule_results)
 
 
-def _assess_risk(mismatches: Dict[str, List]) -> str:
+def _assess_risk(mismatches: dict[str, list]) -> str:
     """Assess risk level based on number of mismatches."""
     total = sum(len(v) for v in mismatches.values())
 
@@ -586,11 +599,11 @@ def _assess_risk(mismatches: Dict[str, List]) -> str:
 
 
 def _generate_report(
-    schema_changes: Dict,
-    mismatches: Dict,
+    schema_changes: dict,
+    mismatches: dict,
     risk: str,
-    profile_report: Optional[ProfileEvaluation] = None,
-) -> Dict:
+    profile_report: ProfileEvaluation | None = None,
+) -> dict:
     """Generate JSON report."""
     report = {
         'schema_changes': schema_changes,
@@ -609,9 +622,9 @@ def _generate_report(
     return report
 
 
-def _aggregate_schema_counts(mismatches: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Dict[str, int]]:
+def _aggregate_schema_counts(mismatches: dict[str, list[dict[str, Any]]]) -> dict[str, dict[str, int]]:
     """Aggregate schema mismatch counts per file."""
-    counts: Dict[str, Dict[str, int]] = defaultdict(lambda: {'tables': 0, 'columns': 0, 'renamed': 0, 'total': 0})
+    counts: dict[str, dict[str, int]] = defaultdict(lambda: {'tables': 0, 'columns': 0, 'renamed': 0, 'total': 0})
 
     for item in mismatches.get('removed_tables', []):
         file_path = item.get('file')
@@ -637,7 +650,7 @@ def _aggregate_schema_counts(mismatches: Dict[str, List[Dict[str, Any]]]) -> Dic
     return counts
 
 
-def _collect_profile_files(rule_results: List) -> Set[str]:
+def _collect_profile_files(rule_results: list) -> set[str]:
     """Return set of files involved in profile violations."""
     files = set()
     for result in rule_results:
@@ -649,9 +662,9 @@ def _collect_profile_files(rule_results: List) -> Set[str]:
 
 
 def _print_impact_overview(
-    profile_report: Optional[ProfileEvaluation],
-    mismatches: Dict[str, List[Dict[str, Any]]],
-    schema_counts: Dict[str, Dict[str, int]]
+    profile_report: ProfileEvaluation | None,
+    mismatches: dict[str, list[dict[str, Any]]],
+    schema_counts: dict[str, dict[str, int]]
 ) -> None:
     """Display high-level summary across profile + schema phases."""
     click.echo("\nIMPACT OVERVIEW")
@@ -682,8 +695,8 @@ def _print_impact_overview(
 
 
 def _print_rule_breakdown(
-    rule_results: List,
-    schema_counts: Optional[Dict[str, Dict[str, int]]] = None
+    rule_results: list,
+    schema_counts: dict[str, dict[str, int]] | None = None
 ) -> None:
     """Show per-rule stats sorted by severity and violation count."""
     click.echo("\n  RULE BREAKDOWN")
@@ -738,8 +751,8 @@ def _print_rule_breakdown(
 
 
 def _print_top_files(
-    rule_results: List,
-    schema_counts: Optional[Dict[str, Dict[str, int]]] = None,
+    rule_results: list,
+    schema_counts: dict[str, dict[str, int]] | None = None,
     limit: int = 10
 ) -> None:
     """Aggregate violations across rules to highlight hotspots."""
@@ -762,19 +775,19 @@ def _print_top_files(
         )
 
 
-def _top_counts(items: Iterable[str], limit: int = 5) -> List[Tuple[str, int]]:
+def _top_counts(items: Iterable[str], limit: int = 5) -> list[tuple[str, int]]:
     """Return top counts for iterable items."""
     counter = Counter(item for item in items if item)
     return counter.most_common(limit)
 
 
 def _build_file_priority_queue(
-    rule_results: List,
-    schema_counts: Optional[Dict[str, Dict[str, int]]] = None,
+    rule_results: list,
+    schema_counts: dict[str, dict[str, int]] | None = None,
     limit: int = 10
-) -> List[Tuple[str, Dict[str, Any]]]:
+) -> list[tuple[str, dict[str, Any]]]:
     """Summarize files affected by rules with severity and rule context."""
-    stats: Dict[str, Dict[str, Any]] = {}
+    stats: dict[str, dict[str, Any]] = {}
 
     for result in rule_results:
         severity = result.rule.severity
@@ -821,7 +834,7 @@ def _build_file_priority_queue(
     return formatted
 
 
-def _print_missing_expectations(rule_results: List) -> None:
+def _print_missing_expectations(rule_results: list) -> None:
     """Highlight rules that expect new schema references but none were found."""
     missing = [
         result for result in rule_results
@@ -834,7 +847,7 @@ def _print_missing_expectations(rule_results: List) -> None:
         click.echo(f"    - [{result.rule.severity.upper()}] {result.rule.id}: expected patterns not observed")
 
 
-def _print_mismatch_summary(items: List[Dict[str, Any]], label: str, key_field: str, description: str) -> None:
+def _print_mismatch_summary(items: list[dict[str, Any]], label: str, key_field: str, description: str) -> None:
     """Report aggregate info plus sample references for schema mismatches."""
     count = len(items)
     click.echo(f"\n{label} ({count} issues):")

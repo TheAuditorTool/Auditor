@@ -1,4 +1,6 @@
 """Graph builder module - constructs dependency and call graphs."""
+from __future__ import annotations
+
 
 import os
 import platform
@@ -10,6 +12,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from collections import defaultdict
+from functools import lru_cache
 
 # Windows compatibility
 IS_WINDOWS = platform.system() == "Windows"
@@ -95,8 +98,53 @@ class XGraphBuilder:
         self.checkpoint_file = Path(".pf/xgraph_checkpoint.json")
         self.project_root = Path(project_root).resolve()
         self.db_path = self.project_root / ".pf" / "repo_index.db"
+
+        # ZERO FALLBACK: Cache raises FileNotFoundError if DB missing
+        from theauditor.graph.db_cache import GraphDatabaseCache
+        self.db_cache = GraphDatabaseCache(self.db_path)
+
+        # Alias for convenience (file existence checks)
+        self.known_files = self.db_cache.known_files
+
         self.module_resolver = ModuleResolver(db_path=str(self.db_path))
         self.ast_parser = ASTParser()  # Initialize AST parser for structural analysis
+
+    @lru_cache(maxsize=1024)
+    def _find_tsconfig_context(self, folder_path: Path) -> str:
+        """Recursive lookup for the nearest tsconfig.json.
+
+        Returns the string 'context' expected by ModuleResolver.
+        This replaces hardcoded "backend"/"frontend" magic strings with
+        actual filesystem discovery.
+
+        Args:
+            folder_path: Directory to start searching from
+
+        Returns:
+            Relative path from project root to tsconfig directory, or "root"
+
+        Examples:
+            - backend/tsconfig.json exists → returns "backend"
+            - api/services/tsconfig.json exists → returns "api/services"
+            - No tsconfig.json found → returns "root"
+        """
+        # 1. Check if tsconfig exists in this folder
+        if (folder_path / "tsconfig.json").exists():
+            # FOUND IT!
+            # Return the folder path relative to project root
+            # ModuleResolver expects this format (e.g., "backend", "frontend", "api")
+            try:
+                return str(folder_path.relative_to(self.project_root)).replace('\\', '/')
+            except ValueError:
+                # folder_path is outside project root (shouldn't happen)
+                return "root"
+
+        # 2. Stop at project root to prevent infinite loop
+        if folder_path == self.project_root or folder_path.parent == folder_path:
+            return "root"
+
+        # 3. Recurse up the directory tree
+        return self._find_tsconfig_context(folder_path.parent)
 
     def detect_language(self, file_path: Path) -> str | None:
         """Detect language from file extension."""
@@ -141,36 +189,12 @@ class XGraphBuilder:
         return False
 
     def extract_imports_from_db(self, rel_path: str) -> list[dict[str, Any]]:
-        """Return structured import metadata for the given file."""
-        if not self.db_path.exists():
-            print(f"Warning: Database not found at {self.db_path}")
-            return []
+        """Return structured import metadata for the given file.
 
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT kind, value, line
-                  FROM refs
-                 WHERE src = ?
-                   AND kind IN ('import', 'require', 'from', 'import_type', 'export', 'import_dynamic')
-                """,
-                (rel_path,)
-            )
-            imports = [
-                {
-                    "kind": row[0],
-                    "value": row[1],
-                    "line": row[2],
-                }
-                for row in cursor.fetchall()
-            ]
-            conn.close()
-            return imports
-        except sqlite3.Error as exc:
-            print(f"Warning: Failed to read imports for {rel_path}: {exc}")
-            return []
+        NO DATABASE ACCESS - Uses pre-loaded cache (O(1) lookup).
+        Cache normalizes paths internally (Guardian of Hygiene).
+        """
+        return self.db_cache.get_imports(rel_path)
 
     def extract_imports(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
         """Normalize file paths and fetch import metadata."""
@@ -179,33 +203,16 @@ class XGraphBuilder:
         except ValueError:
             rel_path = file_path
 
-        db_path = str(rel_path).replace("\\", "/")
-        return self.extract_imports_from_db(db_path)
+        # Cache handles path normalization internally
+        return self.extract_imports_from_db(str(rel_path))
 
     def extract_exports_from_db(self, rel_path: str) -> list[dict[str, Any]]:
-        """Return exported symbol metadata for the given file."""
-        if not self.db_path.exists():
-            return []
+        """Return exported symbol metadata for the given file.
 
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT name, type, line FROM symbols WHERE path = ? AND type IN ('function', 'class')",
-                (rel_path,)
-            )
-            exports = [
-                {
-                    "name": row[0],
-                    "symbol_type": row[1],
-                    "line": row[2],
-                }
-                for row in cursor.fetchall()
-            ]
-            conn.close()
-            return exports
-        except sqlite3.Error:
-            return []
+        NO DATABASE ACCESS - Uses pre-loaded cache (O(1) lookup).
+        Cache normalizes paths internally (Guardian of Hygiene).
+        """
+        return self.db_cache.get_exports(rel_path)
 
     def extract_exports(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
         """Wrapper that normalizes paths before querying exports."""
@@ -214,32 +221,35 @@ class XGraphBuilder:
         except ValueError:
             rel_path = file_path
 
-        db_path = str(rel_path).replace("\\", "/")
-        return self.extract_exports_from_db(db_path)
+        # Cache handles path normalization internally
+        return self.extract_exports_from_db(str(rel_path))
 
     def extract_call_args_from_db(self, rel_path: str) -> list[dict[str, Any]]:
-        """Return call argument metadata for the given file."""
-        if not self.db_path.exists():
-            return []
+        """Return call argument metadata for the given file.
 
-        try:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT file, line, caller_function, callee_function,
-                       argument_index, argument_expr, param_name
-                  FROM function_call_args
-                 WHERE file = ?
-                """,
-                (rel_path,)
-            )
-            calls = [dict(row) for row in cursor.fetchall()]
-            conn.close()
-            return calls
-        except sqlite3.Error:
-            return []
+        ZERO FALLBACK: If database missing, __init__ already crashed.
+        If query fails, let SQLite error propagate (exposes schema bug).
+
+        Note: Not cached yet (complex JOIN query). Future optimization target.
+        """
+        # NO FALLBACK - Cache already validated DB exists in __init__
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # NO TRY/EXCEPT - Schema contract guarantees table exists
+        cursor.execute(
+            """
+            SELECT file, line, caller_function, callee_function,
+                   argument_index, argument_expr, param_name
+              FROM function_call_args
+             WHERE file = ?
+            """,
+            (rel_path,)
+        )
+        calls = [dict(row) for row in cursor.fetchall()]
+        conn.close()
+        return calls
 
     def extract_call_args(self, file_path: Path, lang: str) -> list[dict[str, Any]]:
         """Wrapper to normalize file paths before querying call arguments."""
@@ -248,21 +258,45 @@ class XGraphBuilder:
         except ValueError:
             rel_path = file_path
 
+        # Normalize path manually (not in cache yet)
         db_path = str(rel_path).replace("\\", "/")
         return self.extract_call_args_from_db(db_path)
 
     def resolve_import_path(self, import_str: str, source_file: Path, lang: str) -> str:
         """Resolve import string to a normalized module path that matches actual files in the graph."""
         import sqlite3
-        
+
         # Clean up the import string (remove quotes, semicolons, etc.)
         import_str = import_str.strip().strip('"\'`;')
-        
+
         # Language-specific resolution
         if lang == "python":
-            # Convert Python module path to file path
+            # CRITICAL FIX: refs table stores BOTH file paths AND module names
+            # - File path format: "theauditor/cli.py" (contains /)
+            # - Module name format: "theauditor.cli" (dots only)
+
+            # If already a file path (contains /), return normalized
+            if "/" in import_str:
+                # Cache handles normalization (Guardian of Hygiene)
+                return import_str.replace("\\", "/")
+
+            # Module name -> file path conversion
             parts = import_str.split(".")
-            return "/".join(parts)
+            base_path = "/".join(parts)
+
+            # Priority 1: Check for package __init__.py
+            # Python treats "import theauditor" as "theauditor/__init__.py"
+            init_path = f"{base_path}/__init__.py"
+            if self.db_cache.file_exists(init_path):
+                return init_path
+
+            # Priority 2: Check for module.py file
+            module_path = f"{base_path}.py"
+            if self.db_cache.file_exists(module_path):
+                return module_path
+
+            # Priority 3: Return best guess (.py extension most common)
+            return module_path
         elif lang in ["javascript", "typescript"]:
             # Get source file directory for relative imports
             source_dir = source_file.parent
@@ -278,49 +312,34 @@ class XGraphBuilder:
             
             # 1. Handle TypeScript path aliases using ModuleResolver (database-driven)
             if import_str.startswith("@"):
-                # Determine context from source file location
-                try:
-                    source_rel = str(source_file.relative_to(self.project_root)).replace("\\", "/")
-                except ValueError:
-                    source_rel = str(source_file).replace("\\", "/")
-                
-                # Determine which tsconfig context applies
-                if "backend/" in source_rel:
-                    context = "backend"
-                elif "frontend/" in source_rel:
-                    context = "frontend"
-                else:
-                    context = "root"
-                
+                # [FIX] Dynamic Context Discovery (The Fix for Bug #2)
+                # Instead of hardcoding "backend/" or "frontend/", walk up the directory tree
+                # to find the nearest tsconfig.json. This makes the graph builder resilient to:
+                # - Projects with non-standard folder names (e.g., "api" instead of "backend")
+                # - Nested tsconfig.json files (e.g., "services/auth/tsconfig.json")
+                # - Future refactorings that rename folders
+                context = self._find_tsconfig_context(source_file.parent)
+
                 # Use ModuleResolver's context-aware resolution
                 resolved = self.module_resolver.resolve_with_context(import_str, str(source_file), context)
                 
                 # Check if resolution succeeded
                 if resolved != import_str:
-                    # Resolution worked, now verify file exists in database
-                    if self.db_path.exists():
-                        try:
-                            conn = sqlite3.connect(self.db_path)
-                            cursor = conn.cursor()
-                            
-                            # Try with common extensions if no extension
-                            test_paths = [resolved]
-                            if not Path(resolved).suffix:
-                                for ext in [".ts", ".tsx", ".js", ".jsx"]:
-                                    test_paths.append(resolved + ext)
-                                test_paths.append(resolved + "/index.ts")
-                                test_paths.append(resolved + "/index.js")
-                            
-                            for test_path in test_paths:
-                                cursor.execute("SELECT 1 FROM files WHERE path = ? LIMIT 1", (test_path,))
-                                if cursor.fetchone():
-                                    conn.close()
-                                    return test_path
-                            
-                            conn.close()
-                        except sqlite3.Error:
-                            pass
-                    
+                    # Resolution worked, now verify file exists using CACHE
+                    # NO DATABASE ACCESS - uses pre-loaded cache
+
+                    # Try with common extensions if no extension
+                    test_paths = [resolved]
+                    if not Path(resolved).suffix:
+                        for ext in [".ts", ".tsx", ".js", ".jsx"]:
+                            test_paths.append(resolved + ext)
+                        test_paths.append(resolved + "/index.ts")
+                        test_paths.append(resolved + "/index.js")
+
+                    for test_path in test_paths:
+                        if self.db_cache.file_exists(test_path):
+                            return test_path
+
                     # Return resolved even if file check failed
                     return resolved
             
@@ -344,24 +363,15 @@ class XGraphBuilder:
                     target_path = current_dir / rel_import
                     rel_target = str(target_path.relative_to(self.project_root)).replace("\\", "/")
                     
-                    # Check if this file exists (try with extensions)
-                    if self.db_path.exists():
-                        try:
-                            conn = sqlite3.connect(self.db_path)
-                            cursor = conn.cursor()
-                            
-                            # Try with common extensions
-                            for ext in ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js"]:
-                                test_path = rel_target + ext
-                                cursor.execute("SELECT 1 FROM files WHERE path = ? LIMIT 1", (test_path,))
-                                if cursor.fetchone():
-                                    conn.close()
-                                    return test_path
-                            
-                            conn.close()
-                        except sqlite3.Error:
-                            pass
-                    
+                    # Check if this file exists using CACHE (try with extensions)
+                    # NO DATABASE ACCESS - uses pre-loaded cache
+
+                    # Try with common extensions
+                    for ext in ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js"]:
+                        test_path = rel_target + ext
+                        if self.db_cache.file_exists(test_path):
+                            return test_path
+
                     return rel_target
                     
                 except (ValueError, OSError):
@@ -379,57 +389,22 @@ class XGraphBuilder:
             return import_str
 
     def get_file_metrics(self, file_path: Path) -> dict[str, Any]:
-        """Get basic metrics for a file."""
-        metrics = {"loc": 0, "churn": None}
+        """Get basic metrics for a file from manifest/database.
 
-        # When working with manifest data, skip file reading
-        # The manifest already has loc and other metrics
-        if not file_path.exists():
-            # File doesn't exist, we're working with manifest data
-            # Return default metrics - the caller should use manifest data instead
-            return metrics
+        DATABASE-FIRST ARCHITECTURE: Graph builder READS metrics pre-computed by Indexer.
+        NO FILESYSTEM ACCESS (no file I/O, no subprocess calls).
+        NO SUBPROCESS CALLS (no git commands in production code).
 
-        # Count lines of code
-        try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                metrics["loc"] = sum(1 for _ in f)
-        except (IOError, UnicodeDecodeError, OSError) as e:
-            print(f"Warning: Failed to read {file_path} for metrics: {e}")
-            # Still return default metrics but LOG the failure
+        Separation of concerns:
+        - Indexer (aud full): WRITES metrics (LOC, churn) to database
+        - Builder (aud graph build): READS metrics from database/manifest
 
-        # Get git churn (commit count)
-        try:
-            # Use temp files to avoid buffer overflow
-            with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt', encoding='utf-8') as stdout_fp, \
-                 tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt', encoding='utf-8') as stderr_fp:
-                
-                stdout_path = stdout_fp.name
-                stderr_path = stderr_fp.name
-                
-                result = subprocess.run(
-                    ["git", "log", "--oneline", str(file_path)],
-                    stdout=stdout_fp,
-                    stderr=stderr_fp,
-                    text=True,
-                    timeout=5,
-                    cwd=Path.cwd(),
-                    shell=IS_WINDOWS  # Windows compatibility fix
-                )
-            
-            with open(stdout_path, 'r', encoding='utf-8') as f:
-                result.stdout = f.read()
-            with open(stderr_path, 'r', encoding='utf-8') as f:
-                result.stderr = f.read()
-            
-            os.unlink(stdout_path)
-            os.unlink(stderr_path)
-            if result.returncode == 0:
-                metrics["churn"] = len(result.stdout.strip().split("\n"))
-        except (subprocess.TimeoutExpired, OSError, IOError) as e:
-            print(f"Warning: Failed to get git churn for {file_path}: {e}")
-            # Still return default metrics but LOG the failure
-
-        return metrics
+        If metrics missing from manifest, return defaults.
+        Indexer will populate on next run.
+        """
+        # Return defaults - caller should use manifest data
+        # If manifest doesn't have metrics, Indexer needs fixing
+        return {"loc": 0, "churn": None}
 
     def _get_metrics_for(self, rel_path: str, manifest_lookup: dict[str, dict[str, Any]], root_path: Path) -> tuple[int, Any]:
         """Return (loc, churn) for a module using manifest or filesystem data."""
@@ -549,11 +524,22 @@ class XGraphBuilder:
                     raw_value = imp.get("value")
                     resolved = self.resolve_import_path(raw_value, file_path, lang) if raw_value else raw_value
                     resolved_norm = resolved.replace('\\', '/') if resolved else None
-                    resolved_exists = resolved_norm in current_files
+
+                    # CRITICAL FIX: Use cache (database) as source of truth, not current_files dict
+                    # current_files only has files in current batch (wrong for workset builds)
+                    resolved_exists = self.db_cache.file_exists(resolved_norm) if resolved_norm else False
+
+                    # Try with common extensions if exact match fails
+                    if not resolved_exists and resolved_norm and not Path(resolved_norm).suffix:
+                        for ext in [".ts", ".tsx", ".js", ".jsx", ".py"]:
+                            if self.db_cache.file_exists(resolved_norm + ext):
+                                resolved_norm = resolved_norm + ext
+                                resolved_exists = True
+                                break
 
                     if resolved_exists:
                         target_id = resolved_norm
-                        target_lang = current_files[resolved_norm].get('language')
+                        target_lang = current_files.get(resolved_norm, {}).get('language')
                         target_node = self._ensure_module_node(
                             nodes,
                             target_id,
@@ -726,6 +712,31 @@ class XGraphBuilder:
             nodes[node_id] = node
             return node
 
+        # [FIX] Pre-resolve ALL imports before main loop (2025 Best Practice - Batch Processing)
+        # This prevents N redundant resolve_import_path calls inside the loop
+        # Trade-off: ~10MB RAM for 1,000 files → 10-100x faster call graph building
+        print("[Graph Builder] Pre-resolving imports for all files...")
+        file_imports_resolved: dict[str, set[str]] = {}
+
+        with click.progressbar(
+            files,
+            label="Resolving imports",
+            show_pos=True,
+            show_percent=True,
+            item_show_func=lambda x: str(x[0].name) if x else None,
+        ) as bar:
+            for file_path, lang in bar:
+                rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+                file_imports = self.extract_imports_from_db(rel_path)
+                resolved_imports = set()
+                for imp in file_imports:
+                    raw_import = imp.get("value")
+                    if raw_import:
+                        resolved = self.resolve_import_path(raw_import, file_path, lang)
+                        if resolved:
+                            resolved_imports.add(resolved.replace('\\', '/'))
+                file_imports_resolved[rel_path] = resolved_imports
+
         # Process files to build call edges
         with click.progressbar(
             files,
@@ -737,6 +748,10 @@ class XGraphBuilder:
         ) as bar:
             for file_path, lang in bar:
                 rel_path = str(file_path.relative_to(root_path)).replace('\\', '/')
+
+                # [FIX] Use pre-resolved imports (O(1) lookup, no redundant work)
+                resolved_imports = file_imports_resolved.get(rel_path, set())
+
                 module_node = self._ensure_module_node(
                     nodes,
                     rel_path,
@@ -760,29 +775,62 @@ class XGraphBuilder:
                     line = record.get("line")
                     caller_node = ensure_function_node(rel_path, caller, lang, "caller")
 
+                    # [FIX] Import-Aware Resolution Logic
                     target_candidates = function_defs.get(callee, set())
+                    target_module = None
+                    resolution_status = "unresolved"
+
                     if target_candidates:
+                        # Case A: Function is defined in the current file (Highest Priority)
                         if rel_path in target_candidates:
                             target_module = rel_path
+                            resolution_status = "local_def"
+
+                        # Case B: Function is defined in a file we explicitly imported
                         else:
-                            target_module = next(iter(target_candidates))
-                        target_lang = current_files.get(target_module, {}).get('language') if target_module in current_files else None
+                            # Find intersection between potential candidates and our actual imports
+                            matches = [c for c in target_candidates if c in resolved_imports]
+
+                            if len(matches) == 1:
+                                target_module = matches[0]
+                                resolution_status = "imported_def"
+                            elif len(matches) > 1:
+                                # Multiple matches - use first but mark as ambiguous
+                                target_module = matches[0]
+                                resolution_status = "ambiguous_import"
+                            else:
+                                # Case C: Name exists in project, but we didn't import it
+                                # STOP RANDOM GUESSING. Treat as ambiguous/global.
+                                target_module = None
+                                resolution_status = "ambiguous_global"
+
+                    # Node Creation based on Resolution
+                    if target_module:
+                        # We found a valid, trustworthy target
+                        target_lang = current_files.get(target_module, {}).get('language')
                         callee_node = ensure_function_node(target_module, callee, target_lang, "callee")
                         resolved = True
                     else:
-                        target_module = None
-                        external_id = f"external::{callee}"
-                        if external_id not in nodes:
-                            nodes[external_id] = GraphNode(
-                                id=external_id,
+                        # Fallback: Create a specific node for the ambiguous/external call
+                        # Distinguish between "Ambiguous" (exists in project but not linked) vs "External" (not in project)
+                        if target_candidates:
+                            node_id = f"ambiguous::{callee}"
+                            node_type = "ambiguous_function"
+                        else:
+                            node_id = f"external::{callee}"
+                            node_type = "external_function"
+
+                        if node_id not in nodes:
+                            nodes[node_id] = GraphNode(
+                                id=node_id,
                                 file=callee or "unknown",
                                 lang=None,
                                 loc=0,
                                 churn=None,
-                                type="external_function",
-                                metadata={"status": "external"},
+                                type=node_type,
+                                metadata={"status": "external" if node_type == "external_function" else "ambiguous"},
                             )
-                        callee_node = nodes[external_id]
+                        callee_node = nodes[node_id]
                         resolved = False
 
                     edge_metadata = {
@@ -790,6 +838,7 @@ class XGraphBuilder:
                         "argument_expr": record.get("argument_expr"),
                         "param_name": record.get("param_name"),
                         "resolved": resolved,
+                        "resolution_status": resolution_status,  # Track how call was resolved
                     }
                     if target_module:
                         edge_metadata["callee_module"] = target_module

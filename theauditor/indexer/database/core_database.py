@@ -3,6 +3,8 @@
 This module contains add_* methods for CORE_TABLES defined in schemas/core_schema.py.
 Handles 21 core tables including files, symbols, assignments, function calls, CFG, and JSX variants.
 """
+from __future__ import annotations
+
 
 from typing import List, Optional
 
@@ -29,12 +31,12 @@ class CoreDatabaseMixin:
         if not any(item[0] == path for item in batch):
             batch.append((path, sha256, ext, bytes_size, loc))
 
-    def add_ref(self, src: str, kind: str, value: str, line: Optional[int] = None):
+    def add_ref(self, src: str, kind: str, value: str, line: int | None = None):
         """Add a reference record to the batch."""
         self.generic_batches['refs'].append((src, kind, value, line))
 
-    def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int, end_line: Optional[int] = None,
-                   type_annotation: Optional[str] = None, parameters: Optional[str] = None):
+    def add_symbol(self, path: str, name: str, symbol_type: str, line: int, col: int, end_line: int | None = None,
+                   type_annotation: str | None = None, parameters: str | None = None):
         """Add a symbol record to the batch.
 
         Args:
@@ -59,7 +61,7 @@ class CoreDatabaseMixin:
         self.generic_batches['symbols'].append((path, name, symbol_type, line, col, end_line, type_annotation, parameters))
 
     def add_assignment(self, file_path: str, line: int, target_var: str, source_expr: str,
-                      source_vars: List[str], in_function: str, property_path: Optional[str] = None):
+                      source_vars: list[str], in_function: str, property_path: str | None = None):
         """Add a variable assignment record to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
@@ -91,7 +93,7 @@ class CoreDatabaseMixin:
 
     def add_function_call_arg(self, file_path: str, line: int, caller_function: str,
                               callee_function: str, arg_index: int, arg_expr: str, param_name: str,
-                              callee_file_path: Optional[str] = None):
+                              callee_file_path: str | None = None):
         """Add a function call argument record to the batch.
 
         Args:
@@ -108,7 +110,7 @@ class CoreDatabaseMixin:
                                                            arg_index, arg_expr, param_name, callee_file_path))
 
     def add_function_return(self, file_path: str, line: int, function_name: str,
-                           return_expr: str, return_vars: List[str]):
+                           return_expr: str, return_vars: list[str]):
         """Add a function return statement record to the batch.
 
         ARCHITECTURE: Normalized many-to-many relationship.
@@ -127,7 +129,7 @@ class CoreDatabaseMixin:
                     continue
                 self.generic_batches['function_return_sources'].append((file_path, line, function_name, return_var))
 
-    def add_config_file(self, path: str, content: str, file_type: str, context: Optional[str] = None):
+    def add_config_file(self, path: str, content: str, file_type: str, context: str | None = None):
         """Add a configuration file content to the batch."""
         self.generic_batches['config_files'].append((path, content, file_type, context))
 
@@ -136,7 +138,7 @@ class CoreDatabaseMixin:
     # ========================================================
 
     def add_cfg_block(self, file_path: str, function_name: str, block_type: str,
-                     start_line: int, end_line: int, condition_expr: Optional[str] = None) -> int:
+                     start_line: int, end_line: int, condition_expr: str | None = None) -> int:
         """Add a CFG block to the batch and return its temporary ID.
 
         SPECIAL CASE: CFG blocks use AUTOINCREMENT, so real IDs are unknown until INSERT.
@@ -159,13 +161,13 @@ class CoreDatabaseMixin:
                                                   target_block_id, edge_type))
 
     def add_cfg_statement(self, block_id: int, statement_type: str, line: int,
-                         statement_text: Optional[str] = None):
+                         statement_text: str | None = None):
         """Add a CFG block statement to the batch."""
         self.generic_batches['cfg_block_statements'].append((block_id, statement_type, line, statement_text))
 
     # JSX Preserved Mode CFG Methods
     def add_cfg_block_jsx(self, file_path: str, function_name: str, block_type: str,
-                         start_line: int, end_line: int, condition_expr: Optional[str] = None,
+                         start_line: int, end_line: int, condition_expr: str | None = None,
                          jsx_mode: str = 'preserved', extraction_pass: int = 2) -> int:
         """Add a CFG block to the JSX batch and return its temporary ID."""
         batch = self.generic_batches['cfg_blocks_jsx']
@@ -182,7 +184,7 @@ class CoreDatabaseMixin:
                                                       target_block_id, edge_type, jsx_mode, extraction_pass))
 
     def add_cfg_statement_jsx(self, block_id: int, statement_type: str, line: int,
-                             statement_text: Optional[str] = None,
+                             statement_text: str | None = None,
                              jsx_mode: str = 'preserved', extraction_pass: int = 2):
         """Add a CFG block statement to the JSX batch."""
         self.generic_batches['cfg_block_statements_jsx'].append((block_id, statement_type, line, statement_text, jsx_mode, extraction_pass))
@@ -192,8 +194,8 @@ class CoreDatabaseMixin:
     # ========================================================
 
     def add_variable_usage(self, file_path: str, line: int, variable_name: str,
-                          usage_type: str, in_component: Optional[str] = None,
-                          in_hook: Optional[str] = None, scope_level: int = 0):
+                          usage_type: str, in_component: str | None = None,
+                          in_hook: str | None = None, scope_level: int = 0):
         """Add a variable usage record to the batch."""
         self.generic_batches['variable_usage'].append((file_path, line, variable_name, usage_type,
                                                        in_component or '', in_hook or '', scope_level))
@@ -232,8 +234,8 @@ class CoreDatabaseMixin:
     # ========================================================
 
     def add_function_return_jsx(self, file_path: str, line: int, function_name: str,
-                                return_expr: str, return_vars: List[str], has_jsx: bool = False,
-                                returns_component: bool = False, cleanup_operations: Optional[str] = None,
+                                return_expr: str, return_vars: list[str], has_jsx: bool = False,
+                                returns_component: bool = False, cleanup_operations: str | None = None,
                                 jsx_mode: str = 'preserved', extraction_pass: int = 1):
         """Add a JSX function return record for preserved JSX extraction.
 
@@ -262,7 +264,7 @@ class CoreDatabaseMixin:
         self.generic_batches['symbols_jsx'].append((path, name, symbol_type, line, col, jsx_mode, extraction_pass))
 
     def add_assignment_jsx(self, file_path: str, line: int, target_var: str, source_expr: str,
-                          source_vars: List[str], in_function: str, property_path: Optional[str] = None,
+                          source_vars: list[str], in_function: str, property_path: str | None = None,
                           jsx_mode: str = 'preserved', extraction_pass: int = 1):
         """Add a JSX assignment record for preserved JSX extraction.
 

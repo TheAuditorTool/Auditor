@@ -16,6 +16,8 @@ All functions here:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+
 
 import ast
 import logging
@@ -26,7 +28,7 @@ from ..base import get_node_name
 logger = logging.getLogger(__name__)
 
 
-def extract_pytest_fixtures(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_pytest_fixtures(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract pytest fixture definitions from Python AST.
 
     Args:
@@ -56,8 +58,8 @@ def extract_pytest_fixtures(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                             if keyword.arg == "scope":
                                 if isinstance(keyword.value, ast.Constant):
                                     scope = keyword.value.value
-                                elif isinstance(keyword.value, ast.Str):
-                                    scope = keyword.value.s
+                                elif (isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)):
+                                    scope = keyword.value.value
 
                     fixtures.append({
                         "line": node.lineno,
@@ -66,7 +68,7 @@ def extract_pytest_fixtures(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                         "is_autouse": any(
                             kw.arg == "autouse" and
                             (isinstance(kw.value, ast.Constant) and kw.value.value is True or
-                             isinstance(kw.value, ast.NameConstant) and kw.value.value is True)
+                             isinstance(kw.value, ast.Constant) and kw.value.value is True)
                             for kw in (dec.keywords if isinstance(dec, ast.Call) else [])
                         ),
                     })
@@ -74,7 +76,7 @@ def extract_pytest_fixtures(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return fixtures
 
 
-def extract_pytest_parametrize(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_pytest_parametrize(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract pytest.mark.parametrize decorators from Python AST.
 
     Args:
@@ -103,8 +105,8 @@ def extract_pytest_parametrize(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                         first_arg = dec.args[0]
                         if isinstance(first_arg, ast.Constant):
                             param_names = [first_arg.value]
-                        elif isinstance(first_arg, ast.Str):
-                            param_names = [first_arg.s]
+                        elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+                            param_names = [first_arg.value]
 
                     parametrizes.append({
                         "line": node.lineno,
@@ -115,7 +117,7 @@ def extract_pytest_parametrize(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return parametrizes
 
 
-def extract_pytest_markers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_pytest_markers(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract custom pytest markers from Python AST.
 
     Args:
@@ -150,7 +152,7 @@ def extract_pytest_markers(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return markers
 
 
-def extract_mock_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_mock_patterns(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract unittest.mock usage from Python AST.
 
     Args:
@@ -179,8 +181,8 @@ def extract_mock_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                         first_arg = dec.args[0]
                         if isinstance(first_arg, ast.Constant):
                             mock_target = first_arg.value
-                        elif isinstance(first_arg, ast.Str):
-                            mock_target = first_arg.s
+                        elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+                            mock_target = first_arg.value
 
                     mocks.append({
                         "line": node.lineno,
@@ -204,7 +206,7 @@ def extract_mock_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
 
 # Phase 3.2: Testing Ecosystem Additions
 
-def extract_unittest_test_cases(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_unittest_test_cases(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract unittest.TestCase classes and test methods.
 
     Detects:
@@ -267,7 +269,7 @@ def extract_unittest_test_cases(tree: Dict, parser_self) -> List[Dict[str, Any]]
     return test_cases
 
 
-def extract_assertion_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_assertion_patterns(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract assertion statements and methods.
 
     Detects:
@@ -317,7 +319,7 @@ def extract_assertion_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return assertions
 
 
-def extract_pytest_plugin_hooks(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_pytest_plugin_hooks(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract pytest plugin hooks from conftest.py.
 
     Detects:
@@ -367,7 +369,7 @@ def extract_pytest_plugin_hooks(tree: Dict, parser_self) -> List[Dict[str, Any]]
     return hooks
 
 
-def extract_hypothesis_strategies(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_hypothesis_strategies(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract Hypothesis property-based testing strategies.
 
     Detects:

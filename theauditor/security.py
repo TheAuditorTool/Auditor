@@ -1,4 +1,6 @@
 """Security utilities for input sanitization and validation."""
+from __future__ import annotations
+
 
 import shlex
 import urllib.parse
@@ -11,7 +13,7 @@ class SecurityError(Exception):
     pass
 
 
-def sanitize_path(path_str: str, project_root: Optional[str] = None) -> Path:
+def sanitize_path(path_str: str, project_root: str | None = None) -> Path:
     """
     Sanitize a file path to prevent path traversal attacks.
     

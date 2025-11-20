@@ -7,6 +7,8 @@ MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
 Signature: context: StandardRuleContext -> List[StandardFinding]
 Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -124,7 +126,7 @@ class RuntimePatterns:
 # MAIN ENTRY POINT (Orchestrator Pattern)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Node.js runtime security issues.
 
     This is the main entry point called by the orchestrator.
@@ -150,11 +152,11 @@ class RuntimeAnalyzer:
         """Initialize analyzer with context."""
         self.context = context
         self.patterns = RuntimePatterns()
-        self.findings: List[StandardFinding] = []
+        self.findings: list[StandardFinding] = []
         self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
-        self.tainted_vars: Dict[str, tuple] = {}  # var_name -> (file, line, source)
+        self.tainted_vars: dict[str, tuple] = {}  # var_name -> (file, line, source)
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Run complete runtime security analysis."""
         if not self._is_javascript_project():
             return self.findings

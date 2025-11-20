@@ -33,10 +33,10 @@ class UserPayload(BaseModel):
     email: str
     password: str
     password_confirm: str
-    roles: List[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)
     settings: UserSettings = UserSettings()
-    created_at: Optional[datetime] = None
-    address: Optional[Address] = None
+    created_at: datetime | None = None
+    address: Address | None = None
 
     @validator("email")
     def email_must_have_at(cls, value: str) -> str:
@@ -52,11 +52,11 @@ class UserPayload(BaseModel):
 
 
 class BulkInvite(BaseModel):
-    emails: List[str]
-    invite_message: Optional[str] = None
+    emails: list[str]
+    invite_message: str | None = None
 
     @validator("emails")
-    def emails_not_empty(cls, values: List[str]) -> List[str]:
+    def emails_not_empty(cls, values: list[str]) -> list[str]:
         if not values:
             raise ValueError("at least one email required")
         return values

@@ -34,7 +34,7 @@ class UserService:
             return True
         return False
 
-    def get_user_posts(self) -> List[Post]:
+    def get_user_posts(self) -> list[Post]:
         """
         Get all posts for this user.
         Tests: Method returning list of circularly imported models.
@@ -64,7 +64,7 @@ class PostService:
         # Would update database
         return True
 
-    def get_author(self) -> Optional[User]:
+    def get_author(self) -> User | None:
         """
         Get post author.
         Tests: Method returning circularly imported User model.
@@ -100,11 +100,11 @@ class CommentService:
     def __init__(self, post_id: int):
         self.post_id = post_id
 
-    def get_comments(self) -> List[Comment]:
+    def get_comments(self) -> list[Comment]:
         """Get all comments for post."""
         return []
 
-    def get_post(self) -> Optional[Post]:
+    def get_post(self) -> Post | None:
         """
         Get the post this service is for.
         Tests: Circular path through multiple modules.
@@ -125,7 +125,7 @@ def create_user(username: str, email: str) -> User:
     return user
 
 
-def bulk_create_users(users_data: List[dict]) -> List[User]:
+def bulk_create_users(users_data: list[dict]) -> list[User]:
     """
     Bulk create users.
     Tests: Function returning list of circularly imported models.

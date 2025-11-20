@@ -5,6 +5,8 @@ This is a Phase 2 temporary adapter that allows SchemaMemoryCache to work
 with the existing taint code that expects the old MemoryCache interface.
 This will be removed in Phase 4 when we refactor the taint code directly.
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Any, Optional
 import sys
@@ -49,6 +51,17 @@ class SchemaMemoryCacheAdapter:
         if hasattr(self._cache, 'object_literals'):
             self.object_literals = self._cache.object_literals
 
+        # CRITICAL: Tables required by discovery.py (discovery.py:87, 117)
+        # WITHOUT these, discovery finds 0 sources (kills taint analysis)
+        if hasattr(self._cache, 'variable_usage'):
+            self.variable_usage = self._cache.variable_usage
+        if hasattr(self._cache, 'env_var_usage'):
+            self.env_var_usage = self._cache.env_var_usage
+        if hasattr(self._cache, 'express_middleware_chains'):
+            self.express_middleware_chains = self._cache.express_middleware_chains
+        if hasattr(self._cache, 'import_styles'):
+            self.import_styles = self._cache.import_styles
+
         # Indexed attributes
         if hasattr(self._cache, 'symbols_by_path'):
             self.symbols_by_file = self._cache.symbols_by_path
@@ -65,7 +78,7 @@ class SchemaMemoryCacheAdapter:
         # Rough estimate: 1KB per row average
         return (total_rows * 1024) / (1024 * 1024)
 
-    def find_taint_sources_cached(self, sources_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
+    def find_taint_sources_cached(self, sources_dict: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
         """Find taint sources using cache - adapter method."""
         sources = []
 
@@ -114,11 +127,15 @@ class SchemaMemoryCacheAdapter:
 
         return sources
 
-    def find_security_sinks_cached(self, sinks_dict: Optional[Dict[str, List[str]]] = None) -> List[Dict[str, Any]]:
-        """Find security sinks using cache - adapter method."""
+    def find_security_sinks_cached(self, sinks_dict: dict[str, list[str]] | None = None) -> list[dict[str, Any]]:
+        """Find security sinks using cache - adapter method.
+
+        ZERO FALLBACK POLICY: Use sinks_dict from TaintRegistry, no hardcoded patterns.
+        This adapter is temporary (will be removed in Phase 4).
+        """
         sinks = []
 
-        # SQL sinks from sql_queries table
+        # SQL sinks from sql_queries table (database-driven)
         if hasattr(self._cache, 'sql_queries'):
             for query in self._cache.sql_queries:
                 sinks.append({
@@ -130,7 +147,7 @@ class SchemaMemoryCacheAdapter:
                     'metadata': query
                 })
 
-        # NoSQL sinks
+        # NoSQL sinks (database-driven)
         if hasattr(self._cache, 'nosql_queries'):
             for query in self._cache.nosql_queries:
                 sinks.append({
@@ -142,12 +159,17 @@ class SchemaMemoryCacheAdapter:
                     'metadata': query
                 })
 
-        # Command execution sinks from function calls
-        if hasattr(self._cache, 'function_call_args'):
-            dangerous_funcs = ['exec', 'eval', 'spawn', 'system', 'execFile']
+        # ZERO FALLBACK: If sinks_dict provided, use patterns from TaintRegistry
+        # Otherwise return only database sinks (sql_queries, nosql_queries)
+        if not sinks_dict:
+            return sinks
+
+        # Command execution sinks from registry patterns
+        cmd_patterns = sinks_dict.get('command', [])
+        if cmd_patterns and hasattr(self._cache, 'function_call_args'):
             for call in self._cache.function_call_args:
                 func_name = call.get('callee_function', '')
-                if any(danger in func_name for danger in dangerous_funcs):
+                if any(pattern in func_name for pattern in cmd_patterns):
                     sinks.append({
                         'name': func_name,
                         'file': call.get('file', ''),
@@ -157,19 +179,22 @@ class SchemaMemoryCacheAdapter:
                         'metadata': call
                     })
 
-        # XSS sinks from React hooks
-        if hasattr(self._cache, 'react_hooks'):
-            dangerous_props = ['dangerouslySetInnerHTML', 'innerHTML']
+        # XSS sinks from registry patterns
+        xss_patterns = sinks_dict.get('xss', [])
+        if xss_patterns and hasattr(self._cache, 'react_hooks'):
             for hook in self._cache.react_hooks:
-                if any(prop in str(hook) for prop in dangerous_props):
-                    sinks.append({
-                        'name': 'react_dangerous_html',
-                        'file': hook.get('file', ''),
-                        'line': hook.get('line', 0),
-                        'pattern': 'dangerouslySetInnerHTML',
-                        'category': 'xss',
-                        'metadata': hook
-                    })
+                hook_str = str(hook)
+                for pattern in xss_patterns:
+                    if pattern in hook_str:
+                        sinks.append({
+                            'name': 'react_dangerous_html',
+                            'file': hook.get('file', ''),
+                            'line': hook.get('line', 0),
+                            'pattern': pattern,
+                            'category': 'xss',
+                            'metadata': hook
+                        })
+                        break  # Only add once per hook
 
         return sinks
 

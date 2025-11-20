@@ -37,5 +37,5 @@ rules:
 # 1. Create plan: aud planning init --name "JWT Security Migration"
 # 2. Add task: aud planning add-task 1 --title "Secure JWT" --spec jwt_migration.yaml
 # 3. Make changes to replace hardcoded secrets with env vars
-# 4. Verify: aud index && aud planning verify-task 1 1 --verbose
+# 4. Verify: aud full --offline && aud planning verify-task 1 1 --verbose
 # 5. Archive: aud planning archive 1 --notes "JWT secrets migrated to env vars"

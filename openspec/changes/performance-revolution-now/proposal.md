@@ -1,5 +1,21 @@
 # Performance Revolution Now
 
+**STATUS UPDATE (2025-11-04)**: This proposal has been **PAUSED AND SPLIT** into smaller, focused proposals due to:
+1. **Scope too large**: 137 tasks across 4-7 weeks is too ambitious for single proposal
+2. **Architectural error in Task 2**: Proposed "UnifiedPythonVisitor" (800-1000 lines) was wrong approach. Correct solution is 10KB orchestrator wrapper that walks tree once and caches raw nodes for extractors to query.
+3. **Implementation failure**: Initial implementation attempt failed, git hard reset required
+
+**See new focused proposals**:
+- `fix-python-ast-orchestrator` - 10KB wrapper, walk once (correct architecture)
+- `taint-analysis-spatial-indexes` - Spatial indexes for taint (TIER 0 Task 1)
+- `vue-inmemory-module-resolution` - Vue + module resolution (TIER 1)
+- `fce-json-normalization` - FCE normalization (TIER 1.5)
+- `database-indexes-cleanup` - Trivial index additions (TIER 2)
+
+**Verification findings preserved**: See `VERIFICATION_COMPLETE.md` for 12-agent audit results (95% confirmed).
+
+---
+
 ## Why
 
 TheAuditor suffers from systemic "death by 1000 cuts" performance degradation caused by redundant traversal anti-patterns across all major subsystems. Independent performance investigation (INVESTIGATION_REPORT.md) confirmed:

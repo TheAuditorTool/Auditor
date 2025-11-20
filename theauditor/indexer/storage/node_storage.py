@@ -10,6 +10,8 @@ This module contains handlers for JavaScript/TypeScript frameworks:
 
 Handler Count: 16
 """
+from __future__ import annotations
+
 
 import json
 from typing import List, Dict, Any
@@ -19,7 +21,7 @@ from .base import BaseStorage
 class NodeStorage(BaseStorage):
     """Node.js/JavaScript framework storage handlers."""
 
-    def __init__(self, db_manager, counts: Dict[str, int]):
+    def __init__(self, db_manager, counts: dict[str, int]):
         super().__init__(db_manager, counts)
 
         self.handlers = {
@@ -38,10 +40,11 @@ class NodeStorage(BaseStorage):
             'angular_guards': self._store_angular_guards,
             'di_injections': self._store_di_injections,
             'lock_analysis': self._store_lock_analysis,
-            'import_styles': self._store_import_styles
+            'import_styles': self._store_import_styles,
+            'frontend_api_calls': self._store_frontend_api_calls
         }
 
-    def _store_react_hooks(self, file_path: str, react_hooks: List, jsx_pass: bool):
+    def _store_react_hooks(self, file_path: str, react_hooks: list, jsx_pass: bool):
         """Store React hooks."""
         for hook in react_hooks:
             self.db_manager.add_react_hook(
@@ -57,7 +60,7 @@ class NodeStorage(BaseStorage):
             )
             self.counts['react_hooks'] += 1
 
-    def _store_vue_components(self, file_path: str, vue_components: List, jsx_pass: bool):
+    def _store_vue_components(self, file_path: str, vue_components: list, jsx_pass: bool):
         """Store Vue-specific data."""
         for component in vue_components:
             self.db_manager.add_vue_component(
@@ -77,7 +80,7 @@ class NodeStorage(BaseStorage):
                 self.counts['vue_components'] = 0
             self.counts['vue_components'] += 1
 
-    def _store_vue_hooks(self, file_path: str, vue_hooks: List, jsx_pass: bool):
+    def _store_vue_hooks(self, file_path: str, vue_hooks: list, jsx_pass: bool):
         """Store Vue hooks."""
         for hook in vue_hooks:
             self.db_manager.add_vue_hook(
@@ -94,7 +97,7 @@ class NodeStorage(BaseStorage):
                 self.counts['vue_hooks'] = 0
             self.counts['vue_hooks'] += 1
 
-    def _store_vue_directives(self, file_path: str, vue_directives: List, jsx_pass: bool):
+    def _store_vue_directives(self, file_path: str, vue_directives: list, jsx_pass: bool):
         """Store Vue directives."""
         for directive in vue_directives:
             self.db_manager.add_vue_directive(
@@ -110,7 +113,7 @@ class NodeStorage(BaseStorage):
                 self.counts['vue_directives'] = 0
             self.counts['vue_directives'] += 1
 
-    def _store_vue_provide_inject(self, file_path: str, vue_provide_inject: List, jsx_pass: bool):
+    def _store_vue_provide_inject(self, file_path: str, vue_provide_inject: list, jsx_pass: bool):
         """Store Vue provide/inject."""
         for pi in vue_provide_inject:
             self.db_manager.add_vue_provide_inject(
@@ -123,7 +126,7 @@ class NodeStorage(BaseStorage):
                 pi.get('is_reactive', False)
             )
 
-    def _store_sequelize_models(self, file_path: str, sequelize_models: List, jsx_pass: bool):
+    def _store_sequelize_models(self, file_path: str, sequelize_models: list, jsx_pass: bool):
         """Store Sequelize model definitions."""
         cursor = self.db_manager.conn.cursor()
         for model in sequelize_models:
@@ -149,7 +152,7 @@ class NodeStorage(BaseStorage):
                 self.counts['sequelize_models'] = 0
             self.counts['sequelize_models'] += 1
 
-    def _store_sequelize_associations(self, file_path: str, sequelize_associations: List, jsx_pass: bool):
+    def _store_sequelize_associations(self, file_path: str, sequelize_associations: list, jsx_pass: bool):
         """Store Sequelize model associations."""
         cursor = self.db_manager.conn.cursor()
         for assoc in sequelize_associations:
@@ -170,7 +173,7 @@ class NodeStorage(BaseStorage):
                 self.counts['sequelize_associations'] = 0
             self.counts['sequelize_associations'] += 1
 
-    def _store_bullmq_queues(self, file_path: str, bullmq_queues: List, jsx_pass: bool):
+    def _store_bullmq_queues(self, file_path: str, bullmq_queues: list, jsx_pass: bool):
         """Store BullMQ queue definitions."""
         cursor = self.db_manager.conn.cursor()
         for queue in bullmq_queues:
@@ -188,7 +191,7 @@ class NodeStorage(BaseStorage):
                 self.counts['bullmq_queues'] = 0
             self.counts['bullmq_queues'] += 1
 
-    def _store_bullmq_workers(self, file_path: str, bullmq_workers: List, jsx_pass: bool):
+    def _store_bullmq_workers(self, file_path: str, bullmq_workers: list, jsx_pass: bool):
         """Store BullMQ worker definitions."""
         cursor = self.db_manager.conn.cursor()
         for worker in bullmq_workers:
@@ -207,7 +210,7 @@ class NodeStorage(BaseStorage):
                 self.counts['bullmq_workers'] = 0
             self.counts['bullmq_workers'] += 1
 
-    def _store_angular_components(self, file_path: str, angular_components: List, jsx_pass: bool):
+    def _store_angular_components(self, file_path: str, angular_components: list, jsx_pass: bool):
         """Store Angular component definitions."""
         cursor = self.db_manager.conn.cursor()
         for component in angular_components:
@@ -228,7 +231,7 @@ class NodeStorage(BaseStorage):
                 self.counts['angular_components'] = 0
             self.counts['angular_components'] += 1
 
-    def _store_angular_services(self, file_path: str, angular_services: List, jsx_pass: bool):
+    def _store_angular_services(self, file_path: str, angular_services: list, jsx_pass: bool):
         """Store Angular service definitions."""
         cursor = self.db_manager.conn.cursor()
         for service in angular_services:
@@ -247,7 +250,7 @@ class NodeStorage(BaseStorage):
                 self.counts['angular_services'] = 0
             self.counts['angular_services'] += 1
 
-    def _store_angular_modules(self, file_path: str, angular_modules: List, jsx_pass: bool):
+    def _store_angular_modules(self, file_path: str, angular_modules: list, jsx_pass: bool):
         """Store Angular module definitions."""
         cursor = self.db_manager.conn.cursor()
         for module in angular_modules:
@@ -268,7 +271,7 @@ class NodeStorage(BaseStorage):
                 self.counts['angular_modules'] = 0
             self.counts['angular_modules'] += 1
 
-    def _store_angular_guards(self, file_path: str, angular_guards: List, jsx_pass: bool):
+    def _store_angular_guards(self, file_path: str, angular_guards: list, jsx_pass: bool):
         """Store Angular guard definitions."""
         cursor = self.db_manager.conn.cursor()
         for guard in angular_guards:
@@ -287,7 +290,7 @@ class NodeStorage(BaseStorage):
                 self.counts['angular_guards'] = 0
             self.counts['angular_guards'] += 1
 
-    def _store_di_injections(self, file_path: str, di_injections: List, jsx_pass: bool):
+    def _store_di_injections(self, file_path: str, di_injections: list, jsx_pass: bool):
         """Store Dependency Injection patterns."""
         cursor = self.db_manager.conn.cursor()
         for injection in di_injections:
@@ -306,7 +309,7 @@ class NodeStorage(BaseStorage):
                 self.counts['di_injections'] = 0
             self.counts['di_injections'] += 1
 
-    def _store_lock_analysis(self, file_path: str, lock_analysis: List, jsx_pass: bool):
+    def _store_lock_analysis(self, file_path: str, lock_analysis: list, jsx_pass: bool):
         """Store lock analysis."""
         for lock in lock_analysis:
             self.db_manager.add_lock_analysis(
@@ -321,7 +324,7 @@ class NodeStorage(BaseStorage):
                 self.counts['lock_analysis'] = 0
             self.counts['lock_analysis'] += 1
 
-    def _store_import_styles(self, file_path: str, import_styles: List, jsx_pass: bool):
+    def _store_import_styles(self, file_path: str, import_styles: list, jsx_pass: bool):
         """Store import styles."""
         for import_style in import_styles:
             self.db_manager.add_import_style(
@@ -336,3 +339,18 @@ class NodeStorage(BaseStorage):
             if 'import_styles' not in self.counts:
                 self.counts['import_styles'] = 0
             self.counts['import_styles'] += 1
+
+    def _store_frontend_api_calls(self, file_path: str, frontend_api_calls: list, jsx_pass: bool):
+        """Store frontend API calls (fetch/axios) for cross-boundary flow tracking."""
+        for call in frontend_api_calls:
+            self.db_manager.add_frontend_api_call(
+                file_path,
+                call['line'],
+                call['method'],
+                call['url_literal'],
+                call.get('body_variable'),
+                call.get('function_name')
+            )
+            if 'frontend_api_calls' not in self.counts:
+                self.counts['frontend_api_calls'] = 0
+            self.counts['frontend_api_calls'] += 1

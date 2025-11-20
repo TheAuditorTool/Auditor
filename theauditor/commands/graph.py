@@ -1,4 +1,6 @@
 """Cross-project dependency and call graph analysis."""
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -73,7 +75,14 @@ def graph():
       .pf/raw/graph_analysis.json     # Cycles, hotspots, metrics
       .pf/raw/graph_summary.json      # AI-readable summary
     """
-    pass
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("graph", sys.argv[2:], root=".")
+        sys.exit(exit_code)
 
 
 @graph.command("build")
@@ -159,7 +168,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         manifest_path = Path(config["paths"]["manifest"])
         if manifest_path.exists():
             click.echo("Loading file manifest...")
-            with open(manifest_path, 'r', encoding='utf-8') as f:
+            with open(manifest_path, encoding='utf-8') as f:
                 manifest_data = json.load(f)
             
             # Apply workset filtering if active
@@ -243,7 +252,7 @@ def graph_build_dfg(root, db, repo_db):
         # Check that repo_index.db exists
         repo_db_path = Path(repo_db)
         if not repo_db_path.exists():
-            click.echo(f"ERROR: {repo_db} not found. Run 'aud index' first.", err=True)
+            click.echo(f"ERROR: {repo_db} not found. Run 'aud full' first.", err=True)
             raise click.Abort()
 
         # Initialize builder and store

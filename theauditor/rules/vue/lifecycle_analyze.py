@@ -9,6 +9,8 @@ Follows v1.1+ gold standard patterns:
 - Direct database queries (crash on missing tables to expose indexer bugs)
 - Proper confidence levels via Confidence enum
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Dict, Set
@@ -95,7 +97,7 @@ SIDE_EFFECTS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_lifecycle_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_lifecycle_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue lifecycle hook misuse and anti-patterns.
 
     Detects:
@@ -150,7 +152,7 @@ def find_vue_lifecycle_issues(context: StandardRuleContext) -> List[StandardFind
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor) -> Set[str]:
+def _get_vue_files(cursor) -> set[str]:
     """Get all Vue-related files from the database.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -188,7 +190,7 @@ def _get_vue_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_dom_before_mount(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_dom_before_mount(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find DOM operations in hooks that run before mounting."""
     findings = []
 
@@ -227,7 +229,7 @@ def _find_dom_before_mount(cursor, vue_files: Set[str]) -> List[StandardFinding]
     return findings
 
 
-def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_cleanup(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find resources created without cleanup."""
     findings = []
 
@@ -275,7 +277,7 @@ def _find_missing_cleanup(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_wrong_data_fetch(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_wrong_data_fetch(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find data fetching in wrong lifecycle hooks."""
     findings = []
 
@@ -321,7 +323,7 @@ def _find_wrong_data_fetch(cursor, vue_files: Set[str]) -> List[StandardFinding]
     return findings
 
 
-def _find_infinite_updates(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_infinite_updates(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find potential infinite update loops."""
     findings = []
 
@@ -361,7 +363,7 @@ def _find_infinite_updates(cursor, vue_files: Set[str]) -> List[StandardFinding]
     return findings
 
 
-def _find_timer_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_timer_leaks(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find timers without cleanup."""
     findings = []
 
@@ -410,7 +412,7 @@ def _find_timer_leaks(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_computed_side_effects(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_computed_side_effects(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find side effects in computed properties."""
     findings = []
 
@@ -449,7 +451,7 @@ def _find_computed_side_effects(cursor, vue_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_incorrect_hook_order(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find incorrect lifecycle hook ordering."""
     findings = []
 
@@ -480,7 +482,7 @@ def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFind
     """, list(vue_files) + all_hooks)
 
     # Group by file and check order
-    file_hooks: Dict[str, List[tuple]] = {}
+    file_hooks: dict[str, list[tuple]] = {}
     for file, line, hook in cursor.fetchall():
         if file not in file_hooks:
             file_hooks[file] = []
@@ -505,7 +507,7 @@ def _find_incorrect_hook_order(cursor, vue_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_unhandled_async(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unhandled_async(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find async operations without error handling in lifecycle hooks."""
     findings = []
 
@@ -553,7 +555,7 @@ def _find_unhandled_async(cursor, vue_files: Set[str]) -> List[StandardFinding]:
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

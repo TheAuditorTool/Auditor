@@ -1,4 +1,6 @@
 """Detect universal runtime, DB, and logic patterns in code."""
+from __future__ import annotations
+
 
 import click
 from pathlib import Path
@@ -94,6 +96,15 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
 
     Note: Use --with-ast for comprehensive analysis (default).
     Disable with --no-ast for quick scans."""
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("detect-patterns", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.pattern_loader import PatternLoader
     from theauditor.universal_detector import UniversalPatternDetector
     
@@ -146,7 +157,7 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
                 click.echo(f"[DB] Warning: Database write failed: {e}", err=True)
                 click.echo("[DB] JSON output will still be generated for AI consumption")
         else:
-            click.echo(f"[DB] Database not found - run 'aud index' first for optimal FCE performance")
+            click.echo(f"[DB] Database not found - run 'aud full' first for optimal FCE performance")
         # ===== END DUAL-WRITE =====
 
         # Write results to JSON

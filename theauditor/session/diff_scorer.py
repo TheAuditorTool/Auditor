@@ -8,6 +8,8 @@ This module runs diffs from Edit/Write tool calls through the complete SAST stac
 
 Aggregate scores into a single risk metric (0.0-1.0).
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -31,12 +33,12 @@ class DiffScore:
     tool_call_uuid: str
     timestamp: str
     risk_score: float  # 0.0-1.0
-    findings: Dict[str, Any]  # {'taint': [...], 'patterns': [...]}
+    findings: dict[str, Any]  # {'taint': [...], 'patterns': [...]}
     old_lines: int
     new_lines: int
     blind_edit: bool  # Was this file edited without prior read?
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
@@ -55,7 +57,7 @@ class DiffScorer:
         self.project_root = project_root
         self.temp_files = []
 
-    def score_diff(self, tool_call: ToolCall, files_read: set) -> Optional[DiffScore]:
+    def score_diff(self, tool_call: ToolCall, files_read: set) -> DiffScore | None:
         """Score a single diff from Edit/Write tool call.
 
         Args:
@@ -122,7 +124,7 @@ class DiffScorer:
             # Cleanup temp file
             self._cleanup_temp_files()
 
-    def _extract_diff(self, tool_call: ToolCall) -> Tuple[Optional[str], str, str]:
+    def _extract_diff(self, tool_call: ToolCall) -> tuple[str | None, str, str]:
         """Extract file path, old code, and new code from tool call.
 
         Args:
@@ -138,7 +140,7 @@ class DiffScorer:
 
         return file_path, old_code, new_code
 
-    def _write_temp_diff(self, file_path: str, new_code: str) -> Optional[Path]:
+    def _write_temp_diff(self, file_path: str, new_code: str) -> Path | None:
         """Write diff to temporary file for analysis.
 
         Args:
@@ -179,7 +181,7 @@ class DiffScorer:
         # Simplified implementation - in reality would run actual taint analysis
         # For now, just check for common patterns
         try:
-            with open(temp_file, 'r', encoding='utf-8') as f:
+            with open(temp_file, encoding='utf-8') as f:
                 content = f.read()
 
             # Simple pattern checks

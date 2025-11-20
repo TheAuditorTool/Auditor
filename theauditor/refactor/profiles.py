@@ -5,14 +5,16 @@ The profile describes what *old* schema references must disappear and which
 *new* constructs should exist. We leverage the existing repo_index.db tables
 to find exact files/lines without any AI guesses.
 """
-
 from __future__ import annotations
+
+
 
 import fnmatch
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from collections.abc import Iterable, Sequence
 
 import yaml
 
@@ -20,13 +22,13 @@ import yaml
 MAX_RESULTS_PER_QUERY = 500
 
 
-def _coerce_list(value: Optional[Iterable[str]]) -> List[str]:
+def _coerce_list(value: Iterable[str] | None) -> list[str]:
     if not value:
         return []
     return [str(item) for item in value if item]
 
 
-def _normalize_path(path_value: Optional[str], repo_root: Optional[Path]) -> str:
+def _normalize_path(path_value: str | None, repo_root: Path | None) -> str:
     if not path_value:
         return ""
     raw_path = Path(path_value)
@@ -52,13 +54,13 @@ def _normalize_path(path_value: Optional[str], repo_root: Optional[Path]) -> str
 class PatternSpec:
     """Match/expectation specification."""
 
-    identifiers: List[str] = field(default_factory=list)
-    expressions: List[str] = field(default_factory=list)
-    sql_tables: List[str] = field(default_factory=list)
-    api_routes: List[str] = field(default_factory=list)
+    identifiers: list[str] = field(default_factory=list)
+    expressions: list[str] = field(default_factory=list)
+    sql_tables: list[str] = field(default_factory=list)
+    api_routes: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, raw: Optional[Dict[str, Any]]) -> "PatternSpec":
+    def from_dict(cls, raw: dict[str, Any] | None) -> PatternSpec:
         raw = raw or {}
         return cls(
             identifiers=_coerce_list(raw.get("identifiers")),
@@ -81,11 +83,11 @@ class RefactorRule:
     category: str = "schema"
     match: PatternSpec = field(default_factory=PatternSpec)
     expect: PatternSpec = field(default_factory=PatternSpec)
-    scope: Dict[str, List[str]] = field(default_factory=dict)
-    guidance: Optional[str] = None
+    scope: dict[str, list[str]] = field(default_factory=dict)
+    guidance: str | None = None
 
     @classmethod
-    def from_dict(cls, raw: Dict[str, Any]) -> "RefactorRule":
+    def from_dict(cls, raw: dict[str, Any]) -> RefactorRule:
         if "id" not in raw or "description" not in raw:
             raise ValueError("Each refactor rule must include 'id' and 'description'")
         severity = raw.get("severity", "medium").lower()
@@ -113,12 +115,12 @@ class RefactorProfile:
 
     refactor_name: str
     description: str
-    version: Optional[str]
-    rules: List[RefactorRule]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    version: str | None
+    rules: list[RefactorRule]
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: Path) -> "RefactorProfile":
+    def load(cls, path: Path) -> RefactorProfile:
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("Refactor profile must be a YAML mapping")
@@ -140,7 +142,7 @@ class RefactorProfile:
             metadata=metadata,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "refactor_name": self.refactor_name,
             "description": self.description,
@@ -155,16 +157,16 @@ class RuleResult:
     """Evaluation result for a single rule."""
 
     rule: RefactorRule
-    violations: List[Dict[str, Any]]
-    expected_references: List[Dict[str, Any]]
+    violations: list[dict[str, Any]]
+    expected_references: list[dict[str, Any]]
 
-    def missing_expectation_files(self) -> List[str]:
+    def missing_expectation_files(self) -> list[str]:
         violation_files = {item["file"] for item in self.violations}
         expectation_files = {item["file"] for item in self.expected_references}
         missing = sorted(f for f in violation_files if f and f not in expectation_files)
         return missing
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "rule_id": self.rule.id,
             "description": self.rule.description,
@@ -182,12 +184,12 @@ class ProfileEvaluation:
     """Full evaluation summary for a profile."""
 
     profile: RefactorProfile
-    rule_results: List[RuleResult]
+    rule_results: list[RuleResult]
 
     def total_violations(self) -> int:
         return sum(len(rule.violations) for rule in self.rule_results)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "profile": self.profile.to_dict(),
             "summary": {
@@ -205,10 +207,10 @@ class _SourceQuery:
     file_field: str
     line_field: str
     label: str
-    context_field: Optional[str] = None
+    context_field: str | None = None
 
 
-IDENTIFIER_SOURCES: Tuple[_SourceQuery, ...] = (
+IDENTIFIER_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("symbols", "name", "path", "line", "symbols", "type"),
     _SourceQuery("symbols_jsx", "name", "path", "line", "symbols_jsx", "type"),
     _SourceQuery("variable_usage", "variable_name", "file", "line", "variable_usage", "usage_type"),
@@ -216,18 +218,18 @@ IDENTIFIER_SOURCES: Tuple[_SourceQuery, ...] = (
     _SourceQuery("function_call_args", "callee_function", "file", "line", "function_call_args", "caller_function"),
 )
 
-EXPRESSION_SOURCES: Tuple[_SourceQuery, ...] = (
+EXPRESSION_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("assignments", "source_expr", "file", "line", "assignments"),
     _SourceQuery("function_call_args", "argument_expr", "file", "line", "function_call_args", "callee_function"),
     _SourceQuery("sql_queries", "query_text", "file_path", "line_number", "sql_queries", "command"),
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
-SQL_TABLE_SOURCES: Tuple[_SourceQuery, ...] = (
+SQL_TABLE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("sql_query_tables", "table_name", "query_file", "query_line", "sql_query_tables"),
 )
 
-API_ROUTE_SOURCES: Tuple[_SourceQuery, ...] = (
+API_ROUTE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
@@ -235,7 +237,7 @@ API_ROUTE_SOURCES: Tuple[_SourceQuery, ...] = (
 class RefactorRuleEngine:
     """Executes profile rules against repo_index.db."""
 
-    def __init__(self, db_path: Path, repo_root: Optional[Path] = None):
+    def __init__(self, db_path: Path, repo_root: Path | None = None):
         self.db_path = Path(db_path)
         if not self.db_path.exists():
             raise FileNotFoundError(f"repo_index.db not found at {db_path}")
@@ -248,22 +250,22 @@ class RefactorRuleEngine:
             self.conn.close()
             self.conn = None
 
-    def __enter__(self) -> "RefactorRuleEngine":
+    def __enter__(self) -> RefactorRuleEngine:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
     def evaluate(self, profile: RefactorProfile) -> ProfileEvaluation:
-        results: List[RuleResult] = []
+        results: list[RuleResult] = []
         for rule in profile.rules:
             violations = self._run_spec(rule.match, rule.scope)
             expected = self._run_spec(rule.expect, rule.scope) if not rule.expect.is_empty() else []
             results.append(RuleResult(rule=rule, violations=violations, expected_references=expected))
         return ProfileEvaluation(profile=profile, rule_results=results)
 
-    def _run_spec(self, spec: PatternSpec, scope: Dict[str, List[str]]) -> List[Dict[str, Any]]:
-        findings: List[Dict[str, Any]] = []
+    def _run_spec(self, spec: PatternSpec, scope: dict[str, list[str]]) -> list[dict[str, Any]]:
+        findings: list[dict[str, Any]] = []
         if spec.identifiers:
             findings.extend(self._query_sources(spec.identifiers, IDENTIFIER_SOURCES, scope))
         if spec.expressions:
@@ -277,11 +279,11 @@ class RefactorRuleEngine:
     def _query_sources(
         self,
         terms: Sequence[str],
-        sources: Tuple[_SourceQuery, ...],
-        scope: Dict[str, List[str]],
-    ) -> List[Dict[str, Any]]:
+        sources: tuple[_SourceQuery, ...],
+        scope: dict[str, list[str]],
+    ) -> list[dict[str, Any]]:
         cursor = self.conn.cursor()
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         seen: set = set()
         for term in terms:
             like_term = self._prepare_like_term(term)
@@ -329,7 +331,7 @@ class RefactorRuleEngine:
         return f"%{term}%"
 
     @staticmethod
-    def _in_scope(file_path: str, scope: Dict[str, List[str]]) -> bool:
+    def _in_scope(file_path: str, scope: dict[str, list[str]]) -> bool:
         includes = scope.get("include") or []
         excludes = scope.get("exclude") or []
         if excludes and any(fnmatch.fnmatch(file_path, pattern) for pattern in excludes):

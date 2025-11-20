@@ -123,6 +123,6 @@ rules:
 #    aud planning add-task 2 --title "Migrate /users endpoint"
 #    aud planning add-task 3 --title "Migrate /products endpoint"
 # 3. Implement v2 routes incrementally
-# 4. Verify each component: aud index && aud planning verify-task 1 N --verbose
+# 4. Verify each component: aud full --offline && aud planning verify-task 1 N --verbose
 # 5. Monitor v1 usage, deprecate after transition period
 # 6. Archive: aud planning archive 1 --notes "API v2 launched, v1 sunset scheduled"

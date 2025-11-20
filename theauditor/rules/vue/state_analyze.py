@@ -9,6 +9,8 @@ Follows v1.1+ gold standard patterns:
 - Direct database queries (crash on missing tables to expose indexer bugs)
 - Proper confidence levels via Confidence enum
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set
@@ -93,7 +95,7 @@ ANTIPATTERNS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_state_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_state_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue state management anti-patterns (Vuex/Pinia).
 
     Detects:
@@ -148,7 +150,7 @@ def find_vue_state_issues(context: StandardRuleContext) -> List[StandardFinding]
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_store_files(cursor) -> Set[str]:
+def _get_store_files(cursor) -> set[str]:
     """Get all Vuex/Pinia store files.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -192,7 +194,7 @@ def _get_store_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_direct_state_mutations(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_direct_state_mutations(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find direct state mutations outside of mutations."""
     findings = []
 
@@ -257,7 +259,7 @@ def _find_direct_state_mutations(cursor, store_files: Set[str]) -> List[Standard
     return findings
 
 
-def _find_async_mutations(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_async_mutations(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find async operations in mutations (anti-pattern)."""
     findings = []
 
@@ -294,7 +296,7 @@ def _find_async_mutations(cursor, store_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_missing_namespacing(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_namespacing(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find modules without proper namespacing."""
     findings = []
 
@@ -339,7 +341,7 @@ def _find_missing_namespacing(cursor, store_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_subscription_leaks(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_subscription_leaks(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find store subscriptions without cleanup."""
     findings = []
 
@@ -387,7 +389,7 @@ def _find_subscription_leaks(cursor, store_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_circular_getters(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_circular_getters(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find circular dependencies in getters."""
     findings = []
 
@@ -433,7 +435,7 @@ def _find_circular_getters(cursor, store_files: Set[str]) -> List[StandardFindin
     return findings
 
 
-def _find_persistence_issues(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_persistence_issues(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find state persistence anti-patterns."""
     findings = []
 
@@ -506,7 +508,7 @@ def _find_persistence_issues(cursor, store_files: Set[str]) -> List[StandardFind
     return findings
 
 
-def _find_large_stores(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_large_stores(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find excessively large store definitions."""
     findings = []
 
@@ -579,7 +581,7 @@ def _find_large_stores(cursor, store_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_unhandled_action_errors(cursor, store_files: Set[str]) -> List[StandardFinding]:
+def _find_unhandled_action_errors(cursor, store_files: set[str]) -> list[StandardFinding]:
     """Find actions without error handling."""
     findings = []
 
@@ -630,7 +632,7 @@ def _find_unhandled_action_errors(cursor, store_files: Set[str]) -> List[Standar
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

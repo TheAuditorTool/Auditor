@@ -95,7 +95,7 @@ rules:
 # 1. Create plan: aud planning init --name "User to Account Refactor"
 # 2. Add task: aud planning add-task 1 --title "Rename model" --spec model_rename.yaml
 # 3. Run search-replace across codebase
-# 4. Verify: aud index && aud planning verify-task 1 1 --verbose
+# 4. Verify: aud full --offline && aud planning verify-task 1 1 --verbose
 # 5. Check violations and fix any missed references
 # 6. Re-verify until 0 violations
 # 7. Archive: aud planning archive 1 --notes "Model rename complete, database migrated"

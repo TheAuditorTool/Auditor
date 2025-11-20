@@ -20,6 +20,9 @@ All functions here:
 
 File path context is provided by the INDEXER layer when storing to database.
 """
+from __future__ import annotations
+from theauditor.ast_extractors.python.utils.context import FileContext
+
 
 import ast
 import logging
@@ -70,7 +73,7 @@ DANGEROUS_FUNCTIONS = {
 # Security Extractors
 # ============================================================================
 
-def extract_auth_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_auth_decorators(context: FileContext) -> list[dict[str, Any]]:
     """Extract authentication and authorization decorators.
 
     Detects:
@@ -85,11 +88,11 @@ def extract_auth_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Inconsistent auth patterns = security gaps
     """
     auth_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return auth_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.FunctionDef):
             continue
 
@@ -111,8 +114,8 @@ def extract_auth_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                     first_arg = dec.args[0]
                     if isinstance(first_arg, ast.Constant):
                         permissions = first_arg.value
-                    elif isinstance(first_arg, ast.Str):
-                        permissions = first_arg.s
+                    elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+                        permissions = first_arg.value
 
                 auth_patterns.append({
                     "line": node.lineno,
@@ -124,7 +127,7 @@ def extract_auth_decorators(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return auth_patterns
 
 
-def extract_password_hashing(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_password_hashing(context: FileContext) -> list[dict[str, Any]]:
     """Extract password hashing operations.
 
     Detects:
@@ -139,11 +142,11 @@ def extract_password_hashing(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Hardcoded passwords = critical vulnerability
     """
     hash_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return hash_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 
@@ -174,7 +177,7 @@ def extract_password_hashing(tree: Dict, parser_self) -> List[Dict[str, Any]]:
             has_hardcoded_value = False
             if node.args:
                 for arg in node.args:
-                    if isinstance(arg, (ast.Constant, ast.Str)):
+                    if isinstance(arg, ast.Constant):
                         has_hardcoded_value = True
 
             hash_patterns.append({
@@ -188,7 +191,7 @@ def extract_password_hashing(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return hash_patterns
 
 
-def extract_jwt_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract JWT (JSON Web Token) operations.
 
     Detects:
@@ -203,11 +206,11 @@ def extract_jwt_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - None algorithm = critical bypass
     """
     jwt_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return jwt_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 
@@ -235,12 +238,12 @@ def extract_jwt_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
                 if keyword.arg == 'algorithm':
                     if isinstance(keyword.value, ast.Constant):
                         algorithm = keyword.value.value
-                    elif isinstance(keyword.value, ast.Str):
-                        algorithm = keyword.value.s
+                    elif (isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)):
+                        algorithm = keyword.value.value
                 elif keyword.arg in ['verify', 'verify_signature']:
                     if isinstance(keyword.value, ast.Constant):
                         verify = keyword.value.value
-                    elif isinstance(keyword.value, ast.NameConstant):
+                    elif isinstance(keyword.value, ast.Constant):
                         verify = keyword.value.value
 
         jwt_patterns.append({
@@ -254,7 +257,7 @@ def extract_jwt_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return jwt_patterns
 
 
-def extract_sql_injection_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_sql_injection_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract SQL injection vulnerability patterns.
 
     Detects:
@@ -269,11 +272,11 @@ def extract_sql_injection_patterns(tree: Dict, parser_self) -> List[Dict[str, An
     - User input in queries = attack vector
     """
     sql_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return sql_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 
@@ -319,7 +322,7 @@ def extract_sql_injection_patterns(tree: Dict, parser_self) -> List[Dict[str, An
     return sql_patterns
 
 
-def extract_command_injection_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_command_injection_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract command injection vulnerability patterns.
 
     Detects:
@@ -334,11 +337,11 @@ def extract_command_injection_patterns(tree: Dict, parser_self) -> List[Dict[str
     - Command string concatenation = critical risk
     """
     cmd_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return cmd_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 
@@ -351,7 +354,7 @@ def extract_command_injection_patterns(tree: Dict, parser_self) -> List[Dict[str
                 if keyword.arg == 'shell':
                     if isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
                         shell_true = True
-                    elif isinstance(keyword.value, ast.NameConstant) and keyword.value.value is True:
+                    elif isinstance(keyword.value, ast.Constant) and keyword.value.value is True:
                         shell_true = True
 
             if shell_true:
@@ -374,7 +377,7 @@ def extract_command_injection_patterns(tree: Dict, parser_self) -> List[Dict[str
     return cmd_patterns
 
 
-def extract_path_traversal_patterns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_path_traversal_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract path traversal vulnerability patterns.
 
     Detects:
@@ -389,11 +392,11 @@ def extract_path_traversal_patterns(tree: Dict, parser_self) -> List[Dict[str, A
     - Reading arbitrary files = information disclosure
     """
     path_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return path_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 
@@ -427,7 +430,7 @@ def extract_path_traversal_patterns(tree: Dict, parser_self) -> List[Dict[str, A
     return path_patterns
 
 
-def extract_dangerous_eval_exec(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_dangerous_eval_exec(context: FileContext) -> list[dict[str, Any]]:
     """Extract dangerous eval/exec/compile calls.
 
     Detects:
@@ -442,11 +445,11 @@ def extract_dangerous_eval_exec(tree: Dict, parser_self) -> List[Dict[str, Any]]
     - No safe use of eval with untrusted input
     """
     dangerous_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return dangerous_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 
@@ -464,7 +467,7 @@ def extract_dangerous_eval_exec(tree: Dict, parser_self) -> List[Dict[str, Any]]
             is_constant_input = False
             if node.args:
                 arg = node.args[0]
-                if isinstance(arg, (ast.Constant, ast.Str, ast.Num)):
+                if isinstance(arg, ast.Constant):
                     is_constant_input = True
 
             dangerous_patterns.append({
@@ -477,7 +480,7 @@ def extract_dangerous_eval_exec(tree: Dict, parser_self) -> List[Dict[str, Any]]
     return dangerous_patterns
 
 
-def extract_crypto_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
     """Extract cryptography operations and weak algorithms.
 
     Detects:
@@ -494,11 +497,11 @@ def extract_crypto_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     - Small key sizes = brute force
     """
     crypto_patterns = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+    context.tree = tree.get("tree")
+    if not isinstance(context.tree, ast.AST):
         return crypto_patterns
 
-    for node in ast.walk(actual_tree):
+    for node in context.walk_tree():
         if not isinstance(node, ast.Call):
             continue
 
@@ -537,7 +540,7 @@ def extract_crypto_operations(tree: Dict, parser_self) -> List[Dict[str, Any]]:
         has_hardcoded_key = False
         if node.args:
             for arg in node.args:
-                if isinstance(arg, (ast.Constant, ast.Str, ast.Bytes)):
+                if isinstance(arg, ast.Constant):
                     has_hardcoded_key = True
 
         if algorithm:

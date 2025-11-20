@@ -22,11 +22,15 @@ Usage:
     accessors = SchemaCodeGenerator.generate_accessor_classes()
     cache = SchemaCodeGenerator.generate_memory_cache()
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Optional, Set, Any
 import textwrap
 from collections import defaultdict
 import sqlite3
+import hashlib
+from pathlib import Path
 
 from ..schema import TABLES, build_query
 from .utils import TableSchema, Column
@@ -34,6 +38,44 @@ from .utils import TableSchema, Column
 
 class SchemaCodeGenerator:
     """Generates code from schema definitions."""
+
+    @staticmethod
+    def get_schema_hash() -> str:
+        """Get a SHA256 hash of all schema files to detect changes.
+
+        This hash is used to verify that generated code is up-to-date
+        with the schema definitions. If schemas change but code isn't
+        regenerated, the hash mismatch will trigger auto-regeneration.
+
+        Returns:
+            SHA256 hash hex string of all schema file contents
+        """
+        hasher = hashlib.sha256()
+
+        # Get the schemas directory
+        schemas_dir = Path(__file__).parent
+
+        # List all schema files in deterministic order
+        schema_files = [
+            schemas_dir.parent / 'schema.py',  # Main schema file
+            schemas_dir / 'core_schema.py',
+            schemas_dir / 'security_schema.py',
+            schemas_dir / 'frameworks_schema.py',
+            schemas_dir / 'python_schema.py',
+            schemas_dir / 'node_schema.py',
+            schemas_dir / 'infrastructure_schema.py',
+            schemas_dir / 'planning_schema.py',
+            schemas_dir / 'graphql_schema.py',
+            schemas_dir / 'utils.py',  # Include utils since Column/TableSchema affect schemas
+        ]
+
+        for schema_file in sorted(schema_files):
+            if schema_file.exists():
+                # Include filename in hash for consistency
+                hasher.update(schema_file.name.encode())
+                hasher.update(schema_file.read_bytes())
+
+        return hasher.hexdigest()
 
     @staticmethod
     def _to_pascal_case(snake_str: str) -> str:
@@ -145,7 +187,10 @@ class SchemaCodeGenerator:
             Python code string with memory cache implementation
         """
         code = []
-        code.append("# Auto-generated memory cache from schema")
+        # Add schema hash for validation
+        schema_hash = cls.get_schema_hash()
+        code.append("# AUTO-GENERATED FILE - DO NOT EDIT")
+        code.append(f"# SCHEMA_HASH: {schema_hash}")
         code.append("from typing import Dict, List, Any, Optional, DefaultDict")
         code.append("from collections import defaultdict")
         code.append("import sqlite3")
@@ -276,7 +321,7 @@ class SchemaCodeGenerator:
         return "\n".join(code)
 
     @classmethod
-    def generate_all(cls) -> Dict[str, str]:
+    def generate_all(cls) -> dict[str, str]:
         """Generate all code components.
 
         Returns:

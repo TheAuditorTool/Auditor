@@ -9,6 +9,8 @@ Extracts 50+ semantic features from repo_index.db tables:
 - Semantic imports (HTTP, DB, Auth, Test libraries)
 - AST complexity (functions, classes, calls)
 """
+from __future__ import annotations
+
 
 import sqlite3
 from collections import defaultdict
@@ -855,7 +857,7 @@ def load_session_execution_features(
 
 
 def load_all_db_features(
-    db_path: str, file_paths: list[str], session_dir: Optional[Path] = None
+    db_path: str, file_paths: list[str], session_dir: Path | None = None
 ) -> dict[str, dict]:
     """
     Convenience function to load all database features at once.

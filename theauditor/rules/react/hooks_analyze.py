@@ -6,6 +6,8 @@ react_hooks, react_components, and variable_usage tables.
 No more broken heuristics - this uses actual parsed dependency arrays,
 cleanup detection, and component boundaries from the database.
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -97,7 +99,7 @@ class ReactHooksAnalyzer:
         self.patterns = ReactHooksPatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -427,7 +429,7 @@ class ReactHooksAnalyzer:
 
             hooks_order.append((hook, line))
 
-    def _has_order_issue(self, hooks: List[tuple]) -> bool:
+    def _has_order_issue(self, hooks: list[tuple]) -> bool:
         """Check if hooks have order issues."""
         # Simplified check: state hooks should come before effect hooks
         state_seen = False
@@ -514,7 +516,7 @@ class ReactHooksAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React hooks violations and anti-patterns.
 
     Uses real data from react_hooks, react_components, and variable_usage

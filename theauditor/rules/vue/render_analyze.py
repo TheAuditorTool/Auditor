@@ -9,6 +9,8 @@ Follows v1.1+ gold standard patterns:
 - Direct database queries (crash on missing tables to expose indexer bugs)
 - Proper confidence levels via Confidence enum
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set
@@ -87,7 +89,7 @@ EVENT_HANDLERS = frozenset([
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def find_vue_render_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_vue_render_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue rendering anti-patterns and performance issues.
 
     Detects:
@@ -142,7 +144,7 @@ def find_vue_render_issues(context: StandardRuleContext) -> List[StandardFinding
 # HELPER FUNCTIONS
 # ============================================================================
 
-def _get_vue_files(cursor) -> Set[str]:
+def _get_vue_files(cursor) -> set[str]:
     """Get all Vue-related files from the database.
 
     Schema contract (v1.1+) guarantees all tables exist.
@@ -182,7 +184,7 @@ def _get_vue_files(cursor) -> Set[str]:
 # DETECTION FUNCTIONS
 # ============================================================================
 
-def _find_vif_with_vfor(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_vif_with_vfor(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find v-if used with v-for (performance anti-pattern)."""
     findings = []
 
@@ -230,7 +232,7 @@ def _find_vif_with_vfor(cursor, vue_files: Set[str]) -> List[StandardFinding]:
     return findings
 
 
-def _find_missing_list_keys(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_list_keys(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find v-for without proper keys."""
     findings = []
 
@@ -291,7 +293,7 @@ def _find_missing_list_keys(cursor, vue_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unnecessary_rerenders(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find unnecessary re-render triggers."""
     findings = []
 
@@ -329,7 +331,7 @@ def _find_unnecessary_rerenders(cursor, vue_files: Set[str]) -> List[StandardFin
     return findings
 
 
-def _find_unoptimized_lists(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_unoptimized_lists(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find large lists without virtualization."""
     findings = []
 
@@ -393,7 +395,7 @@ def _find_unoptimized_lists(cursor, vue_files: Set[str]) -> List[StandardFinding
     return findings
 
 
-def _find_complex_render_functions(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_complex_render_functions(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find overly complex render functions."""
     findings = []
 
@@ -427,7 +429,7 @@ def _find_complex_render_functions(cursor, vue_files: Set[str]) -> List[Standard
     return findings
 
 
-def _find_direct_dom_manipulation(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_direct_dom_manipulation(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find direct DOM manipulation (anti-pattern in Vue)."""
     findings = []
 
@@ -469,7 +471,7 @@ def _find_direct_dom_manipulation(cursor, vue_files: Set[str]) -> List[StandardF
     return findings
 
 
-def _find_inefficient_event_handlers(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_inefficient_event_handlers(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find inefficient event handler patterns."""
     findings = []
 
@@ -524,7 +526,7 @@ def _find_inefficient_event_handlers(cursor, vue_files: Set[str]) -> List[Standa
     return findings
 
 
-def _find_missing_optimizations(cursor, vue_files: Set[str]) -> List[StandardFinding]:
+def _find_missing_optimizations(cursor, vue_files: set[str]) -> list[StandardFinding]:
     """Find missing render optimizations."""
     findings = []
 
@@ -597,7 +599,7 @@ def _find_missing_optimizations(cursor, vue_files: Set[str]) -> List[StandardFin
 # ORCHESTRATOR ENTRY POINT
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Orchestrator-compatible entry point.
 
     This is the standardized interface that the orchestrator expects.

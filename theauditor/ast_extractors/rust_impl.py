@@ -19,6 +19,8 @@ Tree-sitter Rust Node Types:
 - unsafe_block: unsafe { } blocks
 - macro_invocation: macro!() calls
 """
+from __future__ import annotations
+
 
 from typing import List, Dict, Any, Optional, Tuple
 import json
@@ -27,7 +29,7 @@ import json
 from .base import extract_vars_from_rust_node
 
 
-def extract_rust_functions(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_functions(tree, content: str, file_path: str) -> list[dict]:
     """Extract function definitions from Rust AST.
 
     Args:
@@ -63,7 +65,7 @@ def extract_rust_functions(tree, content: str, file_path: str) -> List[Dict]:
     return functions
 
 
-def _extract_function_details(node, content: str, file_path: str) -> Optional[Dict]:
+def _extract_function_details(node, content: str, file_path: str) -> dict | None:
     """Extract details from a function_item node."""
     # Skip nodes with parse errors
     if node.has_error or node.type == 'ERROR':
@@ -128,7 +130,7 @@ def _extract_function_details(node, content: str, file_path: str) -> Optional[Di
     }
 
 
-def extract_rust_classes(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_classes(tree, content: str, file_path: str) -> list[dict]:
     """Extract struct, enum, and trait definitions.
 
     In Rust, 'classes' are represented by:
@@ -162,7 +164,7 @@ def extract_rust_classes(tree, content: str, file_path: str) -> List[Dict]:
     return classes
 
 
-def _extract_class_details(node, content: str, file_path: str) -> Optional[Dict]:
+def _extract_class_details(node, content: str, file_path: str) -> dict | None:
     """Extract details from struct/enum/trait node."""
     # Skip nodes with parse errors
     if node.has_error or node.type == 'ERROR':
@@ -220,7 +222,7 @@ def _extract_class_details(node, content: str, file_path: str) -> Optional[Dict]
     }
 
 
-def extract_rust_imports(tree, content: str, file_path: str) -> List[Tuple[str, str]]:
+def extract_rust_imports(tree, content: str, file_path: str) -> list[tuple[str, str]]:
     """Extract use declarations from Rust AST.
 
     CRITICAL: NO REGEX - pure AST traversal.
@@ -262,7 +264,7 @@ def extract_rust_imports(tree, content: str, file_path: str) -> List[Tuple[str, 
     return imports
 
 
-def extract_rust_exports(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_exports(tree, content: str, file_path: str) -> list[dict]:
     """Extract pub items (Rust's export mechanism).
 
     Args:
@@ -300,7 +302,7 @@ def extract_rust_exports(tree, content: str, file_path: str) -> List[Dict]:
     return exports
 
 
-def extract_rust_calls(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_calls(tree, content: str, file_path: str) -> list[dict]:
     """Extract function calls and macro invocations.
 
     Args:
@@ -348,7 +350,7 @@ def extract_rust_calls(tree, content: str, file_path: str) -> List[Dict]:
     return calls
 
 
-def extract_rust_properties(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_properties(tree, content: str, file_path: str) -> list[dict]:
     """Extract field access expressions.
 
     Examples: obj.field, self.value, request.body
@@ -388,7 +390,7 @@ def extract_rust_properties(tree, content: str, file_path: str) -> List[Dict]:
     return properties
 
 
-def extract_rust_assignments(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_assignments(tree, content: str, file_path: str) -> list[dict]:
     """Extract let bindings and assignment expressions.
 
     Examples:
@@ -465,7 +467,7 @@ def extract_rust_assignments(tree, content: str, file_path: str) -> List[Dict]:
     return assignments
 
 
-def extract_rust_function_params(tree, content: str, file_path: str) -> Dict[str, List[str]]:
+def extract_rust_function_params(tree, content: str, file_path: str) -> dict[str, list[str]]:
     """Extract function parameter names.
 
     Args:
@@ -511,7 +513,7 @@ def extract_rust_function_params(tree, content: str, file_path: str) -> Dict[str
 
 
 def extract_rust_calls_with_args(tree, content: str, file_path: str,
-                                  function_params: Dict[str, List[str]]) -> List[Dict]:
+                                  function_params: dict[str, list[str]]) -> list[dict]:
     """Extract function calls with their arguments.
 
     CRITICAL for taint analysis.
@@ -575,7 +577,7 @@ def extract_rust_calls_with_args(tree, content: str, file_path: str,
     return calls
 
 
-def extract_rust_returns(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_returns(tree, content: str, file_path: str) -> list[dict]:
     """Extract return expressions (both explicit and implicit).
 
     Rust has two types of returns:
@@ -707,7 +709,7 @@ def extract_rust_returns(tree, content: str, file_path: str) -> List[Dict]:
     return returns
 
 
-def extract_rust_cfg(tree, content: str, file_path: str) -> List[Dict]:
+def extract_rust_cfg(tree, content: str, file_path: str) -> list[dict]:
     """Extract control flow graph information.
 
     Placeholder implementation - full CFG extraction is complex.
@@ -793,7 +795,7 @@ def _is_valid_identifier(text: str) -> bool:
     return True
 
 
-def _build_function_scope_map(tree, content: str) -> Dict[int, str]:
+def _build_function_scope_map(tree, content: str) -> dict[int, str]:
     """Build a map of line numbers to containing function names.
 
     Args:

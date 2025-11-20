@@ -1,4 +1,6 @@
 """Pipeline execution module for TheAuditor."""
+from __future__ import annotations
+
 
 import json
 import os
@@ -13,7 +15,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, List, Tuple
+from typing import Any, List, Tuple
+
+from collections.abc import Callable
 
 # Import our custom temp manager to avoid WSL2/Windows issues
 try:
@@ -46,7 +50,7 @@ COMMAND_TIMEOUTS = {
 # Allow environment variable override for all timeouts
 DEFAULT_TIMEOUT = int(os.environ.get('THEAUDITOR_TIMEOUT_SECONDS', '1800'))  # Default 30 minutes
 
-def get_command_timeout(cmd: List[str]) -> int:
+def get_command_timeout(cmd: list[str]) -> int:
     """
     Determine appropriate timeout for a command based on its name.
     
@@ -144,7 +148,7 @@ def run_subprocess_with_interrupt(cmd, stdout_fp, stderr_fp, cwd, shell=False, t
     return result
 
 
-def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_name: str) -> dict:
+def run_command_chain(commands: list[tuple[str, list[str]]], root: str, chain_name: str) -> dict:
     """
     Execute a chain of commands sequentially and capture their output.
     Used for parallel execution of independent command tracks.
@@ -234,9 +238,9 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
                 )
             
             # Read outputs
-            with open(stdout_file, 'r', encoding='utf-8') as f:
+            with open(stdout_file, encoding='utf-8') as f:
                 stdout = f.read()
-            with open(stderr_file, 'r', encoding='utf-8') as f:
+            with open(stderr_file, encoding='utf-8') as f:
                 stderr = f.read()
             
             # Clean up temp files
@@ -249,7 +253,15 @@ def run_command_chain(commands: List[Tuple[str, List[str]]], root: str, chain_na
             elapsed = time.time() - start_time
             
             # Check for special exit codes (findings commands)
-            is_findings_command = "taint-analyze" in cmd or ("deps" in cmd and "--vuln-scan" in cmd)
+            # These commands exit with 1 (high severity) or 2 (critical) when findings exist
+            cmd_str = " ".join(str(c) for c in cmd)
+            is_findings_command = (
+                "taint-analyze" in cmd_str or
+                ("deps" in cmd_str and "--vuln-scan" in cmd_str) or
+                "cdk" in cmd_str or
+                "terraform" in cmd_str or
+                "workflows" in cmd_str
+            )
             if is_findings_command:
                 success = result.returncode in [0, 1, 2]
             else:
@@ -432,7 +444,6 @@ def run_full_pipeline(
         ("deps", ["--vuln-scan"]),  # Phase 1: Offline vulnerability scanning (Track B)
         ("deps", ["--check-latest"]),  # Phase 2: Network version checks (Track C)
         ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
-        ("docs", ["summarize"]),
         ("workset", ["--all"]),
         ("lint", ["--workset"]),
         ("detect-patterns", []),
@@ -480,8 +491,6 @@ def run_full_pipeline(
                 description = f"{phase_num}. Check dependency versions (network)"
             elif cmd_name == "docs" and "fetch" in extra_args:
                 description = f"{phase_num}. Fetch documentation"
-            elif cmd_name == "docs" and "summarize" in extra_args:
-                description = f"{phase_num}. Summarize documentation"
             elif cmd_name == "workset":
                 description = f"{phase_num}. Create workset (all files)"
             elif cmd_name == "lint":
@@ -688,45 +697,87 @@ def run_full_pipeline(
                 pass  # Don't fail pipeline if journal fails
 
         try:
-            # Execute foundation command
-            if TempManager:
-                stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
-                    root, f"foundation_{phase_name.replace(' ', '_')}"
-                )
+            # CRITICAL FIX: Phase 1 (index) must call build_index() directly
+            # to avoid infinite recursion (index.py now redirects to 'full')
+            if "index" in " ".join(cmd):
+                log_output(f"[INDEX] Running build_index() directly (avoiding recursion)")
+                from theauditor.indexer_compat import build_index
+                from theauditor.utils.helpers import get_self_exclusion_patterns
+
+                # Get exclusion patterns if --exclude-self flag present
+                exclude_patterns = None
+                if exclude_self:
+                    exclude_patterns = get_self_exclusion_patterns(True)
+                    log_output(f"[INDEX] Excluding {len(exclude_patterns)} TheAuditor patterns")
+
+                # Call build_index() directly (no subprocess)
+                try:
+                    db_path = os.path.join(root, ".pf", "repo_index.db")
+                    manifest_path = os.path.join(root, ".pf", "manifest.json")
+
+                    result_dict = build_index(
+                        root_path=root,
+                        db_path=db_path,
+                        manifest_path=manifest_path,
+                        print_stats=True,
+                        exclude_patterns=exclude_patterns
+                    )
+
+                    # Create mock result object
+                    class MockResult:
+                        returncode = 0 if result_dict.get("success") else 1
+                        stdout = "[INDEX] Repository indexed successfully\n"
+                        stderr = result_dict.get("error", "") if not result_dict.get("success") else ""
+                    result = MockResult()
+                except Exception as e:
+                    import traceback
+                    tb = traceback.format_exc()
+                    class MockResult:
+                        returncode = 1
+                        stdout = ""
+                        stderr = f"[INDEX ERROR] {str(e)}\n{tb}\n"
+                    result = MockResult()
             else:
-                # Fallback to regular tempfile
-                with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
-                     tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
-                    stdout_file = out_tmp.name
-                    stderr_file = err_tmp.name
+                # All other commands run as subprocesses (normal path)
+                if TempManager:
+                    stdout_file, stderr_file = TempManager.create_temp_files_for_subprocess(
+                        root, f"foundation_{phase_name.replace(' ', '_')}"
+                    )
+                else:
+                    # Fallback to regular tempfile
+                    with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt') as out_tmp, \
+                         tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt') as err_tmp:
+                        stdout_file = out_tmp.name
+                        stderr_file = err_tmp.name
+
+                with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
+                     open(stderr_file, 'w+', encoding='utf-8') as err_fp:
+
+                    # Determine appropriate timeout for this command
+                    cmd_timeout = get_command_timeout(cmd)
+
+                    result = run_subprocess_with_interrupt(
+                        cmd,
+                        stdout_fp=out_fp,
+                        stderr_fp=err_fp,
+                        cwd=root,
+                        shell=IS_WINDOWS,  # Windows compatibility fix
+                        timeout=cmd_timeout  # Adaptive timeout based on command type
+                    )
             
-            with open(stdout_file, 'w+', encoding='utf-8') as out_fp, \
-                 open(stderr_file, 'w+', encoding='utf-8') as err_fp:
-                
-                # Determine appropriate timeout for this command
-                cmd_timeout = get_command_timeout(cmd)
-                
-                result = run_subprocess_with_interrupt(
-                    cmd,
-                    stdout_fp=out_fp,
-                    stderr_fp=err_fp,
-                    cwd=root,
-                    shell=IS_WINDOWS,  # Windows compatibility fix
-                    timeout=cmd_timeout  # Adaptive timeout based on command type
-                )
-            
-            # Read outputs
-            with open(stdout_file, 'r', encoding='utf-8') as f:
-                result.stdout = f.read()
-            with open(stderr_file, 'r', encoding='utf-8') as f:
-                result.stderr = f.read()
-            
-            # Clean up temp files
-            try:
-                os.unlink(stdout_file)
-                os.unlink(stderr_file)
-            except (OSError, PermissionError):
-                pass
+            # Read outputs (only for subprocess path)
+            if "index" not in " ".join(cmd):
+                with open(stdout_file, encoding='utf-8') as f:
+                    result.stdout = f.read()
+                with open(stderr_file, encoding='utf-8') as f:
+                    result.stderr = f.read()
+
+                # Clean up temp files
+                try:
+                    os.unlink(stdout_file)
+                    os.unlink(stderr_file)
+                except (OSError, PermissionError):
+                    pass
             
             elapsed = time.time() - start_time
 
@@ -854,9 +905,9 @@ def run_full_pipeline(
                     )
                 
                 # Read outputs
-                with open(stdout_file, 'r', encoding='utf-8') as f:
+                with open(stdout_file, encoding='utf-8') as f:
                     result.stdout = f.read()
-                with open(stderr_file, 'r', encoding='utf-8') as f:
+                with open(stderr_file, encoding='utf-8') as f:
                     result.stderr = f.read()
                 
                 # Clean up temp files
@@ -951,9 +1002,8 @@ def run_full_pipeline(
                     def run_taint_direct():
                         """Run taint analysis directly in-process WITH rules orchestrator."""
                         try:
-                            from theauditor.taint import trace_taint, save_taint_analysis
+                            from theauditor.taint import trace_taint, save_taint_analysis, TaintRegistry
                             from theauditor.utils.memory import get_recommended_memory_limit
-                            from theauditor.taint.registry import TaintRegistry
                             from theauditor.rules.orchestrator import RulesOrchestrator
 
                             # Log start
@@ -990,19 +1040,32 @@ def run_full_pipeline(
 
                             # STAGE 4: Run enriched taint analysis with registry
                             print(f"[TAINT] Performing data-flow taint analysis...", file=sys.stderr)
-                            print(f"[TAINT]   Using Stage 3 (CFG multi-hop)", file=sys.stderr)
+                            # ARCHITECTURAL FIX: Use "complete" mode to run BOTH engines
+                            # - FlowResolver (forward): Resolves ALL flows (100k+) to populate resolved_flow_audit
+                            # - IFDS (backward): Finds vulnerabilities using pattern-driven analysis
+                            graph_db_path = Path(root) / ".pf" / "graphs.db"
                             result = trace_taint(
                                 db_path=str(db_path),
-                                max_depth=5,
-                                registry=None,  # TEMPORARILY DISABLED FOR FAST DEBUG
-                                use_cfg=True,  # Stage 3 (CFG multi-hop)
+                                max_depth=10,  # IFDS supports deeper analysis
+                                registry=registry,  # FIXED: Re-enabled - feeds XSS/NoSQL/LDAP patterns from 200 rules
                                 use_memory_cache=True,
-                                memory_limit_mb=memory_limit
+                                memory_limit_mb=memory_limit,
+                                graph_db_path=str(graph_db_path),  # Required for complete mode
+                                mode="complete"  # ARCHITECTURAL FIX: Run BOTH FlowResolver + IFDS
                             )
                             
-                            # Extract taint paths
+                            # Extract taint paths (IFDS results)
                             taint_paths = result.get("taint_paths", result.get("paths", []))
-                            print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
+
+                            # ARCHITECTURAL FIX: Report results from BOTH engines
+                            if result.get("mode") == "complete":
+                                print(f"[TAINT] COMPLETE MODE RESULTS:", file=sys.stderr)
+                                print(f"[TAINT]   IFDS (backward): {len(taint_paths)} vulnerable paths", file=sys.stderr)
+                                print(f"[TAINT]   FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows", file=sys.stderr)
+                                print(f"[TAINT]   Database audit table: {result.get('flow_resolver_vulnerable', 0)} vulnerable, {result.get('flow_resolver_sanitized', 0)} sanitized", file=sys.stderr)
+                            else:
+                                # Backward mode only
+                                print(f"[TAINT]   Found {len(taint_paths)} taint flow vulnerabilities", file=sys.stderr)
 
                             # STAGE 5: Run taint-dependent rules
                             print(f"[TAINT] Running advanced security analysis...", file=sys.stderr)
@@ -1112,12 +1175,24 @@ def run_full_pipeline(
                                 f"  Framework patterns: {len(discovery_findings)}",
                                 f"  Taint sources: {result.get('sources_found', 0)}",
                                 f"  Security sinks: {result.get('sinks_found', 0)}",
-                                f"  Taint paths: {len(taint_paths)}",
+                                f"  Taint paths (IFDS): {len(taint_paths)}",
                                 f"  Advanced security issues: {len(advanced_findings)}",
+                            ]
+
+                            # ARCHITECTURAL FIX: Add complete mode stats if available
+                            if result.get("mode") == "complete":
+                                output_lines.extend([
+                                    f"  --- COMPLETE MODE (Both Engines) ---",
+                                    f"  FlowResolver flows: {result.get('total_flows_resolved', 0)}",
+                                    f"  Audit table vulnerable: {result.get('flow_resolver_vulnerable', 0)}",
+                                    f"  Audit table sanitized: {result.get('flow_resolver_sanitized', 0)}",
+                                ])
+
+                            output_lines.extend([
                                 f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
                                 f"  Results saved to .pf/raw/taint_analysis.json",
                                 f"  Wrote {db_findings_count} findings to database for FCE"
-                            ]
+                            ])
                             
                             print(f"[STATUS] Track A (Taint Analysis): Completed: Taint analysis [1/1]", file=sys.stderr)
                             
@@ -1217,7 +1292,7 @@ def run_full_pipeline(
                             log_output(f"[DEBUG] No status files found in {status_dir}")
                         for status_file in status_files:
                             try:
-                                with open(status_file, 'r', encoding='utf-8') as f:
+                                with open(status_file, encoding='utf-8') as f:
                                     status_data = json.loads(f.read().strip())
                                     track = status_data.get("track", "Unknown")
                                     completed = status_data.get("completed", 0)
@@ -1349,9 +1424,9 @@ def run_full_pipeline(
                         )
                     
                     # Read outputs
-                    with open(stdout_file, 'r', encoding='utf-8') as f:
+                    with open(stdout_file, encoding='utf-8') as f:
                         result.stdout = f.read()
-                    with open(stderr_file, 'r', encoding='utf-8') as f:
+                    with open(stderr_file, encoding='utf-8') as f:
                         result.stderr = f.read()
                     
                     # Clean up temp files
@@ -1364,7 +1439,15 @@ def run_full_pipeline(
                 elapsed = time.time() - start_time
 
                 # Handle special exit codes for findings commands
-                is_findings_command = "taint-analyze" in cmd or ("deps" in cmd and "--vuln-scan" in cmd)
+                # These commands exit with 1 (high severity) or 2 (critical) when findings exist
+                cmd_str = " ".join(str(c) for c in cmd)
+                is_findings_command = (
+                    "taint-analyze" in cmd_str or
+                    ("deps" in cmd_str and "--vuln-scan" in cmd_str) or
+                    "cdk" in cmd_str or
+                    "terraform" in cmd_str or
+                    "workflows" in cmd_str
+                )
                 if is_findings_command:
                     success = result.returncode in [0, 1, 2]
                 else:

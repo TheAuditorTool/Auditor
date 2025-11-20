@@ -1,6 +1,11 @@
 """
 Database schema definitions - Single Source of Truth.
 
+CRITICAL: After adding/modifying ANY table schema, you MUST run:
+    python -m theauditor.indexer.schemas.codegen
+This regenerates generated_cache.py which the taint analyzer ACTUALLY uses!
+Without this step, your new tables will NOT be loaded into memory!
+
 This module is now a STUB that merges language-specific schema modules.
 The actual table definitions have been split into:
 - schemas/core_schema.py (21 tables - language-agnostic core patterns)
@@ -39,6 +44,8 @@ Schema Contract:
 - Schema validation runs at indexing time and analysis time
 - Breaking changes detected at runtime, not production
 """
+from __future__ import annotations
+
 
 from typing import Dict, List, Optional, Tuple
 import sqlite3
@@ -61,9 +68,9 @@ from .schemas.graphql_schema import GRAPHQL_TABLES
 # SCHEMA REGISTRY - Single source of truth (merged from all modules)
 # ============================================================================
 
-TABLES: Dict[str, TableSchema] = {
+TABLES: dict[str, TableSchema] = {
     **CORE_TABLES,           # 24 tables (language-agnostic core patterns)
-    **SECURITY_TABLES,       # 5 tables (SQL, JWT, env vars - cross-language security)
+    **SECURITY_TABLES,       # 7 tables (SQL, JWT, env vars, taint flows + resolved_flow_audit)
     **FRAMEWORKS_TABLES,     # 5 tables (ORM, API routing - cross-language frameworks)
     **PYTHON_TABLES,         # 59 tables (5 basic + 54 advanced Python patterns)
     **NODE_TABLES,           # 26 tables (React/Vue/TypeScript + build tools)
@@ -72,10 +79,13 @@ TABLES: Dict[str, TableSchema] = {
     **GRAPHQL_TABLES,        # 8 tables (GraphQL schema, types, fields, resolvers, execution graph)
 }
 
-# Total: 154 tables (schema continues to grow with framework extraction)
+# Total: 249 tables (180 base + 68 Python Coverage V2 + 1 Python deps)
+#   - 180 base: 164 + 4 exception flow + 5 data flow + 4 behavioral + 3 performance = Causal Learning COMPLETE
+#   - 68 Python Coverage V2: 8 fundamentals + 6 operators + 8 collections + 18 advanced (10 class features + 8 stdlib patterns) + 20 Week 5-6 (10 control flow + 10 protocol) + 8 Advanced
+#   - 1 Python deps: python_package_configs (Week 2 deps-docs-modernization)
 
 # Verify table count at module load time
-assert len(TABLES) == 154, f"Schema contract violation: Expected 154 tables, got {len(TABLES)}"
+assert len(TABLES) == 249, f"Schema contract violation: Expected 249 tables, got {len(TABLES)}"
 print(f"[SCHEMA] Loaded {len(TABLES)} tables")
 
 
@@ -113,13 +123,15 @@ CFG_BLOCK_STATEMENTS = TABLES['cfg_block_statements']
 FINDINGS_CONSOLIDATED = TABLES['findings_consolidated']
 
 # -------------------------
-# SECURITY TABLES (5 tables from schemas/security_schema.py)
+# SECURITY TABLES (7 tables from schemas/security_schema.py)
 # -------------------------
 SQL_OBJECTS = TABLES['sql_objects']
 SQL_QUERIES = TABLES['sql_queries']
 SQL_QUERY_TABLES = TABLES['sql_query_tables']
 JWT_PATTERNS = TABLES['jwt_patterns']
 ENV_VAR_USAGE = TABLES['env_var_usage']
+TAINT_FLOWS = TABLES['taint_flows']  # Legacy table
+RESOLVED_FLOW_AUDIT = TABLES['resolved_flow_audit']  # Phase 6: Full provenance
 
 # -------------------------
 # FRAMEWORK TABLES (5 tables from schemas/frameworks_schema.py)
@@ -214,6 +226,12 @@ FRAMEWORKS = TABLES['frameworks']
 FRAMEWORK_SAFE_SINKS = TABLES['framework_safe_sinks']
 VALIDATION_FRAMEWORK_USAGE = TABLES['validation_framework_usage']
 
+# Express framework
+EXPRESS_MIDDLEWARE_CHAINS = TABLES['express_middleware_chains']
+
+# Frontend API calls (cross-boundary flow tracking)
+FRONTEND_API_CALLS = TABLES['frontend_api_calls']
+
 # -------------------------
 # INFRASTRUCTURE TABLES (18 tables from schemas/infrastructure_schema.py)
 # -------------------------
@@ -257,9 +275,9 @@ CODE_DIFFS = TABLES['code_diffs']
 # QUERY BUILDER UTILITIES
 # ============================================================================
 
-def build_query(table_name: str, columns: Optional[List[str]] = None,
-                where: Optional[str] = None, order_by: Optional[str] = None,
-                limit: Optional[int] = None) -> str:
+def build_query(table_name: str, columns: list[str] | None = None,
+                where: str | None = None, order_by: str | None = None,
+                limit: int | None = None) -> str:
     """
     Build a SELECT query using schema definitions.
 
@@ -321,15 +339,15 @@ def build_query(table_name: str, columns: Optional[List[str]] = None,
 
 def build_join_query(
     base_table: str,
-    base_columns: List[str],
+    base_columns: list[str],
     join_table: str,
-    join_columns: List[str],
-    join_on: Optional[List[Tuple[str, str]]] = None,
-    aggregate: Optional[Dict[str, str]] = None,
-    where: Optional[str] = None,
-    group_by: Optional[List[str]] = None,
-    order_by: Optional[str] = None,
-    limit: Optional[int] = None,
+    join_columns: list[str],
+    join_on: list[tuple[str, str]] | None = None,
+    aggregate: dict[str, str] | None = None,
+    where: str | None = None,
+    group_by: list[str] | None = None,
+    order_by: str | None = None,
+    limit: int | None = None,
     join_type: str = "LEFT"
 ) -> str:
     """Build a JOIN query using schema definitions and foreign keys.
@@ -487,7 +505,7 @@ def build_join_query(
     return " ".join(query_parts)
 
 
-def validate_all_tables(cursor: sqlite3.Cursor) -> Dict[str, List[str]]:
+def validate_all_tables(cursor: sqlite3.Cursor) -> dict[str, list[str]]:
     """
     Validate all table schemas against actual database.
 

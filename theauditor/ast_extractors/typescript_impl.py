@@ -31,6 +31,8 @@ CONSUMERS:
 - Pattern rules (uses all behavioral data)
 - CFG analysis (uses cfg_blocks, cfg_edges)
 """
+from __future__ import annotations
+
 
 import os
 import sys
@@ -54,7 +56,7 @@ from .typescript_impl_structure import (
     extract_semantic_ast_symbols,
 )
 
-def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_typescript_assignments(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract ALL assignment patterns from TypeScript semantic AST, including destructuring.
 
     CRITICAL FIX: Now uses line-based scope mapping for accurate function context.
@@ -235,7 +237,7 @@ def extract_typescript_assignments(tree: Dict, parser_self) -> List[Dict[str, An
     return deduped
 
 
-def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, List[str]]:
+def extract_typescript_function_params(tree: dict, parser_self) -> dict[str, list[str]]:
     """Extract function parameters from TypeScript semantic AST."""
     import sys, os
     debug = os.environ.get("THEAUDITOR_DEBUG")
@@ -444,7 +446,7 @@ def extract_typescript_function_params(tree: Dict, parser_self) -> Dict[str, Lis
     return func_params
 
 
-def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, List[str]], parser_self) -> List[Dict[str, Any]]:
+def extract_typescript_calls_with_args(tree: dict, function_params: dict[str, list[str]], parser_self) -> list[dict[str, Any]]:
     """Extract function calls with arguments from TypeScript semantic AST.
 
     CRITICAL FIX: Now uses line-based scope mapping instead of broken recursive tracking.
@@ -596,7 +598,7 @@ def extract_typescript_calls_with_args(tree: Dict, function_params: Dict[str, Li
     return calls
 
 
-def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_typescript_returns(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract ALL return statements from TypeScript semantic AST, including JSX.
 
     CRITICAL FIXES:
@@ -744,7 +746,7 @@ def extract_typescript_returns(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return deduped
 
 
-def extract_typescript_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_typescript_cfg(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract control flow graphs from pre-extracted CFG data.
 
     PHASE 5 UNIFIED SINGLE-PASS ARCHITECTURE:
@@ -777,7 +779,7 @@ def extract_typescript_cfg(tree: Dict, parser_self) -> List[Dict[str, Any]]:
     return cfgs
 
 
-def extract_typescript_object_literals(tree: Dict, parser_self) -> List[Dict[str, Any]]:
+def extract_typescript_object_literals(tree: dict, parser_self) -> list[dict[str, Any]]:
     """Extract object literal properties via direct semantic AST traversal.
 
     This is the centralized, correct implementation for object literal extraction.
@@ -962,7 +964,7 @@ def extract_typescript_object_literals(tree: Dict, parser_self) -> List[Dict[str
     return object_literals
 
 
-def build_typescript_function_cfg(func_node: Dict) -> Dict[str, Any]:
+def build_typescript_function_cfg(func_node: dict) -> dict[str, Any]:
     """Build CFG for a single TypeScript function using AST traversal.
 
     This properly traverses the AST instead of using string matching.

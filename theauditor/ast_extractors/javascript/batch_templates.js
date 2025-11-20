@@ -427,13 +427,23 @@ async function main() {
                     const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                     const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                     const ormQueries = extractORMQueries(functionCallArgs);
-                    const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-                    const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                    const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+                    const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
+                    const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
+                    // OPTION C (2025-11-09): Split validation extraction into two concerns
+                    const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                    const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
+                    const validationUsage = [...validationCalls, ...schemaDefs];  // Merge: validators + schema definitions
                     const sqlQueries = extractSQLQueries(functionCallArgs);
                     const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
                     const sequelizeData = extractSequelizeModels(functions, classes, functionCallArgs, imports);
+                    // DEBUG (2025-11-09): Log sequelize extraction results
+                    if (process.env.THEAUDITOR_DEBUG === '1' && fileInfo.original.includes('model')) {
+                        console.error(`[BATCH] ${fileInfo.original}: sequelizeData =`, JSON.stringify(sequelizeData));
+                    }
                     const bullmqData = extractBullMQJobs(functions, classes, functionCallArgs, imports);
                     const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                    const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                     let vueComponents = [];
                     let vueHooks = [];
@@ -496,6 +506,7 @@ async function main() {
                             react_hooks: reactHooks,
                             orm_queries: ormQueries,
                             routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                            express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
                             validation_framework_usage: validationUsage,
                             sql_queries: sqlQueries,
                             cdk_constructs: cdkConstructs,
@@ -508,6 +519,7 @@ async function main() {
                             angular_modules: angularData.modules || [],
                             angular_guards: angularData.guards || [],
                             di_injections: angularData.di_injections || [],
+                            frontend_api_calls: frontendApiCalls,
                             vue_components: vueComponents,
                             vue_hooks: vueHooks,
                             vue_directives: vueDirectives,
@@ -947,13 +959,19 @@ try {
                 const reactComponents = extractReactComponents(functions, classes, returns, functionCallArgs, fileInfo.original);
                 const reactHooks = extractReactHooks(functionCallArgs, scopeMap);
                 const ormQueries = extractORMQueries(functionCallArgs);
-                const apiEndpoints = extractAPIEndpoints(functionCallArgs);
-                const validationUsage = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                const apiEndpointData = extractAPIEndpoints(functionCallArgs);
+                const apiEndpoints = apiEndpointData.endpoints || [];  // PHASE 5: Handle new return format
+                const middlewareChains = apiEndpointData.middlewareChains || [];  // PHASE 5: Middleware execution chains
+                // OPTION C (2025-11-09): Split validation extraction into two concerns
+                const validationCalls = extractValidationFrameworkUsage(functionCallArgs, assignments, imports);
+                const schemaDefs = extractSchemaDefinitions(functionCallArgs, assignments, imports);
+                const validationUsage = [...validationCalls, ...schemaDefs];  // Merge: validators + schema definitions
                 const sqlQueries = extractSQLQueries(functionCallArgs);
                 const cdkConstructs = extractCDKConstructs(functionCallArgs, imports);
                 const sequelizeModels = extractSequelizeModels(functions, classes, functionCallArgs, imports);
                 const bullmqJobs = extractBullMQJobs(functions, classes, functionCallArgs, imports);
                 const angularData = extractAngularComponents(functions, classes, imports, functionCallArgs);
+                const frontendApiCalls = extractFrontendApiCalls(functionCallArgs, imports);
 
                 let vueComponents = [];
                 let vueHooks = [];
@@ -1014,15 +1032,20 @@ try {
                         react_hooks: reactHooks,
                         orm_queries: ormQueries,
                         routes: apiEndpoints,  // FIX: Renamed 'api_endpoints' to 'routes' to match Python indexer
+                        express_middleware_chains: middlewareChains,  // PHASE 5: Middleware execution chains
                         validation_framework_usage: validationUsage,
                         sql_queries: sqlQueries,
                         cdk_constructs: cdkConstructs,
-                        sequelize_models: sequelizeModels,
-                        bullmq_jobs: bullmqJobs,
+                        sequelize_models: sequelizeModels.sequelize_models || [],
+                        sequelize_associations: sequelizeModels.sequelize_associations || [],
+                        bullmq_queues: bullmqJobs.bullmq_queues || [],
+                        bullmq_workers: bullmqJobs.bullmq_workers || [],
                         angular_components: angularData.components,
                         angular_services: angularData.services,
                         angular_modules: angularData.modules,
                         angular_guards: angularData.guards,
+                        di_injections: angularData.di_injections || [],
+                        frontend_api_calls: frontendApiCalls,
                         vue_components: vueComponents,
                         vue_hooks: vueHooks,
                         vue_directives: vueDirectives,

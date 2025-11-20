@@ -10,25 +10,65 @@ This module provides ONLY non-interpretive graph algorithms:
 For interpretive metrics like health scores, recommendations, and weighted
 rankings, see the optional graph.insights module.
 """
+from __future__ import annotations
 
-from collections import defaultdict
+
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
 
 class XGraphAnalyzer:
     """Analyze cross-project dependency and call graphs using pure algorithms."""
-    
+
+    def __init__(self, graph: dict[str, Any] | None = None):
+        """
+        Initialize analyzer with optional graph for caching.
+
+        If graph is provided, adjacency lists are pre-built for faster
+        repeated queries. If None, methods operate in stateless mode.
+
+        Args:
+            graph: Optional graph dict with 'nodes' and 'edges' keys
+        """
+        self.upstream = defaultdict(list)  # Who depends on X
+        self.downstream = defaultdict(list)  # What X depends on
+        self.nodes = set()
+        self._cached = False
+
+        if graph:
+            self._build_index(graph)
+
+    def _build_index(self, graph: dict[str, Any]) -> None:
+        """
+        Build adjacency list indices from graph data.
+
+        Pre-computes upstream/downstream relationships for O(1) lookup.
+        Called automatically by __init__ if graph provided.
+
+        Args:
+            graph: Graph dict with 'nodes' and 'edges' keys
+        """
+        self.nodes = {n["id"] for n in graph.get("nodes", [])}
+
+        for edge in graph.get("edges", []):
+            source = edge["source"]
+            target = edge["target"]
+            self.downstream[source].append(target)
+            self.upstream[target].append(source)
+
+        self._cached = True
+
     def detect_cycles(self, graph: dict[str, Any]) -> list[dict[str, Any]]:
         """
-        Detect cycles in the dependency graph using DFS.
-        
-        This is a pure graph algorithm that returns raw cycle data
-        without any interpretation or scoring.
-        
+        Detect cycles using ITERATIVE DFS (stack-based).
+
+        Safe for deep graphs - no RecursionError risk. Uses explicit stack
+        instead of Python's call stack, allowing unlimited graph depth.
+
         Args:
             graph: Graph with 'nodes' and 'edges' keys
-            
+
         Returns:
             List of cycles, each with nodes and size
         """
@@ -36,41 +76,60 @@ class XGraphAnalyzer:
         adj = defaultdict(list)
         for edge in graph.get("edges", []):
             adj[edge["source"]].append(edge["target"])
-        
-        # Track visited nodes and recursion stack
+
         visited = set()
-        rec_stack = set()
         cycles = []
-        
-        def dfs(node: str, path: list[str]) -> None:
-            """DFS to detect cycles."""
-            visited.add(node)
-            rec_stack.add(node)
-            path.append(node)
-            
-            for neighbor in adj[node]:
-                if neighbor not in visited:
-                    dfs(neighbor, path.copy())
-                elif neighbor in rec_stack:
-                    # Found a cycle
-                    cycle_start = path.index(neighbor)
-                    cycle_nodes = path[cycle_start:] + [neighbor]
-                    cycles.append({
-                        "nodes": cycle_nodes,
-                        "size": len(cycle_nodes) - 1,  # Don't count repeated node
-                    })
-            
-            rec_stack.remove(node)
-        
-        # Run DFS from all unvisited nodes
-        for node in graph.get("nodes", []):
-            node_id = node["id"]
-            if node_id not in visited:
-                dfs(node_id, [])
-        
-        # Sort cycles by size (largest first)
+
+        # Iterate over all nodes to handle disconnected subgraphs
+        nodes = [n["id"] for n in graph.get("nodes", [])]
+
+        for start_node in nodes:
+            if start_node in visited:
+                continue
+
+            # Stack stores: (current_node, iterator_of_neighbors)
+            # This simulates the execution pointer of recursive function
+            stack = [(start_node, iter(adj[start_node]))]
+
+            # Track current path for cycle detection (O(1) lookup)
+            path_set = {start_node}
+            path_list = [start_node]  # For reconstructing cycle
+            visited.add(start_node)
+
+            while stack:
+                parent, children = stack[-1]
+
+                try:
+                    # Get next child from iterator
+                    child = next(children)
+
+                    if child in path_set:
+                        # CYCLE FOUND!
+                        # Reconstruct exact loop from path_list
+                        cycle_start_index = path_list.index(child)
+                        cycle_nodes = path_list[cycle_start_index:] + [child]
+                        cycles.append({
+                            "nodes": cycle_nodes,
+                            "size": len(cycle_nodes) - 1
+                        })
+
+                    elif child not in visited:
+                        # Dive deeper (push to stack)
+                        visited.add(child)
+                        path_set.add(child)
+                        path_list.append(child)
+                        stack.append((child, iter(adj[child])))
+
+                except StopIteration:
+                    # Finished all children of this node (pop from stack)
+                    stack.pop()
+                    if path_list:  # Guard against empty path
+                        path_set.discard(parent)
+                        path_list.pop()
+
+        # Sort by size (largest first)
         cycles.sort(key=lambda c: c["size"], reverse=True)
-        
+
         return cycles
     
     def impact_of_change(
@@ -82,65 +141,69 @@ class XGraphAnalyzer:
     ) -> dict[str, Any]:
         """
         Calculate the impact of changing target files using graph traversal.
-        
-        This is a pure graph algorithm that finds affected nodes
-        without interpreting or scoring the impact.
-        
+
+        Uses cached adjacency lists if available (stateful mode), otherwise
+        builds them on-the-fly (stateless mode).
+
         Args:
             targets: List of file/module IDs that will change
             import_graph: Import/dependency graph
             call_graph: Optional call graph
             max_depth: Maximum traversal depth
-            
+
         Returns:
             Raw impact data with upstream and downstream effects
         """
-        # Build adjacency lists
-        upstream = defaultdict(list)  # Who depends on X
-        downstream = defaultdict(list)  # What X depends on
-        
-        for edge in import_graph.get("edges", []):
-            downstream[edge["source"]].append(edge["target"])
-            upstream[edge["target"]].append(edge["source"])
-        
-        if call_graph:
-            for edge in call_graph.get("edges", []):
+        # Use cached adjacency lists if available, otherwise build
+        if self._cached:
+            upstream = self.upstream
+            downstream = self.downstream
+        else:
+            upstream = defaultdict(list)
+            downstream = defaultdict(list)
+
+            for edge in import_graph.get("edges", []):
                 downstream[edge["source"]].append(edge["target"])
                 upstream[edge["target"]].append(edge["source"])
-        
-        # Find upstream impact (what depends on targets)
+
+            if call_graph:
+                for edge in call_graph.get("edges", []):
+                    downstream[edge["source"]].append(edge["target"])
+                    upstream[edge["target"]].append(edge["source"])
+
+        # Find upstream impact (what depends on targets) using deque for O(1) popleft
         upstream_impact = set()
-        to_visit = [(t, 0) for t in targets]
+        to_visit = deque([(t, 0) for t in targets])
         visited = set()
-        
+
         while to_visit:
-            node, depth = to_visit.pop(0)
+            node, depth = to_visit.popleft()
             if node in visited or depth >= max_depth:
                 continue
             visited.add(node)
-            
+
             for dependent in upstream[node]:
                 upstream_impact.add(dependent)
                 to_visit.append((dependent, depth + 1))
-        
-        # Find downstream impact (what targets depend on)
+
+        # Find downstream impact (what targets depend on) using deque for O(1) popleft
         downstream_impact = set()
-        to_visit = [(t, 0) for t in targets]
+        to_visit = deque([(t, 0) for t in targets])
         visited = set()
-        
+
         while to_visit:
-            node, depth = to_visit.pop(0)
+            node, depth = to_visit.popleft()
             if node in visited or depth >= max_depth:
                 continue
             visited.add(node)
-            
+
             for dependency in downstream[node]:
                 downstream_impact.add(dependency)
                 to_visit.append((dependency, depth + 1))
-        
+
         # Return raw counts without ratios or interpretations
         all_impacted = set(targets) | upstream_impact | downstream_impact
-        
+
         return {
             "targets": targets,
             "upstream": sorted(upstream_impact),
@@ -150,21 +213,22 @@ class XGraphAnalyzer:
         }
     
     def find_shortest_path(
-        self, 
-        source: str, 
-        target: str, 
+        self,
+        source: str,
+        target: str,
         graph: dict[str, Any]
     ) -> list[str] | None:
         """
-        Find shortest path between two nodes using BFS.
-        
-        Pure pathfinding algorithm without interpretation.
-        
+        Find shortest path between two nodes using BFS with deque.
+
+        Pure pathfinding algorithm without interpretation. Uses deque
+        for O(1) queue operations instead of O(N) list.pop(0).
+
         Args:
             source: Source node ID
             target: Target node ID
             graph: Graph with edges
-            
+
         Returns:
             List of node IDs forming the path, or None if no path exists
         """
@@ -172,22 +236,22 @@ class XGraphAnalyzer:
         adj = defaultdict(list)
         for edge in graph.get("edges", []):
             adj[edge["source"]].append(edge["target"])
-        
-        # BFS
-        queue = [(source, [source])]
+
+        # BFS with deque for O(1) popleft
+        queue = deque([(source, [source])])
         visited = {source}
-        
+
         while queue:
-            node, path = queue.pop(0)
-            
+            node, path = queue.popleft()
+
             if node == target:
                 return path
-            
+
             for neighbor in adj[node]:
                 if neighbor not in visited:
                     visited.add(neighbor)
                     queue.append((neighbor, path + [neighbor]))
-        
+
         return None
     
     def identify_layers(self, graph: dict[str, Any]) -> dict[str, list[str]]:

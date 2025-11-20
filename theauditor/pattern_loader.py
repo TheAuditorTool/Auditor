@@ -1,4 +1,6 @@
 """Pattern loader for universal issue detection."""
+from __future__ import annotations
+
 
 import re
 from dataclasses import dataclass, field

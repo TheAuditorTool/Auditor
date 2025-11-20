@@ -3,6 +3,8 @@
 This module detects WebSocket security issues by querying the indexed database
 instead of traversing AST structures.
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set
@@ -70,7 +72,7 @@ SENSITIVE_PATTERNS = frozenset([
 ])
 
 
-def find_websocket_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_websocket_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """
     Detect WebSocket security issues using SQL queries.
     
@@ -118,7 +120,7 @@ def find_websocket_issues(context: StandardRuleContext) -> List[StandardFinding]
     return findings
 
 
-def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
+def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
     """Find WebSocket connections without authentication."""
     findings = []
 
@@ -238,7 +240,7 @@ def _find_websocket_no_auth(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
+def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
     """Find WebSocket message handlers without validation."""
     findings = []
 
@@ -338,7 +340,7 @@ def _find_websocket_no_validation(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_websocket_no_rate_limit(cursor) -> List[StandardFinding]:
+def _find_websocket_no_rate_limit(cursor) -> list[StandardFinding]:
     """Find WebSocket handlers without rate limiting."""
     findings = []
 
@@ -428,7 +430,7 @@ def _find_websocket_no_rate_limit(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_websocket_broadcast_sensitive(cursor) -> List[StandardFinding]:
+def _find_websocket_broadcast_sensitive(cursor) -> list[StandardFinding]:
     """Find broadcasting of sensitive data via WebSocket."""
     findings = []
 
@@ -511,7 +513,7 @@ def _find_websocket_broadcast_sensitive(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _find_websocket_no_tls(cursor) -> List[StandardFinding]:
+def _find_websocket_no_tls(cursor) -> list[StandardFinding]:
     """Find WebSocket connections without TLS (ws:// instead of wss://)."""
     findings = []
 

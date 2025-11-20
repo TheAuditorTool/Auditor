@@ -1,6 +1,5 @@
 """Audit log model linked to users for relationship parity checks."""
 
-from __future__ import annotations
 
 from datetime import datetime
 

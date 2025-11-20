@@ -23,7 +23,7 @@ class UserController:
     Tests: Controller in middle of circular import triangle.
     """
 
-    def get_user(self, user_id: int) -> Optional[User]:
+    def get_user(self, user_id: int) -> User | None:
         """
         Get user by ID.
         Tests: Method returning circularly imported model.
@@ -82,7 +82,7 @@ class PostController:
     Tests: Second controller in circular import web.
     """
 
-    def get_post(self, post_id: int) -> Optional[Post]:
+    def get_post(self, post_id: int) -> Post | None:
         """Get post by ID."""
         return Post(
             post_id=post_id,
@@ -153,7 +153,7 @@ class CommentController:
             text=text
         )
 
-    def get_comment_author(self, comment: Comment) -> Optional[User]:
+    def get_comment_author(self, comment: Comment) -> User | None:
         """
         Get comment author.
         Tests: Traversing circular import graph (Comment → User).
@@ -161,7 +161,7 @@ class CommentController:
         user_controller = UserController()
         return user_controller.get_user(comment.author_id)
 
-    def get_comment_post(self, comment: Comment) -> Optional[Post]:
+    def get_comment_post(self, comment: Comment) -> Post | None:
         """
         Get comment's post.
         Tests: Circular traversal (Comment → Post → User → Service).

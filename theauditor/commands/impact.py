@@ -1,4 +1,6 @@
 """Analyze the impact radius of code changes using the AST symbol graph."""
+from __future__ import annotations
+
 
 import platform
 import click
@@ -102,6 +104,15 @@ def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
         Solution: Reduce --max-depth to 2 or 3
 
     Note: Requires 'aud index' to be run first."""
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("impact", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.impact_analyzer import analyze_impact, format_impact_report
     from theauditor.config_runtime import load_runtime_config
     import json as json_lib
@@ -117,7 +128,7 @@ def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
     db_path = Path(db)
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud index' first to build the repository index", err=True)
+        click.echo("Run 'aud full' first to build the repository index", err=True)
         raise click.ClickException(f"Database not found: {db}")
     
     # Verify file exists (helpful for user)

@@ -205,6 +205,106 @@ from .type_extractors import (
     extract_overloads,
 )
 
+from .fundamental_extractors import (
+    # Python Coverage V2 - Week 1: Fundamental patterns
+    extract_comprehensions,
+    extract_lambda_functions,
+    extract_slice_operations,
+    extract_tuple_operations,
+    extract_unpacking_patterns,
+    extract_none_patterns,
+    extract_truthiness_patterns,
+    extract_string_formatting,
+)
+
+from .operator_extractors import (
+    # Python Coverage V2 - Week 2: Operators and expressions
+    extract_operators,
+    extract_membership_tests,
+    extract_chained_comparisons,
+    extract_ternary_expressions,
+    extract_walrus_operators,
+    extract_matrix_multiplication,
+)
+
+from .collection_extractors import (
+    # Python Coverage V2 - Week 3: Collections and methods
+    extract_dict_operations,
+    extract_list_mutations,
+    extract_set_operations,
+    extract_string_methods,
+    extract_builtin_usage,
+    extract_itertools_usage,
+    extract_functools_usage,
+    extract_collections_usage,
+)
+
+from .class_feature_extractors import (
+    # Python Coverage V2 - Week 4: Advanced class features
+    extract_metaclasses,
+    extract_descriptors,
+    extract_dataclasses,
+    extract_enums,
+    extract_slots,
+    extract_abstract_classes,
+    extract_method_types,
+    extract_multiple_inheritance,
+    extract_dunder_methods,
+    extract_visibility_conventions,
+)
+
+from .stdlib_pattern_extractors import (
+    # Python Coverage V2 - Week 4: Stdlib patterns
+    extract_regex_patterns,
+    extract_json_operations,
+    extract_datetime_operations,
+    extract_path_operations,
+    extract_logging_patterns,
+    extract_threading_patterns,
+    extract_contextlib_patterns,
+    extract_type_checking,
+)
+
+from .control_flow_extractors import (
+    # Python Coverage V2 - Week 5: Control flow patterns
+    extract_for_loops,
+    extract_while_loops,
+    extract_async_for_loops,
+    extract_if_statements,
+    extract_match_statements,
+    extract_break_continue_pass,
+    extract_assert_statements,
+    extract_del_statements,
+    extract_import_statements,
+    extract_with_statements,
+)
+
+from .protocol_extractors import (
+    # Python Coverage V2 - Week 6: Protocol patterns
+    extract_iterator_protocol,
+    extract_container_protocol,
+    extract_callable_protocol,
+    extract_comparison_protocol,
+    extract_arithmetic_protocol,
+    extract_pickle_protocol,
+    extract_weakref_usage,
+    extract_contextvar_usage,
+    extract_module_attributes,
+    extract_class_decorators,
+)
+
+from .advanced_extractors import (
+    # Python Coverage V2 - Advanced: Rarely-used patterns
+    extract_namespace_packages,
+    extract_cached_property,
+    extract_descriptor_protocol,
+    extract_attribute_access_protocol,
+    extract_copy_protocol,
+    extract_ellipsis_usage,
+    extract_bytes_operations,
+    extract_exec_eval_compile,
+)
+
 # Backward compatibility: re-export all functions at package level
 __all__ = [
     # Core extractors
@@ -289,4 +389,80 @@ __all__ = [
     'extract_typed_dicts',
     'extract_literals',
     'extract_overloads',
+    # Fundamental extractors (Python Coverage V2 - Week 1)
+    'extract_comprehensions',
+    'extract_lambda_functions',
+    'extract_slice_operations',
+    'extract_tuple_operations',
+    'extract_unpacking_patterns',
+    'extract_none_patterns',
+    'extract_truthiness_patterns',
+    'extract_string_formatting',
+    # Operator extractors (Python Coverage V2 - Week 2)
+    'extract_operators',
+    'extract_membership_tests',
+    'extract_chained_comparisons',
+    'extract_ternary_expressions',
+    'extract_walrus_operators',
+    'extract_matrix_multiplication',
+    # Collection extractors (Python Coverage V2 - Week 3)
+    'extract_dict_operations',
+    'extract_list_mutations',
+    'extract_set_operations',
+    'extract_string_methods',
+    'extract_builtin_usage',
+    'extract_itertools_usage',
+    'extract_functools_usage',
+    'extract_collections_usage',
+    # Class feature extractors (Python Coverage V2 - Week 4)
+    'extract_metaclasses',
+    'extract_descriptors',
+    'extract_dataclasses',
+    'extract_enums',
+    'extract_slots',
+    'extract_abstract_classes',
+    'extract_method_types',
+    'extract_multiple_inheritance',
+    'extract_dunder_methods',
+    'extract_visibility_conventions',
+    # Stdlib pattern extractors (Python Coverage V2 - Week 4)
+    'extract_regex_patterns',
+    'extract_json_operations',
+    'extract_datetime_operations',
+    'extract_path_operations',
+    'extract_logging_patterns',
+    'extract_threading_patterns',
+    'extract_contextlib_patterns',
+    'extract_type_checking',
+    # Control flow extractors (Python Coverage V2 - Week 5)
+    'extract_for_loops',
+    'extract_while_loops',
+    'extract_async_for_loops',
+    'extract_if_statements',
+    'extract_match_statements',
+    'extract_break_continue_pass',
+    'extract_assert_statements',
+    'extract_del_statements',
+    'extract_import_statements',
+    'extract_with_statements',
+    # Protocol extractors (Python Coverage V2 - Week 6)
+    'extract_iterator_protocol',
+    'extract_container_protocol',
+    'extract_callable_protocol',
+    'extract_comparison_protocol',
+    'extract_arithmetic_protocol',
+    'extract_pickle_protocol',
+    'extract_weakref_usage',
+    'extract_contextvar_usage',
+    'extract_module_attributes',
+    'extract_class_decorators',
+    # Advanced extractors (Python Coverage V2 - Advanced)
+    'extract_namespace_packages',
+    'extract_cached_property',
+    'extract_descriptor_protocol',
+    'extract_attribute_access_protocol',
+    'extract_copy_protocol',
+    'extract_ellipsis_usage',
+    'extract_bytes_operations',
+    'extract_exec_eval_compile',
 ]

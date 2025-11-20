@@ -10,6 +10,8 @@ PHILOSOPHY:
 - Platform-aware: Handle Windows/Unix path differences
 - Fallback support: Check system PATH as secondary option
 """
+from __future__ import annotations
+
 
 import platform
 import shutil
@@ -43,7 +45,7 @@ class Toolbox:
         self.venv = self.root / ".auditor_venv"
         self.sandbox = self.venv / ".theauditor_tools"
 
-    def get_venv_binary(self, name: str, required: bool = True) -> Optional[Path]:
+    def get_venv_binary(self, name: str, required: bool = True) -> Path | None:
         """Get path to binary in main venv (Python linters).
 
         Args:
@@ -70,7 +72,7 @@ class Toolbox:
 
         return None
 
-    def get_node_runtime(self, required: bool = True) -> Optional[Path]:
+    def get_node_runtime(self, required: bool = True) -> Path | None:
         """Get path to bundled Node.js executable.
 
         Args:
@@ -100,7 +102,7 @@ class Toolbox:
 
         return None
 
-    def get_npm_command(self, required: bool = True) -> Optional[list]:
+    def get_npm_command(self, required: bool = True) -> list | None:
         """Get npm command for running npm operations.
 
         Args:
@@ -139,7 +141,7 @@ class Toolbox:
 
         return None
 
-    def get_eslint(self, required: bool = True) -> Optional[Path]:
+    def get_eslint(self, required: bool = True) -> Path | None:
         """Get path to ESLint binary in sandbox.
 
         Args:
@@ -165,7 +167,7 @@ class Toolbox:
 
         return None
 
-    def get_typescript_compiler(self, required: bool = True) -> Optional[Path]:
+    def get_typescript_compiler(self, required: bool = True) -> Path | None:
         """Get path to TypeScript compiler (tsc) in sandbox.
 
         Args:
@@ -191,7 +193,7 @@ class Toolbox:
 
         return None
 
-    def get_osv_scanner(self, required: bool = True) -> Optional[str]:
+    def get_osv_scanner(self, required: bool = True) -> str | None:
         """Get path to OSV-Scanner binary.
 
         Args:

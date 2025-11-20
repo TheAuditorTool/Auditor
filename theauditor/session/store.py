@@ -6,6 +6,8 @@ This module stores session execution data to:
 
 Implements dual-write principle: all data written to both storage types for consistency.
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -37,9 +39,9 @@ class SessionExecution:
     files_modified: int
     user_message_count: int
     user_engagement_rate: float  # INVERSE METRIC: lower = better
-    diffs_scored: List[Dict[str, Any]]  # List of DiffScore dicts
+    diffs_scored: list[dict[str, Any]]  # List of DiffScore dicts
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
@@ -204,7 +206,7 @@ class SessionExecutionStore:
         except Exception as e:
             logger.error(f"Failed to write JSON: {e}")
 
-    def query_executions_for_file(self, file_path: str) -> List[SessionExecution]:
+    def query_executions_for_file(self, file_path: str) -> list[SessionExecution]:
         """Query session executions that modified a specific file.
 
         Args:
@@ -259,7 +261,7 @@ class SessionExecutionStore:
         finally:
             conn.close()
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get aggregate statistics from session executions.
 
         Returns:

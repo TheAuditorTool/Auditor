@@ -4,12 +4,16 @@ This module provides a decorator that captures detailed error information
 including full tracebacks, while presenting clean error messages to users.
 All detailed debugging information is logged to .pf/error.log.
 """
+from __future__ import annotations
+
 
 import click
 import traceback
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any
+
+from collections.abc import Callable
 
 from .constants import PF_DIR, ERROR_LOG_FILE
 

@@ -10,6 +10,8 @@ Attack Pattern:
 
 CWE-829: Inclusion of Functionality from Untrusted Control Sphere
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -35,13 +37,13 @@ METADATA = RuleMetadata(
 )
 
 # Mutable version patterns that should be avoided
-MUTABLE_VERSIONS: Set[str] = {
+MUTABLE_VERSIONS: set[str] = {
     'main', 'master', 'develop', 'dev', 'trunk',
     'v1', 'v2', 'v3', 'v4', 'v5',  # Mutable major version tags
 }
 
 # First-party GitHub actions (lower risk)
-GITHUB_FIRST_PARTY: Set[str] = {
+GITHUB_FIRST_PARTY: set[str] = {
     'actions/checkout',
     'actions/setup-node',
     'actions/setup-python',
@@ -54,7 +56,7 @@ GITHUB_FIRST_PARTY: Set[str] = {
 }
 
 
-def find_unpinned_action_with_secrets(context: StandardRuleContext) -> List[StandardFinding]:
+def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect unpinned third-party actions with secret access.
 
     Detection Logic:
@@ -69,7 +71,7 @@ def find_unpinned_action_with_secrets(context: StandardRuleContext) -> List[Stan
     Returns:
         List of security findings
     """
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -127,7 +129,7 @@ def find_unpinned_action_with_secrets(context: StandardRuleContext) -> List[Stan
 
 
 def _check_secret_access(step_id: str, step_env: str, step_with: str,
-                         job_id: str, cursor) -> List[str]:
+                         job_id: str, cursor) -> list[str]:
     """Check if step has access to secrets.
 
     Args:
@@ -183,7 +185,7 @@ def _check_secret_access(step_id: str, step_env: str, step_with: str,
 def _build_unpinned_action_finding(workflow_path: str, job_key: str,
                                    step_name: str, uses_action: str,
                                    uses_version: str,
-                                   secret_refs: List[str]) -> StandardFinding:
+                                   secret_refs: list[str]) -> StandardFinding:
     """Build finding for unpinned action vulnerability.
 
     Args:

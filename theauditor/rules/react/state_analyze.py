@@ -5,6 +5,8 @@ react_hooks, variable_usage, and assignments tables.
 
 Focuses on state complexity, prop drilling, and state management best practices.
 """
+from __future__ import annotations
+
 
 import sqlite3
 import json
@@ -95,7 +97,7 @@ class ReactStateAnalyzer:
         self.patterns = ReactStatePatterns()
         self.findings = []
 
-    def analyze(self) -> List[StandardFinding]:
+    def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point.
 
         Returns:
@@ -499,7 +501,7 @@ class ReactStateAnalyzer:
 # MAIN RULE FUNCTION (Orchestrator Entry Point)
 # ============================================================================
 
-def analyze(context: StandardRuleContext) -> List[StandardFinding]:
+def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect React state management issues and anti-patterns.
 
     Uses data from react_hooks and related tables to identify state

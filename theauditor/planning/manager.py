@@ -7,6 +7,8 @@ ARCHITECTURE: Separate planning.db from repo_index.db
 - repo_index.db remains unchanged (used for verification)
 - NO FALLBACKS. Hard failure if planning.db malformed or missing.
 """
+from __future__ import annotations
+
 
 from pathlib import Path
 import sqlite3
@@ -46,7 +48,7 @@ class PlanningManager:
         self.conn.row_factory = sqlite3.Row  # Enable dict-like access
 
     @classmethod
-    def init_database(cls, db_path: Path) -> 'PlanningManager':
+    def init_database(cls, db_path: Path) -> PlanningManager:
         """Create planning.db if it doesn't exist and initialize schema.
 
         Args:
@@ -178,7 +180,7 @@ class PlanningManager:
         )
         self.conn.commit()
 
-    def load_task_spec(self, task_id: int) -> Optional[str]:
+    def load_task_spec(self, task_id: int) -> str | None:
         """Load verification spec YAML for task.
 
         Args:
@@ -200,7 +202,7 @@ class PlanningManager:
         row = cursor.fetchone()
         return row['spec_yaml'] if row else None
 
-    def get_plan(self, plan_id: int) -> Optional[Dict]:
+    def get_plan(self, plan_id: int) -> dict | None:
         """Get plan by ID.
 
         Args:
@@ -214,7 +216,7 @@ class PlanningManager:
         row = cursor.fetchone()
         return dict(row) if row else None
 
-    def list_tasks(self, plan_id: int, status_filter: str = None) -> List[Dict]:
+    def list_tasks(self, plan_id: int, status_filter: str = None) -> list[dict]:
         """List tasks for a plan.
 
         Args:
@@ -288,7 +290,7 @@ class PlanningManager:
         self.conn.commit()
         return cursor.lastrowid
 
-    def get_snapshot(self, snapshot_id: int) -> Optional[Dict]:
+    def get_snapshot(self, snapshot_id: int) -> dict | None:
         """Get snapshot by ID with associated diffs.
 
         Args:
@@ -324,7 +326,7 @@ class PlanningManager:
         )
         self.conn.commit()
 
-    def get_task_number(self, task_id: int) -> Optional[int]:
+    def get_task_number(self, task_id: int) -> int | None:
         """Get task_number from task_id.
 
         Args:
@@ -338,7 +340,7 @@ class PlanningManager:
         row = cursor.fetchone()
         return row['task_number'] if row else None
 
-    def get_task_id(self, plan_id: int, task_number: int) -> Optional[int]:
+    def get_task_id(self, plan_id: int, task_number: int) -> int | None:
         """Get task_id from plan_id and task_number.
 
         Args:
@@ -411,7 +413,7 @@ class PlanningManager:
         return cursor.lastrowid
 
     def add_plan_phase(self, plan_id: int, phase_number: int, title: str,
-                      description: str = None, problem_solved: str = None,
+                      description: str = None, success_criteria: str = None,
                       status: str = 'pending', created_at: str = ''):
         """Add a phase to a plan (hierarchical planning structure).
 
@@ -420,7 +422,7 @@ class PlanningManager:
             phase_number: Phase number within plan
             title: Phase title (required)
             description: Phase description
-            problem_solved: What sub-problem this phase solves (justification)
+            success_criteria: What completion looks like for this phase (criteria)
             status: Phase status (pending|in_progress|completed)
             created_at: Creation timestamp (auto-generated if empty)
 
@@ -429,9 +431,9 @@ class PlanningManager:
         cursor = self.conn.cursor()
         cursor.execute(
             """INSERT INTO plan_phases
-               (plan_id, phase_number, title, description, problem_solved, status, created_at)
+               (plan_id, phase_number, title, description, success_criteria, status, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (plan_id, phase_number, title, description, problem_solved, status,
+            (plan_id, phase_number, title, description, success_criteria, status,
              created_at if created_at else datetime.now(UTC).isoformat())
         )
         # Note: commit() must be called separately by caller

@@ -1,4 +1,6 @@
 """Common utilities for toolbox implementations."""
+from __future__ import annotations
+
 
 import gzip
 import platform
@@ -87,7 +89,7 @@ def get_sandbox_dir() -> Path:
     return sandbox_dir
 
 
-def detect_platform() -> Dict[str, str]:
+def detect_platform() -> dict[str, str]:
     """
     Detect current platform and architecture.
 

@@ -3,6 +3,8 @@
 This command reads from the frameworks table populated by 'aud index'.
 It does NOT re-parse manifests - database is the single source of truth.
 """
+from __future__ import annotations
+
 
 import json
 import sqlite3
@@ -141,12 +143,21 @@ def detect_frameworks(project_path, output_json):
     NOTE: This is a read-only database query. It does not modify files or re-parse
     manifests. To refresh framework detection, run 'aud index' again.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("detect-frameworks", sys.argv[2:], root=project_path)
+        sys.exit(exit_code)
+
     project_path = Path(project_path).resolve()
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: Database not found. Run 'aud index' first.", err=True)
-        raise click.ClickException("Database not found - run 'aud index' first")
+        click.echo("Error: Database not found. Run 'aud full' first.", err=True)
+        raise click.ClickException("Database not found - run 'aud full' first")
 
     try:
         # Read from database (single source of truth)
@@ -172,7 +183,7 @@ def detect_frameworks(project_path, output_json):
         raise click.ClickException(str(e)) from e
 
 
-def _read_frameworks_from_db(db_path: Path) -> List[Dict]:
+def _read_frameworks_from_db(db_path: Path) -> list[dict]:
     """Read frameworks from database (internal data source).
 
     Args:
@@ -205,7 +216,7 @@ def _read_frameworks_from_db(db_path: Path) -> List[Dict]:
     return frameworks
 
 
-def _write_output(frameworks: List[Dict], project_path: Path, output_json: str):
+def _write_output(frameworks: list[dict], project_path: Path, output_json: str):
     """Write AI-consumable output to consolidated dependency_analysis.
 
     Args:
@@ -221,7 +232,7 @@ def _write_output(frameworks: List[Dict], project_path: Path, output_json: str):
     click.echo(f"[OK] Frameworks analysis saved to {output_path}")
 
 
-def _format_table(frameworks: List[Dict]) -> str:
+def _format_table(frameworks: list[dict]) -> str:
     """Format frameworks as human-readable ASCII table.
 
     Args:

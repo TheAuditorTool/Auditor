@@ -7,8 +7,9 @@ Checks:
 - Ingress rules from ::/0 IPv6 (CRITICAL)
 - allow_all_outbound=True (LOW - informational)
 """
-
 from __future__ import annotations
+
+
 
 import logging
 import sqlite3
@@ -38,9 +39,9 @@ METADATA = RuleMetadata(
 )
 
 
-def find_cdk_sg_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_cdk_sg_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect overly permissive security groups in CDK code."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -58,9 +59,9 @@ def find_cdk_sg_issues(context: StandardRuleContext) -> List[StandardFinding]:
     return findings
 
 
-def _check_unrestricted_ingress(cursor) -> List[StandardFinding]:
+def _check_unrestricted_ingress(cursor) -> list[StandardFinding]:
     """Detect security groups allowing unrestricted ingress (0.0.0.0/0 or ::/0)."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for SecurityGroup in Python
     cursor.execute("""
@@ -128,9 +129,9 @@ def _check_unrestricted_ingress(cursor) -> List[StandardFinding]:
     return findings
 
 
-def _check_allow_all_outbound(cursor) -> List[StandardFinding]:
+def _check_allow_all_outbound(cursor) -> list[StandardFinding]:
     """Detect security groups with allow_all_outbound=True (informational)."""
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     # Find all CDK constructs, filter for SecurityGroup in Python
     cursor.execute("""

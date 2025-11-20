@@ -5,10 +5,10 @@ from typing import Any, Dict
 
 class UserRepository:
     def __init__(self) -> None:
-        self._records: list[Dict[str, Any]] = []
+        self._records: list[dict[str, Any]] = []
 
-    def save(self, record: Dict[str, Any]) -> None:
+    def save(self, record: dict[str, Any]) -> None:
         self._records.append(record)
 
-    def all(self) -> list[Dict[str, Any]]:
+    def all(self) -> list[dict[str, Any]]:
         return list(self._records)

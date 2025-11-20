@@ -1,4 +1,6 @@
 """Module resolution for TypeScript/JavaScript projects with tsconfig.json support."""
+from __future__ import annotations
+
 
 import json
 import re
@@ -23,7 +25,7 @@ class ModuleResolver:
     - Relative and absolute imports
     """
     
-    def __init__(self, project_root: Optional[str] = None, db_path: str = ".pf/repo_index.db"):
+    def __init__(self, project_root: str | None = None, db_path: str = ".pf/repo_index.db"):
         """Initialize resolver with database path - NO filesystem access.
         
         Args:
@@ -36,13 +38,13 @@ class ModuleResolver:
             self.project_root = Path.cwd()
         
         self.db_path = Path(db_path)
-        self.configs_by_context: Dict[str, Any] = {}
-        self.path_mappings_by_context: Dict[str, Dict[str, List[str]]] = {}
-        self.webpack_aliases: Dict[str, str] = {}  # Kept for compatibility
+        self.configs_by_context: dict[str, Any] = {}
+        self.path_mappings_by_context: dict[str, dict[str, list[str]]] = {}
+        self.webpack_aliases: dict[str, str] = {}  # Kept for compatibility
         
         # For backward compatibility
-        self.base_url: Optional[str] = None
-        self.path_mappings: Dict[str, List[str]] = {}
+        self.base_url: str | None = None
+        self.path_mappings: dict[str, list[str]] = {}
         
         # Load all configs from database ONCE
         self._load_all_configs_from_db()
@@ -306,7 +308,7 @@ class ModuleResolver:
         # Could use subprocess to run Node.js and extract config
         pass
     
-    def resolve_with_node_algorithm(self, import_path: str, containing_file: str) -> Optional[str]:
+    def resolve_with_node_algorithm(self, import_path: str, containing_file: str) -> str | None:
         """Implement Node.js module resolution algorithm.
         
         Follows Node.js rules:
@@ -339,7 +341,7 @@ class ModuleResolver:
                         main_file = node_modules / main
                         if main_file.exists():
                             return str(main_file.relative_to(self.project_root)).replace("\\", "/")
-                    except (json.JSONDecodeError, IOError) as e:
+                    except (json.JSONDecodeError, OSError) as e:
                         print(f"[WARNING] Could not parse package.json from {package_json}: {e}")
                         # Continue checking other resolution methods
                 

@@ -31,6 +31,8 @@ Pure Courier Principles:
 
 The AI consumer decides what's important, not TheAuditor.
 """
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -44,7 +46,7 @@ from theauditor.config_runtime import load_runtime_config
 # Pure courier model - no filtering, only chunking if needed
 
 
-def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> Optional[List[Tuple[Path, int]]]:
+def _chunk_large_file(raw_path: Path, max_chunk_size: int | None = None) -> list[tuple[Path, int]] | None:
     """Split large files into chunks of configured max size."""
     # Load config if not provided
     if max_chunk_size is None:
@@ -60,7 +62,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
         # Handle non-JSON files (like .dot, .txt, etc.)
         if raw_path.suffix != '.json':
             # Read as text and chunk if needed
-            with open(raw_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(raw_path, encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
             # Check if file needs chunking
@@ -101,7 +103,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
                 return chunks
         
         # Handle JSON files
-        with open(raw_path, 'r', encoding='utf-8') as f:
+        with open(raw_path, encoding='utf-8') as f:
             content = f.read()
 
         # Check if file is empty
@@ -382,7 +384,7 @@ def _chunk_large_file(raw_path: Path, max_chunk_size: Optional[int] = None) -> O
         return None  # Return None to signal failure, not empty list
 
 
-def _copy_as_is(raw_path: Path) -> Tuple[Optional[Path], int]:
+def _copy_as_is(raw_path: Path) -> tuple[Path | None, int]:
     """Copy small files as-is or chunk if >65KB."""
     chunks = _chunk_large_file(raw_path)
     if chunks is None:

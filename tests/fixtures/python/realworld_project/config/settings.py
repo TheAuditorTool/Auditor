@@ -1,9 +1,10 @@
 """Typed configuration module to feed import resolution and annotations."""
 
-from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, Mapping
+from typing import Final
+
+from collections.abc import Mapping
 
 
 @dataclass(frozen=True)

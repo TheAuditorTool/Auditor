@@ -11,6 +11,8 @@ Attack Pattern:
 
 CWE-269: Improper Privilege Management
 """
+from __future__ import annotations
+
 
 import json
 import logging
@@ -36,14 +38,14 @@ METADATA = RuleMetadata(
 )
 
 # Untrusted workflow triggers
-UNTRUSTED_TRIGGERS: Set[str] = {
+UNTRUSTED_TRIGGERS: set[str] = {
     'pull_request_target',
     'issue_comment',
     'workflow_run',  # Can be triggered from fork
 }
 
 # Dangerous write permissions
-DANGEROUS_WRITE_PERMISSIONS: Set[str] = {
+DANGEROUS_WRITE_PERMISSIONS: set[str] = {
     'contents',      # Can push commits, create tags, releases
     'packages',      # Can publish to GitHub Packages
     'id-token',      # Can mint OIDC tokens for cloud access
@@ -51,7 +53,7 @@ DANGEROUS_WRITE_PERMISSIONS: Set[str] = {
 }
 
 
-def find_excessive_pr_permissions(context: StandardRuleContext) -> List[StandardFinding]:
+def find_excessive_pr_permissions(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect excessive write permissions in untrusted workflows.
 
     Detection Logic:
@@ -65,7 +67,7 @@ def find_excessive_pr_permissions(context: StandardRuleContext) -> List[Standard
     Returns:
         List of security findings
     """
-    findings: List[StandardFinding] = []
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
         return findings
@@ -163,7 +165,7 @@ def _parse_permissions(permissions_json: str) -> dict:
     return {}
 
 
-def _check_dangerous_permissions(permissions: dict) -> List[str]:
+def _check_dangerous_permissions(permissions: dict) -> list[str]:
     """Check for dangerous write permissions.
 
     Args:
@@ -188,8 +190,8 @@ def _check_dangerous_permissions(permissions: dict) -> List[str]:
 
 
 def _build_permission_finding(workflow_path: str, workflow_name: str,
-                              scope: str, job_key: str, triggers: List[str],
-                              dangerous_perms: List[str],
+                              scope: str, job_key: str, triggers: list[str],
+                              dangerous_perms: list[str],
                               all_perms: dict) -> StandardFinding:
     """Build finding for excessive permissions vulnerability.
 

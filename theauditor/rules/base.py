@@ -3,9 +3,12 @@
 This module defines the universal interface that ALL rules must follow.
 Created as part of the Great Refactor to eliminate signature chaos.
 """
+from __future__ import annotations
+
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Callable, Union, Literal
+from typing import Any, Dict, List, Optional, Union, Literal
+from collections.abc import Callable
 from pathlib import Path
 from enum import Enum
 import logging
@@ -51,7 +54,7 @@ class StandardRuleContext:
     project_path: Path
     
     # Optional AST data
-    ast_wrapper: Optional[Dict[str, Any]] = None
+    ast_wrapper: dict[str, Any] | None = None
     # Expected structure:
     # {
     #   "type": "python_ast" | "tree_sitter" | "semantic_ast",
@@ -60,19 +63,19 @@ class StandardRuleContext:
     # }
     
     # Analysis tools (lazy-loaded)
-    db_path: Optional[str] = None
-    taint_checker: Optional[Callable] = None
-    module_resolver: Optional[Any] = None
+    db_path: str | None = None
+    taint_checker: Callable | None = None
+    module_resolver: Any | None = None
     
     # File metadata
-    file_hash: Optional[str] = None
-    file_size: Optional[int] = None
-    line_count: Optional[int] = None
+    file_hash: str | None = None
+    file_size: int | None = None
+    line_count: int | None = None
     
     # Extensibility
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
     
-    def get_ast(self, expected_type: str = None) -> Optional[Any]:
+    def get_ast(self, expected_type: str = None) -> Any | None:
         """Safely extract AST with optional type checking.
         
         Args:
@@ -98,7 +101,7 @@ class StandardRuleContext:
         
         return self.ast_wrapper.get("tree")
     
-    def get_lines(self) -> List[str]:
+    def get_lines(self) -> list[str]:
         """Get file content as list of lines."""
         return self.content.splitlines() if self.content else []
     
@@ -142,17 +145,17 @@ class StandardFinding:
     
     # Optional with defaults
     column: int = 0
-    severity: Union[Severity, str] = Severity.MEDIUM
+    severity: Severity | str = Severity.MEDIUM
     category: str = "security"
-    confidence: Union[Confidence, str] = Confidence.HIGH
+    confidence: Confidence | str = Confidence.HIGH
     snippet: str = ""
     
     # Additional context
-    references: Optional[List[str]] = None
-    cwe_id: Optional[str] = None
-    additional_info: Optional[Dict[str, Any]] = None
+    references: list[str] | None = None
+    cwe_id: str | None = None
+    additional_info: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization.
 
         Field mappings aligned with findings_consolidated schema:
@@ -187,7 +190,7 @@ class StandardFinding:
 
 
 # Type alias for rule functions
-RuleFunction = Callable[[StandardRuleContext], List[StandardFinding]]
+RuleFunction = Callable[[StandardRuleContext], list[StandardFinding]]
 
 
 def validate_rule_signature(func: Callable) -> bool:
@@ -227,11 +230,11 @@ class RuleMetadata:
     category: str  # sql, xss, auth, secrets, etc.
 
     # File targeting (orchestrator uses these for filtering)
-    target_extensions: Optional[List[str]] = None  # ['.py', '.js'] - ONLY these files
-    exclude_patterns: Optional[List[str]] = None  # ['migrations/', 'test/'] - SKIP these
-    target_file_patterns: Optional[List[str]] = None  # ['backend/', 'server/'] - INCLUDE these
+    target_extensions: list[str] | None = None  # ['.py', '.js'] - ONLY these files
+    exclude_patterns: list[str] | None = None  # ['migrations/', 'test/'] - SKIP these
+    target_file_patterns: list[str] | None = None  # ['backend/', 'server/'] - INCLUDE these
 
-    execution_scope: Optional[Literal['database', 'file']] = None  # Orchestrator scope hint ('database' runs once, 'file' per file)
+    execution_scope: Literal['database', 'file'] | None = None  # Orchestrator scope hint ('database' runs once, 'file' per file)
 
     # JSX-specific settings
     requires_jsx_pass: bool = False  # True = query *_jsx tables instead of standard tables

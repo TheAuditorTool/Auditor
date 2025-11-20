@@ -1,4 +1,6 @@
 """Perform taint analysis to detect security vulnerabilities via data flow tracking."""
+from __future__ import annotations
+
 
 import sys
 import platform
@@ -22,13 +24,14 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--severity", type=click.Choice(["all", "critical", "high", "medium", "low"]),
               default="all", help="Filter results by severity level")
 @click.option("--rules/--no-rules", default=True, help="Enable/disable rule-based detection")
-@click.option("--use-cfg/--no-cfg", default=True,
-              help="Use flow-sensitive CFG analysis (enabled by default)")
 @click.option("--memory/--no-memory", default=True,
               help="Use in-memory caching for 5-10x performance (enabled by default)")
 @click.option("--memory-limit", default=None, type=int,
               help="Memory limit for cache in MB (auto-detected based on system RAM if not set)")
-def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg, memory, memory_limit):
+@click.option("--mode", default="backward",
+              type=click.Choice(["backward", "forward", "complete"]),
+              help="Analysis mode: backward (IFDS), forward (entry->exit), complete (all flows)")
+def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory, memory_limit, mode):
     """Trace data flow from untrusted sources to dangerous sinks to detect injection vulnerabilities.
 
     Performs inter-procedural data flow analysis to identify security vulnerabilities where untrusted
@@ -243,7 +246,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         → Analyze in smaller batches with --path-filter
 
       False positives (sanitized input flagged):
-        → Check if sanitization function is recognized (see taint/registry.py)
+        → Check if sanitization function is recognized (see taint/core.py TaintRegistry)
         → Use custom sanitizers via .theauditor.yml config
         → Review with --verbose to see full taint path
 
@@ -257,11 +260,19 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
     (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
-    from theauditor.taint_analyzer import trace_taint, save_taint_analysis, normalize_taint_path, SECURITY_SINKS
-    from theauditor.taint.insights import format_taint_report, calculate_severity, generate_summary, classify_vulnerability
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("taint-analyze", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
+    from theauditor.taint import trace_taint, save_taint_analysis, normalize_taint_path
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext
-    from theauditor.taint.registry import TaintRegistry
+    from theauditor.taint import TaintRegistry
     from theauditor.utils.memory import get_recommended_memory_limit
     import json as json_lib
     
@@ -281,7 +292,7 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     db_path = Path(db)
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud index' first to build the repository index", err=True)
+        click.echo("Run 'aud full' first to build the repository index", err=True)
         raise click.ClickException(f"Database not found: {db}")
 
     # SCHEMA CONTRACT: Pre-flight validation before expensive analysis
@@ -353,14 +364,18 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         
         # STAGE 4: Run enriched taint analysis with registry
         click.echo("Performing data-flow taint analysis...")
-        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
+        # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
+        if mode == "backward":
+            click.echo(f"  Using IFDS mode (graphs.db)")
+        else:
+            click.echo(f"  Using {mode} flow resolution mode")
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
             registry=registry,
-            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
+            memory_limit_mb=memory_limit,  # Now uses auto-detected or user-specified limit
+            mode=mode
         )
         
         # Extract taint paths
@@ -404,38 +419,33 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
     else:
         # Original taint analysis without orchestrator
         click.echo("Performing taint analysis (rules disabled)...")
-        click.echo(f"  Using {'Stage 3 (CFG multi-hop)' if use_cfg else 'Stage 2 (call-graph)'}")
+        # ZERO FALLBACK POLICY: IFDS-only mode (crashes if graphs.db missing)
+        if mode == "backward":
+            click.echo(f"  Using IFDS mode (graphs.db)")
+        else:
+            click.echo(f"  Using {mode} flow resolution mode")
+
+        # Create empty registry (NO patterns - discovery.py uses registry for patterns)
+        # With empty registry, discovery returns ZERO sources/sinks (finds nothing)
+        registry = TaintRegistry()
+
         result = trace_taint(
             db_path=str(db_path),
             max_depth=max_depth,
-            use_cfg=use_cfg,  # Stage 3 ON by default (unless --no-cfg)
+            registry=registry,
             use_memory_cache=memory,
-            memory_limit_mb=memory_limit  # Now uses auto-detected or user-specified limit
+            memory_limit_mb=memory_limit,  # Now uses auto-detected or user-specified limit
+            mode=mode
         )
-    
-    # Enrich raw paths with interpretive insights
+
+    # Normalize paths (factual transformation only, no insights)
     if result.get("success"):
-        # Add severity and classification to each path
-        enriched_paths = []
+        normalized_paths = []
         for path in result.get("taint_paths", result.get("paths", [])):
-            # Normalize the path first
-            path = normalize_taint_path(path)
-            # Add severity
-            path["severity"] = calculate_severity(path)
-            # Enrich sink information with vulnerability classification
-            path["vulnerability_type"] = classify_vulnerability(
-                path.get("sink", {}), 
-                SECURITY_SINKS
-            )
-            enriched_paths.append(path)
-        
-        # Update result with enriched paths
-        result["taint_paths"] = enriched_paths
-        result["paths"] = enriched_paths
-        
-        # Generate summary
-        result["summary"] = generate_summary(enriched_paths)
-    
+            normalized_paths.append(normalize_taint_path(path))
+        result["taint_paths"] = normalized_paths
+        result["paths"] = normalized_paths
+
     # Filter by severity if requested
     if severity != "all" and result.get("success"):
         filtered_paths = []
@@ -536,29 +546,25 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, use_cfg
         # JSON output for programmatic use
         click.echo(json_lib.dumps(result, indent=2, sort_keys=True))
     else:
-        # Human-readable report
-        report = format_taint_report(result)
-        click.echo(report)
-        
-        # Additional verbose output
-        if verbose and result.get("success"):
+        # Simple factual report (no insights)
+        if result.get("success"):
             paths = result.get("taint_paths", result.get("paths", []))
-            if paths and len(paths) > 10:
-                click.echo("\n" + "=" * 60)
-                click.echo("ADDITIONAL VULNERABILITY DETAILS")
-                click.echo("=" * 60)
-                
-                for i, path in enumerate(paths[10:20], 11):
-                    # Normalize path to ensure all keys exist
-                    path = normalize_taint_path(path)
-                    click.echo(f"\n{i}. {path['vulnerability_type']} ({path['severity']})")
-                    click.echo(f"   Source: {path['source']['file']}:{path['source']['line']}")
-                    click.echo(f"   Sink: {path['sink']['file']}:{path['sink']['line']}")
-                    arrow = "->" if IS_WINDOWS else "→"
-                    click.echo(f"   Pattern: {path['source'].get('pattern', '')} {arrow} {path['sink'].get('pattern', '')}")  # Empty not unknown
-                
-                if len(paths) > 20:
-                    click.echo(f"\n... and {len(paths) - 20} additional vulnerabilities not shown")
+            click.echo(f"\n[TAINT] Found {len(paths)} taint paths")
+            click.echo(f"[TAINT] Sources: {result.get('sources_found', 0)}")
+            click.echo(f"[TAINT] Sinks: {result.get('sinks_found', 0)}")
+
+            # Show first 10 paths
+            for i, path in enumerate(paths[:10], 1):
+                path = normalize_taint_path(path)
+                sink_type = path.get('sink', {}).get('type', 'unknown')
+                click.echo(f"\n{i}. {sink_type}")
+                click.echo(f"   Source: {path['source']['file']}:{path['source']['line']}")
+                click.echo(f"   Sink: {path['sink']['file']}:{path['sink']['line']}")
+
+            if len(paths) > 10:
+                click.echo(f"\n... and {len(paths) - 10} additional paths (use --json for full output)")
+        else:
+            click.echo(f"\n[ERROR] {result.get('error', 'Unknown error')}")
 
     # Exit with appropriate code
     if result.get("success"):

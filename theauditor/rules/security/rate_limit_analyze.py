@@ -11,6 +11,8 @@ This implementation:
 - Provides confidence scoring based on context
 - Maps findings to security regulations (OWASP, PCI-DSS, NIST)
 """
+from __future__ import annotations
+
 
 import sqlite3
 from typing import List, Set, Dict, Optional, Tuple
@@ -125,7 +127,7 @@ FRAMEWORK_PATTERNS = frozenset([
 # MAIN ENTRY POINT
 # ============================================================================
 
-def find_rate_limit_issues(context: StandardRuleContext) -> List[StandardFinding]:
+def find_rate_limit_issues(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect rate limiting misconfigurations using database queries.
 
     Implements 15+ detection patterns for rate limiting issues including
@@ -249,7 +251,7 @@ def _get_attack_scenario(rule_name: str) -> str:
 # DETECTION LAYER 1: Middleware Ordering
 # ============================================================================
 
-def _detect_middleware_ordering(cursor) -> List[StandardFinding]:
+def _detect_middleware_ordering(cursor) -> list[StandardFinding]:
     """Detect incorrect middleware ordering (auth before rate limit)."""
     findings = []
 
@@ -361,7 +363,7 @@ def _detect_middleware_ordering(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 2: Unprotected Critical Endpoints
 # ============================================================================
 
-def _detect_unprotected_endpoints(cursor) -> List[StandardFinding]:
+def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
     """Detect critical endpoints without rate limiting."""
     findings = []
 
@@ -456,7 +458,7 @@ def _detect_unprotected_endpoints(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 3: Bypassable Key Generation
 # ============================================================================
 
-def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
+def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
     """Detect rate limiters using spoofable headers for keys."""
     findings = []
 
@@ -586,7 +588,7 @@ def _detect_bypassable_keys(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 4: Memory Storage Issues
 # ============================================================================
 
-def _detect_memory_storage(cursor) -> List[StandardFinding]:
+def _detect_memory_storage(cursor) -> list[StandardFinding]:
     """Detect rate limiters using non-persistent storage."""
     findings = []
 
@@ -668,7 +670,7 @@ def _detect_memory_storage(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 5: Expensive Operations Before Rate Limiting
 # ============================================================================
 
-def _detect_expensive_operations(cursor) -> List[StandardFinding]:
+def _detect_expensive_operations(cursor) -> list[StandardFinding]:
     """Detect expensive operations that run before rate limiting."""
     findings = []
 
@@ -769,7 +771,7 @@ def _detect_expensive_operations(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 6: API Endpoints Without Rate Limiting
 # ============================================================================
 
-def _detect_api_rate_limits(cursor) -> List[StandardFinding]:
+def _detect_api_rate_limits(cursor) -> list[StandardFinding]:
     """Detect API endpoints without rate limiting."""
     findings = []
 
@@ -829,7 +831,7 @@ def _detect_api_rate_limits(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 7: Decorator Ordering (Python)
 # ============================================================================
 
-def _detect_decorator_ordering(cursor) -> List[StandardFinding]:
+def _detect_decorator_ordering(cursor) -> list[StandardFinding]:
     """Detect incorrect decorator ordering in Python."""
     findings = []
 
@@ -908,7 +910,7 @@ def _detect_decorator_ordering(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 8: Rate Limit Bypass Configurations
 # ============================================================================
 
-def _detect_bypass_configs(cursor) -> List[StandardFinding]:
+def _detect_bypass_configs(cursor) -> list[StandardFinding]:
     """Detect configurations that allow rate limit bypass."""
     findings = []
 
@@ -971,7 +973,7 @@ def _detect_bypass_configs(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 9: Missing User-Based Rate Limiting
 # ============================================================================
 
-def _detect_missing_user_limits(cursor) -> List[StandardFinding]:
+def _detect_missing_user_limits(cursor) -> list[StandardFinding]:
     """Detect rate limiters that don't consider authenticated users."""
     findings = []
 
@@ -1023,7 +1025,7 @@ def _detect_missing_user_limits(cursor) -> List[StandardFinding]:
 # DETECTION LAYER 10: Weak Rate Limit Values
 # ============================================================================
 
-def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
+def _detect_weak_rate_limits(cursor) -> list[StandardFinding]:
     """Detect rate limits with weak values (too high)."""
     findings = []
 
@@ -1098,7 +1100,7 @@ def _detect_weak_rate_limits(cursor) -> List[StandardFinding]:
 # ADDITIONAL HELPERS
 # ============================================================================
 
-def generate_rate_limit_summary(findings: List[StandardFinding]) -> Dict:
+def generate_rate_limit_summary(findings: list[StandardFinding]) -> dict:
     """Generate a summary report of rate limiting findings."""
     summary = {
         'total_findings': len(findings),

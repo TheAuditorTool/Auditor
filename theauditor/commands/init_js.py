@@ -1,4 +1,6 @@
 """Create or merge minimal package.json for lint/typecheck."""
+from __future__ import annotations
+
 
 import click
 
@@ -171,6 +173,15 @@ def init_js(path, add_hooks):
     manually after initialization. PIN_ME placeholders must be replaced with actual
     version numbers before running npm install.
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("init-js", sys.argv[2:], root=".")
+        sys.exit(exit_code)
+
     from theauditor.js_init import ensure_package_json, add_auditor_hooks
 
     try:

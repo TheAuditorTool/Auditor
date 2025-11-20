@@ -1,4 +1,6 @@
 """Analyze Claude Code sessions for patterns, anti-patterns, and optimization opportunities."""
+from __future__ import annotations
+
 
 import sqlite3
 from pathlib import Path
@@ -18,7 +20,7 @@ class Finding:
     description: str
     session_id: str
     timestamp: str
-    evidence: Dict[str, Any] = field(default_factory=dict)
+    evidence: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -46,7 +48,7 @@ class SessionAnalyzer:
         if db_path and Path(db_path).exists():
             self.conn = sqlite3.connect(db_path)
 
-    def analyze_session(self, session: Session) -> tuple[SessionStats, List[Finding]]:
+    def analyze_session(self, session: Session) -> tuple[SessionStats, list[Finding]]:
         """Analyze a single session and return stats + findings."""
         stats = self._compute_stats(session)
         findings = []
@@ -84,7 +86,7 @@ class SessionAnalyzer:
             avg_tokens_per_turn=avg_tokens
         )
 
-    def _detect_blind_edits(self, session: Session) -> List[Finding]:
+    def _detect_blind_edits(self, session: Session) -> list[Finding]:
         """Detect Edit calls that were not preceded by Read on same file."""
         findings = []
         files_read = set()
@@ -114,7 +116,7 @@ class SessionAnalyzer:
 
         return findings
 
-    def _detect_duplicate_reads(self, session: Session) -> List[Finding]:
+    def _detect_duplicate_reads(self, session: Session) -> list[Finding]:
         """Detect multiple Read calls on the same file."""
         findings = []
         read_counts = Counter()
@@ -139,7 +141,7 @@ class SessionAnalyzer:
 
         return findings
 
-    def _detect_missing_searches(self, session: Session) -> List[Finding]:
+    def _detect_missing_searches(self, session: Session) -> list[Finding]:
         """Detect Write operations that could have benefited from prior Grep/Glob."""
         findings = []
         searches_done = False
@@ -168,7 +170,7 @@ class SessionAnalyzer:
 
         return findings
 
-    def _detect_duplicate_implementations(self, session: Session) -> List[Finding]:
+    def _detect_duplicate_implementations(self, session: Session) -> list[Finding]:
         """Detect if agent created code that already exists (requires DB)."""
         if not self.conn:
             return []
@@ -225,7 +227,7 @@ class SessionAnalyzer:
 
         return findings
 
-    def _detect_missed_existing_code(self, session: Session) -> List[Finding]:
+    def _detect_missed_existing_code(self, session: Session) -> list[Finding]:
         """Detect when agent should have found existing code but didn't."""
         if not self.conn:
             return []
@@ -275,7 +277,7 @@ class SessionAnalyzer:
 
         return findings
 
-    def analyze_multiple_sessions(self, sessions: List[Session]) -> Dict[str, Any]:
+    def analyze_multiple_sessions(self, sessions: list[Session]) -> dict[str, Any]:
         """Analyze patterns across multiple sessions."""
         all_findings = []
         all_stats = []

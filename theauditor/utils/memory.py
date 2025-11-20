@@ -3,6 +3,8 @@
 This module provides intelligent memory limit detection based on system resources.
 Philosophy: SAST tools need RAM. If you're running complex analysis, allocate accordingly.
 """
+from __future__ import annotations
+
 
 import os
 import platform
@@ -95,7 +97,7 @@ def get_recommended_memory_limit() -> int:
             # Method 2: Read from /proc/meminfo (Linux)
             if not total_mb and platform.system() == 'Linux':
                 try:
-                    with open('/proc/meminfo', 'r') as f:
+                    with open('/proc/meminfo') as f:
                         for line in f:
                             if line.startswith('MemTotal:'):
                                 # MemTotal is in KB
@@ -164,7 +166,7 @@ def get_available_memory() -> int:
             
             # Linux fallback
             if platform.system() == 'Linux':
-                with open('/proc/meminfo', 'r') as f:
+                with open('/proc/meminfo') as f:
                     for line in f:
                         if line.startswith('MemAvailable:'):
                             kb = int(line.split()[1])

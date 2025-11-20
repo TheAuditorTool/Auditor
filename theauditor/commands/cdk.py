@@ -3,6 +3,8 @@
 Commands for analyzing AWS CDK (Python, TypeScript, JavaScript) code, detecting
 infrastructure security misconfigurations before deployment.
 """
+from __future__ import annotations
+
 
 import json
 from pathlib import Path
@@ -111,6 +113,15 @@ def analyze(root, db, severity, output_format, output):
       - Python CDK: Files must import aws_cdk or from aws_cdk
       - TypeScript/JavaScript CDK: Files must import from aws-cdk-lib
     """
+    # SANDBOX DELEGATION: Check if running in sandbox
+    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
+
+    if not is_in_sandbox():
+        # Not in sandbox - delegate to sandbox Python
+        import sys
+        exit_code = execute_in_sandbox("cdk", sys.argv[2:], root=root)
+        sys.exit(exit_code)
+
     from ..aws_cdk.analyzer import AWSCdkAnalyzer
 
     # Resolve database path relative to root if not absolute
@@ -122,7 +133,7 @@ def analyze(root, db, severity, output_format, output):
 
     if not db_path.exists():
         click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud index' first to extract CDK constructs.", err=True)
+        click.echo("Run 'aud full' first to extract CDK constructs.", err=True)
         raise SystemExit(3)
 
     try:

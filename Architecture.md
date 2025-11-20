@@ -299,7 +299,7 @@ graph TB
         F[Used by graph commands ONLY<br/>query, viz, analyze]
     end
 
-    G[aud index] --> A
+    G[aud full] --> A
     A --> B
     B --> C
 
@@ -450,10 +450,10 @@ mismatches = validate_all_tables(cursor)
 if mismatches:
     for table, issues in mismatches.items():
         print(f"{table}: {issues}")
-    # ERROR: Schema mismatch - run 'aud index'
+    # ERROR: Schema mismatch - run 'aud full'
 ```
 
-**Critical Rule**: NO database migrations. Database regenerated fresh every `aud index` run.
+**Critical Rule**: NO database migrations. Database regenerated fresh every `aud full` run.
 
 ---
 
@@ -981,7 +981,7 @@ sequenceDiagram
     participant FCE as Correlation Engine
     participant Report as Report Generator
 
-    CLI->>Indexer: aud index
+    CLI->>Indexer: aud full (includes indexing)
     Note over Indexer: 108 tables populated
 
     CLI->>Workset: aud workset
@@ -1196,7 +1196,7 @@ aud query --symbol authenticate  # O(log n) index lookup
 
 ### 4. Fresh Generation (No Migrations)
 
-**Database regenerated from scratch every `aud index` run**:
+**Database regenerated from scratch every `aud full` run**:
 - No schema migrations
 - No ALTER TABLE
 - No version tracking
@@ -1276,7 +1276,7 @@ Result: 1-2% false positive rate vs 5-10% for naive pattern matching.
 
 | Command | Small | Medium | Large |
 |---------|-------|--------|-------|
-| `aud index` | 30s | 60s | 180s |
+| `aud full` (indexing phase) | 30s | 60s | 180s |
 | `aud detect-patterns` | 5s | 15s | 45s |
 | `aud taint-analyze` | 10s | 30s | 90s |
 | `aud graph build` | 5s | 20s | 60s |

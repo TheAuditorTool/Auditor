@@ -20,6 +20,8 @@ TO USE IN HYBRID APPROACH:
 PRESERVED: 2025-10-11
 ===========================================================
 """
+from __future__ import annotations
+
 
 import json
 import os
@@ -48,7 +50,7 @@ class RustAnalyzerClient:
         """
         self.binary_path = binary_path
         self.workspace_dir = workspace_dir
-        self.process: Optional[subprocess.Popen] = None
+        self.process: subprocess.Popen | None = None
         self.request_id = 0
 
     def start(self) -> None:
@@ -64,7 +66,7 @@ class RustAnalyzerClient:
             text=True
         )
 
-    def initialize(self) -> Dict[str, Any]:
+    def initialize(self) -> dict[str, Any]:
         """
         Send initialize request to LSP server.
 
@@ -119,7 +121,7 @@ class RustAnalyzerClient:
             'textDocument': {'uri': file_uri}
         }))
 
-    def document_symbol(self, file_uri: str) -> List[Dict[str, Any]]:
+    def document_symbol(self, file_uri: str) -> list[dict[str, Any]]:
         """
         Query document symbols.
 
@@ -167,7 +169,7 @@ class RustAnalyzerClient:
         self.request_id += 1
         return self.request_id
 
-    def _build_request(self, method: str, params: Any) -> Dict[str, Any]:
+    def _build_request(self, method: str, params: Any) -> dict[str, Any]:
         """Build LSP request dict.
 
         Args:
@@ -184,7 +186,7 @@ class RustAnalyzerClient:
             'params': params
         }
 
-    def _build_notification(self, method: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_notification(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         """Build LSP notification dict.
 
         Args:
@@ -200,7 +202,7 @@ class RustAnalyzerClient:
             'params': params
         }
 
-    def _send_message(self, message_dict: Dict[str, Any]) -> None:
+    def _send_message(self, message_dict: dict[str, Any]) -> None:
         """Send LSP message (request or notification) with Content-Length header.
 
         Args:
@@ -213,15 +215,15 @@ class RustAnalyzerClient:
         self.process.stdin.write(message)
         self.process.stdin.flush()
 
-    def _send_request(self, request: Dict[str, Any]) -> None:
+    def _send_request(self, request: dict[str, Any]) -> None:
         """Send LSP request with Content-Length header."""
         self._send_message(request)
 
-    def _send_notification(self, notification: Dict[str, Any]) -> None:
+    def _send_notification(self, notification: dict[str, Any]) -> None:
         """Send LSP notification (no response expected)."""
         self._send_message(notification)
 
-    def _read_response(self) -> Dict[str, Any]:
+    def _read_response(self) -> dict[str, Any]:
         """Read single LSP response with Content-Length header."""
         # Read Content-Length header
         header_line = self.process.stdout.readline()
@@ -237,7 +239,7 @@ class RustAnalyzerClient:
         response_json = self.process.stdout.read(content_length)
         return json.loads(response_json)
 
-    def _read_response_with_id(self, expected_id: int, timeout: int = LSP_READ_TIMEOUT_SEC) -> Dict[str, Any]:
+    def _read_response_with_id(self, expected_id: int, timeout: int = LSP_READ_TIMEOUT_SEC) -> dict[str, Any]:
         """
         Read LSP response with specific ID, skipping notifications.
 
@@ -269,7 +271,7 @@ class RustAnalyzerClient:
         )
 
 
-def parse_lsp_symbols(lsp_symbols: List[Dict], content: str) -> List[Dict[str, Any]]:
+def parse_lsp_symbols(lsp_symbols: list[dict], content: str) -> list[dict[str, Any]]:
     """
     Parse LSP DocumentSymbol list into flat symbol list.
 
