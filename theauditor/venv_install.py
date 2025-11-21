@@ -1335,22 +1335,5 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         else:
             print("⚠ OSV-Scanner setup failed - vulnerability detection may be limited")
 
-        # Rust toolchain setup (rust-analyzer for Rust projects)
-        print("\nDetecting Rust projects...", flush=True)
-        from theauditor.toolboxes.rust import RustToolbox
-
-        rust_toolbox = RustToolbox()
-        if rust_toolbox.detect_project(target_dir):
-            print("  Rust project detected (Cargo.toml found)")
-            result = rust_toolbox.install()
-
-            if result['status'] in ['success', 'cached']:
-                check_mark = "[OK]"
-                print(f"    {check_mark} rust-analyzer installed: {result['path']}")
-                print(f"    {check_mark} Version: {result['version']}")
-            else:
-                print(f"    ⚠ rust-analyzer installation failed: {result.get('message', 'Unknown error')}")
-        else:
-            print("  No Rust project detected (Cargo.toml not found)")
 
     return venv_path, success

@@ -29,7 +29,6 @@ def extract_python_cfg(context: FileContext) -> list[dict[str, Any]]:
     Returns CFG data matching the database schema expectations.
     """
     cfg_data = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return cfg_data

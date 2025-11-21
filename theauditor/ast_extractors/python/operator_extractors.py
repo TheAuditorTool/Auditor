@@ -123,7 +123,6 @@ def extract_operators(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     operators = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return operators
@@ -203,7 +202,6 @@ def extract_membership_tests(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     membership_tests = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return membership_tests
@@ -249,7 +247,6 @@ def extract_chained_comparisons(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     chained_comparisons = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return chained_comparisons
@@ -301,7 +298,6 @@ def extract_ternary_expressions(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     ternary_expressions = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return ternary_expressions
@@ -347,7 +343,6 @@ def extract_walrus_operators(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     walrus_operators = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return walrus_operators
@@ -405,7 +400,6 @@ def extract_matrix_multiplication(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     matrix_mult = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return matrix_mult

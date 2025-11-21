@@ -120,7 +120,6 @@ def extract_python_functions(context: FileContext) -> list[dict]:
         List of function info dictionaries
     """
     functions = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return functions
@@ -267,7 +266,6 @@ def extract_python_functions(context: FileContext) -> list[dict]:
 def extract_python_classes(context: FileContext) -> list[dict]:
     """Extract class definitions from Python AST."""
     classes = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return classes
@@ -287,7 +285,6 @@ def extract_python_classes(context: FileContext) -> list[dict]:
 def extract_python_attribute_annotations(context: FileContext) -> list[dict]:
     """Extract type annotations declared on class or module attributes."""
     annotations: list[dict[str, Any]] = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return annotations
@@ -326,7 +323,6 @@ def extract_python_attribute_annotations(context: FileContext) -> list[dict]:
 def extract_python_imports(context: FileContext) -> list[dict[str, Any]]:
     """Extract import statements from Python AST."""
     imports = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return imports
@@ -351,7 +347,6 @@ def extract_python_exports(context: FileContext) -> list[dict[str, Any]]:
     In Python, all top-level functions, classes, and assignments are "exported".
     """
     exports = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return exports
@@ -388,7 +383,6 @@ def extract_python_assignments(context: FileContext) -> list[dict[str, Any]]:
     """Extract variable assignments from Python AST for data flow analysis."""
     import os
     assignments = []
-    context.tree = tree.get("tree")
 
     if os.environ.get("THEAUDITOR_DEBUG"):
         import sys
@@ -441,7 +435,6 @@ def extract_python_assignments(context: FileContext) -> list[dict[str, Any]]:
 def extract_python_function_params(context: FileContext) -> dict[str, list[str]]:
     """Extract function definitions and their parameter names from Python AST."""
     func_params = {}
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return func_params
@@ -453,21 +446,21 @@ def extract_python_function_params(context: FileContext) -> dict[str, list[str]]
     return func_params
 
 
-def extract_python_calls_with_args(tree: dict, function_params: dict[str, list[str]], parser_self,
+def extract_python_calls_with_args(context: FileContext,
+                                   function_params: dict[str, list[str]] = None,
                                    resolved_imports: dict[str, str] = None) -> list[dict[str, Any]]:
     """Extract Python function calls with argument mapping.
 
     Args:
-        tree: AST tree dictionary
-        function_params: Map of function names to parameter lists
-        parser_self: Parser instance
+        context: FileContext containing AST tree and node index
+        function_params: Map of function names to parameter lists (optional)
         resolved_imports: Map of imported names to their file paths (for cross-file taint analysis)
 
     Returns:
         List of call records with callee_file_path populated for local imports
     """
     calls = []
-    context.tree = tree.get("tree")
+    function_params = function_params or {}
     resolved_imports = resolved_imports or {}
 
     if not context.tree:
@@ -557,7 +550,6 @@ def extract_python_calls_with_args(tree: dict, function_params: dict[str, list[s
 def extract_python_returns(context: FileContext) -> list[dict[str, Any]]:
     """Extract return statements from Python AST."""
     returns = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return returns
@@ -623,7 +615,6 @@ def extract_python_properties(context: FileContext) -> list[dict]:
 def extract_python_calls(context: FileContext) -> list[dict]:
     """Extract function calls from Python AST."""
     calls = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return calls
@@ -658,7 +649,6 @@ def extract_python_dicts(context: FileContext) -> list[dict[str, Any]]:
         List of dict property records matching object_literals schema
     """
     object_literals = []
-    context.tree = tree.get("tree")
 
     if not context.tree or not isinstance(context.tree, ast.Module):
         return object_literals
@@ -752,7 +742,7 @@ def extract_python_dicts(context: FileContext) -> list[dict[str, Any]]:
         return records
 
     # Traverse AST to find all dict literals
-    for node in ast.walk(actual_tree):
+    for node in ast.walk(context.tree):
         # Pattern 1: Variable assignment with dict
         # x = {'key': 'value'}
         if isinstance(node, ast.Assign):
@@ -807,7 +797,6 @@ def extract_python_decorators(context: FileContext) -> list[dict[str, Any]]:
         List of decorator records
     """
     decorators = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return decorators
@@ -863,7 +852,6 @@ def extract_python_context_managers(context: FileContext) -> list[dict[str, Any]
         List of context manager records
     """
     context_managers = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return context_managers
@@ -902,7 +890,6 @@ def extract_generators(context: FileContext) -> list[dict[str, Any]]:
     - Resource exhaustion: Generator expressions in hot paths
     """
     generators = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return generators
 
@@ -950,3 +937,155 @@ def extract_generators(context: FileContext) -> list[dict[str, Any]]:
             })
 
     return generators
+
+
+def extract_variable_usage(context: FileContext) -> list[dict[str, Any]]:
+    """Extract ALL variable usage for complete data flow analysis.
+
+    This is critical for taint analysis, dead code detection, and
+    understanding the complete data flow in Python code.
+
+    Returns:
+        List of all variable usage records with read/write/delete operations
+    """
+    usage = []
+    if not isinstance(context.tree, ast.AST):
+        return usage
+
+    try:
+        # Build function ranges for accurate scope mapping
+        function_ranges = {}
+        class_ranges = {}
+
+        # First pass: Map all functions and classes
+        for node in context.walk_tree():
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+                    function_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+            elif isinstance(node, ast.ClassDef):
+                if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+                    class_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
+
+        # Helper to determine scope for a line number
+        def get_scope(line_no):
+            # Check if in a function
+            for fname, (start, end) in function_ranges.items():
+                if start <= line_no <= end:
+                    # Check if this function is inside a class
+                    for cname, (cstart, cend) in class_ranges.items():
+                        if cstart <= start <= cend:
+                            return f"{cname}.{fname}"
+                    return fname
+
+            # Check if in a class (but not in a method)
+            for cname, (start, end) in class_ranges.items():
+                if start <= line_no <= end:
+                    return cname
+
+            return "global"
+
+        # Second pass: Extract all variable usage
+        for node in context.walk_tree():
+            if isinstance(node, ast.Name) and hasattr(node, 'lineno'):
+                # Determine usage type based on context
+                usage_type = "read"
+                if isinstance(node.ctx, ast.Store):
+                    usage_type = "write"
+                elif isinstance(node.ctx, ast.Del):
+                    usage_type = "delete"
+                elif isinstance(node.ctx, ast.AugStore):
+                    usage_type = "augmented_write"  # +=, -=, etc.
+                elif isinstance(node.ctx, ast.Param):
+                    usage_type = "param"  # Function parameter
+
+                scope = get_scope(node.lineno)
+
+                usage.append({
+                    'line': node.lineno,
+                    'variable_name': node.id,
+                    'usage_type': usage_type,
+                    'in_component': scope,  # In Python, this is the function/class name
+                    'in_hook': '',  # Python doesn't have hooks
+                    'scope_level': 0 if scope == "global" else (2 if "." in scope else 1)
+                })
+
+            # Also track attribute access (e.g., self.var, obj.attr)
+            elif isinstance(node, ast.Attribute) and hasattr(node, 'lineno'):
+                # Build the full attribute chain
+                attr_chain = []
+                current = node
+                while isinstance(current, ast.Attribute):
+                    attr_chain.append(current.attr)
+                    current = current.value
+
+                # Add the base
+                if isinstance(current, ast.Name):
+                    attr_chain.append(current.id)
+
+                # Reverse to get correct order
+                full_name = ".".join(reversed(attr_chain))
+
+                # Determine usage type
+                usage_type = "read"
+                if isinstance(node.ctx, ast.Store):
+                    usage_type = "write"
+                elif isinstance(node.ctx, ast.Del):
+                    usage_type = "delete"
+
+                scope = get_scope(node.lineno)
+
+                usage.append({
+                    'line': node.lineno,
+                    'variable_name': full_name,
+                    'usage_type': usage_type,
+                    'in_component': scope,
+                    'in_hook': '',
+                    'scope_level': 0 if scope == "global" else (2 if "." in scope else 1)
+                })
+
+            # Track function/method calls as variable usage (the function name is "read")
+            elif isinstance(node, ast.Call) and hasattr(node, 'lineno'):
+                func_name = None
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    # Build the call chain
+                    attr_chain = []
+                    current = node.func
+                    while isinstance(current, ast.Attribute):
+                        attr_chain.append(current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        attr_chain.append(current.id)
+                    func_name = ".".join(reversed(attr_chain))
+
+                if func_name:
+                    scope = get_scope(node.lineno)
+                    usage.append({
+                        'line': node.lineno,
+                        'variable_name': func_name,
+                        'usage_type': 'call',  # Special type for function calls
+                        'in_component': scope,
+                        'in_hook': '',
+                        'scope_level': 0 if scope == "global" else (2 if "." in scope else 1)
+                    })
+
+        # Deduplicate while preserving order
+        seen = set()
+        deduped_usage = []
+        for use in usage:
+            key = (use['line'], use['variable_name'], use['usage_type'])
+            if key not in seen:
+                seen.add(key)
+                deduped_usage.append(use)
+
+        return deduped_usage
+
+    except Exception as e:
+        # HARD FAIL per ZERO FALLBACK POLICY
+        # Database is regenerated fresh every run - if extraction fails, must fix the bug
+        raise RuntimeError(
+            f"Variable extraction failed: {e}\n"
+            f"This indicates a bug in the extractor or malformed AST.\n"
+            f"DO NOT add fallback logic - fix the root cause."
+        ) from e

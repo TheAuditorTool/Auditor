@@ -1,6 +1,5 @@
 """Metadata collection commands for churn and coverage analysis."""
 
-
 import click
 from pathlib import Path
 from theauditor.utils.logger import setup_logger
@@ -101,15 +100,6 @@ def analyze_churn(root, days, output):
         # Custom output location
         aud metadata churn --output analysis/churn.json
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("metadata", sys.argv[2:], root=root)
-        sys.exit(exit_code)
-
     from theauditor.indexer.metadata_collector import MetadataCollector
     
     try:
@@ -171,15 +161,6 @@ def analyze_coverage(root, coverage_file, output):
         # Specify Node.js coverage file
         aud metadata coverage --coverage-file coverage/coverage-final.json
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("metadata", sys.argv[2:], root=root)
-        sys.exit(exit_code)
-
     from theauditor.indexer.metadata_collector import MetadataCollector
     
     try:
@@ -248,15 +229,6 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
         # Run churn only
         aud metadata analyze --skip-coverage
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("metadata", sys.argv[2:], root=root)
-        sys.exit(exit_code)
-
     from theauditor.indexer.metadata_collector import MetadataCollector
     
     try:

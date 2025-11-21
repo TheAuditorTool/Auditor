@@ -1,6 +1,5 @@
 """[DEPRECATED] Init command - now redirects to 'aud full' for data fidelity."""
 
-
 import time
 import click
 
@@ -98,15 +97,6 @@ def init(ctx, offline, quiet, exclude_self):
 
     ════════════════════════════════════════════════════════════════════════════════
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("init", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     # Print prominent deprecation warning (unless --quiet)
     if not quiet:
         click.echo("")

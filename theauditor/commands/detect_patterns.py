@@ -1,6 +1,5 @@
 """Detect universal runtime, DB, and logic patterns in code."""
 
-
 import click
 from pathlib import Path
 from theauditor.utils.helpers import get_self_exclusion_patterns
@@ -95,15 +94,6 @@ def detect_patterns(project_path, patterns, output_json, file_filter, max_rows, 
 
     Note: Use --with-ast for comprehensive analysis (default).
     Disable with --no-ast for quick scans."""
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("detect-patterns", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     from theauditor.pattern_loader import PatternLoader
     from theauditor.universal_detector import UniversalPatternDetector
     

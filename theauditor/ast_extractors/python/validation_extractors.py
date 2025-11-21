@@ -79,7 +79,6 @@ def _extract_list_of_strings(node) -> str | None:
 def extract_pydantic_validators(context: FileContext) -> list[dict]:
     """Extract Pydantic validator metadata."""
     validators: list[dict[str, Any]] = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return validators
 
@@ -141,7 +140,6 @@ def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
     - Nested schemas = complex validation chains (parity with Zod/Joi)
     """
     schemas = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return schemas
 
@@ -217,7 +215,6 @@ def extract_marshmallow_fields(context: FileContext) -> list[dict[str, Any]]:
     - Missing validate= = incomplete validation (parity with Zod refinements)
     """
     fields = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return fields
 
@@ -319,7 +316,6 @@ def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
     - ModelSerializer without field restrictions = over-exposure (parity with Express/Prisma)
     """
     serializers_list = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return serializers_list
 
@@ -407,7 +403,6 @@ def extract_drf_serializer_fields(context: FileContext) -> list[dict[str, Any]]:
     - Missing required= = optional input bypass (parity with Joi.required())
     """
     fields = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return fields
 
@@ -514,7 +509,6 @@ def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
     - Flask-WTF CSRF protection when using FlaskForm (parity with DRF)
     """
     forms_list = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return forms_list
 
@@ -584,7 +578,6 @@ def extract_wtforms_fields(context: FileContext) -> list[dict[str, Any]]:
     - Missing DataRequired = optional input bypass (parity with DRF required=True)
     """
     fields = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return fields
 

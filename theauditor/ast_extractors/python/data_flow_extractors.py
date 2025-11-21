@@ -104,7 +104,6 @@ def extract_io_operations(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Mock filesystem, call X, verify write occurred
     """
     io_operations = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return io_operations
@@ -343,7 +342,6 @@ def extract_parameter_return_flow(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X with param=5, assert return value = 10 (if transform is *2)
     """
     param_flows = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return param_flows
@@ -464,7 +462,6 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X with different outer variable values, verify behavior changes
     """
     closures = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return closures
@@ -473,9 +470,15 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
     # Map: function_name → (parent_function, defined_vars, line)
     function_hierarchy = {}
     function_locals = {}  # function_name → set of local variables
+    analyzed_functions = set()  # Track already analyzed functions to prevent recursion
 
     def analyze_function(node, parent_func='global'):
         """Recursively analyze function definitions."""
+        # Skip if already analyzed
+        if node in analyzed_functions:
+            return
+        analyzed_functions.add(node)
+
         func_name = node.name if hasattr(node, 'name') else f'lambda_{node.lineno}'
         is_lambda = isinstance(node, ast.Lambda)
 
@@ -496,25 +499,38 @@ def extract_closure_captures(context: FileContext) -> list[dict[str, Any]]:
             for arg in node.args.kwonlyargs:
                 local_vars.add(arg.arg)
 
-        # Find assignments (define new local variables)
+        # Find assignments (define new local variables) - only within this function
         if hasattr(node, 'body'):
             body = node.body if isinstance(node.body, list) else [node.body]
-            for stmt in context.find_nodes(ast.Assign):
-                for target in stmt.targets:
-                    if isinstance(target, ast.Name):
-                        local_vars.add(target.id)
+            # Walk only the body of this specific function
+            for stmt in ast.walk(node):
+                if isinstance(stmt, ast.Assign):
+                    for target in stmt.targets:
+                        if isinstance(target, ast.Name):
+                            local_vars.add(target.id)
 
         function_locals[func_name] = local_vars
 
         # Recursively analyze nested functions
+        # Important: Only look for nested functions directly within this function's body
         body = node.body if hasattr(node, 'body') else []
         if not isinstance(body, list):
             body = [body]
 
-        for child in body:
-            for nested in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                if nested != node:  # Avoid re-analyzing self
-                    analyze_function(nested, parent_func=func_name)
+        # Walk only the direct body of this function, not the entire tree
+        for child in ast.walk(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                if child != node:  # Avoid re-analyzing self
+                    # Check if this is directly nested (not a grandchild)
+                    # by verifying it's in the immediate body
+                    is_direct_child = False
+                    for body_item in body:
+                        if child in ast.walk(body_item):
+                            is_direct_child = True
+                            break
+                    if is_direct_child and child not in analyzed_functions:
+                        analyzed_functions.add(child)
+                        analyze_function(child, parent_func=func_name)
 
     # First pass: build function hierarchy
     for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -599,7 +615,6 @@ def extract_nonlocal_access(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X, verify outer Y value changed
     """
     nonlocal_accesses = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return nonlocal_accesses
@@ -677,7 +692,6 @@ def extract_conditional_calls(context: FileContext) -> list[dict[str, Any]]:
 
     Example hypothesis: "delete_all_users() is only called when user.is_admin is True"
     """
-    context.tree = tree.get("tree")
     if not context.tree:
         return []
 

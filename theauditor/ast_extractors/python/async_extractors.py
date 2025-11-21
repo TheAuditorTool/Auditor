@@ -40,7 +40,6 @@ def extract_async_functions(context: FileContext) -> list[dict[str, Any]]:
         List of async function records
     """
     async_functions = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return async_functions
@@ -80,7 +79,6 @@ def extract_await_expressions(context: FileContext) -> list[dict[str, Any]]:
         List of await expression records
     """
     awaits = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return awaits
@@ -125,7 +123,6 @@ def extract_async_generators(context: FileContext) -> list[dict[str, Any]]:
         List of async generator records
     """
     async_generators = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return async_generators

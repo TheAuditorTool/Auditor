@@ -116,7 +116,6 @@ def extract_regex_patterns(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     regex_patterns = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return regex_patterns
@@ -170,7 +169,6 @@ def extract_json_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     json_operations = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return json_operations
@@ -223,7 +221,6 @@ def extract_datetime_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     datetime_operations = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return datetime_operations
@@ -275,7 +272,6 @@ def extract_path_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     path_operations = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return path_operations
@@ -334,7 +330,6 @@ def extract_logging_patterns(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     logging_patterns = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return logging_patterns
@@ -374,7 +369,6 @@ def extract_threading_patterns(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     threading_patterns = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return threading_patterns
@@ -424,7 +418,6 @@ def extract_contextlib_patterns(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     contextlib_patterns = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return contextlib_patterns
@@ -497,7 +490,6 @@ def extract_type_checking(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     type_checking = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return type_checking

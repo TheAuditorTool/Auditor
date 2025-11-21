@@ -1,6 +1,5 @@
 """[DEPRECATED] Index command - now redirects to 'aud full' for data fidelity."""
 
-
 import time
 import click
 from theauditor.utils.error_handler import handle_exceptions
@@ -101,15 +100,6 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
 
     ════════════════════════════════════════════════════════════════════════════════
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("index", sys.argv[2:], root=root)
-        sys.exit(exit_code)
-
     # Print prominent deprecation warning (unless --quiet)
     if not quiet:
         click.echo("")

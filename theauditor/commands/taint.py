@@ -1,6 +1,5 @@
 """Perform taint analysis to detect security vulnerabilities via data flow tracking."""
 
-
 import sys
 import platform
 import click
@@ -259,15 +258,6 @@ def taint_analyze(db, output, max_depth, json, verbose, severity, rules, memory,
     Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
     (--use-cfg) reduces false positives by respecting conditional sanitization.
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("taint-analyze", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     from theauditor.taint import trace_taint, save_taint_analysis, normalize_taint_path
     from theauditor.config_runtime import load_runtime_config
     from theauditor.rules.orchestrator import RulesOrchestrator, RuleContext

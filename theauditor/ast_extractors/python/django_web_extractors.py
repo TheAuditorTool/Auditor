@@ -117,7 +117,6 @@ def extract_django_cbvs(context: FileContext) -> list[dict[str, Any]]:
     - http_method_names = attack surface enumeration
     """
     cbvs = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return cbvs
 
@@ -252,7 +251,6 @@ def extract_django_forms(context: FileContext) -> list[dict[str, Any]]:
     - ModelForm without validators = direct DB write risk
     """
     forms = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return forms
 
@@ -323,7 +321,6 @@ def extract_django_form_fields(context: FileContext) -> list[dict[str, Any]]:
     - Fields without custom validators = missing business logic checks
     """
     fields = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return fields
 
@@ -408,7 +405,6 @@ def extract_django_admin(context: FileContext) -> list[dict[str, Any]]:
     - search_fields without validation = SQL injection
     """
     admins = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return admins
 
@@ -518,7 +514,6 @@ def extract_django_middleware(context: FileContext) -> list[dict[str, Any]]:
     - Missing middleware hooks = incomplete security layer
     """
     middlewares = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return middlewares
 

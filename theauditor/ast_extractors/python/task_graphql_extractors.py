@@ -112,7 +112,6 @@ def extract_celery_tasks(context: FileContext) -> list[dict[str, Any]]:
     - Missing time_limit = infinite execution (DoS)
     """
     tasks = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return tasks
 
@@ -216,7 +215,6 @@ def extract_celery_task_calls(context: FileContext) -> list[dict[str, Any]]:
     - Queue bypass: apply_async with queue override
     """
     calls = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return calls
 
@@ -315,7 +313,6 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
     - Sensitive data operations (backups, cleanups)
     """
     schedules = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return schedules
 
@@ -419,7 +416,7 @@ def extract_celery_beat_schedules(context: FileContext) -> list[dict[str, Any]]:
 # GraphQL Resolver Extractors
 # ============================================================================
 
-def extract_graphene_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dict[str, Any]]:
+def extract_graphene_resolvers(context: FileContext) -> list[dict[str, Any]]:
     """Extract Graphene GraphQL resolver methods.
 
     Graphene pattern:
@@ -433,9 +430,7 @@ def extract_graphene_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[di
     """
     resolvers = []
 
-    if not tree or tree.get("type") != "python_ast":
-        return resolvers
-    if not root_node:
+    if not context or not context.tree:
         return resolvers
 
     for node in context.find_nodes(ast.ClassDef):
@@ -486,7 +481,7 @@ def extract_graphene_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[di
     return resolvers
 
 
-def extract_ariadne_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dict[str, Any]]:
+def extract_ariadne_resolvers(context: FileContext) -> list[dict[str, Any]]:
     """Extract Ariadne GraphQL resolver decorators.
 
     Ariadne patterns:
@@ -502,9 +497,7 @@ def extract_ariadne_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dic
     """
     resolvers = []
 
-    if not tree or tree.get("type") != "python_ast":
-        return resolvers
-    if not root_node:
+    if not context or not context.tree:
         return resolvers
 
     for node in context.walk_tree():
@@ -570,7 +563,7 @@ def extract_ariadne_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dic
     return resolvers
 
 
-def extract_strawberry_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[dict[str, Any]]:
+def extract_strawberry_resolvers(context: FileContext) -> list[dict[str, Any]]:
     """Extract Strawberry GraphQL resolver decorators.
 
     Strawberry patterns:
@@ -586,9 +579,7 @@ def extract_strawberry_resolvers(tree: dict[str, Any], ast_parser: Any) -> list[
     """
     resolvers = []
 
-    if not tree or tree.get("type") != "python_ast":
-        return resolvers
-    if not root_node:
+    if not context or not context.tree:
         return resolvers
 
     for node in context.find_nodes(ast.ClassDef):

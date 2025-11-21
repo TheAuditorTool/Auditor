@@ -40,7 +40,6 @@ def extract_protocols(context: FileContext) -> list[dict[str, Any]]:
         List of Protocol records
     """
     protocols = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return protocols
@@ -82,7 +81,6 @@ def extract_generics(context: FileContext) -> list[dict[str, Any]]:
         List of Generic records
     """
     generics = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return generics
@@ -129,7 +127,6 @@ def extract_typed_dicts(context: FileContext) -> list[dict[str, Any]]:
         List of TypedDict records
     """
     typed_dicts = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return typed_dicts
@@ -214,7 +211,6 @@ def extract_literals(context: FileContext) -> list[dict[str, Any]]:
         List of Literal usage records
     """
     literals = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return literals
@@ -255,7 +251,6 @@ def extract_overloads(context: FileContext) -> list[dict[str, Any]]:
         List of overload records
     """
     overloads = []
-    context.tree = tree.get("tree")
 
     if not context.tree:
         return overloads

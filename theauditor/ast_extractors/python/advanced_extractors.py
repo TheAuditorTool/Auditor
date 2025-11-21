@@ -66,10 +66,10 @@ def extract_namespace_packages(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
-    parent_map = _get_parent_map(tree_obj)
+    parent_map = _get_parent_map(context.tree)
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Attribute):
@@ -116,7 +116,7 @@ def extract_cached_property(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
     for node in context.find_nodes(ast.ClassDef):
@@ -165,7 +165,7 @@ def extract_descriptor_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
     for node in context.find_nodes(ast.ClassDef):
@@ -215,7 +215,7 @@ def extract_attribute_access_protocol(context: FileContext) -> list[dict[str, An
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
     for node in context.find_nodes(ast.ClassDef):
@@ -266,7 +266,7 @@ def extract_copy_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
     for node in context.find_nodes(ast.ClassDef):
@@ -313,10 +313,10 @@ def extract_ellipsis_usage(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
-    parent_map = _get_parent_map(tree_obj)
+    parent_map = _get_parent_map(context.tree)
 
     for node in context.walk_tree():
         if isinstance(node, ast.Constant) and node.value is ...:
@@ -364,10 +364,10 @@ def extract_bytes_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
-    parent_map = _get_parent_map(tree_obj)
+    parent_map = _get_parent_map(context.tree)
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):
@@ -431,10 +431,10 @@ def extract_exec_eval_compile(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     results = []
-    if not tree_obj:
+    if not context.tree:
         return results
 
-    parent_map = _get_parent_map(tree_obj)
+    parent_map = _get_parent_map(context.tree)
 
     for node in context.find_nodes(ast.Call):
         if isinstance(node.func, ast.Name):

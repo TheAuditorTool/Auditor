@@ -99,7 +99,6 @@ def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Test with varying input sizes, measure execution time
     """
     loop_patterns = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return loop_patterns
@@ -230,7 +229,6 @@ def extract_resource_usage(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Measure memory usage before/after function call
     """
     resource_patterns = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return resource_patterns
@@ -316,7 +314,6 @@ def extract_memoization_patterns(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Test performance with/without memoization, measure speedup
     """
     memoization_patterns = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return memoization_patterns

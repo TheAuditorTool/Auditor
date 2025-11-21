@@ -1,10 +1,9 @@
 """Analyze Claude Code session interactions."""
 
-
 import click
 import json
 from pathlib import Path
-from datetime import datetime, timezone, UTC
+from datetime import datetime, timezone
 
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.session.parser import SessionParser, load_session
@@ -36,15 +35,6 @@ def analyze(session_dir):
 
     Stores results to persistent .pf/ml/session_history.db for ML training.
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("session", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     from pathlib import Path
 
     root_path = Path.cwd()
@@ -102,15 +92,6 @@ def analyze(session_dir):
 @handle_exceptions
 def report(project_path, db_path, limit, show_findings):
     """Generate detailed report of Claude Code sessions (legacy analyzer)."""
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("session", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     if project_path is None:
         project_path = str(Path.cwd())
 
@@ -135,7 +116,7 @@ def report(project_path, db_path, limit, show_findings):
 
     # Sort by most recent first
     all_sessions.sort(
-        key=lambda s: s.assistant_messages[0].datetime if s.assistant_messages else datetime.min.replace(tzinfo=UTC),
+        key=lambda s: s.assistant_messages[0].datetime if s.assistant_messages else datetime.min.replace(tzinfo=timezone.utc),
         reverse=True
     )
 

@@ -16,8 +16,9 @@ These extractors identify Django-specific patterns for:
 All extractors follow architectural contract: NO file_path in results.
 """
 from theauditor.ast_extractors.python.utils.context import FileContext
-
-
+from theauditor.ast_extractors.base import get_node_name
+import ast
+import json
 from typing import Dict, List, Any
 
 
@@ -47,77 +48,79 @@ def extract_django_signals(context: FileContext) -> list[dict[str, Any]]:
     """
     results = []
 
+    if not context.tree:
+        return results
+
     # Signal() instantiation: my_signal = Signal()
-    for assign in tree.get('assignments', []):
-        if 'Signal(' in assign.get('value', ''):
-            signal_name = assign.get('target', 'unknown')
-            value = assign.get('value', '')
+    for node in context.find_nodes(ast.Assign):
+        # Check if value is a Signal() call
+        if isinstance(node.value, ast.Call):
+            func_name = get_node_name(node.value.func)
+            if func_name and 'Signal' in func_name:
+                # Get the signal name from assignment target
+                signal_name = 'unknown'
+                if node.targets and isinstance(node.targets[0], ast.Name):
+                    signal_name = node.targets[0].id
 
-            # Extract providing_args if present
-            providing_args = '[]'
-            if 'providing_args=' in value:
-                # Simple extraction - could be improved with AST parsing
-                start = value.find('providing_args=')
-                if start != -1:
-                    # Extract the list
-                    rest = value[start + len('providing_args='):]
-                    if rest.startswith('['):
-                        end = rest.find(']')
-                        if end != -1:
-                            providing_args = rest[:end + 1]
+                # Extract providing_args if present
+                providing_args = []
+                for keyword in node.value.keywords:
+                    if keyword.arg == 'providing_args':
+                        if isinstance(keyword.value, ast.List):
+                            for elt in keyword.value.elts:
+                                if isinstance(elt, ast.Constant):
+                                    providing_args.append(elt.value)
 
-            results.append({
-                'line': assign.get('line', 0),
-                'signal_name': signal_name,
-                'signal_type': 'definition',
-                'providing_args': providing_args,
-                'sender': None,
-                'receiver_function': None
-            })
+                results.append({
+                    'line': node.lineno,
+                    'signal_name': signal_name,
+                    'signal_type': 'definition',
+                    'providing_args': json.dumps(providing_args),
+                    'sender': None,
+                    'receiver_function': None
+                })
 
     # signal.connect() calls
-    for call in tree.get('function_calls', []):
-        if '.connect(' in call.get('function', ''):
-            # Extract signal name from "my_signal.connect"
-            func_name = call.get('function', '')
-            if '.' in func_name:
-                signal_name = func_name.split('.connect')[0]
-            else:
-                signal_name = 'unknown'
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr == 'connect':
+                # Get signal name from the object
+                signal_name = get_node_name(node.func.value) or 'unknown'
 
-            # Try to extract receiver function from arguments
-            receiver_function = None
-            args = call.get('arguments', [])
-            if args and len(args) > 0:
-                receiver_function = args[0].get('value', 'unknown')
+                # Try to extract receiver function from arguments
+                receiver_function = None
+                if node.args:
+                    receiver_function = get_node_name(node.args[0])
 
-            # Try to extract sender from keyword arguments
-            sender = None
-            for arg in args:
-                if arg.get('name') == 'sender':
-                    sender = arg.get('value', 'unknown')
+                # Try to extract sender from keyword arguments
+                sender = None
+                for keyword in node.keywords:
+                    if keyword.arg == 'sender':
+                        sender = get_node_name(keyword.value)
 
-            results.append({
-                'line': call.get('line', 0),
-                'signal_name': signal_name,
-                'signal_type': 'connection',
-                'providing_args': '[]',
-                'sender': sender,
-                'receiver_function': receiver_function
-            })
+                results.append({
+                    'line': node.lineno,
+                    'signal_name': signal_name,
+                    'signal_type': 'connection',
+                    'providing_args': '[]',
+                    'sender': sender,
+                    'receiver_function': receiver_function
+                })
 
     # Custom Signal subclasses
-    for cls in tree.get('classes', []):
-        bases = cls.get('bases', [])
-        if any('Signal' in base for base in bases):
-            results.append({
-                'line': cls.get('line', 0),
-                'signal_name': cls.get('name', 'unknown'),
-                'signal_type': 'custom',
-                'providing_args': '[]',
-                'sender': None,
-                'receiver_function': None
-            })
+    for node in context.find_nodes(ast.ClassDef):
+        for base in node.bases:
+            base_name = get_node_name(base)
+            if base_name and 'Signal' in base_name:
+                results.append({
+                    'line': node.lineno,
+                    'signal_name': node.name,
+                    'signal_type': 'custom',
+                    'providing_args': '[]',
+                    'sender': None,
+                    'receiver_function': None
+                })
+                break
 
     return results
 
@@ -147,51 +150,44 @@ def extract_django_receivers(context: FileContext) -> list[dict[str, Any]]:
     """
     results = []
 
+    if not context.tree:
+        return results
+
     # Find all functions with @receiver decorator
-    for func in tree.get('functions', []):
-        decorators = func.get('decorators', [])
+    for node in context.find_nodes(ast.FunctionDef):
+        for decorator in node.decorator_list:
+            decorator_name = get_node_name(decorator)
 
-        for decorator in decorators:
-            if 'receiver' in decorator.get('name', ''):
-                # Extract signal names from decorator arguments
-                signals = []
-                sender = None
-                is_weak = False
+            # Check for @receiver decorator
+            if isinstance(decorator, ast.Call):
+                func_name = get_node_name(decorator.func)
+                if func_name and 'receiver' in func_name:
+                    # Extract signal names from decorator arguments
+                    signals = []
+                    sender = None
+                    is_weak = False
 
-                # Parse decorator string to extract signals
-                # Format: @receiver(post_save, sender=MyModel)
-                decorator_str = decorator.get('name', '')
+                    # Get signal from positional arguments
+                    for arg in decorator.args:
+                        signal_name = get_node_name(arg)
+                        if signal_name:
+                            signals.append(signal_name)
 
-                # Simple extraction - get first argument as signal
-                if '(' in decorator_str:
-                    args_str = decorator_str[decorator_str.find('(') + 1:decorator_str.rfind(')')]
-                    parts = args_str.split(',')
+                    # Get sender and weak from keyword arguments
+                    for keyword in decorator.keywords:
+                        if keyword.arg == 'sender':
+                            sender = get_node_name(keyword.value)
+                        elif keyword.arg == 'weak':
+                            if isinstance(keyword.value, ast.Constant):
+                                is_weak = keyword.value.value is True
 
-                    for part in parts:
-                        part = part.strip()
-                        if '=' in part:
-                            # Keyword argument
-                            key, val = part.split('=', 1)
-                            key = key.strip()
-                            val = val.strip()
-
-                            if key == 'sender':
-                                sender = val
-                            elif key == 'weak':
-                                is_weak = val.lower() == 'true'
-                        else:
-                            # Positional argument - signal name
-                            if part and part not in ['receiver', '']:
-                                signals.append(part)
-
-                import json
-                results.append({
-                    'line': func.get('line', 0),
-                    'function_name': func.get('name', 'unknown'),
-                    'signals': json.dumps(signals),
-                    'sender': sender,
-                    'is_weak': is_weak
-                })
+                    results.append({
+                        'line': node.lineno,
+                        'function_name': node.name,
+                        'signals': json.dumps(signals),
+                        'sender': sender,
+                        'is_weak': is_weak
+                    })
 
     return results
 
@@ -221,32 +217,30 @@ def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
     """
     results = []
 
-    # Find Manager subclasses
-    for cls in tree.get('classes', []):
-        bases = cls.get('bases', [])
+    if not context.tree:
+        return results
 
+    # Find Manager subclasses
+    for node in context.find_nodes(ast.ClassDef):
         # Check if inherits from Manager or BaseManager
         manager_base = None
-        for base in bases:
-            if 'Manager' in base:
-                manager_base = base
+        for base in node.bases:
+            base_name = get_node_name(base)
+            if base_name and 'Manager' in base_name:
+                manager_base = base_name
                 break
 
         if manager_base:
-            # Extract custom methods
-            methods = cls.get('methods', [])
+            # Extract custom methods (non-private, non-special)
             custom_methods = []
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef):
+                    if not item.name.startswith('_') and item.name not in ['get_queryset']:
+                        custom_methods.append(item.name)
 
-            for method in methods:
-                method_name = method.get('name', '')
-                # Exclude special methods and get_queryset
-                if not method_name.startswith('_') and method_name not in ['get_queryset']:
-                    custom_methods.append(method_name)
-
-            import json
             results.append({
-                'line': cls.get('line', 0),
-                'manager_name': cls.get('name', 'unknown'),
+                'line': node.lineno,
+                'manager_name': node.name,
                 'base_class': manager_base,
                 'custom_methods': json.dumps(custom_methods),
                 'model_assignment': None
@@ -254,27 +248,22 @@ def extract_django_managers(context: FileContext) -> list[dict[str, Any]]:
 
     # Find manager assignments in models
     # Pattern: objects = MyManager()
-    for cls in tree.get('classes', []):
-        # Check if this is a Model class
-        bases = cls.get('bases', [])
-        is_model = any('Model' in base for base in bases)
-
-        if is_model:
-            # Look for .objects assignments in class body
-            for assign in tree.get('assignments', []):
-                if assign.get('target', '').endswith('.objects'):
-                    # Extract model name and manager
-                    target = assign.get('target', '')
-                    model_name = target.split('.')[0] if '.' in target else 'unknown'
-                    manager_value = assign.get('value', '')
-
-                    results.append({
-                        'line': assign.get('line', 0),
-                        'manager_name': manager_value.replace('()', '').replace('=', '').strip(),
-                        'base_class': 'Manager',
-                        'custom_methods': '[]',
-                        'model_assignment': f'{model_name}.objects'
-                    })
+    for node in context.find_nodes(ast.Assign):
+        # Check if assigning to 'objects' attribute
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == 'objects':
+                # Check if we're inside a Model class
+                # This is a simplified check - in production we'd track scope properly
+                if isinstance(node.value, ast.Call):
+                    manager_name = get_node_name(node.value.func)
+                    if manager_name and 'Manager' in manager_name:
+                        results.append({
+                            'line': node.lineno,
+                            'manager_name': manager_name,
+                            'base_class': 'Manager',
+                            'custom_methods': '[]',
+                            'model_assignment': 'objects'
+                        })
 
     return results
 
@@ -306,39 +295,40 @@ def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
     """
     results = []
 
-    # Find QuerySet subclasses
-    for cls in tree.get('classes', []):
-        bases = cls.get('bases', [])
+    if not context.tree:
+        return results
 
+    # Find QuerySet subclasses
+    for node in context.find_nodes(ast.ClassDef):
         # Check if inherits from QuerySet
         queryset_base = None
-        for base in bases:
-            if 'QuerySet' in base:
-                queryset_base = base
+        for base in node.bases:
+            base_name = get_node_name(base)
+            if base_name and 'QuerySet' in base_name:
+                queryset_base = base_name
                 break
 
         if queryset_base:
             # Extract custom methods
-            methods = cls.get('methods', [])
             custom_methods = []
+            for item in node.body:
+                if isinstance(item, ast.FunctionDef):
+                    if not item.name.startswith('_'):
+                        custom_methods.append(item.name)
+
+            # Check for as_manager() usage
             has_as_manager = False
+            for call_node in context.find_nodes(ast.Call):
+                if isinstance(call_node.func, ast.Attribute):
+                    if call_node.func.attr == 'as_manager':
+                        obj_name = get_node_name(call_node.func.value)
+                        if obj_name == node.name:
+                            has_as_manager = True
+                            break
 
-            for method in methods:
-                method_name = method.get('name', '')
-                # Exclude special methods
-                if not method_name.startswith('_'):
-                    custom_methods.append(method_name)
-
-            # Check for as_manager assignment
-            # Pattern: MyModel.objects = MyQuerySet.as_manager()
-            for assign in tree.get('assignments', []):
-                if cls.get('name', '') in assign.get('value', '') and 'as_manager()' in assign.get('value', ''):
-                    has_as_manager = True
-
-            import json
             results.append({
-                'line': cls.get('line', 0),
-                'queryset_name': cls.get('name', 'unknown'),
+                'line': node.lineno,
+                'queryset_name': node.name,
                 'base_class': queryset_base,
                 'custom_methods': json.dumps(custom_methods),
                 'has_as_manager': has_as_manager,
@@ -347,24 +337,34 @@ def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
 
     # Find queryset method chains
     # Pattern: Model.objects.filter().exclude().order_by()
-    for call in tree.get('function_calls', []):
-        func_name = call.get('function', '')
+    queryset_methods = ['filter', 'exclude', 'order_by', 'select_related', 'prefetch_related',
+                       'annotate', 'aggregate', 'values', 'values_list', 'distinct']
 
-        # Check for queryset method chains
-        queryset_methods = ['filter', 'exclude', 'order_by', 'select_related', 'prefetch_related',
-                           'annotate', 'aggregate', 'values', 'values_list', 'distinct']
+    for node in context.find_nodes(ast.Call):
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr in queryset_methods:
+                # Build the method chain by traversing the AST
+                chain_parts = []
+                current = node
+                while isinstance(current, ast.Call) and isinstance(current.func, ast.Attribute):
+                    if current.func.attr in queryset_methods:
+                        chain_parts.append(current.func.attr)
+                    current = current.func.value
+                    if isinstance(current, ast.Call):
+                        continue
+                    else:
+                        break
 
-        if any(f'.{method}(' in func_name for method in queryset_methods):
-            # Extract the full chain
-            method_chain = func_name
-
-            results.append({
-                'line': call.get('line', 0),
-                'queryset_name': 'chain',
-                'base_class': 'QuerySet',
-                'custom_methods': '[]',
-                'has_as_manager': False,
-                'method_chain': method_chain
-            })
+                # Only record if we found a chain
+                if len(chain_parts) > 1:
+                    method_chain = '.'.join(reversed(chain_parts))
+                    results.append({
+                        'line': node.lineno,
+                        'queryset_name': 'chain',
+                        'base_class': 'QuerySet',
+                        'custom_methods': '[]',
+                        'has_as_manager': False,
+                        'method_chain': method_chain
+                    })
 
     return results

@@ -25,6 +25,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ..base import get_node_name
+from .utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +206,7 @@ def _serialize_property_value(value_node: ast.AST) -> str:
 # Main Extraction Function
 # ============================================================================
 
-def extract_python_cdk_constructs(tree_dict: dict[str, Any], parser_self=None) -> list[dict]:
+def extract_python_cdk_constructs(context: FileContext) -> list[dict]:
     """Extract AWS CDK construct instantiations from Python AST.
 
     Walks the AST to find CDK construct calls and extracts:
@@ -215,8 +216,7 @@ def extract_python_cdk_constructs(tree_dict: dict[str, Any], parser_self=None) -
     - Properties (keyword arguments) with serialized values
 
     Args:
-        tree_dict: AST tree dictionary with 'type' and 'tree' keys
-        parser_self: Optional parser instance (unused, for signature compatibility)
+        context: FileContext containing AST tree and node index
 
     Returns:
         List of construct dictionaries, each containing:
@@ -245,11 +245,7 @@ def extract_python_cdk_constructs(tree_dict: dict[str, Any], parser_self=None) -
     """
     constructs = []
 
-    # Extract actual AST tree from dict
-    if not tree_dict or tree_dict.get('type') != 'python_ast':
-        return constructs
-
-    context.tree = tree_dict.get('tree')
+    # Check if we have a valid tree
     if not context.tree:
         return constructs
 

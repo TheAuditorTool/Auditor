@@ -104,7 +104,6 @@ def extract_instance_mutations(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X, check object.Y before/after
     """
     mutations = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return mutations
@@ -225,7 +224,6 @@ def extract_class_mutations(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Monitor ClassName.Y before/after calling X
     """
     mutations = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return mutations
@@ -308,7 +306,6 @@ def extract_global_mutations(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Monitor global variable before/after calling X
     """
     mutations = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return mutations
@@ -427,7 +424,6 @@ def extract_argument_mutations(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Pass mutable argument, check state before/after
     """
     mutations = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return mutations
@@ -608,7 +604,6 @@ def extract_augmented_assignments(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Monitor target variable before/after in-place operation
     """
     mutations = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return mutations

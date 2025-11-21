@@ -1,6 +1,5 @@
 """Generate comprehensive audit summary from all analysis phases."""
 
-
 import json
 import sqlite3
 import time
@@ -101,15 +100,6 @@ def summary(root, raw_dir, out):
       aud full      # Run all analysis first
       aud report    # Generate AI chunks
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("summary", sys.argv[2:], root=root)
-        sys.exit(exit_code)
-
     start_time = time.time()
     raw_path = Path(raw_dir)
 
@@ -130,12 +120,12 @@ def summary(root, raw_dir, out):
     }
 
     # Helper function to safely load JSON
-    def load_json(file_path: Path) -> dict[str, Any]:
+    def load_json(file_path: Path) -> Dict[str, Any]:
         if file_path.exists():
             try:
-                with open(file_path, encoding='utf-8') as f:
+                with open(file_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, IOError):
                 pass
         return {}
 
@@ -154,7 +144,7 @@ def summary(root, raw_dir, out):
     if framework_list:
         audit_summary["metrics_by_phase"]["detect_frameworks"] = {
             "frameworks_detected": len(framework_list),
-            "languages": list({f.get("language", "") for f in framework_list})
+            "languages": list(set(f.get("language", "") for f in framework_list))
         }
 
     # Phase 3: Dependencies
@@ -281,7 +271,7 @@ def summary(root, raw_dir, out):
             "total_findings": len(terraform_findings),
             "by_severity": terraform_by_severity,
             "by_category": terraform_by_category,
-            "resources_analyzed": len({f.get("resource_id", "") for f in terraform_findings if f.get("resource_id")})
+            "resources_analyzed": len(set(f.get("resource_id", "") for f in terraform_findings if f.get("resource_id")))
         }
 
         # Add to total
@@ -331,7 +321,7 @@ def summary(root, raw_dir, out):
     pipeline_log = Path(root) / ".pf" / "pipeline.log"
     if pipeline_log.exists():
         try:
-            with open(pipeline_log) as f:
+            with open(pipeline_log, 'r') as f:
                 for line in f:
                     if "[TIME] Total time:" in line:
                         # Extract seconds from line like "[TIME] Total time: 73.0s"
@@ -354,7 +344,7 @@ def summary(root, raw_dir, out):
     click.echo(f"  Critical: {severity_counts['critical']}, High: {severity_counts['high']}, Medium: {severity_counts['medium']}, Low: {severity_counts['low']}")
 
 
-def _load_frameworks_from_db(project_path: Path) -> list[dict]:
+def _load_frameworks_from_db(project_path: Path) -> List[Dict]:
     """Load frameworks from database (not output files).
 
     Args:

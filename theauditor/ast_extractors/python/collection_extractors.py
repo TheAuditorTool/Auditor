@@ -150,7 +150,6 @@ def extract_dict_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     dict_ops = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return dict_ops
@@ -195,7 +194,6 @@ def extract_list_mutations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     list_mutations = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return list_mutations
@@ -238,7 +236,6 @@ def extract_set_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     set_ops = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return set_ops
@@ -278,7 +275,6 @@ def extract_string_methods(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     string_methods = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return string_methods
@@ -318,7 +314,6 @@ def extract_builtin_usage(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     builtins = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return builtins
@@ -367,7 +362,6 @@ def extract_itertools_usage(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     itertools_usage = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return itertools_usage
@@ -419,7 +413,6 @@ def extract_functools_usage(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     functools_usage = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return functools_usage
@@ -475,7 +468,6 @@ def extract_collections_usage(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     collections_usage = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return collections_usage

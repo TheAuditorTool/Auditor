@@ -1,6 +1,5 @@
 """Cross-project dependency and call graph analysis."""
 
-
 import json
 from pathlib import Path
 import click
@@ -74,14 +73,7 @@ def graph():
       .pf/raw/graph_analysis.json     # Cycles, hotspots, metrics
       .pf/raw/graph_summary.json      # AI-readable summary
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("graph", sys.argv[2:], root=".")
-        sys.exit(exit_code)
+    pass
 
 
 @graph.command("build")
@@ -167,7 +159,7 @@ def graph_build(root, langs, workset, batch_size, resume, db, out_json):
         manifest_path = Path(config["paths"]["manifest"])
         if manifest_path.exists():
             click.echo("Loading file manifest...")
-            with open(manifest_path, encoding='utf-8') as f:
+            with open(manifest_path, 'r', encoding='utf-8') as f:
                 manifest_data = json.load(f)
             
             # Apply workset filtering if active

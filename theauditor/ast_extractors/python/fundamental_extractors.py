@@ -216,7 +216,6 @@ def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
     Enables curriculum: Chapter 9 - Comprehensions and generators
     """
     comprehensions = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return comprehensions
@@ -350,7 +349,6 @@ def extract_lambda_functions(context: FileContext) -> list[dict[str, Any]]:
     Enables curriculum: Chapter 8 - Lambda functions and closures
     """
     lambda_functions = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return lambda_functions
@@ -450,7 +448,6 @@ def extract_slice_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     slices = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return slices
@@ -500,7 +497,6 @@ def extract_tuple_operations(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     tuple_ops = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return tuple_ops
@@ -557,7 +553,6 @@ def extract_unpacking_patterns(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     unpacking = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return unpacking
@@ -640,7 +635,6 @@ def extract_none_patterns(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     none_patterns = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return none_patterns
@@ -688,7 +682,6 @@ def extract_truthiness_patterns(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     truthiness = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return truthiness
@@ -738,7 +731,6 @@ def extract_string_formatting(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     formatting = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return formatting
