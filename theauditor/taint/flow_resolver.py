@@ -474,7 +474,13 @@ class FlowResolver:
             return ("VULNERABLE", None)
 
     def _record_flow(self, source: str, sink: str, path: list[str], status: str, sanitizer_meta: dict | None) -> None:
-        """Write resolved flow to resolved_flow_audit table.
+        """Write resolved flow to resolved_flow_audit table with SEMANTIC DEDUPLICATION.
+
+        Optimization: "Truth over Noise".
+        We store only the SHORTEST path for every unique combination of:
+        (Source Node, Sink Node, Status, Sanitizer Method).
+
+        This reduces graph explosion (4k permutations) to distinct semantic outcomes (1-2 paths).
 
         Args:
             source: Entry point node ID (format: file::function::variable)
@@ -483,23 +489,81 @@ class FlowResolver:
             status: Flow classification (VULNERABLE, SANITIZED, or TRUNCATED)
             sanitizer_meta: Sanitizer metadata dict if flow is SANITIZED, None otherwise
         """
-        # Parse source node ID (file::function::variable)
+        # ------------------------------------------------------------------
+        # STEP 1: EXTRACT IDENTITY (THE FINGERPRINT)
+        # We parse the strings to get the clean file/variable names.
+        # This is the "Fingerprint" of the flow.
+        # ------------------------------------------------------------------
+
+        # Parse Source (file::function::variable)
         source_parts = source.split('::')
         source_file = source_parts[0] if len(source_parts) > 0 else ""
-        source_function = source_parts[1] if len(source_parts) > 1 else "global"
         source_pattern = source_parts[2] if len(source_parts) > 2 else source
 
-        # Parse sink node ID (file::function::variable)
+        # Parse Sink (file::function::variable)
         sink_parts = sink.split('::')
         sink_file = sink_parts[0] if len(sink_parts) > 0 else ""
-        sink_function = sink_parts[1] if len(sink_parts) > 1 else "global"
         sink_pattern = sink_parts[2] if len(sink_parts) > 2 else sink
+
+        # Handle the Sanitizer (This distinguishes "Safe" paths from "Unsafe" ones)
+        sanitizer_method = sanitizer_meta['method'] if sanitizer_meta else None
+
+        # How long is this new path?
+        current_length = len(path)
+
+        # ------------------------------------------------------------------
+        # STEP 2: CHECK FOR EXISTING CHAMPION
+        # We ask the DB: "Do you already have a path for this exact scenario?"
+        # ------------------------------------------------------------------
+        cursor = self.repo_conn.cursor()
+
+        # The Query: Look for a match on Source + Sink + Status + Sanitizer
+        query_sig = """
+            SELECT id, path_length FROM resolved_flow_audit
+            WHERE source_file = ? AND source_pattern = ?
+              AND sink_file = ? AND sink_pattern = ?
+              AND status = ?
+              -- SQL trick: checks if sanitizer matches OR both are NULL
+              AND (sanitizer_method = ? OR (sanitizer_method IS NULL AND ? IS NULL))
+              AND engine = 'FlowResolver'
+            LIMIT 1
+        """
+
+        cursor.execute(query_sig, (
+            source_file, source_pattern,
+            sink_file, sink_pattern,
+            status,
+            sanitizer_method, sanitizer_method
+        ))
+
+        existing = cursor.fetchone()
+
+        # ------------------------------------------------------------------
+        # STEP 3: THE DECISION MATRIX
+        # ------------------------------------------------------------------
+        if existing:
+            existing_id, existing_length = existing
+
+            # SCENARIO 1: The existing path is SHORTER or EQUAL.
+            # The new path is worse. Discard it.
+            if existing_length <= current_length:
+                return
+
+            # SCENARIO 2: The new path is BETTER (Shorter).
+            # The old path is obsolete. Delete it so we can replace it.
+            cursor.execute("DELETE FROM resolved_flow_audit WHERE id = ?", (existing_id,))
+
+        # ------------------------------------------------------------------
+        # STEP 4: STANDARD INSERT (Line Numbers + Hop Chain + DB Write)
+        # ------------------------------------------------------------------
 
         # Get line numbers from repo_index.db if available
         repo_cursor = self.repo_conn.cursor()
 
         # Try to get source line
         source_line = 0
+        # Use function context for more accurate line lookup
+        source_function = source_parts[1] if len(source_parts) > 1 else "global"
         repo_cursor.execute("""
             SELECT MIN(line) FROM assignments
             WHERE file = ? AND target_var = ?
@@ -511,6 +575,7 @@ class FlowResolver:
 
         # Try to get sink line
         sink_line = 0
+        sink_function = sink_parts[1] if len(sink_parts) > 1 else "global"
         repo_cursor.execute("""
             SELECT MIN(line) FROM function_call_args
             WHERE file = ? AND argument_expr LIKE ?
@@ -532,7 +597,6 @@ class FlowResolver:
             hop_chain.append(hop)
 
         # Insert into resolved_flow_audit table (matching core.py schema)
-        cursor = self.repo_conn.cursor()
         cursor.execute("""
             INSERT INTO resolved_flow_audit (
                 source_file, source_line, source_pattern,
@@ -552,7 +616,7 @@ class FlowResolver:
             status,  # status (VULNERABLE, SANITIZED, or TRUNCATED)
             sanitizer_meta['file'] if sanitizer_meta else None,  # sanitizer_file
             sanitizer_meta['line'] if sanitizer_meta else None,  # sanitizer_line
-            sanitizer_meta['method'] if sanitizer_meta else None,  # sanitizer_method
+            sanitizer_method,  # sanitizer_method (already extracted above)
             "FlowResolver"  # engine column
         ))
 
@@ -561,7 +625,7 @@ class FlowResolver:
         # Periodic commit for large datasets
         if self.flows_resolved % 1000 == 0:
             self.repo_conn.commit()
-            logger.debug(f"Recorded {self.flows_resolved} flows...")
+            logger.debug(f"Recorded {self.flows_resolved} semantic flows...")
 
     def _get_edge_type(self, from_node: str, to_node: str) -> str:
         """Get the edge type between two nodes from the graph.
