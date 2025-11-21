@@ -1,6 +1,6 @@
 # TheAuditor
 
-**Version 1.4.2-RC1** | Offline-First AI-Centric SAST & Code Intelligence Platform
+**Version 1.6.4** | Offline-First AI-Centric SAST & Code Intelligence Platform
 
 > Modern static analysis reimagined: Database-driven, AI-optimized, zero-fallback architecture for Python and JavaScript/TypeScript projects.
 
@@ -55,18 +55,21 @@ cat .pf/readthis/summary.json
 
 **Total**: 50+ CWE coverage, 15+ frameworks supported
 
-### 2. Taint Analysis (Cross-File Data Flow)
+### 2. Taint Analysis V3 (Cross-File Data Flow)
 
 ```bash
-aud taint-analyze
+aud taint --mode forward
 ```
 
-Traces untrusted data from **sources** (user input, API requests) to **sinks** (SQL queries, shell commands) across file boundaries:
+**Taint Engine V3** - Complete rewrite with 7x performance improvement:
 
-- **Multi-hop tracking**: Follows data through 5+ function calls
-- **Framework-aware**: Understands Flask routes, Express middleware, React props
-- **Context-sensitive**: Validates sanitization and escaping
-- **CFG-based**: Uses control flow graphs for reachable path verification
+- **Hybrid Analysis**: Forward DFS from entries + backward IFDS from sinks
+- **In-Memory Graph**: Entire data flow graph cached in memory (10x speedup)
+- **Semantic Deduplication**: 4000 path permutations reduced to 1-2 distinct flows
+- **ORM-Aware**: Automatically expands `user` → `user.posts` via database relationships
+- **Unified Sanitizers**: Single registry for Joi, Zod, express-validator, DOMPurify
+
+**Performance**: 6.6 minutes for 100K LOC (vs 45+ minutes in V2)
 
 **Detection Examples**:
 ```python
@@ -79,6 +82,8 @@ result = process_query(user_input)  # theauditor/api.py:42
 # Sink (detected as SQL injection)
 cursor.execute(f"SELECT * FROM {result}")  # theauditor/db.py:156
 ```
+
+See [TAINT_ARCHITECTURE.md](docs/TAINT_ARCHITECTURE.md) for technical details.
 
 ### 3. Architectural Intelligence
 
@@ -469,9 +474,11 @@ See [CONTRIBUTING_new.md](C:\Users\santa\Desktop\TheAuditor\CONTRIBUTING_new.md)
 
 ## Documentation
 
-- **Architecture**: [ARCHITECTURE_new.md](C:\Users\santa\Desktop\TheAuditor\ARCHITECTURE_new.md) - Complete 4-layer pipeline with Mermaid diagrams
-- **Usage Guide**: [HOWTOUSE_new.md](C:\Users\santa\Desktop\TheAuditor\HOWTOUSE_new.md) - All 40 commands with examples
-- **Contributing**: [CONTRIBUTING_new.md](C:\Users\santa\Desktop\TheAuditor\CONTRIBUTING_new.md) - Developer guidelines
+- **Indexer Architecture**: [docs/INDEXER_ARCHITECTURE.md](docs/INDEXER_ARCHITECTURE.md) - 4-layer pipeline, extractors, storage
+- **Taint Engine V3**: [docs/TAINT_ARCHITECTURE.md](docs/TAINT_ARCHITECTURE.md) - Flow resolver, ORM expansion, sanitizers
+- **CDK Analysis**: [docs/CDK_ARCHITECTURE.md](docs/CDK_ARCHITECTURE.md) - AWS CDK security scanning
+- **ML & Git Analysis**: [docs/ML_AND_GIT_TEMPORAL_ANALYSIS.md](docs/ML_AND_GIT_TEMPORAL_ANALYSIS.md) - Risk prediction
+- **Developer Guide**: [CLAUDE.md](CLAUDE.md) - Coding standards and conventions
 
 ---
 

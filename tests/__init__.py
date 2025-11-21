@@ -1,1 +1,0 @@
-"""TheAuditor test suite."""
