@@ -84,9 +84,8 @@ def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding
 
     Detection strategy:
     1. Query sql_queries for UPDATE/DELETE without WHERE
-    2. Query sql_queries for SELECT without
-        -- REMOVED LIMIT: was hiding bugs
-        . Query function_call_args for transaction patterns
+    2. Query sql_queries for SELECT without LIMIT
+    3. Query function_call_args for transaction patterns
     4. Check for missing rollback in transaction scope
     5. Detect SELECT *
     6. Find connection leaks
@@ -136,9 +135,7 @@ def find_sql_safety_issues(context: StandardRuleContext) -> list[StandardFinding
 def _find_update_without_where(cursor) -> list[StandardFinding]:
     """Find UPDATE statements without WHERE clause.
 
-    FIXED: Moved WHERE check to SQL (was hiding bugs with
-        -- REMOVED LIMIT: was hiding bugs
-        ).
+    FIXED: Moved WHERE check to SQL (was hiding bugs with LIMIT).
     Uses word boundary regex to avoid matching 'somewhere' or 'elsewhere'.
     """
     findings = []
@@ -183,9 +180,7 @@ def _find_update_without_where(cursor) -> list[StandardFinding]:
 def _find_delete_without_where(cursor) -> list[StandardFinding]:
     """Find DELETE statements without WHERE clause.
 
-    FIXED: Moved WHERE/TRUNCATE checks to SQL (was hiding bugs with
-        -- REMOVED LIMIT: was hiding bugs
-        ).
+    FIXED: Moved WHERE/TRUNCATE checks to SQL (was hiding bugs with LIMIT).
     """
     findings = []
 
@@ -229,9 +224,7 @@ def _find_delete_without_where(cursor) -> list[StandardFinding]:
 def _find_unbounded_queries(cursor, patterns: SQLSafetyPatterns) -> list[StandardFinding]:
     """Find SELECT queries without LIMIT that might return large datasets.
 
-    FIXED: Moved LIMIT/aggregate checks to SQL (was hiding bugs with
-        -- REMOVED LIMIT: was hiding bugs
-        ).
+    FIXED: Moved LIMIT/aggregate checks to SQL (was hiding bugs with LIMIT).
     """
     findings = []
 

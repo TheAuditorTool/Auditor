@@ -236,10 +236,10 @@ def run_command_chain(commands: list[tuple[str, list[str]]], root: str, chain_na
                     timeout=cmd_timeout  # Adaptive timeout based on command type
                 )
             
-            # Read outputs
-            with open(stdout_file, encoding='utf-8') as f:
+            # Read outputs (use errors='replace' for Windows CP1252 compatibility)
+            with open(stdout_file, encoding='utf-8', errors='replace') as f:
                 stdout = f.read()
-            with open(stderr_file, encoding='utf-8') as f:
+            with open(stderr_file, encoding='utf-8', errors='replace') as f:
                 stderr = f.read()
             
             # Clean up temp files
