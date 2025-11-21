@@ -314,15 +314,24 @@ class RulesOrchestrator:
                     continue
 
                 try:
+                    # NAME AND SHAME: Print before each rule to catch hangs
+                    import sys
+                    print(f"[ORCHESTRATOR] >> Starting rule: {category}/{rule.name}...", file=sys.stderr, end="", flush=True)
+
                     findings = self._execute_rule(rule, context)
+
+                    # Print completion with finding count
+                    print(f" Done. ({len(findings or [])} findings)", file=sys.stderr, flush=True)
+
                     if findings:
                         all_findings.extend(findings)
                         total_executed += 1
-                        
+
                         if self._debug:
                             print(f"[ORCHESTRATOR]   {rule.name}: {len(findings)} findings")
-                            
+
                 except Exception as e:
+                    print(f" FAILED: {e}", file=sys.stderr, flush=True)
                     if self._debug:
                         print(f"[ORCHESTRATOR] Warning: Rule {rule.name} failed: {e}")
         

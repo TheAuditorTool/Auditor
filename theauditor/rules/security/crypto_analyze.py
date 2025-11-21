@@ -333,9 +333,10 @@ def _determine_confidence(
         # Check line proximity
         # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
         #       Rewrite with JOIN or CTE to eliminate per-row queries
-        cursor.execute("SELECT line FROM function_call_args WHERE file = ? AND callee_function = ?
-        -- REMOVED LIMIT: was hiding bugs
-        ", [file, callee])
+        cursor.execute("""
+            SELECT line FROM function_call_args
+            WHERE file = ? AND callee_function = ?
+        """, [file, callee])
         func_line = cursor.fetchone()
         if func_line and abs(func_line[0] - line) <= 5:
             # Check if contains security operation
@@ -605,9 +606,9 @@ def _find_missing_salt(cursor) -> list[StandardFinding]:
             # Check line proximity
             # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
             #       Rewrite with JOIN or CTE to eliminate per-row queries
-            cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ?
-        -- REMOVED LIMIT: was hiding bugs
-        ", [file, var])
+            cursor.execute("""
+            SELECT line FROM assignments WHERE file = ? AND target_var = ?
+        """, [file, var])
             assign_line = cursor.fetchone()
             if assign_line and abs(assign_line[0] - line) <= 10:
                 # Check for salt in var or expr
@@ -865,9 +866,9 @@ def _find_missing_iv(cursor) -> list[StandardFinding]:
                 # Check line proximity
                 # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
                 #       Rewrite with JOIN or CTE to eliminate per-row queries
-                cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ?
-        -- REMOVED LIMIT: was hiding bugs
-        ", [file, var])
+                cursor.execute("""
+            SELECT line FROM assignments WHERE file = ? AND target_var = ?
+        """, [file, var])
                 assign_line = cursor.fetchone()
                 if assign_line and abs(assign_line[0] - line) <= 10:
                     # Check for iv/nonce in var or random in expr
