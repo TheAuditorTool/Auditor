@@ -38,7 +38,8 @@ METADATA = RuleMetadata(
     category="security",
     target_extensions=['.py', '.js', '.ts'],
     exclude_patterns=['test/', 'spec.', '__tests__'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope="database"  # Database-wide query, not per-file iteration
 )
 
 # ============================================================================
@@ -196,6 +197,8 @@ class CORSAnalyzer:
         self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
 
         for file, line, func, args in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not args:
                 continue
 
@@ -233,6 +236,8 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if variable name contains origin or cors
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             var_lower = var.lower()
             if not ('origin' in var_lower or 'cors' in var_lower):
                 continue
@@ -278,6 +283,8 @@ class CORSAnalyzer:
         """)
 
         for row in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             file, line, callee, args = row[0], row[1], row[2], row[3]
 
             # Check if contains 'null'
@@ -311,6 +318,8 @@ class CORSAnalyzer:
         """)
 
         for row in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             file, line, var, expr = row[0], row[1], row[2], row[3]
 
             # Check if variable contains origin or whitelist
@@ -354,6 +363,10 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if source expression contains origin header access
+            # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+            #       Rewrite with JOIN or CTE to eliminate per-row queries
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(pattern in expr for pattern in origin_patterns):
                 continue
 
@@ -375,6 +388,8 @@ class CORSAnalyzer:
 
             nearby_validation = []
             for callee, func_line, args in self.cursor.fetchall():
+                # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+                #       Move filtering logic to SQL WHERE clause for efficiency
                 if abs(func_line - line) > 10:
                     continue
 
@@ -419,6 +434,8 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if variable name contains origin or cors
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             var_lower = var.lower()
             if not ('origin' in var_lower or 'cors' in var_lower):
                 continue
@@ -470,6 +487,8 @@ class CORSAnalyzer:
         """)
 
         for row in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             file, line, var, expr = row[0], row[1], row[2], row[3]
 
             # Check if variable contains origin or cors
@@ -503,6 +522,8 @@ class CORSAnalyzer:
         """)
 
         for row in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             file, line, callee, args = row[0], row[1], row[2], row[3]
 
             # Check if CORS function
@@ -545,6 +566,8 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if variable contains origin or cors
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             var_lower = var.lower()
             if not ('origin' in var_lower or 'cors' in var_lower):
                 continue
@@ -591,6 +614,10 @@ class CORSAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is comparison function or contains indexOf/includes
+            # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+            #       Rewrite with JOIN or CTE to eliminate per-row queries
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not (func in comparison_funcs or 'indexOf' in func or 'includes' in func):
                 continue
 
@@ -609,6 +636,8 @@ class CORSAnalyzer:
             # Filter in Python for nearby case functions
             nearby_case = []
             for callee, func_line in self.cursor.fetchall():
+                # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+                #       Move filtering logic to SQL WHERE clause for efficiency
                 if abs(func_line - line) > 3:
                     continue
 
@@ -655,8 +684,8 @@ class CORSAnalyzer:
                 FROM function_call_args
                 WHERE file = ?
                   AND argument_expr IS NOT NULL
-                LIMIT 100
-            """, (file,))
+        -- REMOVED LIMIT: was hiding bugs
+        """, (file,))
 
             has_vary = False
             for (args,) in self.cursor.fetchall():
@@ -695,6 +724,8 @@ class CORSAnalyzer:
 
         for file, line, args in self.cursor.fetchall():
             # Check if contains Access-Control-Max-Age
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if 'Access-Control-Max-Age' not in args:
                 continue
 
@@ -734,6 +765,10 @@ class CORSAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if WebSocket handler
+            # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+            #       Rewrite with JOIN or CTE to eliminate per-row queries
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             is_websocket = (func in self.patterns.WEBSOCKET_HANDLERS or
                           (args and ('connection' in args or 'upgrade' in args)))
 
@@ -751,6 +786,8 @@ class CORSAnalyzer:
             # Filter in Python for nearby validation
             validation_count = 0
             for callee, func_line, func_args in self.cursor.fetchall():
+                # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+                #       Move filtering logic to SQL WHERE clause for efficiency
                 if abs(func_line - line) > 20:
                     continue
 
@@ -793,6 +830,8 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if variable contains origin or cors
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             var_lower = var.lower()
             if not ('origin' in var_lower or 'cors' in var_lower):
                 continue
@@ -843,6 +882,8 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if variable contains origin or cors
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             var_lower = var.lower()
             if not ('origin' in var_lower or 'cors' in var_lower):
                 continue
@@ -885,6 +926,8 @@ class CORSAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if variable contains origin or cors
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             var_lower = var.lower()
             if not ('origin' in var_lower or 'cors' in var_lower):
                 continue
@@ -924,6 +967,10 @@ class CORSAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if arguments contain 'cors'
+            # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+            #       Rewrite with JOIN or CTE to eliminate per-row queries
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if 'cors' not in args.lower():
                 continue
 
@@ -968,6 +1015,8 @@ class CORSAnalyzer:
 
             for file, line, func, args in self.cursor.fetchall():
                 # Check if args contain wildcard resources and credentials
+                # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+                #       Move filtering logic to SQL WHERE clause for efficiency
                 if not ('resources' in args and '/*' in args):
                     continue
 

@@ -34,7 +34,8 @@ METADATA = RuleMetadata(
     category="security",
     target_extensions=['.py', '.js', '.ts'],
     exclude_patterns=['test/', 'spec.', '__tests__'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope="database"  # Database-wide query, not per-file iteration
 )
 
 # ============================================================================
@@ -233,6 +234,8 @@ class ApiAuthAnalyzer:
 
         for file, line, method, pattern, controls_str in self.cursor.fetchall():
             # Parse controls from concatenated string
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             controls = controls_str.split('|') if controls_str else []
 
             # Convert to lowercase for matching
@@ -290,6 +293,8 @@ class ApiAuthAnalyzer:
 
         for file, line, method, pattern, controls_str in self.cursor.fetchall():
             # Check if pattern contains any sensitive operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             pattern_lower = pattern.lower() if pattern else ''
             if not any(sensitive in pattern_lower for sensitive in sensitive_patterns_lower):
                 continue
@@ -350,6 +355,8 @@ class ApiAuthAnalyzer:
 
         for field_name, field_line, schema_path, resolver_path, resolver_line, directives_json in self.cursor.fetchall():
             # Check for @auth directive on field
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             has_auth_directive = False
             if directives_json:
                 import json
@@ -456,6 +463,8 @@ class ApiAuthAnalyzer:
 
         for file, line, method, pattern, controls_str in self.cursor.fetchall():
             # Skip if this looks like a pure API endpoint
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if pattern and ('/api/' in pattern or '/v1/' in pattern or '/v2/' in pattern):
                 continue
 

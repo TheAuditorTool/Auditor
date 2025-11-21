@@ -11,10 +11,18 @@ This implementation:
 - Provides confidence scoring based on context
 - Maps all findings to privacy regulations (15 major regulations)
 - Supports international PII formats (50+ countries)
+- Relies on normalized endpoint/storage metadata to reduce substring-based noise
+
+False positive fixes (2025-11-22):
+- Credit: Token-based matching technique from external contributor @dev-corelift (PR #20)
+- Prevents false positives from generic fields like "message" (vs sms_history) and "className" (vs student_id)
+- Uses camelCase-aware identifier tokenization with LRU caching for performance
 """
 
 
+import re
 import sqlite3
+from functools import lru_cache
 from typing import List, Set, Dict, Optional, Tuple
 from pathlib import Path
 from enum import Enum
@@ -32,7 +40,8 @@ METADATA = RuleMetadata(
     category="security",
     target_extensions=['.py', '.js', '.ts', '.jsx', '.tsx'],
     exclude_patterns=['test/', 'spec.', '__tests__', 'demo/'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope="database"  # Database-wide query, not per-file iteration
 )
 
 # ============================================================================
@@ -803,6 +812,93 @@ def _organize_pii_patterns() -> dict[str, set[str]]:
         'quasi': QUASI_IDENTIFIERS
     }
 
+
+# ============================================================================
+# TOKEN-BASED MATCHING (False Positive Prevention)
+# Credit: @dev-corelift (PR #20)
+# ============================================================================
+
+_CAMEL_CASE_TOKEN_RE = re.compile(r'[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+')
+
+
+def _split_identifier_tokens(value: Optional[str]) -> List[str]:
+    """Split an identifier or arbitrary string into normalized tokens.
+
+    Handles camelCase, snake_case, kebab-case, and mixed patterns.
+    Prevents substring collisions like "message" matching "sms_history".
+
+    Examples:
+        >>> _split_identifier_tokens("className")
+        ['class', 'name']
+        >>> _split_identifier_tokens("sms_history")
+        ['sms', 'history']
+    """
+    if not value:
+        return []
+
+    tokens: List[str] = []
+
+    for chunk in re.split(r'[^0-9A-Za-z]+', value):
+        if not chunk:
+            continue
+        tokens.extend(_CAMEL_CASE_TOKEN_RE.findall(chunk))
+
+    return [token.lower() for token in tokens if token]
+
+
+@lru_cache(maxsize=4096)
+def _pattern_tokens(pattern: str) -> Tuple[str, ...]:
+    """Cached version of token splitting for PII patterns."""
+    return tuple(_split_identifier_tokens(pattern))
+
+
+def _match_pattern_tokens(tokens: Set[str], pattern: str) -> bool:
+    """Check if identifier tokens match a PII pattern.
+
+    Uses token-based matching to avoid substring collisions.
+    """
+    pattern_tokens = _pattern_tokens(pattern)
+    if not pattern_tokens:
+        return False
+    if len(pattern_tokens) == 1:
+        return pattern_tokens[0] in tokens
+    return all(token in tokens for token in pattern_tokens)
+
+
+def _detect_pii_matches(text: Optional[str], pii_categories: Dict[str, Set[str]]) -> List[Tuple[str, str]]:
+    """Detect PII patterns in text using token-based matching.
+
+    Returns list of (pattern, category) tuples for all matches.
+    """
+    tokens = set(_split_identifier_tokens(text))
+    if not tokens:
+        return []
+
+    matches: List[Tuple[str, str]] = []
+
+    for category, patterns in pii_categories.items():
+        for pattern in patterns:
+            if _match_pattern_tokens(tokens, pattern):
+                matches.append((pattern, category))
+
+    return matches
+
+
+def _detect_specific_pattern(text: Optional[str], patterns: Set[str]) -> Optional[str]:
+    """Detect if text matches any pattern from a specific set.
+
+    Returns the first matching pattern, or None.
+    """
+    tokens = set(_split_identifier_tokens(text))
+    if not tokens:
+        return None
+
+    for pattern in patterns:
+        if _match_pattern_tokens(tokens, pattern):
+            return pattern
+
+    return None
+
 # ============================================================================
 # HELPER: Determine Confidence
 # ============================================================================
@@ -910,16 +1006,17 @@ def _detect_pii_in_logging(cursor, pii_categories: dict) -> list[StandardFinding
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a logging function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(log_func in func for log_func in LOGGING_FUNCTIONS):
             continue
 
-        # Check for PII patterns in arguments
-        args_lower = args.lower()
-        detected_pii = []
-        for category, patterns in pii_categories.items():
-            for pattern in patterns:
-                if pattern in args_lower:
-                    detected_pii.append((pattern, category))
+        # Check for PII patterns using token-based matching
+        # Credit: @dev-corelift (PR #20) - Prevents "message" matching "sms_history"
+        if not args:
+            continue
+
+        detected_pii = _detect_pii_matches(args, pii_categories)
 
         if detected_pii:
             # Get the most critical PII type
@@ -964,6 +1061,10 @@ def _detect_pii_in_errors(cursor, pii_categories: dict) -> list[StandardFinding]
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is an error response function
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(resp_func in func for resp_func in ERROR_RESPONSE_FUNCTIONS):
             continue
 
@@ -997,13 +1098,9 @@ def _detect_pii_in_errors(cursor, pii_categories: dict) -> list[StandardFinding]
         in_error_context = catch_count > 0 or error_names > 0
 
         if in_error_context:
-            # Check for PII in error response
-            args_lower = args.lower()
-            detected_pii = []
-            for category, patterns in pii_categories.items():
-                for pattern in patterns:
-                    if pattern in args_lower:
-                        detected_pii.append((pattern, category))
+            # Check for PII in error response using token-based matching
+            # Credit: @dev-corelift (PR #20)
+            detected_pii = _detect_pii_matches(args, pii_categories)
 
             if detected_pii:
                 pii_pattern, pii_category = detected_pii[0]
@@ -1048,30 +1145,32 @@ def _detect_pii_in_urls(cursor, pii_categories: dict) -> list[StandardFinding]:
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a URL function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(url_func in func for url_func in url_functions):
             continue
 
         # Never put these in URLs
         critical_url_pii = {'password', 'ssn', 'credit_card', 'api_key', 'token',
-                           'bank_account', 'passport', 'drivers_license'}
+                            'bank_account', 'passport', 'drivers_license'}
 
-        args_lower = args.lower()
-        for pii in critical_url_pii:
-            if pii in args_lower:
-                findings.append(StandardFinding(
-                    rule_name='pii-in-url',
-                    message=f'Critical PII in URL: {pii}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    confidence=Confidence.HIGH,
-                    category='privacy',
-                    snippet=f'{func}(...{pii}=...)',
-                    cwe_id='CWE-598',  # Use of GET Request Method with Sensitive Query Strings
-                    additional_info={
-                        'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value]
-                    }
-                ))
+        # Use token-based matching - Credit: @dev-corelift (PR #20)
+        matched = _detect_specific_pattern(args, critical_url_pii)
+        if matched:
+            findings.append(StandardFinding(
+                rule_name='pii-in-url',
+                message=f'Critical PII in URL: {matched}',
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                category='privacy',
+                snippet=f'{func}(...{matched}=...)',
+                cwe_id='CWE-598',  # Use of GET Request Method with Sensitive Query Strings
+                additional_info={
+                    'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.CCPA.value]
+                }
+            ))
 
     return findings
 
@@ -1098,43 +1197,45 @@ def _detect_unencrypted_pii(cursor, pii_categories: dict) -> list[StandardFindin
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a storage function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(store_func in func for store_func in DATABASE_STORAGE_FUNCTIONS):
             continue
 
-        # Check for critical PII
-        args_lower = args.lower()
-        for pii in must_encrypt:
-            if pii in args_lower:
-                # Check if encryption is nearby
-                cursor.execute("""
-                    SELECT callee_function FROM function_call_args
-                    WHERE file = ?
-                      AND ABS(line - ?) <= 5
-                      AND callee_function IS NOT NULL
-                """, [file, line])
+        # Check for critical PII using token-based matching
+        # Credit: @dev-corelift (PR #20)
+        if not args:
+            continue
 
-                # Filter in Python for encryption functions
-                encryption_funcs = frozenset(['encrypt', 'hash', 'bcrypt'])
-                has_encryption = any(
-                    any(enc in (nearby_func or '').lower() for enc in encryption_funcs)
-                    for (nearby_func,) in cursor.fetchall()
-                )
+        matched = _detect_specific_pattern(args, must_encrypt)
+        if matched:
+            # Check if encryption is nearby
+            cursor.execute("""
+                SELECT COUNT(*) FROM function_call_args
+                WHERE file = ?
+                  AND ABS(line - ?) <= 5
+                  AND (callee_function LIKE '%encrypt%'
+                       OR callee_function LIKE '%hash%'
+                       OR callee_function LIKE '%bcrypt%')
+            """, [file, line])
 
-                if not has_encryption:
-                    findings.append(StandardFinding(
-                        rule_name='pii-unencrypted-storage',
-                        message=f'Unencrypted {pii} being stored',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        confidence=Confidence.HIGH,
-                        category='privacy',
-                        snippet=f'{func}(...{pii}...)',
-                        cwe_id='CWE-311',  # Missing Encryption of Sensitive Data
-                        additional_info={
-                            'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value]
-                        }
-                    ))
+            has_encryption = cursor.fetchone()[0] > 0
+
+            if not has_encryption:
+                findings.append(StandardFinding(
+                    rule_name='pii-unencrypted-storage',
+                    message=f'Unencrypted {matched} being stored',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    category='privacy',
+                    snippet=f'{func}(...{matched}...)',
+                    cwe_id='CWE-311',  # Missing Encryption of Sensitive Data
+                    additional_info={
+                        'regulations': [PrivacyRegulation.GDPR.value, PrivacyRegulation.PCI_DSS.value]
+                    }
+                ))
 
     return findings
 
@@ -1161,6 +1262,8 @@ def _detect_client_side_pii(cursor, pii_categories: dict) -> list[StandardFindin
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a client storage function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(storage_func in func for storage_func in CLIENT_STORAGE_FUNCTIONS):
             continue
 
@@ -1204,6 +1307,8 @@ def _detect_pii_in_exceptions(cursor, pii_categories: dict) -> list[StandardFind
 
     for file, handler_line, handler_name in cursor.fetchall():
         # Check for logging within exception handlers
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
         cursor.execute("""
             SELECT callee_function, line, argument_expr
             FROM function_call_args
@@ -1219,6 +1324,8 @@ def _detect_pii_in_exceptions(cursor, pii_categories: dict) -> list[StandardFind
 
         for func, line, args in cursor.fetchall():
             # Check if function is a logging function
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(keyword in func.lower() for keyword in log_keywords):
                 continue
 
@@ -1368,6 +1475,8 @@ def _detect_third_party_pii(cursor, pii_categories: dict) -> list[StandardFindin
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a third-party API
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(api in func for api in third_party_apis):
             continue
 
@@ -1499,13 +1608,10 @@ def _detect_pii_in_apis(cursor, pii_categories: dict) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, method, path in cursor.fetchall():
-        # Check for PII in API path
-        detected_pii = []
-        for category, patterns in pii_categories.items():
-            for pattern in patterns:
-                if pattern in path.lower():
-                    detected_pii.append((pattern, category))
+    for file, line, method, route_path in cursor.fetchall():
+        # Check for PII in API path using token-based matching
+        # Credit: @dev-corelift (PR #20) - Prevents generic false positives
+        detected_pii = _detect_pii_matches(route_path, pii_categories)
 
         if detected_pii:
             pii_pattern, pii_category = detected_pii[0]
@@ -1527,7 +1633,7 @@ def _detect_pii_in_apis(cursor, pii_categories: dict) -> list[StandardFinding]:
                 severity=severity,
                 confidence=confidence,
                 category='privacy',
-                snippet=f'{method} {path} [{pii_pattern}]',
+                snippet=f'{method} {route_path} [{pii_pattern}]',
                 cwe_id='CWE-598',
                 additional_info={
                     'regulations': [r.value for r in regulations],
@@ -1561,6 +1667,8 @@ def _detect_pii_in_exports(cursor, pii_categories: dict) -> list[StandardFinding
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is an export function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(export_func in func for export_func in export_functions):
             continue
 
@@ -1615,6 +1723,8 @@ def _detect_pii_retention(cursor, pii_categories: dict) -> list[StandardFinding]
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a cache function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(cache_func in func for cache_func in cache_functions):
             continue
 
@@ -1677,6 +1787,8 @@ def _detect_pii_cross_border(cursor, pii_categories: dict) -> list[StandardFindi
 
     for file, line, var, expr in cursor.fetchall():
         # Filter in Python for http/api patterns
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         expr_lower = expr.lower()
         if not ('http' in expr_lower or 'api' in expr_lower):
             continue
@@ -1747,6 +1859,8 @@ def _detect_pii_consent_gaps(cursor, pii_categories: dict) -> list[StandardFindi
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a processing function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         func_lower = func.lower()
         if not any(keyword in func_lower for keyword in processing_keywords):
             continue
@@ -1815,6 +1929,8 @@ def _detect_pii_in_metrics(cursor, pii_categories: dict) -> list[StandardFinding
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is a metrics function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(metric_func in func for metric_func in metrics_functions):
             continue
 
@@ -1866,6 +1982,10 @@ def _detect_pii_access_control(cursor, pii_categories: dict) -> list[StandardFin
     pii_entity_keywords = frozenset(['user', 'profile', 'customer', 'patient'])
 
     for file, line, func_name in cursor.fetchall():
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         func_name_lower = func_name.lower()
 
         # Check if function name suggests PII access
