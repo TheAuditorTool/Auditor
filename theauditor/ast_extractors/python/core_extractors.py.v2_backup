@@ -742,12 +742,41 @@ def extract_python_dicts(context: FileContext) -> list[dict[str, Any]]:
         return records
 
     # Traverse AST to find all dict literals
-    for node in context.find_nodes(ast.Assign):
-        for target in node.targets:
-            if isinstance(node.value, ast.Dict):
-                var_name = get_node_name(target)
+    for node in ast.walk(context.tree):
+        # Pattern 1: Variable assignment with dict
+        # x = {'key': 'value'}
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(node.value, ast.Dict):
+                    var_name = get_node_name(target)
+                    records = extract_dict_properties(node.value, var_name, node.lineno)
+                    object_literals.extend(records)
+
+        # Pattern 2: Return statement with dict
+        # return {'key': 'value'}
+        elif isinstance(node, ast.Return):
+            if node.value and isinstance(node.value, ast.Dict):
+                var_name = f"<return_dict_line_{node.lineno}>"
                 records = extract_dict_properties(node.value, var_name, node.lineno)
                 object_literals.extend(records)
+
+        # Pattern 3: Function call arguments with dict
+        # func({'key': 'value'})
+        elif isinstance(node, ast.Call):
+            for i, arg in enumerate(node.args):
+                if isinstance(arg, ast.Dict):
+                    var_name = f"<arg_dict_line_{arg.lineno}>"
+                    records = extract_dict_properties(arg, var_name, arg.lineno)
+                    object_literals.extend(records)
+
+        # Pattern 4: List elements with dict
+        # [{'key': 'value'}]
+        elif isinstance(node, ast.List):
+            for elem in node.elts:
+                if isinstance(elem, ast.Dict) and hasattr(elem, 'lineno'):
+                    var_name = f"<list_dict_line_{elem.lineno}>"
+                    records = extract_dict_properties(elem, var_name, elem.lineno)
+                    object_literals.extend(records)
 
     return object_literals
 

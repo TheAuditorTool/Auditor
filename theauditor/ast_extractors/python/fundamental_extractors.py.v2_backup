@@ -130,13 +130,14 @@ def _build_function_ranges(tree: ast.AST) -> list:
         List of (name, start_line, end_line) tuples
     """
     function_ranges = []
-    for node in context.find_nodes((ast.FunctionDef, ast.AsyncFunctionDef)):
-        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-            function_ranges.append((
-                node.name,
-                node.lineno,
-                node.end_lineno or node.lineno
-            ))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+                function_ranges.append((
+                    node.name,
+                    node.lineno,
+                    node.end_lineno or node.lineno
+                ))
     return function_ranges
 
 
@@ -225,7 +226,7 @@ def extract_comprehensions(context: FileContext) -> list[dict[str, Any]]:
     def calculate_nesting_level(comp_node):
         """Calculate comprehension nesting depth."""
         level = 1
-        for child in ast.walk(comp_node):
+        for child in context.walk_tree():
             if child == comp_node:
                 continue
             if isinstance(child, (ast.ListComp, ast.DictComp, ast.SetComp, ast.GeneratorExp)):

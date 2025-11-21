@@ -121,7 +121,7 @@ def extract_loop_complexity(context: FileContext) -> list[dict[str, Any]]:
         """Recursively calculate nesting level of loops."""
         max_level = current_level
 
-        for child in ast.walk(node):
+        for child in context.walk_tree():
             if child == node:
                 continue  # Skip self
 
