@@ -63,11 +63,17 @@ class CoreStorage(BaseStorage):
         """Store imports/references."""
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG] Processing {len(imports)} imports for {file_path}")
-        for import_tuple in imports:
-            if len(import_tuple) == 3:
-                kind, value, line = import_tuple
+        for import_item in imports:
+            # Handle dict format (new Python extractors)
+            if isinstance(import_item, dict):
+                kind = import_item.get('type', 'import')  # 'import' or 'from'
+                value = import_item.get('target') or import_item.get('source', '')
+                line = import_item.get('line')
+            # Handle tuple format (legacy/JS extractors)
+            elif len(import_item) == 3:
+                kind, value, line = import_item
             else:
-                kind, value = import_tuple
+                kind, value = import_item
                 line = None
 
             resolved = self._current_extracted.get('resolved_imports', {}).get(value, value)

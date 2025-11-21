@@ -257,106 +257,45 @@ class FileWalker:
                     # File pattern (e.g., "*.md", "pyproject.toml")
                     exclude_file_patterns.append(pattern)
         
-        # Detect if this is a monorepo
+        # Detect if this is a monorepo (for metadata only, NOT as whitelist)
         monorepo_detected, monorepo_dirs, root_entry_files = self.detect_monorepo()
-        
+
+        # UNIFIED WALK FOR ALL PROJECT TYPES - NO WHITELIST
+        # Security tools MUST scan operational code (scripts/, tests/, configs)
+        # SKIP_DIRS is the ONLY filter (build artifacts, deps, caches)
         if monorepo_detected:
-            print(f"[Indexer] Monorepo detected. Using whitelist for {len(monorepo_dirs)} src directories")
-            
-            # Process whitelisted directories only
-            for src_dir in monorepo_dirs:
-                for dirpath, dirnames, filenames in os.walk(src_dir, followlinks=self.follow_symlinks):
-                    # Still apply skip_dirs within the whitelisted paths
-                    skipped_count = len([d for d in dirnames if d in self.skip_dirs])
-                    self.stats["skipped_dirs"] += skipped_count
-                    dirnames[:] = [d for d in dirnames if d not in self.skip_dirs]
-                    
-                    # Process files in this directory
-                    for filename in filenames:
-                        self.stats["total_files"] += 1
-                        file = Path(dirpath) / filename
-                        
-                        file_info = self.process_file(file, exclude_file_patterns)
-                        if file_info:
-                            files.append(file_info)
-            
-            # CRITICAL: Also collect config files from monorepo directories
-            # These are outside src/ but essential for module resolution and security analysis
-            config_patterns = [
-                # TypeScript/JavaScript configs
-                'tsconfig.json', 'tsconfig.*.json', 'package.json',
-                'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-                'webpack.config.js', 'vite.config.ts', '.babelrc*',
-                # Infrastructure patterns (dynamically imported from config.py)
-                *COMPOSE_PATTERNS,      # docker-compose.yml, compose.yml, etc.
-                *DOCKERFILE_PATTERNS,   # Dockerfile, Dockerfile.dev, etc.
-                *NGINX_PATTERNS,        # nginx.conf, site.conf, etc.
-                # Environment and schema files
-                '.env', '.env.*', '.env.local', '.env.production', '.env.development',
-                'prisma/schema.prisma',
-                # Linter and formatter configs
-                '.eslintrc*', '.prettierrc*', '.editorconfig',
-            ]
-            
-            for base_dir, _ in STANDARD_MONOREPO_PATHS:
-                base_path = self.root_path / base_dir
-                if base_path.exists() and base_path.is_dir():
-                    # Look for config files in the base directory (not just src)
-                    for pattern in config_patterns:
-                        for config_file in base_path.glob(pattern):
-                            if config_file.is_file():
-                                self.stats["total_files"] += 1
-                                file_info = self.process_file(config_file, [])
-                                if file_info:
-                                    files.append(file_info)
-            
-            # Also check root directory for configs
-            for pattern in config_patterns:
-                for config_file in self.root_path.glob(pattern):
-                    if config_file.is_file() and config_file not in [f for f in files]:
-                        self.stats["total_files"] += 1
-                        file_info = self.process_file(config_file, [])
-                        if file_info:
-                            files.append(file_info)
-            
-            # Also process root-level entry files
-            for entry_file in root_entry_files:
-                self.stats["total_files"] += 1
-                file_info = self.process_file(entry_file, [])
-                if file_info:
-                    files.append(file_info)
-        
+            print(f"[Indexer] Monorepo detected ({len(monorepo_dirs)} src directories). Scanning ALL paths.")
         else:
-            # Not a monorepo, use traditional approach
-            print("[Indexer] Standard project structure detected. Using traditional scanning.")
-            
-            for dirpath, dirnames, filenames in os.walk(self.root_path, followlinks=self.follow_symlinks):
-                # Count directories that will be skipped
-                skipped_count = len([d for d in dirnames if d in self.skip_dirs])
-                self.stats["skipped_dirs"] += skipped_count
-                
-                # Skip ignored directories
-                dirnames[:] = [d for d in dirnames if d not in self.skip_dirs]
-                
-                # On Windows, skip problematic symlink directories in venv
-                current_path = Path(dirpath)
-                try:
-                    if not os.access(dirpath, os.R_OK):
-                        continue
-                    # Skip known problematic symlinks in virtual environments
-                    if any(part in [".venv", "venv", "virtualenv"] for part in current_path.parts):
-                        if current_path.name in ["lib64", "bin64", "include64"]:
-                            dirnames.clear()
-                            continue
-                except (OSError, PermissionError):
+            print("[Indexer] Standard project structure detected.")
+
+        for dirpath, dirnames, filenames in os.walk(self.root_path, followlinks=self.follow_symlinks):
+            # Count directories that will be skipped
+            skipped_count = len([d for d in dirnames if d in self.skip_dirs])
+            self.stats["skipped_dirs"] += skipped_count
+
+            # Skip ONLY directories in SKIP_DIRS (build artifacts, deps, caches)
+            dirnames[:] = [d for d in dirnames if d not in self.skip_dirs]
+
+            # On Windows, skip problematic symlink directories in venv
+            current_path = Path(dirpath)
+            try:
+                if not os.access(dirpath, os.R_OK):
                     continue
-                
-                for filename in filenames:
-                    self.stats["total_files"] += 1
-                    file = Path(dirpath) / filename
-                    
-                    file_info = self.process_file(file, exclude_file_patterns)
-                    if file_info:
+                # Skip known problematic symlinks in virtual environments
+                if any(part in [".venv", "venv", "virtualenv"] for part in current_path.parts):
+                    if current_path.name in ["lib64", "bin64", "include64"]:
+                        dirnames.clear()
+                        continue
+            except (OSError, PermissionError):
+                continue
+
+            # Process ALL files (no whitelist filtering)
+            for filename in filenames:
+                self.stats["total_files"] += 1
+                file = Path(dirpath) / filename
+
+                file_info = self.process_file(file, exclude_file_patterns)
+                if file_info:
                         files.append(file_info)
         
         # Sort by path for deterministic output

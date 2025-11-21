@@ -66,6 +66,7 @@ class SchemaCodeGenerator:
             schemas_dir / 'planning_schema.py',
             schemas_dir / 'graphql_schema.py',
             schemas_dir / 'utils.py',  # Include utils since Column/TableSchema affect schemas
+            Path(__file__),  # CRITICAL: Hash codegen.py itself (generation logic changes must trigger regeneration)
         ]
 
         for schema_file in sorted(schema_files):
@@ -218,13 +219,12 @@ class SchemaCodeGenerator:
         code.append("                data = []")
         code.append("            setattr(self, table_name, data)")
         code.append("")
-        code.append("            # Auto-build indexes for indexed columns")
-        code.append("            if data:  # Only build indexes if we have data")
-        code.append("                for idx_name, idx_cols in schema.indexes:")
-        code.append("                    if len(idx_cols) == 1:  # Single column index")
-        code.append("                        col_name = idx_cols[0]")
-        code.append("                        index = self._build_index(data, table_name, col_name, schema)")
-        code.append("                        setattr(self, f\"{table_name}_by_{col_name}\", index)")
+        code.append("            # Auto-build indexes for indexed columns (always create, even if empty)")
+        code.append("            for idx_name, idx_cols in schema.indexes:")
+        code.append("                if len(idx_cols) == 1:  # Single column index")
+        code.append("                    col_name = idx_cols[0]")
+        code.append("                    index = self._build_index(data, table_name, col_name, schema)")
+        code.append("                    setattr(self, f\"{table_name}_by_{col_name}\", index)")
         code.append("")
         code.append("        conn.close()")
         code.append("")

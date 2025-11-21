@@ -163,7 +163,13 @@ class ModuleResolver:
                     print(f"[WARNING] Failed to parse {path}: {e}")
                     
         except sqlite3.OperationalError as e:
-            print(f"[WARNING] config_files table not found, using empty mappings: {e}")
+            error_msg = str(e)
+            if "database is locked" in error_msg:
+                print(f"[WARNING] Database locked (indexing in progress?), using empty path mappings")
+            elif "no such table" in error_msg:
+                print(f"[WARNING] config_files table not found, using empty mappings")
+            else:
+                print(f"[WARNING] Failed to load config_files: {error_msg}")
             
         finally:
             conn.close()

@@ -64,8 +64,8 @@ GRAPH_EDGES = TableSchema(
         Column("source", "TEXT", nullable=False),  # Source node ID
         Column("target", "TEXT", nullable=False),  # Target node ID
         Column("type", "TEXT", default="'import'"),  # Edge type: 'import', 'call', 'assignment', 'return', 'provision'
-        Column("file", "TEXT"),  # File where edge originates
-        Column("line", "INTEGER"),  # Line number where edge originates
+        Column("file", "TEXT", nullable=False),  # File where edge originates
+        Column("line", "INTEGER", nullable=False, default="0"),  # Line number where edge originates
         Column("graph_type", "TEXT", nullable=False),  # Graph type: 'import', 'call', 'data_flow', 'terraform_provisioning'
         Column("metadata", "TEXT"),  # JSON blob for flexible edge properties
         Column("created_at", "TIMESTAMP", default="CURRENT_TIMESTAMP"),

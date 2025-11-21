@@ -35,7 +35,7 @@ ENV_VAR_USAGE = TableSchema(
         Column("in_function", "TEXT", nullable=True),      # Function containing this access
         Column("property_access", "TEXT", nullable=True),  # Full expression: "process.env.NODE_ENV"
     ],
-    primary_key=["file", "line", "var_name"],
+    primary_key=["file", "line", "var_name", "access_type"],  # Include access_type: same var can have multiple access types per line
     indexes=[
         ("idx_env_var_usage_file", ["file"]),
         ("idx_env_var_usage_name", ["var_name"]),
