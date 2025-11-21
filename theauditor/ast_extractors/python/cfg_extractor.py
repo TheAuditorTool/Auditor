@@ -74,6 +74,12 @@ def build_python_function_cfg(func_node: ast.FunctionDef) -> dict[str, Any]:
     exit_block_id = None
 
     for stmt in func_node.body:
+        # Stop processing unreachable code after return statements
+        # When current_block_id is None, we've hit a return and subsequent code is unreachable
+        # Don't create blocks/edges with None source - they'll crash during storage
+        if current_block_id is None:
+            break
+
         block_info = process_python_statement(stmt, current_block_id, get_next_block_id)
 
         if block_info:

@@ -292,10 +292,9 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             if m.matches(stmt, m.If(test=m.Call(func=m.Name("isinstance")))):
                 # Extract if body
                 if_body = stmt.body.body
-                # Remaining statements
-                remaining = body.body[:i] + body.body[i+1:]
                 # Combine: [before isinstance] + [isinstance body] + [after isinstance]
-                new_body = body.body[:i] + list(if_body) + list(remaining)
+                # Use tuple concatenation (body.body is a tuple, not a list)
+                new_body = body.body[:i] + tuple(if_body) + body.body[i+1:]
                 return body.with_changes(body=new_body)
 
         return body
