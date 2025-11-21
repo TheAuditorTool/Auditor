@@ -231,6 +231,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is a merge function
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(merge in func for merge in self.patterns.MERGE_FUNCTIONS):
                 continue
 
@@ -266,6 +268,8 @@ class InputValidationAnalyzer:
         input_keywords = frozenset(['req.', 'request.', 'body', 'query', 'params'])
 
         for file, line, var, expr in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not expr:
                 continue
 
@@ -306,6 +310,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is a database method
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(method in func for method in db_methods):
                 continue
 
@@ -342,6 +348,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is a database write operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(f'.{db_op}' in func for db_op in self.patterns.DB_WRITE_OPS):
                 continue
 
@@ -380,6 +388,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is a template engine
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(template in func for template in self.patterns.TEMPLATE_ENGINES):
                 continue
 
@@ -416,6 +426,8 @@ class InputValidationAnalyzer:
         primitive_checks = frozenset(['=== "string"', '=== "number"', '=== "boolean"'])
 
         for file, line, var, expr in self.cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not expr:
                 continue
 
@@ -493,6 +505,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is create or update
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(method in func for method in db_methods):
                 continue
 
@@ -532,6 +546,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if arguments contain weak configuration
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(weak in args for weak in weak_configs):
                 continue
 
@@ -569,6 +585,8 @@ class InputValidationAnalyzer:
 
         for file, method, route, endpoint_line, controls_str in self.cursor.fetchall():
             # Check if endpoint has no controls
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if controls_str:
                 continue  # Has controls, skip
 
@@ -601,6 +619,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is a GraphQL operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(graphql in func for graphql in self.patterns.GRAPHQL_OPS):
                 continue
 
@@ -644,6 +664,8 @@ class InputValidationAnalyzer:
         # Filter in Python for .find methods and variable usage
         for file, retrieve_line, var, source_expr, use_func, use_line, use_args in self.cursor.fetchall():
             # Check if source is a database find operation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if '.find' not in source_expr:
                 continue
 
@@ -680,6 +702,8 @@ class InputValidationAnalyzer:
         candidates = []
         for file, line, var, expr in self.cursor.fetchall():
             # Check if variable name suggests numeric/monetary value
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             var_lower = var.lower()
             if not any(keyword in var_lower for keyword in numeric_var_keywords):
                 continue
@@ -737,6 +761,8 @@ class InputValidationAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check if source expression contains request file parameters
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(pattern in expr for pattern in req_file_patterns):
                 continue
 
@@ -777,6 +803,8 @@ class InputValidationAnalyzer:
 
         for file, line, var, expr in self.cursor.fetchall():
             # Check for loose equality (== but not ===)
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if '==' not in expr or '===' in expr:
                 continue
 
@@ -813,6 +841,8 @@ class InputValidationAnalyzer:
 
         for file, line, func, args in self.cursor.fetchall():
             # Check if function is an ORM method
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not any(orm in func for orm in self.patterns.ORM_METHODS):
                 continue
 

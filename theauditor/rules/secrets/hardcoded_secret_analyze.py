@@ -5,12 +5,18 @@ This rule demonstrates a JUSTIFIED HYBRID approach because:
 2. Base64 decoding and verification requires runtime processing
 3. Pattern matching for secret formats needs regex evaluation
 4. Sequential/keyboard pattern detection is algorithmic
+5. Normalized assignment metadata distinguishes literal secrets from dynamic sources
 
 Follows gold standard patterns (v1.1+ schema contract compliance):
 - Frozensets for O(1) pattern matching
 - Direct database queries (assumes all tables exist per schema contract)
 - Proper Severity and Confidence enums
 - Standardized finding generation with correct parameter names
+
+False positive fixes (2025-11-22):
+- Credit: Technique adapted from external contributor @dev-corelift (PR #20)
+- Adds literal string extraction to avoid flagging dynamic values like request.headers.get()
+- Properly handles f-strings, template literals, and function calls
 """
 
 
@@ -117,6 +123,13 @@ DB_PROTOCOLS = frozenset([
     'mysql://', 'redis://', 'amqp://', 'rabbitmq://',
     'cassandra://', 'couchdb://', 'elasticsearch://'
 ])
+
+# Regex for detecting string literals (supports Python & JS styles)
+# Credit: @dev-corelift (PR #20) - Prevents false positives on dynamic values
+STRING_LITERAL_RE = re.compile(
+    r'^(?P<prefix>[rubfRUBF]*)(?P<quote>"""|\'\'\'|"|\'|`)(?P<body>.*)(?P=quote)$',
+    re.DOTALL
+)
 
 # High-confidence secret patterns (provider-specific)
 HIGH_CONFIDENCE_PATTERNS = frozenset([
@@ -240,6 +253,48 @@ def find_hardcoded_secrets(context: StandardRuleContext) -> list[StandardFinding
 # DATABASE-BASED DETECTION FUNCTIONS
 # ============================================================================
 
+def _extract_string_literal(expr: str) -> Optional[str]:
+    """Extract the inner value of a string literal expression.
+
+    Supports Python prefixes (r/u/b/f) and JavaScript/TypeScript string forms.
+    Returns None when the expression is not a static literal (e.g. function
+    calls, template strings, or f-strings).
+
+    Credit: @dev-corelift (PR #20) - Prevents flagging dynamic sources
+
+    Examples:
+        >>> _extract_string_literal('"hardcoded_secret"')
+        'hardcoded_secret'
+        >>> _extract_string_literal('request.headers.get("X-API-Key")')
+        None  # Not a literal
+        >>> _extract_string_literal('f"secret_{user_id}"')
+        None  # F-string with interpolation
+        >>> _extract_string_literal('`secret_${value}`')
+        None  # Template literal with interpolation
+    """
+    if not expr:
+        return None
+
+    expr = expr.strip()
+    match = STRING_LITERAL_RE.match(expr)
+    if not match:
+        return None
+
+    prefix = match.group('prefix') or ''
+    quote = match.group('quote')
+    body = match.group('body')
+
+    # F-strings interpolate runtime data; they are not static literals
+    if any(ch.lower() == 'f' for ch in prefix):
+        return None
+
+    # Skip template literals with interpolation
+    if quote == '`' and '${' in body:
+        return None
+
+    return body
+
+
 def _find_secret_assignments(cursor) -> list[StandardFinding]:
     """Find variable assignments that look like secrets."""
     findings = []
@@ -252,11 +307,13 @@ def _find_secret_assignments(cursor) -> list[StandardFinding]:
           AND source_expr IS NOT NULL
           AND LENGTH(source_expr) > 10
         ORDER BY file, line
-        LIMIT 2000
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     for file, line, var, value in cursor.fetchall():
         # Check if variable name contains secret keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         var_lower = var.lower()
         if not any(kw in var_lower for kw in SECRET_KEYWORDS):
             continue
@@ -268,8 +325,13 @@ def _find_secret_assignments(cursor) -> list[StandardFinding]:
             'getenv' in value):
             continue
 
-        # Clean the value
-        clean_value = value.strip().strip('\'"')
+        # Extract literal value (skip dynamic expressions)
+        # Credit: @dev-corelift (PR #20) - Prevents flagging request.headers.get(), etc.
+        literal_value = _extract_string_literal(value)
+        if literal_value is None:
+            continue  # Not a static literal, skip
+
+        clean_value = literal_value.strip()
 
         # Check for weak passwords first
         if var.lower() in ['password', 'passwd', 'pwd'] and clean_value.lower() in WEAK_PASSWORDS:
@@ -318,11 +380,13 @@ def _find_connection_strings(cursor) -> list[StandardFinding]:
         FROM assignments
         WHERE source_expr IS NOT NULL
         ORDER BY file, line
-        LIMIT 2000
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     for file, line, var, conn_str in cursor.fetchall():
         # Check if source contains DB protocol
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         has_protocol = any(proto in conn_str for proto in DB_PROTOCOLS)
         if not has_protocol:
             continue
@@ -365,14 +429,16 @@ def _find_env_fallbacks(cursor) -> list[StandardFinding]:
         WHERE target_var IS NOT NULL
           AND source_expr IS NOT NULL
         ORDER BY file, line
-        LIMIT 2000
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     fallback_patterns = ['process.env', 'os.environ.get', 'getenv', '||', '??', ' or ']
     secret_keywords_lower = ['secret', 'key', 'token', 'password', 'credential']
 
     for file, line, var, expr in cursor.fetchall():
         # Check if target_var contains secret keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         var_lower = var.lower()
         if not any(kw in var_lower for kw in secret_keywords_lower):
             continue
@@ -413,11 +479,13 @@ def _find_dict_secrets(cursor) -> list[StandardFinding]:
         SELECT file, line, source_expr
         FROM assignments
         WHERE source_expr IS NOT NULL
-        LIMIT 1000
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     for file, line, expr in cursor.fetchall():
         # Skip env variable sources
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if 'process.env' in expr or 'os.environ' in expr:
             continue
 
@@ -459,14 +527,16 @@ def _find_api_keys_in_urls(cursor) -> list[StandardFinding]:
         WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
-        LIMIT 2000
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     http_functions = frozenset(['fetch', 'axios', 'request', 'get', 'post'])
     api_key_params = ['api_key=', 'apikey=', 'token=', 'key=', 'secret=', 'password=']
 
     for file, line, func, args in cursor.fetchall():
         # Check if function is HTTP-related
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if func not in http_functions and not (func.endswith('.get') or func.endswith('.post')):
             continue
 
@@ -512,8 +582,8 @@ def _get_suspicious_files(cursor) -> list[str]:
         FROM symbols
         WHERE name IS NOT NULL
           AND path IS NOT NULL
-        LIMIT 5000
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     secret_keywords_lower = ['secret', 'token', 'password', 'api_key', 'credential', 'private_key']
 
@@ -536,14 +606,16 @@ def _get_suspicious_files(cursor) -> list[str]:
         SELECT path
         FROM files
         WHERE path IS NOT NULL
-        LIMIT 1000
-    """)
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
     config_patterns = ['config', 'settings', 'env.', '.env']
     exclude_patterns = ['.env.example', '.env.template']
 
     for (path,) in cursor.fetchall():
         # Check if path contains config patterns
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not any(pattern in path for pattern in config_patterns):
             continue
 

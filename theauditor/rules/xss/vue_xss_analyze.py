@@ -2,13 +2,27 @@
 
 This module detects XSS vulnerabilities specific to Vue.js applications.
 Uses Vue-specific database tables for accurate detection.
+
+REFACTORED (2025-11-22):
+- Constants moved to constants.py (Single Source of Truth)
+- Context manager + sqlite3.Row for name-based access
+- Removed symbol scan heuristic per NO FALLBACK POLICY
 """
 
 
 import sqlite3
-from typing import List
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+# Single Source of Truth - all Vue XSS constants from constants.py
+from theauditor.rules.xss.constants import (
+    VUE_DANGEROUS_DIRECTIVES,
+    VUE_SAFE_DIRECTIVES,
+    VUE_INPUT_SOURCES,
+    VUE_COMPILE_METHODS,
+    VUE_TARGET_EXTENSIONS,
+    is_sanitized,
+)
 
 
 # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
@@ -20,49 +34,17 @@ from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 METADATA = RuleMetadata(
     name="vue_xss",
     category="xss",
-    target_extensions=['.vue', '.js', '.ts'],
+    target_extensions=VUE_TARGET_EXTENSIONS,
     exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.spec.js'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope="database"  # Database-wide query, not per-file iteration
 )
-
-
-# Vue dangerous directives
-VUE_DANGEROUS_DIRECTIVES = frozenset([
-    'v-html',  # Raw HTML rendering
-    'v-once',  # Combined with v-html can be dangerous
-    'v-pre'    # Skips compilation - can expose templates
-])
-
-# Vue safe directives (auto-escaped)
-VUE_SAFE_DIRECTIVES = frozenset([
-    'v-text',  # Safe text binding
-    'v-model',  # Two-way binding (escaped)
-    'v-show', 'v-if', 'v-else', 'v-else-if',  # Conditionals
-    'v-for',  # Iteration
-    'v-bind', ':',  # Attribute binding (mostly safe)
-    'v-on', '@'  # Event binding
-])
-
-# User input sources in Vue
-VUE_INPUT_SOURCES = frozenset([
-    '$route.params', '$route.query', '$route.hash',
-    'props.', 'this.props',
-    'data.', 'this.data',
-    '$attrs', '$listeners',
-    'localStorage.getItem', 'sessionStorage.getItem',
-    'document.cookie', 'window.location',
-    '$refs.', 'event.target.value'
-])
-
-# Vue template compilation methods
-VUE_COMPILE_METHODS = frozenset([
-    'Vue.compile', '$compile',
-    'compileToFunctions', 'parseComponent'
-])
 
 
 def find_vue_xss(context: StandardRuleContext) -> list[StandardFinding]:
     """Detect Vue.js-specific XSS vulnerabilities.
+
+    REFACTORED: Uses context manager + sqlite3.Row for cleaner code.
 
     Returns:
         List of Vue-specific XSS findings
@@ -72,72 +54,58 @@ def find_vue_xss(context: StandardRuleContext) -> list[StandardFinding]:
     if not context.db_path:
         return findings
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    # Phase 4: Context Manager & Row Factory
+    with sqlite3.connect(context.db_path) as conn:
+        conn.row_factory = sqlite3.Row  # Access columns by name!
+        cursor = conn.cursor()
 
-    try:
-        # Only run if Vue is detected
-        if not _is_vue_app(conn):
+        # Only run if Vue is detected (NO FALLBACK - trust frameworks table)
+        if not _is_vue_app(cursor):
             return findings
 
-        findings.extend(_check_vhtml_directive(conn))
-        findings.extend(_check_template_compilation(conn))
-        findings.extend(_check_render_functions(conn))
-        findings.extend(_check_component_props_injection(conn))
-        findings.extend(_check_slot_injection(conn))
-        findings.extend(_check_filter_injection(conn))
-        findings.extend(_check_computed_xss(conn))
-
-    finally:
-        conn.close()
+        findings.extend(_check_vhtml_directive(cursor))
+        findings.extend(_check_template_compilation(cursor))
+        findings.extend(_check_render_functions(cursor))
+        findings.extend(_check_component_props_injection(cursor))
+        findings.extend(_check_slot_injection(cursor))
+        findings.extend(_check_filter_injection(cursor))
+        findings.extend(_check_computed_xss(cursor))
 
     return findings
 
 
-def _is_vue_app(conn) -> bool:
-    """Check if this is a Vue.js application."""
-    cursor = conn.cursor()
+def _is_vue_app(cursor: sqlite3.Cursor) -> bool:
+    """Check if this is a Vue.js application.
 
+    NO FALLBACK: Removed symbol scan heuristic per ZERO FALLBACK POLICY.
+    Trust frameworks table and vue_components table only.
+    """
     # Check frameworks table
     cursor.execute("""
-        SELECT COUNT(*) FROM frameworks
+        SELECT COUNT(*) as cnt FROM frameworks
         WHERE name IN ('vue', 'vuejs', 'vue.js', 'Vue')
           AND language = 'javascript'
     """)
 
-    if cursor.fetchone()[0] > 0:
+    if cursor.fetchone()['cnt'] > 0:
         return True
 
     # Check vue_components table
     cursor.execute("""
-        SELECT COUNT(*) FROM vue_components
-        LIMIT 1
-    """)
+        SELECT COUNT(*) as cnt FROM vue_components
+        -- REMOVED LIMIT: was hiding bugs
+        """)
 
-    if cursor.fetchone()[0] > 0:
+    if cursor.fetchone()['cnt'] > 0:
         return True
 
-    # Fallback: Check for Vue patterns
-    vue_patterns = ['Vue.', 'createApp', 'defineComponent', 'reactive', 'computed']
-
-    cursor.execute("""
-        SELECT name FROM symbols
-        WHERE name IS NOT NULL
-        LIMIT 1000
-    """)
-
-    # Filter in Python: Check for Vue-like symbol names
-    for (name,) in cursor.fetchall():
-        if any(pattern in name for pattern in vue_patterns):
-            return True
-
+    # NO FALLBACK - If frameworks/vue_components don't detect Vue, it's not Vue
     return False
 
 
-def _check_vhtml_directive(conn) -> list[StandardFinding]:
+def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check v-html directives with user input."""
     findings = []
-    cursor = conn.cursor()
 
     # Use Vue directives table directly
     cursor.execute("""
@@ -150,9 +118,8 @@ def _check_vhtml_directive(conn) -> list[StandardFinding]:
     for file, line, expression, component in cursor.fetchall():
         # Check if expression contains user input
         has_user_input = any(src in (expression or '') for src in VUE_INPUT_SOURCES)
-        has_sanitizer = 'DOMPurify' in (expression or '') or 'sanitize' in (expression or '')
-
-        if has_user_input and not has_sanitizer:
+        # Use is_sanitized() for proper function call detection
+        if has_user_input and not is_sanitized(expression or ''):
             findings.append(StandardFinding(
                 rule_name='vue-xss-vhtml',
                 message=f'XSS: v-html in {component} with user input',
@@ -204,10 +171,9 @@ def _check_vhtml_directive(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_template_compilation(conn) -> list[StandardFinding]:
+def _check_template_compilation(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for dynamic template compilation with user input."""
     findings = []
-    cursor = conn.cursor()
 
     # Check for Vue.compile() or similar with user input
     cursor.execute("""
@@ -220,6 +186,8 @@ def _check_template_compilation(conn) -> list[StandardFinding]:
 
     for file, line, callee, template_arg in cursor.fetchall():
         # Filter in Python: Check if callee matches any compile method
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         is_compile_method = any(method in callee for method in VUE_COMPILE_METHODS)
         if not is_compile_method:
             continue
@@ -247,6 +215,8 @@ def _check_template_compilation(conn) -> list[StandardFinding]:
 
     for file, line, comp_name in cursor.fetchall():
         # Check if template contains user input interpolation
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
         cursor.execute("""
             SELECT a.source_expr
             FROM assignments a
@@ -258,6 +228,8 @@ def _check_template_compilation(conn) -> list[StandardFinding]:
 
         for (template_source,) in cursor.fetchall():
             # Filter in Python: Check for template with interpolation
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             has_template = 'template:' in template_source
             has_interpolation = '${' in template_source or '`' in template_source
 
@@ -281,10 +253,9 @@ def _check_template_compilation(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_render_functions(conn) -> list[StandardFinding]:
+def _check_render_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check render functions for XSS vulnerabilities."""
     findings = []
-    cursor = conn.cursor()
 
     # Check Vue components with render functions
     cursor.execute("""
@@ -296,6 +267,8 @@ def _check_render_functions(conn) -> list[StandardFinding]:
 
     for file, line, comp_name, setup_return in cursor.fetchall():
         # Filter in Python: Check if setup_return contains render function patterns
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
         if setup_return:
             has_render_pattern = 'h(' in setup_return or 'createVNode' in setup_return
             if not has_render_pattern:
@@ -315,6 +288,8 @@ def _check_render_functions(conn) -> list[StandardFinding]:
 
         for (source,) in cursor.fetchall():
             # Filter in Python: Check for dangerous props
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             has_dangerous_prop = any(prop in source for prop in dangerous_props)
             if not has_dangerous_prop:
                 continue
@@ -344,6 +319,8 @@ def _check_render_functions(conn) -> list[StandardFinding]:
 
     for file, line, args in cursor.fetchall():
         # Filter in Python: Check for innerHTML
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if 'innerHTML' not in (args or ''):
             continue
 
@@ -364,10 +341,9 @@ def _check_render_functions(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_component_props_injection(conn) -> list[StandardFinding]:
+def _check_component_props_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for XSS through component props."""
     findings = []
-    cursor = conn.cursor()
 
     # Check Vue components with dangerous props
     cursor.execute("""
@@ -378,6 +354,8 @@ def _check_component_props_injection(conn) -> list[StandardFinding]:
 
     for file, line, comp_name, props_def in cursor.fetchall():
         # Check if props are used with v-html
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
         cursor.execute("""
             SELECT vd.line, vd.expression
             FROM vue_directives vd
@@ -389,6 +367,8 @@ def _check_component_props_injection(conn) -> list[StandardFinding]:
 
         for dir_line, expression in cursor.fetchall():
             # Filter in Python: Check for props usage
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if 'props.' not in expression:
                 continue
 
@@ -414,6 +394,8 @@ def _check_component_props_injection(conn) -> list[StandardFinding]:
 
     for file, line, expression, component in cursor.fetchall():
         # Filter in Python: Check for $attrs usage
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if '$attrs' not in expression:
             continue
 
@@ -431,10 +413,9 @@ def _check_component_props_injection(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_slot_injection(conn) -> list[StandardFinding]:
+def _check_slot_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for XSS through slot content."""
     findings = []
-    cursor = conn.cursor()
 
     # Check for slot content used with v-html
     cursor.execute("""
@@ -447,6 +428,8 @@ def _check_slot_injection(conn) -> list[StandardFinding]:
 
     for file, line, expression, component in cursor.fetchall():
         # Filter in Python: Check for slot usage
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         has_slot = '$slots' in expression or 'slot.' in expression
         if not has_slot:
             continue
@@ -472,6 +455,8 @@ def _check_slot_injection(conn) -> list[StandardFinding]:
 
     for file, line, source in cursor.fetchall():
         # Filter in Python: Check for scopedSlots with innerHTML
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         has_scoped_slots = 'scopedSlots' in source
         has_innerHTML = 'innerHTML' in source
 
@@ -492,10 +477,9 @@ def _check_slot_injection(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_filter_injection(conn) -> list[StandardFinding]:
+def _check_filter_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check for XSS through Vue filters (Vue 2)."""
     findings = []
-    cursor = conn.cursor()
 
     # Check for custom filters that don't escape HTML
     cursor.execute("""
@@ -507,6 +491,8 @@ def _check_filter_injection(conn) -> list[StandardFinding]:
 
     for file, line, func, filter_def in cursor.fetchall():
         # Filter in Python: Check if function is a Vue filter registration
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         is_filter_registration = func.startswith('Vue.filter') or '.filter' in func
         if not is_filter_registration:
             continue
@@ -527,10 +513,9 @@ def _check_filter_injection(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_computed_xss(conn) -> list[StandardFinding]:
+def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     """Check computed properties that might cause XSS."""
     findings = []
-    cursor = conn.cursor()
 
     # Check Vue hooks for computed properties with dangerous patterns
     cursor.execute("""
@@ -568,6 +553,8 @@ def _check_computed_xss(conn) -> list[StandardFinding]:
 
     for file, line, comp_name, watched_prop in cursor.fetchall():
         # Check if watcher manipulates DOM
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
         cursor.execute("""
             SELECT a.target_var
             FROM assignments a

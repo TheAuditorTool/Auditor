@@ -10,10 +10,17 @@ This implementation:
 - Implements multi-layer detection
 - Provides confidence scoring
 - Maps all findings to CWE IDs
+- Tokenizes call metadata from normalized database to avoid substring collisions
+
+False positive fixes (2025-11-22):
+- Credit: Token-based matching technique from external contributor @dev-corelift (PR #20)
+- Prevents substring collisions like "includes" triggering "DES" warnings
+- Uses camelCase-aware identifier tokenization for precise pattern matching
 """
 
 
 import sqlite3
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -34,7 +41,8 @@ METADATA = RuleMetadata(
     category="security",
     target_extensions=['.py', '.js', '.ts', '.php'],
     exclude_patterns=['test/', 'spec.', '__tests__', 'demo/'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope="database"  # Database-wide query, not per-file iteration
 )
 
 # ============================================================================
@@ -142,6 +150,38 @@ SECURITY_KEYWORDS = frozenset([
     'signature', 'sign', 'verify',
     'certificate', 'cert'
 ])
+
+# ============================================================================
+# TOKEN-BASED MATCHING (False Positive Prevention)
+# Credit: @dev-corelift (PR #20)
+# ============================================================================
+
+_CAMEL_CASE_TOKEN_RE = re.compile(r'[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+')
+
+
+def _split_identifier_tokens(value: Optional[str]) -> List[str]:
+    """Split identifiers into normalized, lowercase tokens.
+
+    Handles camelCase, snake_case, kebab-case, and mixed patterns.
+    Prevents substring collisions like "includes" matching "DES".
+
+    Examples:
+        >>> _split_identifier_tokens("createDES3Cipher")
+        ['create', 'des3', 'cipher']
+        >>> _split_identifier_tokens("c.path.includes")
+        ['c', 'path', 'includes']
+    """
+    if not value:
+        return []
+
+    tokens: List[str] = []
+
+    for chunk in re.split(r'[^0-9A-Za-z]+', value):
+        if not chunk:
+            continue
+        tokens.extend(_CAMEL_CASE_TOKEN_RE.findall(chunk))
+
+    return [token.lower() for token in tokens if token]
 
 # Non-security context keywords (for reducing false positives)
 NON_SECURITY_KEYWORDS = frozenset([
@@ -291,7 +331,11 @@ def _determine_confidence(
     proximity_count = 0
     for (callee,) in cursor.fetchall():
         # Check line proximity
-        cursor.execute("SELECT line FROM function_call_args WHERE file = ? AND callee_function = ? LIMIT 1", [file, callee])
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
+        cursor.execute("SELECT line FROM function_call_args WHERE file = ? AND callee_function = ?
+        -- REMOVED LIMIT: was hiding bugs
+        ", [file, callee])
         func_line = cursor.fetchone()
         if func_line and abs(func_line[0] - line) <= 5:
             # Check if contains security operation
@@ -344,6 +388,8 @@ def _find_weak_random_generation(cursor) -> list[StandardFinding]:
 
     for file, line, callee, caller, args in cursor.fetchall():
         # Determine confidence based on context
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         confidence = _determine_confidence(file, line, caller, cursor)
 
         # Skip if low confidence and in test file
@@ -382,6 +428,8 @@ def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
 
     for file, line, callee, caller, args in cursor.fetchall():
         # Check if callee or args contain weak algo
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_str = callee if callee else ''
         args_str = args if args else ''
         combined = f'{callee_str} {args_str}'.lower()
@@ -422,23 +470,35 @@ def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
 # PATTERN 3: Weak Encryption Algorithms
 # ============================================================================
 
-def _contains_alias(text: str | None, alias: str) -> bool:
-    """Check if text contains a cryptographic alias (no regex)."""
+def _contains_alias(text: Optional[str], alias: str) -> bool:
+    """Check if the identifier or argument contains a crypto alias token.
+
+    Uses token-based matching to prevent false positives from substring collisions.
+    Credit: @dev-corelift (PR #20)
+
+    Examples:
+        >>> _contains_alias("c.path.includes", "des")
+        False  # "includes" doesn't contain "des" as a token
+        >>> _contains_alias("createDES3Cipher", "des3")
+        True  # "des3" exists as a distinct token
+    """
     if not text:
         return False
-    lowered = text.lower()
 
-    # Special handling for DES variants with function call syntax
-    if alias in {'des', 'des3', 'tripledes', 'des-ede3', 'des-ede'}:
-        return any(
-            keyword in lowered for keyword in (
-                'des(', 'des3(', 'tripledes(', 'des-ede3(', 'des-ede('
-            )
-        )
+    text_tokens = set(_split_identifier_tokens(text))
+    if not text_tokens:
+        return False
 
-    # Simple substring matching for other aliases
-    alias_lower = alias.lower()
-    return alias_lower in lowered
+    alias_tokens = _split_identifier_tokens(alias)
+    if not alias_tokens:
+        return False
+
+    # Single-token alias: check for exact match
+    if len(alias_tokens) == 1:
+        return alias_tokens[0] in text_tokens
+
+    # Multi-token alias: all tokens must be present
+    return all(token in text_tokens for token in alias_tokens)
 
 
 def _find_weak_encryption_algorithms(cursor) -> list[StandardFinding]:
@@ -454,6 +514,8 @@ def _find_weak_encryption_algorithms(cursor) -> list[StandardFinding]:
     seen: set[tuple[str, int, str]] = set()
 
     for file, line, callee, argument in cursor.fetchall():
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_lower = (callee or '').lower()
         argument_lower = (argument or '').lower()
 
@@ -516,6 +578,10 @@ def _find_missing_salt(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if callee contains hash function
+        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+        #       Rewrite with JOIN or CTE to eliminate per-row queries
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_lower = callee.lower()
         if not any(hf in callee_lower for hf in hash_functions):
             continue
@@ -537,7 +603,11 @@ def _find_missing_salt(cursor) -> list[StandardFinding]:
         has_salt_nearby = False
         for var, expr in cursor.fetchall():
             # Check line proximity
-            cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ? LIMIT 1", [file, var])
+            # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+            #       Rewrite with JOIN or CTE to eliminate per-row queries
+            cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ?
+        -- REMOVED LIMIT: was hiding bugs
+        ", [file, var])
             assign_line = cursor.fetchone()
             if assign_line and abs(assign_line[0] - line) <= 10:
                 # Check for salt in var or expr
@@ -584,6 +654,8 @@ def _find_static_salt(cursor) -> list[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check if variable name contains 'salt'
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if 'salt' not in var.lower():
             continue
 
@@ -632,6 +704,8 @@ def _find_weak_kdf_iterations(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if callee contains KDF function
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_lower = callee.lower()
         if not any(kdf in callee_lower for kdf in kdf_functions):
             continue
@@ -686,6 +760,8 @@ def _find_ecb_mode(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if args contain ECB
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         args_lower = args.lower()
         if 'ecb' not in args_lower:
             continue
@@ -718,6 +794,8 @@ def _find_ecb_mode(cursor) -> list[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check if variable contains 'mode'
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if 'mode' not in var.lower():
             continue
 
@@ -757,6 +835,8 @@ def _find_missing_iv(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if callee contains 'encrypt' or 'cipher' but not 'decrypt'
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_lower = callee.lower()
         if not ('encrypt' in callee_lower or 'cipher' in callee_lower):
             continue
@@ -783,7 +863,11 @@ def _find_missing_iv(cursor) -> list[StandardFinding]:
             has_iv_nearby = False
             for var, expr in cursor.fetchall():
                 # Check line proximity
-                cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ? LIMIT 1", [file, var])
+                # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
+                #       Rewrite with JOIN or CTE to eliminate per-row queries
+                cursor.execute("SELECT line FROM assignments WHERE file = ? AND target_var = ?
+        -- REMOVED LIMIT: was hiding bugs
+        ", [file, var])
                 assign_line = cursor.fetchone()
                 if assign_line and abs(assign_line[0] - line) <= 10:
                     # Check for iv/nonce in var or random in expr
@@ -832,6 +916,8 @@ def _find_static_iv(cursor) -> list[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check if variable name contains IV keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         var_lower = var.lower()
         if not any(kw in var_lower for kw in iv_keywords):
             continue
@@ -889,6 +975,8 @@ def _find_predictable_seeds(cursor) -> list[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check if variable contains seed/random keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         var_lower = var.lower()
         if not any(kw in var_lower for kw in seed_keywords):
             continue
@@ -924,6 +1012,8 @@ def _find_predictable_seeds(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if callee contains 'seed' or 'srand'
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_lower = callee.lower()
         if not ('seed' in callee_lower or 'srand' in callee_lower):
             continue
@@ -968,6 +1058,8 @@ def _find_hardcoded_keys(cursor) -> list[StandardFinding]:
 
     for file, line, var, expr in cursor.fetchall():
         # Check if variable name contains key keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         var_lower = var.lower()
         if not any(kw in var_lower for kw in key_keywords):
             continue
@@ -1021,6 +1113,8 @@ def _find_weak_key_size(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if callee contains key generation patterns
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_lower = callee.lower()
         if not any(pattern in callee_lower for pattern in keygen_patterns):
             continue
@@ -1084,6 +1178,8 @@ def _find_password_in_url(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if callee contains URL function patterns
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         callee_lower = callee.lower()
         if not any(uf in callee_lower for uf in url_functions):
             continue
@@ -1128,6 +1224,8 @@ def _find_timing_vulnerable_compare(cursor) -> list[StandardFinding]:
 
     for file, name, line, sym_type in cursor.fetchall():
         # Check if name contains sensitive keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         name_lower = name.lower()
         if not any(kw in name_lower for kw in sensitive_keywords):
             continue
@@ -1155,6 +1253,8 @@ def _find_timing_vulnerable_compare(cursor) -> list[StandardFinding]:
 
     for file, line, callee, args in cursor.fetchall():
         # Check if args contain sensitive keywords
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         args_lower = args.lower()
         if not any(kw in args_lower for kw in ['password', 'token', 'secret']):
             continue

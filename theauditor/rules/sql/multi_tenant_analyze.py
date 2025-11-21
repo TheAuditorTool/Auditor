@@ -7,10 +7,27 @@ Truth Courier Design: Reports facts about tenant isolation patterns, not recomme
 """
 
 
+import re
 import sqlite3
 from typing import List
 from dataclasses import dataclass
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
+
+
+# ============================================================================
+# REGEXP ADAPTER - Enable regex in SQLite queries
+# ============================================================================
+def _regexp_adapter(expr: str, item: str) -> bool:
+    """Adapter to let SQLite use Python's regex engine.
+
+    Usage in SQL: WHERE column REGEXP 'pattern'
+    """
+    if item is None:
+        return False
+    try:
+        return re.search(expr, item, re.IGNORECASE) is not None
+    except Exception:
+        return False
 
 
 # ============================================================================
@@ -22,7 +39,8 @@ METADATA = RuleMetadata(
     target_extensions=['.py', '.js', '.ts', '.mjs', '.cjs', '.sql'],
     # NOTE: Do NOT exclude migrations/ - RLS policies (CREATE POLICY) are in migrations
     exclude_patterns=['frontend/', 'client/', 'test/', '__tests__/'],
-    requires_jsx_pass=False
+    requires_jsx_pass=False,
+    execution_scope='database'  # Database-wide query, not per-file iteration
 )
 
 
@@ -92,6 +110,10 @@ def find_multi_tenant_issues(context: StandardRuleContext) -> list[StandardFindi
 
     patterns = MultiTenantPatterns()
     conn = sqlite3.connect(context.db_path)
+
+    # Register regex adapter for SQL REGEXP operator
+    conn.create_function("REGEXP", 2, _regexp_adapter)
+
     cursor = conn.cursor()
 
     try:
@@ -118,10 +140,17 @@ def find_multi_tenant_issues(context: StandardRuleContext) -> list[StandardFindi
 
 
 def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find queries on sensitive tables without tenant filtering."""
+    """Find queries on sensitive tables without tenant filtering.
+
+    FIXED: Removed checked_count break and moved migration filter to SQL.
+    """
     findings = []
 
-    # Fetch all sql_queries with tables from junction table
+    # Build regex patterns for SQL filtering
+    sensitive_pattern = '|'.join(re.escape(t) for t in patterns.SENSITIVE_TABLES)
+    tenant_pattern = '|'.join(re.escape(f) for f in patterns.TENANT_FIELDS)
+
+    # Push filtering to SQL - NO MORE checked_count breaks
     cursor.execute("""
         SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
                GROUP_CONCAT(sqt.table_name) as tables
@@ -131,53 +160,25 @@ def _find_queries_without_tenant_filter(cursor, patterns: MultiTenantPatterns) -
             AND sq.line_number = sqt.query_line
         WHERE sq.command != 'UNKNOWN'
           AND sq.command IS NOT NULL
+          AND sq.file_path NOT LIKE '%migration%'
+          AND sq.file_path NOT LIKE '%test%'
+          AND (sqt.table_name REGEXP ? OR sq.query_text REGEXP ?)
+          AND sq.query_text NOT REGEXP ?
         GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
         ORDER BY sq.file_path, sq.line_number
-    """)
+    """, (sensitive_pattern, sensitive_pattern, tenant_pattern))
 
-    # Check each query for sensitive tables
-    checked_count = 0
+    # Now loop is simple - all results ARE findings (SQL already filtered)
     for file, line, query, command, tables in cursor.fetchall():
-        # Filter migrations in Python
-        if 'migration' in file.lower():
-            continue
-
-        # Check if query involves sensitive table
         query_lower = query.lower()
-        tables_lower = (tables or '').lower()
 
-        has_sensitive_table = False
-        for table in patterns.SENSITIVE_TABLES:
-            if table in tables_lower or table in query_lower:
-                has_sensitive_table = True
-                break
-
-        if not has_sensitive_table:
-            continue
-
-        checked_count += 1
-        if checked_count > 10:
-            break
-
-        # Check if query has tenant filtering
-        has_tenant = any(field in query_lower for field in patterns.TENANT_FIELDS)
-
-        if has_tenant:
-            continue  # Query has tenant filtering
-
-        # Determine severity - need to identify which sensitive table triggered
-        matched_table = None
-        for table in patterns.SENSITIVE_TABLES:
-            if table in tables_lower or table in query_lower:
-                matched_table = table
-                break
-
+        # Determine severity based on WHERE clause presence
         if 'where' in query_lower:
             severity = Severity.HIGH
-            message = f'{command} on {matched_table or "sensitive table"} without tenant filtering'
+            message = f'{command} on sensitive table ({tables or "unknown"}) without tenant filtering'
         else:
             severity = Severity.CRITICAL
-            message = f'{command} on {matched_table or "sensitive table"} with NO WHERE clause - cross-tenant leak'
+            message = f'{command} on sensitive table ({tables or "unknown"}) with NO WHERE clause - cross-tenant leak'
 
         findings.append(StandardFinding(
             rule_name='multi-tenant-missing-filter',
@@ -206,6 +207,8 @@ def _find_rls_policies_without_using(cursor, patterns: MultiTenantPatterns) -> l
 
     for file, line, query in cursor.fetchall():
         # Filter for CREATE POLICY in Python
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         query_upper = query.upper()
         if 'CREATE POLICY' not in query_upper and 'create policy' not in query.lower():
             continue
@@ -244,41 +247,28 @@ def _find_rls_policies_without_using(cursor, patterns: MultiTenantPatterns) -> l
 
 
 def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find queries accessing records by ID without tenant validation."""
+    """Find queries accessing records by ID without tenant validation.
+
+    FIXED: Removed checked_count break and moved filters to SQL.
+    """
     findings = []
 
-    # NOTE: frontend/test filtering handled by METADATA
-    # Keep migration check - ID-based queries in migrations are usually data fixes
+    # Build tenant pattern for SQL filtering
+    tenant_pattern = '|'.join(re.escape(f) for f in patterns.TENANT_FIELDS)
+
+    # Push filters to SQL - NO MORE checked_count breaks
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE command IN ('SELECT', 'UPDATE', 'DELETE')
+          AND file_path NOT LIKE '%migration%'
+          AND file_path NOT LIKE '%test%'
+          AND query_text REGEXP '\\bWHERE\\s+("|`)?id("|`)?\\s*='
+          AND query_text NOT REGEXP ?
         ORDER BY file_path, line_number
-    """)
+    """, (tenant_pattern,))
 
-    checked_count = 0
     for file, line, query, command in cursor.fetchall():
-        # Filter migrations in Python
-        if 'migration' in file.lower():
-            continue
-
-        query_lower = query.lower()
-
-        # Check for WHERE id patterns
-        has_where_id = ('where id = ' in query_lower or 'where id=' in query_lower or
-                       'where "id" = ' in query_lower or 'where `id` = ' in query_lower)
-
-        if not has_where_id:
-            continue
-
-        checked_count += 1
-        if checked_count > 15:
-            break
-
-        # Check if it has tenant filtering
-        has_tenant = any(field in query_lower for field in patterns.TENANT_FIELDS)
-
-        if not has_tenant:
             findings.append(StandardFinding(
                 rule_name='multi-tenant-direct-id-access',
                 message=f'{command} by ID without tenant validation - potential cross-tenant access',
@@ -294,73 +284,54 @@ def _find_direct_id_access(cursor, patterns: MultiTenantPatterns) -> list[Standa
 
 
 def _find_missing_rls_context(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find transactions without SET LOCAL for RLS context."""
+    """Find transactions without SET LOCAL for RLS context.
+
+    FIXED: Used Anti-Join pattern to eliminate N+1 query explosion.
+    """
     findings = []
 
-    # Find transaction starts
-    # NOTE: frontend/test/migration filtering handled by METADATA
+    # Regex pattern for RLS context setting
+    context_pattern = r'(?i)(set\s+local|current_setting).*(facility_id|tenant_id|account_id)'
+
+    # Anti-Join Pattern: Find transactions WITHOUT context setters nearby
     cursor.execute("""
-        SELECT file, line, callee_function
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-        ORDER BY file, line
-    """)
-
-    # Filter in Python for transaction functions
-    transactions = []
-    for file, line, func in cursor.fetchall():
-        func_lower = func.lower()
-        if 'transaction' in func_lower or 'begin' in func_lower:
-            transactions.append((file, line, func))
-
-    for file, line, func in transactions:
-        # Check for SET LOCAL within transaction scope (±30 lines)
-        cursor.execute("""
-            SELECT argument_expr
+        WITH transaction_starts AS (
+            SELECT file, line, callee_function
             FROM function_call_args
-            WHERE file = ?
-              AND line BETWEEN ? AND ?
-              AND argument_expr IS NOT NULL
-        """, (file, line, line + 30))
+            WHERE callee_function IS NOT NULL
+              AND file NOT LIKE '%test%'
+              AND file NOT LIKE '%migration%'
+              AND callee_function REGEXP '(?i)(transaction|begin)'
+        ),
+        context_setters AS (
+            SELECT file, line
+            FROM function_call_args
+            WHERE argument_expr REGEXP ?
+            UNION
+            SELECT file_path as file, line_number as line
+            FROM sql_queries
+            WHERE query_text REGEXP ?
+        )
+        SELECT t1.file, t1.line, t1.callee_function
+        FROM transaction_starts t1
+        LEFT JOIN context_setters t2
+            ON t1.file = t2.file
+            AND t2.line BETWEEN t1.line AND (t1.line + 30)
+        WHERE t2.file IS NULL
+        ORDER BY t1.file, t1.line
+    """, (context_pattern, context_pattern))
 
-        # Filter in Python for SET LOCAL patterns
-        has_set_local = False
-        for (arg_expr,) in cursor.fetchall():
-            if 'set local' not in arg_expr.lower():
-                continue
-            if any(tenant in arg_expr.lower() for tenant in ['current_facility_id', 'current_tenant_id', 'current_account_id']):
-                has_set_local = True
-                break
-
-        # Also check sql_queries
-        if not has_set_local:
-            cursor.execute("""
-                SELECT query_text
-                FROM sql_queries
-                WHERE file_path = ?
-                  AND line_number BETWEEN ? AND ?
-                  AND query_text IS NOT NULL
-            """, (file, line, line + 30))
-
-            # Filter in Python for SET LOCAL patterns
-            for (query_text,) in cursor.fetchall():
-                if 'set local' not in query_text.lower():
-                    continue
-                if any(tenant in query_text.lower() for tenant in ['current_facility_id', 'current_tenant_id', 'current_account_id']):
-                    has_set_local = True
-                    break
-
-        if not has_set_local:
-            findings.append(StandardFinding(
-                rule_name='multi-tenant-missing-rls-context',
-                message='Transaction without SET LOCAL app.current_facility_id',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='security',
-                snippet=f'{func}(...)',
-                cwe_id='CWE-863'
-            ))
+    for file, line, func in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='multi-tenant-missing-rls-context',
+            message='Transaction without SET LOCAL app.current_facility_id',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet=f'{func}(...)',
+            cwe_id='CWE-863'
+        ))
 
     return findings
 
@@ -380,6 +351,8 @@ def _find_superuser_connections(cursor, patterns: MultiTenantPatterns) -> list[S
 
     for file, line, var, expr in cursor.fetchall():
         # Filter in Python for DB user variables
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         var_upper = var.upper()
         if not ('DB_USER' in var_upper or 'DATABASE_USER' in var_upper or 'POSTGRES_USER' in var_upper or 'PG_USER' in var_upper):
             continue
@@ -466,84 +439,71 @@ def _find_raw_query_without_transaction(cursor, patterns: MultiTenantPatterns) -
 
 
 def _find_orm_missing_tenant_scope(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find ORM queries without tenant filtering using orm_queries table."""
+    """Find ORM queries without tenant filtering using orm_queries table.
+
+    FIXED: Removed checked_count break, used LEFT JOIN to eliminate N+1 queries.
+    """
     findings = []
 
-    # Query orm_queries for findAll/findOne operations
-    # NOTE: frontend/test/migration filtering handled by METADATA
+    # Build regex patterns
+    sensitive_pattern = '|'.join(re.escape(t) for t in patterns.SENSITIVE_TABLES)
+    tenant_pattern = '(?i)(facility_id|tenant_id|account_id)'
+
+    # LEFT JOIN pattern: Find ORM queries WITHOUT nearby tenant assignments
     cursor.execute("""
-        SELECT file, line, query_type
-        FROM orm_queries
-        WHERE query_type IS NOT NULL
-        ORDER BY file, line
-    """)
+        SELECT o.file, o.line, o.query_type
+        FROM orm_queries o
+        LEFT JOIN assignments a
+            ON o.file = a.file
+            AND a.line BETWEEN (o.line - 5) AND (o.line + 5)
+            AND a.source_expr REGEXP ?
+        WHERE o.query_type IS NOT NULL
+          AND o.file NOT LIKE '%test%'
+          AND o.file NOT LIKE '%migration%'
+          AND o.query_type REGEXP '(?i)\\.(findall|findone)'
+          AND o.query_type REGEXP ?
+          AND a.file IS NULL
+        ORDER BY o.file, o.line
+    """, (tenant_pattern, sensitive_pattern))
 
     seen = set()
-    checked_count = 0
 
     for file, line, query_type in cursor.fetchall():
-        # Filter in Python for findAll/findOne
-        if '.findall' not in query_type.lower() and '.findone' not in query_type.lower():
-            continue
-
-        checked_count += 1
-        if checked_count > 40:
-            break
-
-        # Check if model is sensitive
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         model_name = query_type.split('.')[0] if '.' in query_type else query_type
-        model_lower = model_name.lower()
 
-        is_sensitive = any(table in model_lower for table in patterns.SENSITIVE_TABLES)
-
-        if not is_sensitive:
+        key = f"{file}:{line}"
+        if key in seen:
             continue
+        seen.add(key)
 
-        # Check if there's tenant filtering in nearby assignments (within 5 lines)
-        cursor.execute("""
-            SELECT source_expr
-            FROM assignments
-            WHERE file = ?
-              AND line BETWEEN ? AND ?
-              AND source_expr IS NOT NULL
-        """, (file, line - 5, line + 5))
-
-        # Filter in Python for tenant fields
-        tenant_count = 0
-        for (source_expr,) in cursor.fetchall():
-            expr_lower = source_expr.lower()
-            if any(field in expr_lower for field in ['facility_id', 'tenant_id', 'account_id']):
-                tenant_count += 1
-
-        has_tenant = tenant_count > 0
-
-        if not has_tenant:
-            key = f"{file}:{line}"
-            if key in seen:
-                continue
-            seen.add(key)
-
-            findings.append(StandardFinding(
-                rule_name='multi-tenant-orm-no-tenant-scope',
-                message=f'ORM query on {model_name} without tenant filtering',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='security',
-                snippet=query_type,
-                cwe_id='CWE-863'
-            ))
+        findings.append(StandardFinding(
+            rule_name='multi-tenant-orm-no-tenant-scope',
+            message=f'ORM query on {model_name} without tenant filtering',
+            file_path=file,
+            line=line,
+            severity=Severity.HIGH,
+            category='security',
+            snippet=query_type,
+            cwe_id='CWE-863'
+        ))
 
     return findings
 
 
 def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find bulk INSERT/UPDATE/DELETE operations without tenant field."""
+    """Find bulk INSERT/UPDATE/DELETE operations without tenant field.
+
+    FIXED: Removed checked_count break and moved all filters to SQL.
+    """
     findings = []
 
-    # Find bulk operations in sql_queries with tables from junction table
-    # NOTE: frontend/test filtering handled by METADATA
-    # Keep migration check - bulk operations in migrations are schema changes, not tenant data
+    # Build regex patterns
+    sensitive_pattern = '|'.join(re.escape(t) for t in patterns.SENSITIVE_TABLES)
+    tenant_pattern = '|'.join(re.escape(f) for f in patterns.TENANT_FIELDS)
+
+    # Push all filtering to SQL - NO MORE checked_count breaks
     cursor.execute("""
         SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
                GROUP_CONCAT(sqt.table_name) as tables
@@ -552,41 +512,15 @@ def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) 
             ON sq.file_path = sqt.query_file
             AND sq.line_number = sqt.query_line
         WHERE sq.command IN ('INSERT', 'UPDATE', 'DELETE')
+          AND sq.file_path NOT LIKE '%migration%'
+          AND sq.file_path NOT LIKE '%test%'
+          AND (sqt.table_name REGEXP ? OR sq.query_text REGEXP ?)
+          AND sq.query_text NOT REGEXP ?
         GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
         ORDER BY sq.file_path, sq.line_number
-    """)
+    """, (sensitive_pattern, sensitive_pattern, tenant_pattern))
 
-    checked_count = 0
     for file, line, query, command, tables in cursor.fetchall():
-        # Filter migrations and bulk patterns in Python
-        if 'migration' in file.lower():
-            continue
-
-        query_upper = query.upper()
-        has_bulk = ('INSERT INTO' in query_upper or 'UPDATE' in query_upper or 'DELETE FROM' in query_upper)
-        if not has_bulk:
-            continue
-
-        checked_count += 1
-        if checked_count > 20:
-            break
-
-        # Check if tables are sensitive
-        tables_list = (tables or '').split(',')
-        has_sensitive = any(
-            any(sensitive in table.lower() for sensitive in patterns.SENSITIVE_TABLES)
-            for table in tables_list
-        )
-
-        if not has_sensitive:
-            continue
-
-        query_lower = query.lower()
-
-        # Check if tenant field is present
-        has_tenant_field = any(field in query_lower for field in patterns.TENANT_FIELDS)
-
-        if not has_tenant_field:
             if command == 'INSERT':
                 severity = Severity.HIGH
                 message = f'Bulk INSERT without tenant field - data will be unfiltered'
@@ -612,11 +546,17 @@ def _find_bulk_operations_without_tenant(cursor, patterns: MultiTenantPatterns) 
 
 
 def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find JOINs between tables without tenant field in ON clause."""
+    """Find JOINs between tables without tenant field in ON clause.
+
+    FIXED: Removed checked_count break and moved filters to SQL.
+    """
     findings = []
 
-    # NOTE: frontend/test filtering handled by METADATA
-    # Keep migration check - JOINs in migrations are schema exploration, not queries
+    # Build tenant pattern for SQL filtering
+    tenant_pattern = '|'.join(re.escape(f) for f in patterns.TENANT_FIELDS)
+
+    # Push JOIN detection to SQL - NO MORE checked_count breaks
+    # Note: Complex ON clause extraction still in Python (parsing SQL in regex is brittle)
     cursor.execute("""
         SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
                GROUP_CONCAT(sqt.table_name) as tables
@@ -625,91 +565,68 @@ def _find_cross_tenant_joins(cursor, patterns: MultiTenantPatterns) -> list[Stan
             ON sq.file_path = sqt.query_file
             AND sq.line_number = sqt.query_line
         WHERE sq.command = 'SELECT'
+          AND sq.file_path NOT LIKE '%migration%'
+          AND sq.file_path NOT LIKE '%test%'
+          AND sq.query_text REGEXP '(?i)\\bJOIN\\b'
+          AND sq.query_text REGEXP '(?i)\\bON\\b'
         GROUP BY sq.file_path, sq.line_number, sq.query_text, sq.command
         ORDER BY sq.file_path, sq.line_number
     """)
 
-    checked_count = 0
     for file, line, query, command, tables in cursor.fetchall():
-        # Filter migrations and JOIN patterns in Python
-        if 'migration' in file.lower():
-            continue
-
-        if 'join' not in query.lower():
-            continue
-
-        checked_count += 1
-        if checked_count > 25:
-            break
-
-        query_upper = query.upper()
         query_lower = query.lower()
 
-        # Check if JOIN has tenant field in ON clause
-        if ' ON ' in query_upper or ' on ' in query_lower:
-            # Extract ON clause content
-            on_start = query_upper.find(' ON ')
-            if on_start == -1:
-                on_start = query_lower.find(' on ')
+        # Extract ON clause content (complex parsing stays in Python)
+        on_start = query_lower.find(' on ')
+        if on_start != -1:
+            # Get 200 chars after ON
+            on_clause = query[on_start:on_start + 200]
 
-            if on_start != -1:
-                # Get 200 chars after ON
-                on_clause = query[on_start:on_start + 200]
+            # Check if tenant field is in ON clause
+            has_tenant_in_on = any(field in on_clause.lower() for field in patterns.TENANT_FIELDS)
 
-                # Check if tenant field is in ON clause
-                has_tenant_in_on = any(field in on_clause.lower() for field in patterns.TENANT_FIELDS)
-
-                if not has_tenant_in_on:
-                    findings.append(StandardFinding(
-                        rule_name='multi-tenant-cross-tenant-join',
-                        message='JOIN without tenant field in ON clause - potential cross-tenant data leak',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='security',
-                        snippet=query[:100] + '...' if len(query) > 100 else query,
-                        cwe_id='CWE-863'
-                    ))
+            if not has_tenant_in_on:
+                findings.append(StandardFinding(
+                    rule_name='multi-tenant-cross-tenant-join',
+                    message='JOIN without tenant field in ON clause - potential cross-tenant data leak',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category='security',
+                    snippet=query[:100] + '...' if len(query) > 100 else query,
+                    cwe_id='CWE-863'
+                ))
 
     return findings
 
 
 def _find_subquery_without_tenant(cursor, patterns: MultiTenantPatterns) -> list[StandardFinding]:
-    """Find subqueries on sensitive tables without tenant filtering."""
+    """Find subqueries on sensitive tables without tenant filtering.
+
+    FIXED: Removed checked_count break and moved filters to SQL.
+    """
     findings = []
 
-    # NOTE: frontend/test filtering handled by METADATA
-    # Keep migration check - subqueries in migrations are schema queries
+    # Build regex patterns
+    sensitive_pattern = '|'.join(re.escape(t) for t in patterns.SENSITIVE_TABLES)
+
+    # Push subquery detection to SQL - NO MORE checked_count breaks
+    # Note: Subquery content extraction still in Python (complex parsing)
     cursor.execute("""
         SELECT file_path, line_number, query_text, command
         FROM sql_queries
         WHERE command = 'SELECT'
+          AND file_path NOT LIKE '%migration%'
+          AND file_path NOT LIKE '%test%'
+          AND query_text REGEXP '(?i)\\(\\s*SELECT'
+          AND query_text REGEXP ?
         ORDER BY file_path, line_number
-    """)
+    """, (sensitive_pattern,))
 
-    checked_count = 0
     for file, line, query, command in cursor.fetchall():
-        # Filter migrations and subquery patterns in Python
-        if 'migration' in file.lower():
-            continue
-
-        if '(select' not in query.lower():
-            continue
-
-        checked_count += 1
-        if checked_count > 20:
-            break
-
         query_lower = query.lower()
 
-        # Check if subquery has sensitive table
-        has_sensitive = any(f' {table} ' in query_lower for table in patterns.SENSITIVE_TABLES)
-
-        if not has_sensitive:
-            continue
-
-        # Check if subquery has tenant filtering
-        # Look for WHERE clause in subquery section
+        # Extract subquery content (complex parsing stays in Python)
         subquery_start = query_lower.find('(select')
         if subquery_start != -1:
             subquery_end = query_lower.find(')', subquery_start)

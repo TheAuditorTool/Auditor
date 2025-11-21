@@ -20,6 +20,9 @@ from collections import defaultdict
 
 import click
 
+# Phase 3: ORM Awakening - Python ORM relationship expansion
+from theauditor.taint.orm_utils import PythonOrmContext
+
 
 @dataclass
 class DFGNode:
@@ -1185,6 +1188,106 @@ class DFGBuilder:
         }
 
 
+    def build_python_orm_edges(self, root: str = ".") -> dict[str, Any]:
+        """Build edges for Python ORM relationships (User -> user.posts).
+
+        Phase 3: ORM Awakening - Uses orm_utils to expand the graph based on
+        model definitions. This enables taint tracking through ORM relationships.
+
+        Args:
+            root: Project root directory (for metadata only)
+
+        Returns:
+            Dict with nodes, edges, and metadata for ORM expansions
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        nodes: dict[str, "DFGNode"] = {}
+        edges: list["DFGEdge"] = []
+
+        stats = {'orm_expansions': 0, 'edges_created': 0}
+
+        # 1. Initialize the Context from DB
+        try:
+            orm_context = PythonOrmContext.from_database(cursor)
+            if not orm_context.enabled:
+                conn.close()
+                return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
+        except Exception as e:
+            print(f"[DFG Builder] ORM Context init failed: {e}")
+            conn.close()
+            return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
+
+        # 2. Find all variable nodes that might be ORM models
+        cursor.execute("""
+            SELECT file, target_var, in_function
+            FROM assignments
+            WHERE target_var IS NOT NULL
+        """)
+
+        potential_models = cursor.fetchall()
+
+        with click.progressbar(
+            potential_models,
+            label="Building Python ORM edges",
+            show_pos=True
+        ) as items:
+            for row in items:
+                file = row['file']
+                var_name = row['target_var']
+                func = row['in_function'] or 'global'
+
+                # 3. Ask orm_utils: "Is this variable an ORM Model?"
+                model_name = orm_context.get_model_for_variable(
+                    file, [func], var_name
+                )
+
+                if not model_name:
+                    continue
+
+                # 4. Expand Relationships (user -> user.posts)
+                rels = orm_context.get_relationships(model_name)
+                fk_fields = orm_context.get_fk_fields(model_name)
+
+                if not rels and not fk_fields:
+                    continue
+
+                stats['orm_expansions'] += 1
+
+                source_id = f"{file}::{func}::{var_name}"
+
+                # Create expansion edges for relationships
+                for rel in rels:
+                    alias = rel['alias']
+                    target_var = f"{var_name}.{alias}"
+                    target_id = f"{file}::{func}::{target_var}"
+
+                    # Ensure target node exists
+                    if target_id not in nodes:
+                        nodes[target_id] = DFGNode(
+                            id=target_id, file=file, variable_name=target_var,
+                            scope=func, type="orm_expansion",
+                            metadata={"model": model_name, "relation": alias}
+                        )
+
+                    # Link them
+                    new_edges = self._create_bidirectional_edges(
+                        source=source_id, target=target_id, edge_type="orm_expansion",
+                        file=file, line=0, expression=f"ORM: {model_name}.{alias}",
+                        function=func
+                    )
+                    edges.extend(new_edges)
+                    stats['edges_created'] += len(new_edges)
+
+        conn.close()
+        return {
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
+            "metadata": {"graph_type": "python_orm", "stats": stats}
+        }
+
     def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build unified data flow graph combining all edge types.
 
@@ -1194,6 +1297,7 @@ class DFGBuilder:
         - Parameter binding edges (func(x) -> param)
         - Cross-boundary edges (frontend -> backend API)
         - Express middleware edges (chain execution order)
+        - Python ORM edges (model relationships)
 
         Args:
             root: Project root directory
@@ -1220,10 +1324,15 @@ class DFGBuilder:
         print("Building controller implementation edges...")
         controller_impl_graph = self.build_controller_implementation_edges(root)
 
+        # Phase 3: ORM Awakening
+        print("Building Python ORM edges...")
+        orm_graph = self.build_python_orm_edges(root)
+
         # Merge nodes (dedup by id)
         nodes = {}
         for graph in [assignment_graph, return_graph, parameter_graph,
-                      cross_boundary_graph, middleware_graph, controller_impl_graph]:
+                      cross_boundary_graph, middleware_graph, controller_impl_graph,
+                      orm_graph]:
             for node in graph["nodes"]:
                 nodes[node["id"]] = node
 
@@ -1233,7 +1342,8 @@ class DFGBuilder:
                 parameter_graph["edges"] +
                 cross_boundary_graph["edges"] +
                 middleware_graph["edges"] +
-                controller_impl_graph["edges"])
+                controller_impl_graph["edges"] +
+                orm_graph["edges"])
 
         # Merge stats
         stats = {
@@ -1243,6 +1353,7 @@ class DFGBuilder:
             "cross_boundary_stats": cross_boundary_graph["metadata"]["stats"],
             "middleware_stats": middleware_graph["metadata"]["stats"],
             "controller_implementation_stats": controller_impl_graph["metadata"]["stats"],
+            "orm_stats": orm_graph["metadata"]["stats"],
             "total_nodes": len(nodes),
             "total_edges": len(edges)
         }

@@ -10,12 +10,29 @@ Schema-driven enforcement (v1.3+):
 """
 
 
+import re
 import sqlite3
 from typing import List
 from dataclasses import dataclass
 
 from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity
 from theauditor.indexer.schema import build_query
+
+
+# ============================================================================
+# REGEXP ADAPTER - Enable regex in SQLite queries
+# ============================================================================
+def _regexp_adapter(expr: str, item: str) -> bool:
+    """Adapter to let SQLite use Python's regex engine.
+
+    Usage in SQL: WHERE column REGEXP 'pattern'
+    """
+    if item is None:
+        return False
+    try:
+        return re.search(expr, item, re.IGNORECASE) is not None
+    except Exception:
+        return False
 
 # ============================================================================
 # PATTERNS - DETECT SQL INJECTION
@@ -66,39 +83,47 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     patterns = SQLInjectionPatterns()
 
     conn = sqlite3.connect(context.db_path)
+
+    # Register regex adapter for SQL REGEXP operator
+    conn.create_function("REGEXP", 2, _regexp_adapter)
+
     cursor = conn.cursor()
 
     # ========================================================================
     # CHECK 1: SQL QUERIES WITH INTERPOLATION
     # ========================================================================
+    # FIXED: Moved interpolation pattern check to SQL with REGEXP
 
-    # Schema contract: sql_queries table exists
-    query = build_query('sql_queries', ['file', 'line', 'query_text', 'has_interpolation'],
-                       order_by="file, line")
-    cursor.execute(query)
+    # Build regex for interpolation patterns
+    # Escape special regex chars in patterns like ${, %(, etc.
+    interpolation_tokens = []
+    for pattern in patterns.INTERPOLATION_PATTERNS:
+        interpolation_tokens.append(re.escape(pattern))
 
-    for file, line, query_text, has_interpolation in cursor.fetchall():
-        if not has_interpolation:
-            continue
+    interpolation_regex = '|'.join(interpolation_tokens)
 
-        # Check if query has user input patterns
-        suspicious = False
-        for pattern in patterns.INTERPOLATION_PATTERNS:
-            if pattern in query_text:
-                suspicious = True
-                break
+    # Use raw SQL to leverage REGEXP - build_query can't do complex WHERE
+    cursor.execute("""
+        SELECT file_path, line_number, query_text
+        FROM sql_queries
+        WHERE has_interpolation = 1
+          AND file_path NOT LIKE '%test%'
+          AND file_path NOT LIKE '%migration%'
+          AND query_text REGEXP ?
+        ORDER BY file_path, line_number
+    """, (interpolation_regex,))
 
-        if suspicious:
-            findings.append(StandardFinding(
-                rule_name='sql-injection-interpolation',
-                message='SQL query with string interpolation - high injection risk',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='security',
-                snippet=query_text[:100] + '...' if len(query_text) > 100 else query_text,
-                cwe_id='CWE-89'
-            ))
+    for file, line, query_text in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='sql-injection-interpolation',
+            message='SQL query with string interpolation - high injection risk',
+            file_path=file,
+            line=line,
+            severity=Severity.CRITICAL,
+            category='security',
+            snippet=query_text[:100] + '...' if len(query_text) > 100 else query_text,
+            cwe_id='CWE-89'
+        ))
 
     # ========================================================================
     # CHECK 2: DYNAMIC QUERIES IN FUNCTION CALLS
@@ -113,6 +138,8 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
 
     seen_dynamic = set()
     for file, line, func, args in cursor.fetchall():
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not args:
             continue
 
@@ -156,6 +183,8 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     cursor.execute(query, raw_query_patterns)
 
     for file, line, func, args in cursor.fetchall():
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not args:
             continue
 
@@ -175,39 +204,39 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
     # ========================================================================
     # CHECK 4: USER INPUT IN SQL
     # ========================================================================
+    # FIXED: Used JOIN to eliminate N+1 query explosion
 
-    # Check assignments that build SQL from request data
-    query = build_query('assignments',
-                       ['file', 'line', 'target_var', 'source_expr'],
-                       where="source_expr LIKE '%request.%' OR source_expr LIKE '%req.%'",
-                       order_by="file, line")
-    cursor.execute(query)
+    # Single query with JOIN: Find assignments of request data to SQL variables
+    # that are then used in execute/query function calls
+    cursor.execute("""
+        WITH tainted_vars AS (
+            SELECT file, target_var, source_expr
+            FROM assignments
+            WHERE (source_expr LIKE '%request.%' OR source_expr LIKE '%req.%')
+              AND target_var REGEXP '(?i)(sql|query|stmt|command)'
+              AND file NOT LIKE '%test%'
+              AND file NOT LIKE '%migration%'
+        )
+        SELECT f.file, f.line, f.callee_function, t.target_var, t.source_expr
+        FROM function_call_args f
+        INNER JOIN tainted_vars t
+            ON f.file = t.file
+            AND (f.callee_function LIKE '%execute%' OR f.callee_function LIKE '%query%')
+            AND f.argument_expr LIKE '%' || t.target_var || '%'
+        ORDER BY f.file, f.line
+    """)
 
-    sql_vars = {}
-    for file, line, var, expr in cursor.fetchall():
-        # Track variables that contain request data
-        if any(kw in var.lower() for kw in ['sql', 'query', 'stmt', 'command']):
-            sql_vars[var] = (file, line, expr)
-
-    # Now check if these SQL variables are used in execute/query calls
-    for var, (var_file, var_line, var_expr) in sql_vars.items():
-        query = build_query('function_call_args',
-                           ['file', 'line', 'callee_function'],
-                           where="argument_expr LIKE ? AND (callee_function LIKE '%execute%' OR callee_function LIKE '%query%')",
-                           order_by="file, line")
-        cursor.execute(query, [f'%{var}%'])
-
-        for file, line, func in cursor.fetchall():
-            findings.append(StandardFinding(
-                rule_name='sql-injection-user-input',
-                message=f'User input from {var_expr[:30]} used in SQL {func}',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='security',
-                snippet=f'{var} used in {func}',
-                cwe_id='CWE-89'
-            ))
+    for file, line, func, var, expr in cursor.fetchall():
+        findings.append(StandardFinding(
+            rule_name='sql-injection-user-input',
+            message=f'User input from {expr[:30]} used in SQL {func}',
+            file_path=file,
+            line=line,
+            severity=Severity.CRITICAL,
+            category='security',
+            snippet=f'{var} used in {func}',
+            cwe_id='CWE-89'
+        ))
 
     # ========================================================================
     # CHECK 5: TEMPLATE LITERALS WITH SQL
@@ -221,6 +250,8 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         cursor.execute(query)
 
         for file, line, content in cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not content:
                 continue
 
@@ -258,6 +289,8 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
         cursor.execute(query, [f'%{sp}%', f'%{sp}%'])
 
         for file, line, func, args in cursor.fetchall():
+            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+            #       Move filtering logic to SQL WHERE clause for efficiency
             if not args:
                 continue
 
@@ -310,6 +343,8 @@ def check_dynamic_query_construction(context: StandardRuleContext) -> list[Stand
 
     seen = set()
     for file, line, query, command in cursor.fetchall():
+        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
+        #       Move filtering logic to SQL WHERE clause for efficiency
         if not query:
             continue
 

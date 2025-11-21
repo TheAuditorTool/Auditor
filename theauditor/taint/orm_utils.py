@@ -298,75 +298,8 @@ class PythonOrmContext:
         return rows
 
 
-def enhance_python_fk_taint(
-    cursor: sqlite3.Cursor,
-    cache: MemoryCache | None,
-    tainted_by_function: dict[str, dict[str, any]],
-) -> None:
-    """Augment tainted variable sets using Python ORM relationship metadata."""
-    if not tainted_by_function:
-        return
-
-    context = PythonOrmContext.from_cache(cache, cursor) if cache else PythonOrmContext.from_database(cursor)
-    if not context.enabled:
-        return
-
-    for func_name, info in tainted_by_function.items():
-        vars_set: set[str] = info.get("vars", set())
-        if not vars_set:
-            continue
-
-        file_path = info.get("file")
-        if not file_path:
-            continue
-
-        display_names = list(info.get("displays", []))
-        function_candidates = display_names + ([func_name] if func_name else [])
-
-        bindings: dict[str, str] = dict(info.get("python_model_bindings", {}))
-        processed: set[str] = set()
-        changed = True
-
-        while changed:
-            changed = False
-            for var in list(vars_set):
-                base = var.split(".", 1)[0]
-                if base in processed:
-                    continue
-                model = context.get_model_for_variable(file_path, function_candidates, base, bindings)
-                processed.add(base)
-                if not model:
-                    continue
-                if bindings.get(base) != model:
-                    bindings[base] = model
-                # Expand relationship aliases
-                for rel in context.get_relationships(model):
-                    alias = rel.get("alias")
-                    if not alias:
-                        continue
-                    dotted = f"{base}.{alias}"
-                    if dotted not in vars_set:
-                        vars_set.add(dotted)
-                        changed = True
-                    if alias not in vars_set:
-                        vars_set.add(alias)
-                        changed = True
-                    target_model = rel.get("target_model")
-                    if target_model:
-                        previous = bindings.get(alias)
-                        if previous != target_model:
-                            bindings[alias] = target_model
-                            processed.discard(alias)
-                # Expand FK fields (dotted only)
-                for fk in context.get_fk_fields(model):
-                    field_name = fk.get("field_name")
-                    if not field_name:
-                        continue
-                    dotted = f"{base}.{field_name}"
-                    if dotted not in vars_set:
-                        vars_set.add(dotted)
-                        changed = True
-
-        if bindings:
-            existing = info.setdefault("python_model_bindings", {})
-            existing.update(bindings)
+# DELETED: enhance_python_fk_taint (2025-11-22)
+# This runtime expansion function was replaced by build-time graph edges in
+# dfg_builder.py:build_python_orm_edges(). The new architecture creates static
+# ORM relationship edges during graph build, which FlowResolver and IFDS walkers
+# traverse automatically. Runtime expansion is no longer needed.
