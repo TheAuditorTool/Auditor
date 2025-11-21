@@ -70,8 +70,14 @@ class PatternLoader:
 
         yaml_files = list(self.patterns_dir.glob("**/*.yml")) + list(self.patterns_dir.glob("**/*.yaml"))
 
+        # Filter out template files (*.template, *.yml.template, *.yaml.template)
+        yaml_files = [f for f in yaml_files if '.template' not in f.suffixes]
+
         if not yaml_files:
-            raise ValueError(f"No pattern files found in {self.patterns_dir}")
+            # No pattern files found - return empty dict (graceful degradation)
+            # This is expected when only template files exist
+            self._loaded = True
+            return {}
 
         for yaml_file in yaml_files:
             # Determine category from path relative to patterns_dir
@@ -102,7 +108,7 @@ class PatternLoader:
         Returns:
             List of Pattern objects.
         """
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             data = yaml.safe_load(f)
 
         if not isinstance(data, dict) or "patterns" not in data:

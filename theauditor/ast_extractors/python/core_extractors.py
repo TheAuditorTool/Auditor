@@ -133,7 +133,7 @@ def extract_python_functions(context: FileContext) -> list[dict]:
             "name": node.name,
             "line": node.lineno,
             "end_line": end_line,
-            "column": col,
+            "col": col,
             "async": isinstance(node, ast.AsyncFunctionDef),
         }
 
@@ -155,7 +155,7 @@ def extract_python_functions(context: FileContext) -> list[dict]:
                 "name": arg.arg,
                 "kind": kind,
                 "line": getattr(arg, "lineno", node.lineno),
-                "column": getattr(arg, "col_offset", 0),
+                "col": getattr(arg, "col_offset", 0),
                 "type_annotation": annotation_text,
                 "is_any": annotation_text in {"Any", "typing.Any"} if annotation_text else False,
                 "is_generic": is_generic,
@@ -222,7 +222,7 @@ def extract_python_functions(context: FileContext) -> list[dict]:
                 continue
             type_annotation_records.append({
                 "line": param["line"],
-                "column": param["column"],
+                "col": param["col"],
                 "symbol_name": f"{node.name}.{param['name']}",
                 "symbol_kind": "parameter",
                 "language": "python",
@@ -240,7 +240,7 @@ def extract_python_functions(context: FileContext) -> list[dict]:
             is_any_return = return_annotation in {"Any", "typing.Any"}
             type_annotation_records.append({
                 "line": node.lineno,
-                "column": col,
+                "col": col,
                 "symbol_name": node.name,
                 "symbol_kind": "function",
                 "language": "python",
@@ -274,7 +274,7 @@ def extract_python_classes(context: FileContext) -> list[dict]:
         classes.append({
             "name": node.name,
             "line": node.lineno,
-            "column": node.col_offset,
+            "col": node.col_offset,
             "bases": [get_node_name(base) for base in node.bases],
             "type_annotations": [],
         })
@@ -303,7 +303,7 @@ def extract_python_attribute_annotations(context: FileContext) -> list[dict]:
 
         annotations.append({
             "line": getattr(node, "lineno", 0),
-            "column": getattr(node, "col_offset", 0),
+            "col": getattr(node, "col_offset", 0),
             "symbol_name": f"{class_name}.{target_name}" if class_name else target_name,
             "symbol_kind": "class_attribute" if class_name else "module_attribute",
             "language": "python",
@@ -625,7 +625,7 @@ def extract_python_calls(context: FileContext) -> list[dict]:
             calls.append({
                 "name": func_name,
                 "line": node.lineno,
-                "column": node.col_offset,
+                "col": node.col_offset,
                 "args_count": len(node.args),
             })
 

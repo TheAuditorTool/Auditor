@@ -553,6 +553,7 @@ class DFGBuilder:
             SELECT file, method, full_path, handler_function
             FROM api_endpoints
             WHERE handler_function IS NOT NULL
+              AND full_path IS NOT NULL
               AND method IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
         """)
 
@@ -573,6 +574,7 @@ class DFGBuilder:
             SELECT file, line, method, url_literal, body_variable, function_name
             FROM frontend_api_calls
             WHERE body_variable IS NOT NULL
+              AND url_literal IS NOT NULL
               AND method IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')
         """)
 

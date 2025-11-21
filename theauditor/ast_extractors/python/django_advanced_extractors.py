@@ -367,4 +367,14 @@ def extract_django_querysets(context: FileContext) -> list[dict[str, Any]]:
                         'method_chain': method_chain
                     })
 
-    return results
+    # DEDUPLICATE: PRIMARY KEY is (file, line, queryset_name)
+    # Multiple method chains on same line all have queryset_name='chain' causing duplicates
+    seen = set()
+    deduped = []
+    for item in results:
+        key = (item['line'], item['queryset_name'])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(item)
+
+    return deduped

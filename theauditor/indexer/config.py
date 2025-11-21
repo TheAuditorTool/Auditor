@@ -94,7 +94,10 @@ SKIP_DIRS: set[str] = {
     ".idea",
 }
 
-# Monorepo detection patterns
+# Monorepo detection patterns (DETECTION ONLY - NOT A WHITELIST)
+# Used to identify monorepo structure for metadata purposes.
+# Does NOT limit which directories are scanned - SKIP_DIRS is the ONLY filter.
+# Security tools MUST scan operational code (scripts/, tests/, configs).
 # Tuples of (base_directory, source_subdirectory)
 # None for source_subdirectory means check all subdirectories
 STANDARD_MONOREPO_PATHS: list[tuple[str, str]] = [
