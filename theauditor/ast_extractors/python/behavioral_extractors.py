@@ -102,7 +102,6 @@ def extract_recursion_patterns(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X with known input, verify recursive behavior and termination
     """
     recursion_patterns = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return recursion_patterns
@@ -259,7 +258,6 @@ def extract_generator_yields(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Iterate generator, verify yield conditions and values
     """
     yields = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return yields
@@ -349,7 +347,6 @@ def extract_property_patterns(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Access property, verify computation occurs vs simple attribute return
     """
     properties = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return properties
@@ -487,7 +484,6 @@ def extract_dynamic_attributes(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Access/set attributes on instance, verify interception occurs
     """
     dynamic_attrs = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return dynamic_attrs

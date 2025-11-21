@@ -1,6 +1,5 @@
 """Project structure and intelligence report command."""
 
-
 import click
 import sqlite3
 from pathlib import Path
@@ -113,15 +112,6 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         - Symbol count (functions, classes)
         - Refactor recommendation
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("structure", sys.argv[2:], root=root)
-        sys.exit(exit_code)
-
     from theauditor.project_summary import generate_project_summary, generate_directory_tree
 
     # Handle --monoliths flag (separate mode)
@@ -172,7 +162,7 @@ def structure(root, manifest, db_path, output, max_depth, monoliths, threshold, 
         # Show summary stats if available
         if manifest_exists:
             import json
-            with open(manifest) as f:
+            with open(manifest, 'r') as f:
                 manifest_data = json.load(f)
             
             total_files = len(manifest_data)

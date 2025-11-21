@@ -119,7 +119,6 @@ def extract_flask_app_factories(context: FileContext) -> list[dict[str, Any]]:
     - Blueprint registration = attack surface
     """
     factories = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return factories
 
@@ -173,7 +172,6 @@ def extract_flask_extensions(context: FileContext) -> list[dict[str, Any]]:
     - CORS = cross-origin policy
     """
     extensions = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return extensions
 
@@ -233,7 +231,6 @@ def extract_flask_request_hooks(context: FileContext) -> list[dict[str, Any]]:
     - Missing auth in before_request = bypass risk
     """
     hooks = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return hooks
 
@@ -282,7 +279,6 @@ def extract_flask_error_handlers(context: FileContext) -> list[dict[str, Any]]:
     - Generic exception handlers = hiding errors
     """
     handlers = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return handlers
 
@@ -334,7 +330,6 @@ def extract_flask_websocket_handlers(context: FileContext) -> list[dict[str, Any
     - Room management = access control issue
     """
     handlers = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return handlers
 
@@ -386,7 +381,6 @@ def extract_flask_cli_commands(context: FileContext) -> list[dict[str, Any]]:
     - Dangerous operations (db drop, user delete)
     """
     commands = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return commands
 
@@ -439,7 +433,6 @@ def extract_flask_cors_configs(context: FileContext) -> list[dict[str, Any]]:
     - Overly permissive origins = CSRF risk
     """
     configs = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return configs
 
@@ -487,7 +480,6 @@ def extract_flask_rate_limits(context: FileContext) -> list[dict[str, Any]]:
     - Login endpoints without limits = brute force risk
     """
     limits = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return limits
 
@@ -532,7 +524,6 @@ def extract_flask_cache_decorators(context: FileContext) -> list[dict[str, Any]]
     - Cache key collisions = data leakage
     """
     caches = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return caches
 
@@ -569,3 +560,119 @@ def extract_flask_cache_decorators(context: FileContext) -> list[dict[str, Any]]
                 })
 
     return caches
+
+
+# HTTP Methods for FastAPI
+FASTAPI_HTTP_METHODS = frozenset(['get', 'post', 'put', 'delete', 'patch', 'options', 'head'])
+
+# Auth decorator patterns
+AUTH_DECORATORS = frozenset([
+    'login_required', 'auth_required', 'permission_required',
+    'require_auth', 'authenticated', 'authorize', 'requires_auth',
+    'jwt_required', 'token_required', 'verify_jwt', 'check_auth'
+])
+
+
+def _extract_fastapi_dependencies(node: ast.FunctionDef) -> list[str]:
+    """Extract FastAPI dependency injection from function signature.
+    
+    Args:
+        node: AST FunctionDef node
+        
+    Returns:
+        List of dependency names (e.g., ['Depends(get_current_user)'])
+    """
+    dependencies = []
+    for arg in node.args.args:
+        # Check if annotation is a Depends() call
+        if arg.annotation and isinstance(arg.annotation, ast.Call):
+            dep_name = get_node_name(arg.annotation.func)
+            if dep_name == 'Depends' and arg.annotation.args:
+                inner_dep = get_node_name(arg.annotation.args[0])
+                if inner_dep:
+                    dependencies.append(f"Depends({inner_dep})")
+    return dependencies
+
+
+def extract_flask_routes(context: FileContext) -> list[dict[str, Any]]:
+    """Extract Flask/FastAPI routes using Python AST.
+
+    Detects:
+    - Flask @app.route() decorators
+    - Flask @blueprint.route() decorators
+    - FastAPI @app.get/post/put/delete() decorators
+    - Authentication decorators
+    - Dependency injection (FastAPI)
+
+    Returns:
+        List of route dictionaries with method, pattern, auth, etc.
+    """
+    routes = []
+
+    # Check if we have a Python AST tree
+    if not isinstance(context.tree, ast.AST):
+        return routes
+
+    # Walk the AST to find decorated functions
+    for node in context.walk_tree():
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            has_auth = False
+            controls: list[str] = []
+            framework = None
+            blueprint_name = None
+            method = 'GET'
+            pattern = ''
+            route_found = False
+
+            for decorator in node.decorator_list:
+                dec_identifier = get_node_name(decorator)
+
+                if isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute):
+                    method_name = decorator.func.attr
+                    owner_name = get_node_name(decorator.func.value)
+
+                    if method_name in ['route'] or method_name in FASTAPI_HTTP_METHODS:
+                        pattern = ''
+                        if decorator.args:
+                            path_node = decorator.args[0]
+                            if isinstance(path_node, ast.Constant):
+                                pattern = str(path_node.value)
+
+                        if method_name == 'route':
+                            method = 'GET'
+                            for keyword in decorator.keywords:
+                                if keyword.arg == 'methods' and isinstance(keyword.value, ast.List) and keyword.value.elts:
+                                    element = keyword.value.elts[0]
+                                    if isinstance(element, ast.Constant):
+                                        method = str(element.value).upper()
+                        else:
+                            method = method_name.upper()
+
+                        framework = 'flask' if method_name == 'route' else 'fastapi'
+                        blueprint_name = owner_name
+                        route_found = True
+                        dec_identifier = method_name
+
+                if dec_identifier and dec_identifier in AUTH_DECORATORS:
+                    has_auth = True
+                elif dec_identifier and dec_identifier not in ['route'] and dec_identifier not in FASTAPI_HTTP_METHODS:
+                    controls.append(dec_identifier)
+
+            if route_found:
+                dependencies = []
+                if framework == 'fastapi':
+                    dependencies = _extract_fastapi_dependencies(node)
+
+                routes.append({
+                    'line': node.lineno,
+                    'method': method,
+                    'pattern': pattern,
+                    'has_auth': has_auth,
+                    'handler_function': node.name,
+                    'controls': controls,
+                    'framework': framework or 'flask',
+                    'dependencies': dependencies,
+                    'blueprint': blueprint_name if framework == 'flask' else None,
+                })
+
+    return routes

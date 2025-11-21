@@ -1,6 +1,5 @@
 """Analyze security boundary enforcement across entry points."""
 
-
 import sys
 import json
 import click
@@ -177,15 +176,6 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
         Fact: No validation control detected within search depth
         Implication: External data flows to downstream functions without validation gate
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("boundaries", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     # Determine database path
     if db is None:
         db = Path.cwd() / ".pf" / "repo_index.db"

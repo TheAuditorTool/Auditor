@@ -4,7 +4,6 @@ This command runs interpretive analysis modules (ML, graph health, taint severit
 on top of existing raw audit data, generating insights and predictions.
 """
 
-
 import json
 import sys
 from pathlib import Path
@@ -146,15 +145,7 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
     Exit Codes:
       0 - All requested insights generated successfully
       1 - One or more insights failed (see errors)"""
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("insights", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
+    
     # Ensure we have raw data to analyze
     pf_dir = Path(".pf")
     raw_dir = pf_dir / "raw"
@@ -244,7 +235,7 @@ def insights(mode: str, ml_train: bool, topk: int, output_dir: str, print_summar
     sys.exit(1 if errors else 0)
 
 
-def run_ml_insights(train: bool, topk: int, output_dir: Path) -> dict[str, Any]:
+def run_ml_insights(train: bool, topk: int, output_dir: Path) -> Dict[str, Any]:
     """Run ML insights generation."""
     try:
         from theauditor.ml import check_ml_available, learn, suggest
@@ -279,7 +270,7 @@ def run_ml_insights(train: bool, topk: int, output_dir: Path) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def run_graph_insights(output_dir: Path) -> dict[str, Any]:
+def run_graph_insights(output_dir: Path) -> Dict[str, Any]:
     """Run graph health insights."""
     try:
         from theauditor.graph.insights import GraphInsights
@@ -352,7 +343,7 @@ def run_graph_insights(output_dir: Path) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def run_taint_insights(output_dir: Path) -> dict[str, Any]:
+def run_taint_insights(output_dir: Path) -> Dict[str, Any]:
     """Run taint severity insights."""
     try:
         from datetime import datetime, UTC
@@ -416,7 +407,7 @@ def run_taint_insights(output_dir: Path) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def run_impact_insights(output_dir: Path) -> dict[str, Any]:
+def run_impact_insights(output_dir: Path) -> Dict[str, Any]:
     """Run impact analysis insights."""
     try:
         # Check if workset exists
@@ -445,7 +436,7 @@ def run_impact_insights(output_dir: Path) -> dict[str, Any]:
         return {"error": str(e)}
 
 
-def aggregate_insights(results: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+def aggregate_insights(results: Dict[str, Any], output_dir: Path) -> Dict[str, Any]:
     """Aggregate all insights into unified summary."""
     summary = {
         "insights_generated": list(results.keys()),
@@ -493,7 +484,7 @@ def aggregate_insights(results: dict[str, Any], output_dir: Path) -> dict[str, A
     return summary
 
 
-def print_insights_summary(summary: dict[str, Any]) -> None:
+def print_insights_summary(summary: Dict[str, Any]) -> None:
     """Print insights summary to console."""
     click.echo(f"\n{'='*60}")
     click.echo("INSIGHTS SUMMARY")

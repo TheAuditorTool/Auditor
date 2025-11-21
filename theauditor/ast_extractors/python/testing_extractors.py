@@ -9,7 +9,7 @@ This module contains extraction logic for Python testing frameworks:
 ARCHITECTURAL CONTRACT: File Path Responsibility
 =================================================
 All functions here:
-- RECEIVE: AST tree only (no file path context)
+- RECEIVE: FileContext with AST tree and optimized node index
 - EXTRACT: Data with 'line' numbers and content
 - RETURN: List[Dict] with keys like 'line', 'name', 'type', etc.
 - MUST NOT: Include 'file' or 'file_path' keys in returned dicts
@@ -17,195 +17,183 @@ All functions here:
 File path context is provided by the INDEXER layer when storing to database.
 """
 
-
 import ast
 import logging
 from typing import Any, Dict, List, Optional
 
 from ..base import get_node_name
+from .utils.context import FileContext
 
 logger = logging.getLogger(__name__)
 
 
-def extract_pytest_fixtures(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:
     """Extract pytest fixture definitions from Python AST.
 
     Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
+        context: FileContext containing AST tree and node index
 
     Returns:
         List of pytest fixture records
     """
     fixtures = []
-    actual_tree = tree.get("tree")
 
-    if not actual_tree:
+    if not context.tree:
         return fixtures
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.FunctionDef):
-            for dec in node.decorator_list:
-                decorator_name = get_node_name(dec)
+    for node in context.find_nodes(ast.FunctionDef):
+        for dec in node.decorator_list:
+            decorator_name = get_node_name(dec)
 
-                # Check if it's a pytest.fixture decorator
-                if "fixture" in decorator_name:
-                    # Extract scope if present
-                    scope = "function"  # default
-                    if isinstance(dec, ast.Call):
-                        for keyword in dec.keywords:
-                            if keyword.arg == "scope":
-                                if isinstance(keyword.value, ast.Constant):
-                                    scope = keyword.value.value
-                                elif (isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)):
-                                    scope = keyword.value.value
+            # Check if it's a pytest.fixture decorator
+            if "fixture" in decorator_name:
+                # Extract scope if present
+                scope = "function"  # default
+                if isinstance(dec, ast.Call):
+                    for keyword in dec.keywords:
+                        if keyword.arg == "scope":
+                            if isinstance(keyword.value, ast.Constant):
+                                scope = keyword.value.value
+                            elif (isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str)):
+                                scope = keyword.value.value
 
-                    fixtures.append({
-                        "line": node.lineno,
-                        "fixture_name": node.name,
-                        "scope": scope,
-                        "is_autouse": any(
-                            kw.arg == "autouse" and
-                            (isinstance(kw.value, ast.Constant) and kw.value.value is True or
-                             isinstance(kw.value, ast.Constant) and kw.value.value is True)
-                            for kw in (dec.keywords if isinstance(dec, ast.Call) else [])
-                        ),
-                    })
+                fixtures.append({
+                    "line": node.lineno,
+                    "fixture_name": node.name,
+                    "scope": scope,
+                    "is_autouse": any(
+                        kw.arg == "autouse" and
+                        (isinstance(kw.value, ast.Constant) and kw.value.value is True or
+                         isinstance(kw.value, ast.Constant) and kw.value.value is True)
+                        for kw in (dec.keywords if isinstance(dec, ast.Call) else [])
+                    ),
+                })
 
     return fixtures
 
 
-def extract_pytest_parametrize(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
     """Extract pytest.mark.parametrize decorators from Python AST.
 
     Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
+        context: FileContext containing AST tree and node index
 
     Returns:
         List of parametrize records
     """
     parametrizes = []
-    actual_tree = tree.get("tree")
 
-    if not actual_tree:
+    if not context.tree:
         return parametrizes
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.FunctionDef):
-            for dec in node.decorator_list:
-                decorator_name = get_node_name(dec)
+    for node in context.find_nodes(ast.FunctionDef):
+        for dec in node.decorator_list:
+            decorator_name = get_node_name(dec)
 
-                # Check if it's a pytest.mark.parametrize decorator
-                if "parametrize" in decorator_name:
-                    # Extract parameter names
-                    param_names = []
-                    if isinstance(dec, ast.Call) and dec.args:
-                        first_arg = dec.args[0]
-                        if isinstance(first_arg, ast.Constant):
-                            param_names = [first_arg.value]
-                        elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
-                            param_names = [first_arg.value]
+            # Check if it's a pytest.mark.parametrize decorator
+            if "parametrize" in decorator_name:
+                # Extract parameter names
+                param_names = []
+                if isinstance(dec, ast.Call) and dec.args:
+                    first_arg = dec.args[0]
+                    if isinstance(first_arg, ast.Constant):
+                        param_names = [first_arg.value]
+                    elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+                        param_names = [first_arg.value]
 
-                    parametrizes.append({
-                        "line": node.lineno,
-                        "test_name": node.name,
-                        "param_names": param_names,
-                    })
+                parametrizes.append({
+                    "line": node.lineno,
+                    "test_name": node.name,
+                    "param_names": param_names,
+                })
 
     return parametrizes
 
 
-def extract_pytest_markers(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_pytest_markers(context: FileContext) -> list[dict[str, Any]]:
     """Extract custom pytest markers from Python AST.
 
     Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
+        context: FileContext containing AST tree and node index
 
     Returns:
         List of marker records
     """
     markers = []
-    actual_tree = tree.get("tree")
 
-    if not actual_tree:
+    if not context.tree:
         return markers
 
-    for node in ast.walk(actual_tree):
-        if isinstance(node, ast.FunctionDef):
-            for dec in node.decorator_list:
-                decorator_name = get_node_name(dec)
+    for node in context.find_nodes(ast.FunctionDef):
+        for dec in node.decorator_list:
+            decorator_name = get_node_name(dec)
 
-                # Check if it's a pytest.mark.* decorator (but not parametrize/fixture)
-                if "pytest.mark." in decorator_name and "parametrize" not in decorator_name:
-                    # Extract marker name
-                    marker_name = decorator_name.replace("pytest.mark.", "")
+            # Check if it's a pytest.mark.* decorator (but not parametrize/fixture)
+            if "pytest.mark." in decorator_name and "parametrize" not in decorator_name:
+                # Extract marker name
+                marker_name = decorator_name.replace("pytest.mark.", "")
 
-                    markers.append({
-                        "line": node.lineno,
-                        "test_name": node.name,
-                        "marker_name": marker_name,
-                    })
+                markers.append({
+                    "line": node.lineno,
+                    "test_name": node.name,
+                    "marker_name": marker_name,
+                })
 
     return markers
 
 
-def extract_mock_patterns(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_mock_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract unittest.mock usage from Python AST.
 
     Args:
-        tree: AST tree dictionary with 'tree' containing the actual AST
-        parser_self: Reference to the parser instance
+        context: FileContext containing AST tree and node index
 
     Returns:
         List of mock pattern records
     """
     mocks = []
-    actual_tree = tree.get("tree")
 
-    if not actual_tree:
+    if not context.tree:
         return mocks
 
-    for node in ast.walk(actual_tree):
-        # Detect @mock.patch, @patch decorators
-        if isinstance(node, ast.FunctionDef):
-            for dec in node.decorator_list:
-                decorator_name = get_node_name(dec)
+    # Detect @mock.patch, @patch decorators on functions
+    for node in context.find_nodes(ast.FunctionDef):
+        for dec in node.decorator_list:
+            decorator_name = get_node_name(dec)
 
-                if "patch" in decorator_name or "mock" in decorator_name.lower():
-                    # Extract what's being mocked
-                    mock_target = None
-                    if isinstance(dec, ast.Call) and dec.args:
-                        first_arg = dec.args[0]
-                        if isinstance(first_arg, ast.Constant):
-                            mock_target = first_arg.value
-                        elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
-                            mock_target = first_arg.value
+            if "patch" in decorator_name or "mock" in decorator_name.lower():
+                # Extract what's being mocked
+                mock_target = None
+                if isinstance(dec, ast.Call) and dec.args:
+                    first_arg = dec.args[0]
+                    if isinstance(first_arg, ast.Constant):
+                        mock_target = first_arg.value
+                    elif (isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str)):
+                        mock_target = first_arg.value
 
-                    mocks.append({
-                        "line": node.lineno,
-                        "test_name": node.name,
-                        "mock_type": "decorator",
-                        "mock_target": mock_target,
-                    })
-
-        # Detect Mock() and MagicMock() instantiations
-        elif isinstance(node, ast.Call):
-            func_name = get_node_name(node.func)
-            if "Mock" in func_name or "mock" in func_name:
                 mocks.append({
                     "line": node.lineno,
-                    "mock_type": "instantiation",
-                    "mock_class": func_name,
+                    "test_name": node.name,
+                    "mock_type": "decorator",
+                    "mock_target": mock_target,
                 })
+
+    # Detect Mock() and MagicMock() instantiations
+    for node in context.find_nodes(ast.Call):
+        func_name = get_node_name(node.func)
+        if "Mock" in func_name or "mock" in func_name:
+            mocks.append({
+                "line": node.lineno,
+                "mock_type": "instantiation",
+                "mock_class": func_name,
+            })
 
     return mocks
 
 
 # Phase 3.2: Testing Ecosystem Additions
 
-def extract_unittest_test_cases(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_unittest_test_cases(context: FileContext) -> list[dict[str, Any]]:
     """Extract unittest.TestCase classes and test methods.
 
     Detects:
@@ -220,14 +208,11 @@ def extract_unittest_test_cases(tree: dict, parser_self) -> list[dict[str, Any]]
     - setUp without tearDown = resource leaks
     """
     test_cases = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+
+    if not context.tree:
         return test_cases
 
-    for node in ast.walk(actual_tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-
+    for node in context.find_nodes(ast.ClassDef):
         # Check if inherits from TestCase
         base_names = [get_node_name(base) for base in node.bases]
         is_test_case = any('TestCase' in base for base in base_names)
@@ -268,7 +253,7 @@ def extract_unittest_test_cases(tree: dict, parser_self) -> list[dict[str, Any]]
     return test_cases
 
 
-def extract_assertion_patterns(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_assertion_patterns(context: FileContext) -> list[dict[str, Any]]:
     """Extract assertion statements and methods.
 
     Detects:
@@ -282,43 +267,47 @@ def extract_assertion_patterns(tree: dict, parser_self) -> list[dict[str, Any]]:
     - Complex functions with few assertions = insufficient testing
     """
     assertions = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+
+    if not context.tree:
         return assertions
 
-    # Track assertions per function
-    current_function = None
+    # Build a map of line ranges to function names
+    function_ranges = {}
+    for node in context.find_nodes(ast.FunctionDef):
+        if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
+            function_ranges[node.name] = (node.lineno, node.end_lineno or node.lineno)
 
-    for node in ast.walk(actual_tree):
-        # Track current function context
-        if isinstance(node, ast.FunctionDef):
-            current_function = node.name
+    def get_containing_function(line_no):
+        for fname, (start, end) in function_ranges.items():
+            if start <= line_no <= end:
+                return fname
+        return '<module>'
 
-        # Direct assert statements
-        elif isinstance(node, ast.Assert):
+    # Direct assert statements
+    for node in context.find_nodes(ast.Assert):
+        assertions.append({
+            "line": node.lineno,
+            "function_name": get_containing_function(node.lineno),
+            "assertion_type": "assert",
+            "test_expr": get_node_name(node.test) if hasattr(node.test, '__class__') else 'unknown',
+        })
+
+    # Unittest assertion methods (self.assertEqual, etc.)
+    for node in context.find_nodes(ast.Call):
+        func_name = get_node_name(node.func)
+        if func_name and (func_name.startswith('self.assert') or func_name.startswith('self.fail')):
+            assertion_method = func_name.replace('self.', '')
             assertions.append({
                 "line": node.lineno,
-                "function_name": current_function or '<module>',
-                "assertion_type": "assert",
-                "test_expr": get_node_name(node.test) if hasattr(node.test, '__class__') else 'unknown',
+                "function_name": get_containing_function(node.lineno),
+                "assertion_type": "unittest",
+                "assertion_method": assertion_method,
             })
-
-        # Unittest assertion methods (self.assertEqual, etc.)
-        elif isinstance(node, ast.Call):
-            func_name = get_node_name(node.func)
-            if func_name and (func_name.startswith('self.assert') or func_name.startswith('self.fail')):
-                assertion_method = func_name.replace('self.', '')
-                assertions.append({
-                    "line": node.lineno,
-                    "function_name": current_function or '<module>',
-                    "assertion_type": "unittest",
-                    "assertion_method": assertion_method,
-                })
 
     return assertions
 
 
-def extract_pytest_plugin_hooks(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_pytest_plugin_hooks(context: FileContext) -> list[dict[str, Any]]:
     """Extract pytest plugin hooks from conftest.py.
 
     Detects:
@@ -334,8 +323,8 @@ def extract_pytest_plugin_hooks(tree: dict, parser_self) -> list[dict[str, Any]]
     - Custom collection = test selection bias
     """
     hooks = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+
+    if not context.tree:
         return hooks
 
     pytest_hooks = [
@@ -350,10 +339,7 @@ def extract_pytest_plugin_hooks(tree: dict, parser_self) -> list[dict[str, Any]]
         'pytest_collection_finish',
     ]
 
-    for node in ast.walk(actual_tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-
+    for node in context.find_nodes(ast.FunctionDef):
         # Check if it's a pytest hook
         if node.name in pytest_hooks:
             # Count number of parameters
@@ -368,7 +354,7 @@ def extract_pytest_plugin_hooks(tree: dict, parser_self) -> list[dict[str, Any]]
     return hooks
 
 
-def extract_hypothesis_strategies(tree: dict, parser_self) -> list[dict[str, Any]]:
+def extract_hypothesis_strategies(context: FileContext) -> list[dict[str, Any]]:
     """Extract Hypothesis property-based testing strategies.
 
     Detects:
@@ -383,14 +369,11 @@ def extract_hypothesis_strategies(tree: dict, parser_self) -> list[dict[str, Any
     - Stateful tests = complex behavior validation
     """
     strategies = []
-    actual_tree = tree.get("tree")
-    if not isinstance(actual_tree, ast.AST):
+
+    if not context.tree:
         return strategies
 
-    for node in ast.walk(actual_tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-
+    for node in context.find_nodes(ast.FunctionDef):
         # Check for @given decorator
         for dec in node.decorator_list:
             decorator_name = get_node_name(dec)

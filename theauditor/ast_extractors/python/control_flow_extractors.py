@@ -128,7 +128,6 @@ def extract_for_loops(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     for_loops = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return for_loops
@@ -198,7 +197,6 @@ def extract_while_loops(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     while_loops = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return while_loops
@@ -249,7 +247,6 @@ def extract_async_for_loops(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     async_for_loops = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return async_for_loops
@@ -300,7 +297,6 @@ def extract_if_statements(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     if_statements = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return if_statements
@@ -379,7 +375,6 @@ def extract_match_statements(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     match_statements = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return match_statements
@@ -449,7 +444,6 @@ def extract_break_continue_pass(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     flow_control = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return flow_control
@@ -511,7 +505,6 @@ def extract_assert_statements(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     assert_statements = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return assert_statements
@@ -565,7 +558,6 @@ def extract_del_statements(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     del_statements = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return del_statements
@@ -623,7 +615,6 @@ def extract_import_statements(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     import_statements = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return import_statements
@@ -670,7 +661,6 @@ def extract_with_statements(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     with_statements = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return with_statements

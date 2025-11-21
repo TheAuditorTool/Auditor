@@ -165,7 +165,6 @@ def extract_exception_raises(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X with invalid input, assert ValueError raised
     """
     raises = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return raises
@@ -272,7 +271,6 @@ def extract_exception_catches(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X with invalid input, assert returns None instead of raising
     """
     handlers = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return handlers
@@ -370,7 +368,6 @@ def extract_finally_blocks(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X, simulate error, verify lock released in finally
     """
     finally_blocks = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return finally_blocks
@@ -470,7 +467,6 @@ def extract_context_managers(context: FileContext) -> list[dict[str, Any]]:
     Experiment design: Call X, check resource released even if exception occurs
     """
     context_managers = []
-    context.tree = tree.get("tree")  # CRITICAL: Extract AST from dict
 
     if not isinstance(context.tree, ast.AST):
         return context_managers

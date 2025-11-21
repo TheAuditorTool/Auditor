@@ -282,7 +282,23 @@ class CoreStorage(BaseStorage):
             if assignments:
                 first = assignments[0]
                 logger.info(f"[DEBUG] First assignment: line {first.get('line')}, {first.get('target_var')} = {first.get('source_expr', '')[:50]}")
+
+        # CRITICAL: Deduplicate assignments by (file, line, target_var) to avoid UNIQUE constraint violations
+        # JavaScript extractors can produce duplicates for complex destructuring patterns
+        seen = set()
+        deduplicated = []
         for assignment in assignments:
+            key = (file_path, assignment['line'], assignment['target_var'])
+            if key not in seen:
+                seen.add(key)
+                deduplicated.append(assignment)
+            else:
+                logger.debug(f"[DEDUP] Skipping duplicate assignment: {key}")
+
+        if len(deduplicated) < len(assignments):
+            logger.info(f"[DEDUP] Removed {len(assignments) - len(deduplicated)} duplicate assignments from {file_path}")
+
+        for assignment in deduplicated:
             if jsx_pass:
                 # JSX preserved mode - store to _jsx tables
                 self.db_manager.add_assignment_jsx(
@@ -368,7 +384,22 @@ class CoreStorage(BaseStorage):
 
     def _store_returns(self, file_path: str, returns: list, jsx_pass: bool):
         """Store return statements."""
+        # CRITICAL: Deduplicate function_returns by (file, line, function_name) to avoid UNIQUE constraint violations
+        # JavaScript extractors can produce duplicates for complex return patterns
+        seen = set()
+        deduplicated = []
         for ret in returns:
+            key = (file_path, ret['line'], ret['function_name'])
+            if key not in seen:
+                seen.add(key)
+                deduplicated.append(ret)
+            else:
+                logger.debug(f"[DEDUP] Skipping duplicate function_return: {key}")
+
+        if len(deduplicated) < len(returns):
+            logger.info(f"[DEDUP] Removed {len(returns) - len(deduplicated)} duplicate function_returns from {file_path}")
+
+        for ret in deduplicated:
             if jsx_pass:
                 # JSX preserved mode - store to _jsx tables
                 self.db_manager.add_function_return_jsx(
@@ -517,7 +548,23 @@ class CoreStorage(BaseStorage):
         """Store environment variable usage (process.env.X)."""
         if os.environ.get("THEAUDITOR_DEBUG"):
             print(f"[DEBUG INDEXER] Found {len(env_var_usage)} env_var_usage for {file_path}")
+
+        # CRITICAL: Deduplicate env_var_usage by (file, line, var_name, access_type) to avoid UNIQUE constraint violations
+        # The primary key includes all 4 columns as per security_schema.py
+        seen = set()
+        deduplicated = []
         for usage in env_var_usage:
+            key = (file_path, usage['line'], usage['var_name'], usage['access_type'])
+            if key not in seen:
+                seen.add(key)
+                deduplicated.append(usage)
+            else:
+                logger.debug(f"[DEDUP] Skipping duplicate env_var_usage: {key}")
+
+        if len(deduplicated) < len(env_var_usage):
+            logger.info(f"[DEDUP] Removed {len(env_var_usage) - len(deduplicated)} duplicate env_var_usage entries from {file_path}")
+
+        for usage in deduplicated:
             self.db_manager.add_env_var_usage(
                 file_path,
                 usage['line'],

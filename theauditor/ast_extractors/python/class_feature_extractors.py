@@ -113,7 +113,6 @@ def extract_metaclasses(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     metaclasses = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return metaclasses
@@ -169,7 +168,6 @@ def extract_descriptors(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     descriptors = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return descriptors
@@ -229,7 +227,6 @@ def extract_dataclasses(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     dataclasses = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return dataclasses
@@ -288,7 +285,6 @@ def extract_enums(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     enums = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return enums
@@ -341,7 +337,6 @@ def extract_slots(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     slots = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return slots
@@ -384,7 +379,6 @@ def extract_abstract_classes(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     abstract_classes = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return abstract_classes
@@ -432,7 +426,6 @@ def extract_method_types(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     method_types = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return method_types
@@ -480,7 +473,6 @@ def extract_multiple_inheritance(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     multi_inheritance = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return multi_inheritance
@@ -525,7 +517,6 @@ def extract_dunder_methods(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     dunder_methods = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return dunder_methods
@@ -584,7 +575,6 @@ def extract_visibility_conventions(context: FileContext) -> list[dict[str, Any]]
         }
     """
     visibility = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return visibility

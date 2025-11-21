@@ -188,7 +188,6 @@ def extract_sqlalchemy_definitions(context: FileContext) -> tuple[list[dict], li
     relationships: list[dict[str, Any]] = []
     seen_relationships: set[tuple[int, str, str, str]] = set()  # (line, source, target, rel_type)
 
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return models, fields, relationships
 
@@ -375,7 +374,6 @@ def extract_django_definitions(context: FileContext) -> tuple[list[dict], list[d
     models: list[dict[str, Any]] = []
     seen_relationships: set[tuple[int, str, str, str]] = set()
 
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return models, relationships
 
@@ -477,7 +475,6 @@ def extract_flask_blueprints(context: FileContext) -> list[dict]:
     Will be moved to flask_extractors.py in future PR to avoid scope creep.
     """
     blueprints: list[dict[str, Any]] = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return blueprints
 

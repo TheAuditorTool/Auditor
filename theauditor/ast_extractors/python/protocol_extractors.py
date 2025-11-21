@@ -125,7 +125,6 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     iterator_protocols = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return iterator_protocols
@@ -198,7 +197,6 @@ def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     container_protocols = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return container_protocols
@@ -273,7 +271,6 @@ def extract_callable_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     callable_protocols = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return callable_protocols
@@ -326,7 +323,6 @@ def extract_comparison_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     comparison_protocols = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return comparison_protocols
@@ -386,7 +382,6 @@ def extract_arithmetic_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     arithmetic_protocols = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return arithmetic_protocols
@@ -438,7 +433,6 @@ def extract_pickle_protocol(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     pickle_protocols = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return pickle_protocols
@@ -487,7 +481,6 @@ def extract_weakref_usage(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     weakref_usage = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return weakref_usage
@@ -543,7 +536,6 @@ def extract_contextvar_usage(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     contextvar_usage = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return contextvar_usage
@@ -607,7 +599,6 @@ def extract_module_attributes(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     module_attributes = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return module_attributes
@@ -664,7 +655,6 @@ def extract_class_decorators(context: FileContext) -> list[dict[str, Any]]:
         }
     """
     class_decorators = []
-    context.tree = tree.get("tree")
 
     if not isinstance(context.tree, ast.AST):
         return class_decorators

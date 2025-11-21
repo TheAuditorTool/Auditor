@@ -87,7 +87,6 @@ def extract_auth_decorators(context: FileContext) -> list[dict[str, Any]]:
     - Inconsistent auth patterns = security gaps
     """
     auth_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return auth_patterns
 
@@ -141,7 +140,6 @@ def extract_password_hashing(context: FileContext) -> list[dict[str, Any]]:
     - Hardcoded passwords = critical vulnerability
     """
     hash_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return hash_patterns
 
@@ -205,7 +203,6 @@ def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
     - None algorithm = critical bypass
     """
     jwt_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return jwt_patterns
 
@@ -271,7 +268,6 @@ def extract_sql_injection_patterns(context: FileContext) -> list[dict[str, Any]]
     - User input in queries = attack vector
     """
     sql_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return sql_patterns
 
@@ -336,7 +332,6 @@ def extract_command_injection_patterns(context: FileContext) -> list[dict[str, A
     - Command string concatenation = critical risk
     """
     cmd_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return cmd_patterns
 
@@ -391,7 +386,6 @@ def extract_path_traversal_patterns(context: FileContext) -> list[dict[str, Any]
     - Reading arbitrary files = information disclosure
     """
     path_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return path_patterns
 
@@ -444,7 +438,6 @@ def extract_dangerous_eval_exec(context: FileContext) -> list[dict[str, Any]]:
     - No safe use of eval with untrusted input
     """
     dangerous_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return dangerous_patterns
 
@@ -496,7 +489,6 @@ def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
     - Small key sizes = brute force
     """
     crypto_patterns = []
-    context.tree = tree.get("tree")
     if not isinstance(context.tree, ast.AST):
         return crypto_patterns
 
@@ -552,3 +544,216 @@ def extract_crypto_operations(context: FileContext) -> list[dict[str, Any]]:
             })
 
     return crypto_patterns
+"""Temporary file for SQL and JWT extractors - to be appended to security_extractors.py"""
+
+def extract_sql_queries(context: FileContext) -> list[dict[str, Any]]:
+    """Extract SQL queries from database execution calls using AST.
+
+    Detects SQL queries in:
+    - sqlite3.execute()
+    - psycopg2.execute()
+    - SQLAlchemy session.execute()
+    - Django ORM .raw()
+
+    Returns:
+        List of SQL query dicts with command, tables, and source info
+    """
+    from theauditor.indexer.extractors.python import parse_sql_query
+
+    queries = []
+    if not isinstance(context.tree, ast.AST):
+        return queries
+
+    # SQL execution method names
+    SQL_METHODS = frozenset([
+        'execute', 'executemany', 'executescript',  # sqlite3, psycopg2, mysql
+        'query', 'raw', 'exec_driver_sql',  # Django ORM, SQLAlchemy
+        'select', 'insert', 'update', 'delete',  # Query builder methods
+    ])
+
+    for node in context.walk_tree():
+        if not isinstance(node, ast.Call):
+            continue
+
+        # Check if this is a database method call
+        method_name = None
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+
+        if method_name not in SQL_METHODS:
+            continue
+
+        # Extract SQL query from first argument (if it's a string literal)
+        if not node.args:
+            continue
+
+        first_arg = node.args[0]
+
+        # Only handle string literals (not f-strings or variables)
+        query_text = None
+        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+            query_text = first_arg.value
+
+        if not query_text:
+            # TODO: Handle f-strings and concatenations
+            continue
+
+        # Parse SQL using shared helper
+        parsed = parse_sql_query(query_text)
+        if not parsed:
+            continue  # Unparseable or UNKNOWN command
+
+        command, tables = parsed
+
+        # Determine extraction source for intelligent filtering
+        extraction_source = 'manual'
+        if 'test' in context.file_path.lower():
+            extraction_source = 'test_fixture'
+        elif 'migration' in context.file_path.lower():
+            extraction_source = 'migration'
+
+        queries.append({
+            'line': node.lineno,
+            'query_text': query_text[:1000],  # Limit length
+            'command': command,
+            'tables': tables,
+            'extraction_source': extraction_source
+        })
+
+    return queries
+
+
+def extract_jwt_operations(context: FileContext) -> list[dict[str, Any]]:
+    """Extract JWT patterns from PyJWT library calls using AST.
+
+    NO REGEX. This uses Python AST analysis to detect JWT library usage.
+
+    Detects:
+    - jwt.encode() - Token signing
+    - jwt.decode() - Token validation
+    - Hardcoded secrets (security risk)
+    - Weak algorithms
+
+    Returns:
+        List of JWT pattern dicts with type, secret_type, and algorithm
+    """
+    patterns = []
+    if not isinstance(context.tree, ast.AST):
+        return patterns
+
+    # JWT method names for PyJWT library (frozenset for O(1) lookup)
+    JWT_ENCODE_METHODS = frozenset(['encode'])  # jwt.encode()
+    JWT_DECODE_METHODS = frozenset(['decode'])  # jwt.decode()
+
+    for node in context.walk_tree():
+        if not isinstance(node, ast.Call):
+            continue
+
+        # Check if this is a JWT method call
+        method_name = None
+        is_jwt_call = False
+
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            # Check if the object is 'jwt' (e.g., jwt.encode)
+            if isinstance(node.func.value, ast.Name):
+                if node.func.value.id == 'jwt':
+                    is_jwt_call = True
+
+        if not is_jwt_call or not method_name:
+            continue
+
+        # Determine pattern type
+        pattern_type = None
+        if method_name in JWT_ENCODE_METHODS:
+            pattern_type = 'jwt_sign'
+        elif method_name in JWT_DECODE_METHODS:
+            pattern_type = 'jwt_decode'
+
+        if not pattern_type:
+            continue
+
+        line = node.lineno
+
+        if pattern_type == 'jwt_sign':
+            # jwt.encode(payload, key, algorithm='HS256')
+            secret_node = None
+            algorithm = 'HS256'  # Default per JWT spec
+
+            # Extract key argument (second positional argument)
+            if len(node.args) >= 2:
+                secret_node = node.args[1]
+
+            # Extract algorithm from keyword arguments
+            for keyword in node.keywords:
+                if keyword.arg == 'algorithm':
+                    if isinstance(keyword.value, ast.Constant):
+                        algorithm = keyword.value.value
+
+            # Categorize secret source
+            secret_type = 'unknown'
+            if secret_node:
+                if isinstance(secret_node, ast.Constant):
+                    # Hardcoded string literal
+                    secret_type = 'hardcoded'
+                elif isinstance(secret_node, ast.Subscript):
+                    # os.environ['KEY'] or config['key']
+                    if isinstance(secret_node.value, ast.Attribute):
+                        if hasattr(secret_node.value, 'attr'):
+                            if secret_node.value.attr == 'environ':
+                                secret_type = 'environment'
+                    elif isinstance(secret_node.value, ast.Name):
+                        if secret_node.value.id in ['config', 'settings', 'secrets']:
+                            secret_type = 'config'
+                elif isinstance(secret_node, ast.Call):
+                    # os.getenv('KEY')
+                    if isinstance(secret_node.func, ast.Attribute):
+                        if secret_node.func.attr == 'getenv':
+                            secret_type = 'environment'
+                    elif isinstance(secret_node.func, ast.Name):
+                        if secret_node.func.id == 'getenv':
+                            secret_type = 'environment'
+                elif isinstance(secret_node, ast.Attribute):
+                    # config.JWT_SECRET or settings.SECRET_KEY
+                    if isinstance(secret_node.value, ast.Name):
+                        if secret_node.value.id in ['config', 'settings', 'secrets']:
+                            secret_type = 'config'
+                elif isinstance(secret_node, ast.Name):
+                    # Variable reference
+                    secret_type = 'variable'
+
+            full_match = "jwt.encode(...)"
+
+            patterns.append({
+                'line': line,
+                'type': pattern_type,
+                'full_match': full_match,
+                'secret_type': secret_type,
+                'algorithm': algorithm
+            })
+
+        elif pattern_type == 'jwt_decode':
+            # jwt.decode(token, key, algorithms=['HS256'])
+            algorithm = None
+
+            # Extract algorithms from keyword arguments
+            for keyword in node.keywords:
+                if keyword.arg == 'algorithms':
+                    # algorithms is a list
+                    if isinstance(keyword.value, ast.List):
+                        if keyword.value.elts:
+                            first_algo = keyword.value.elts[0]
+                            if isinstance(first_algo, ast.Constant):
+                                algorithm = first_algo.value
+
+            full_match = "jwt.decode(...)"
+
+            patterns.append({
+                'line': line,
+                'type': pattern_type,
+                'full_match': full_match,
+                'secret_type': None,  # Not applicable for decode
+                'algorithm': algorithm
+            })
+
+    return patterns

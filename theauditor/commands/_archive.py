@@ -1,6 +1,5 @@
 """Internal archive command for segregating history by run type."""
 
-
 import shutil
 import sys
 from datetime import datetime
@@ -33,15 +32,6 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     - .pf/readthis/ (AI-consumable chunks)
     - All other .pf/ contents
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("_archive", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     # Define base paths
     pf_dir = Path(".pf")
     history_dir = pf_dir / "history"

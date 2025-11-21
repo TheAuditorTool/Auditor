@@ -1,6 +1,5 @@
 """Control Flow Graph analysis commands."""
 
-
 import json
 from pathlib import Path
 import click
@@ -110,15 +109,6 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         # Analyze specific function
         aud cfg analyze --function process_payment --output payment_cfg.json
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("cfg", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     from theauditor.graph.cfg_builder import CFGBuilder
     
     try:
@@ -293,15 +283,6 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
         # Highlight execution paths
         aud cfg viz --file src/api.py --function handle_request --highlight-paths
     """
-    # SANDBOX DELEGATION: Check if running in sandbox
-    from theauditor.sandbox_executor import is_in_sandbox, execute_in_sandbox
-
-    if not is_in_sandbox():
-        # Not in sandbox - delegate to sandbox Python
-        import sys
-        exit_code = execute_in_sandbox("cfg", sys.argv[2:], root=".")
-        sys.exit(exit_code)
-
     from theauditor.graph.cfg_builder import CFGBuilder
     
     try:
