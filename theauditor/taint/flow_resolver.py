@@ -121,14 +121,14 @@ class FlowResolver:
         # Forward BFS from each entry point
         import sys
         for i, entry_id in enumerate(entry_nodes):
-            print(f"[FLOW] >> Entry {i+1}/{len(entry_nodes)}: {entry_id[:80]}...", file=sys.stderr, flush=True)
+            # print(f"[FLOW] >> Entry {i+1}/{len(entry_nodes)}: {entry_id[:80]}...", file=sys.stderr, flush=True)
 
             if self.flows_resolved >= self.max_flows:
                 logger.warning(f"Reached maximum flow limit ({self.max_flows})")
                 break
 
             self._trace_from_entry(entry_id, exit_nodes)
-            print(f" Done ({self.flows_resolved} flows)", file=sys.stderr, flush=True)
+            # print(f" Done ({self.flows_resolved} flows)", file=sys.stderr, flush=True)
 
         # Commit all resolved flows
         self.repo_conn.commit()

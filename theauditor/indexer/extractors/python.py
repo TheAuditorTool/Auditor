@@ -57,69 +57,72 @@ class PythonExtractor(BaseExtractor):
             self.__class__._processed_files = set()
 
         file_path = file_info['path']
-        if file_path in self.__class__._processed_files:
-            print(f"\n{'!'*80}", file=sys.stderr)
-            print(f"[PYTHON.PY WARNING] File processed TWICE: {file_path}", file=sys.stderr)
-            print(f"{'!'*80}\n", file=sys.stderr)
+        # DEBUG: Duplicate file detection (commented out for clean merge)
+        # if file_path in self.__class__._processed_files:
+        #     print(f"\n{'!'*80}", file=sys.stderr)
+        #     print(f"[PYTHON.PY WARNING] File processed TWICE: {file_path}", file=sys.stderr)
+        #     print(f"{'!'*80}\n", file=sys.stderr)
         self.__class__._processed_files.add(file_path)
 
-        print(f"\n{'='*80}", file=sys.stderr)
-        print(f"[PYTHON.PY ENTRY] File: {file_path} (total files processed: {len(self.__class__._processed_files)})", file=sys.stderr)
-        print(f"[PYTHON.PY ENTRY] Content length: {len(content)} bytes", file=sys.stderr)
-        print(f"[PYTHON.PY ENTRY] Tree is None: {tree is None}", file=sys.stderr)
-        if tree:
-            print(f"[PYTHON.PY ENTRY] Tree type: {tree.get('type') if isinstance(tree, dict) else type(tree)}", file=sys.stderr)
-            print(f"[PYTHON.PY ENTRY] Tree keys: {list(tree.keys())[:5] if isinstance(tree, dict) else 'not dict'}", file=sys.stderr)
+        # DEBUG: Entry logging (commented out for clean merge)
+        # print(f"\n{'='*80}", file=sys.stderr)
+        # print(f"[PYTHON.PY ENTRY] File: {file_path} (total files processed: {len(self.__class__._processed_files)})", file=sys.stderr)
+        # print(f"[PYTHON.PY ENTRY] Content length: {len(content)} bytes", file=sys.stderr)
+        # print(f"[PYTHON.PY ENTRY] Tree is None: {tree is None}", file=sys.stderr)
+        # DEBUG: Log tree info (commented out for clean merge)
+        # if tree:
+        #     print(f"[PYTHON.PY ENTRY] Tree type: {tree.get('type') if isinstance(tree, dict) else type(tree)}", file=sys.stderr)
+        #     print(f"[PYTHON.PY ENTRY] Tree keys: {list(tree.keys())[:5] if isinstance(tree, dict) else 'not dict'}", file=sys.stderr)
 
         # Build FileContext for optimized extraction
         context = None
         if tree and isinstance(tree, dict) and tree.get("type") == "python_ast":
-            print(f"[PYTHON.PY BUILD] Tree type matches python_ast", file=sys.stderr)
+            # print(f"[PYTHON.PY BUILD] Tree type matches python_ast", file=sys.stderr)
             actual_tree = tree.get("tree")
             if actual_tree:
-                print(f"[PYTHON.PY BUILD] actual_tree exists: {type(actual_tree)}", file=sys.stderr)
+                # print(f"[PYTHON.PY BUILD] actual_tree exists: {type(actual_tree)}", file=sys.stderr)
                 try:
                     context = build_file_context(actual_tree, content, str(file_info['path']))
-                    print(f"[PYTHON.PY BUILD] ✓ Context built successfully", file=sys.stderr)
+                    # print(f"[PYTHON.PY BUILD] ✓ Context built successfully", file=sys.stderr)
                 except Exception as e:
-                    print(f"[PYTHON.PY BUILD] ✗ build_file_context FAILED: {e}", file=sys.stderr)
+                    # print(f"[PYTHON.PY BUILD] ✗ build_file_context FAILED: {e}", file=sys.stderr)
                     import traceback
                     traceback.print_exc(file=sys.stderr)
-            else:
-                print(f"[PYTHON.PY BUILD] ✗ No actual_tree in tree dict", file=sys.stderr)
-        else:
-            if tree:
-                tree_type = tree.get("type") if isinstance(tree, dict) else "not a dict"
-                print(f"[PYTHON.PY BUILD] ✗ Tree check failed - type is '{tree_type}', expected 'python_ast'", file=sys.stderr)
-            else:
-                print(f"[PYTHON.PY BUILD] ✗ Tree is None/empty", file=sys.stderr)
+            # else:
+            #     print(f"[PYTHON.PY BUILD] ✗ No actual_tree in tree dict", file=sys.stderr)
+        # else:
+        #     if tree:
+        #         tree_type = tree.get("type") if isinstance(tree, dict) else "not a dict"
+        #         print(f"[PYTHON.PY BUILD] ✗ Tree check failed - type is '{tree_type}', expected 'python_ast'", file=sys.stderr)
+        #     else:
+        #         print(f"[PYTHON.PY BUILD] ✗ Tree is None/empty", file=sys.stderr)
 
         # If no context, we can't extract anything meaningful
         if not context:
-            print(f"[PYTHON.PY EXIT] ✗ No context - returning EMPTY result", file=sys.stderr)
-            print(f"{'='*80}\n", file=sys.stderr)
+            # print(f"[PYTHON.PY EXIT] ✗ No context - returning EMPTY result", file=sys.stderr)
+            # print(f"{'='*80}\n", file=sys.stderr)
             return self._empty_result()
 
         # Delegate all extraction to python_impl
-        print(f"[PYTHON.PY DELEGATE] Calling python_impl.extract_all_python_data()", file=sys.stderr)
+        # print(f"[PYTHON.PY DELEGATE] Calling python_impl.extract_all_python_data()", file=sys.stderr)
         result = extract_all_python_data(context)
-        print(f"[PYTHON.PY DELEGATE] ✓ Returned from python_impl", file=sys.stderr)
+        # print(f"[PYTHON.PY DELEGATE] ✓ Returned from python_impl", file=sys.stderr)
 
-        # Log extraction results
-        print(f"[PYTHON.PY RESULT] Symbols: {len(result.get('symbols', []))}", file=sys.stderr)
-        print(f"[PYTHON.PY RESULT] Assignments: {len(result.get('assignments', []))}", file=sys.stderr)
-        print(f"[PYTHON.PY RESULT] Function calls: {len(result.get('function_calls', []))}", file=sys.stderr)
-        print(f"[PYTHON.PY RESULT] Imports: {len(result.get('imports', []))}", file=sys.stderr)
+        # Log extraction results (commented out for clean merge)
+        # print(f"[PYTHON.PY RESULT] Symbols: {len(result.get('symbols', []))}", file=sys.stderr)
+        # print(f"[PYTHON.PY RESULT] Assignments: {len(result.get('assignments', []))}", file=sys.stderr)
+        # print(f"[PYTHON.PY RESULT] Function calls: {len(result.get('function_calls', []))}", file=sys.stderr)
+        # print(f"[PYTHON.PY RESULT] Imports: {len(result.get('imports', []))}", file=sys.stderr)
 
         # Resolve imports to file paths (imports themselves extracted by python_impl)
         if tree and isinstance(tree, dict):
             resolved = self._resolve_imports(file_info, tree)
             if resolved:
                 result['resolved_imports'] = resolved
-                print(f"[PYTHON.PY RESULT] Resolved imports: {len(resolved)}", file=sys.stderr)
+                # print(f"[PYTHON.PY RESULT] Resolved imports: {len(resolved)}", file=sys.stderr)
 
-        print(f"[PYTHON.PY EXIT] ✓ Returning result with {len(result.get('symbols', []))} symbols", file=sys.stderr)
-        print(f"{'='*80}\n", file=sys.stderr)
+        # print(f"[PYTHON.PY EXIT] ✓ Returning result with {len(result.get('symbols', []))} symbols", file=sys.stderr)
+        # print(f"{'='*80}\n", file=sys.stderr)
         return result
 
     def _empty_result(self) -> dict[str, Any]:
